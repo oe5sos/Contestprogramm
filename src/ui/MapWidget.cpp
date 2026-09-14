@@ -131,7 +131,15 @@ void MapWidget::buildSettingsRow()
     outer->addLayout(row1);
     outer->addLayout(row2);
 
-    const QFont checkFont = Style::capsFont(font(), Style::kFontCaption);
+    // Style::capsFont() itself is DemiBold -- right for a panel title,
+    // too heavy for ten small toggle labels sitting shoulder to
+    // shoulder (operator, 2026-09-14: "schrift vielleicht zarter").
+    // Keeps the same caps/tracking/size treatment, just lighter weight
+    // -- every OTHER checkbox in the app already uses the plain default
+    // (Normal) weight via appStyleSheet()'s QCheckBox rule; this row
+    // was the one outlier reading heavier than the rest.
+    QFont checkFont = Style::capsFont(font(), Style::kFontCaption);
+    checkFont.setWeight(QFont::Normal);
 
     m_gridCheck = new QCheckBox(QStringLiteral("Grid"), m_settingsRow);
     m_ringsCheck = new QCheckBox(QStringLiteral("Ringe"), m_settingsRow);
@@ -171,13 +179,20 @@ void MapWidget::buildSettingsRow()
     // neutral zoom buttons beside them reads better than a blue square
     // next to a mostly-monochrome instrument. Stays entirely in the
     // gray family -- no new hue introduced, just a local override of
-    // this one widget's checked state. Indicator back up to 12px (was
-    // briefly 10px during the single-row squeeze) now that two rows
-    // give every checkbox real room again.
+    // this one widget's checked state.
+    // Round, not square -- operator, 2026-09-14, pointing at this exact
+    // row: "die quadratischen icons schauen plump aus". Radius = half
+    // the indicator's own size (6px of 12px) makes it a true circle
+    // rather than a rounded square; a plain dot/ring reads lighter than
+    // a filled block at this small a size. Also happens to sidestep
+    // HAUSSTIL's own "nie Radius 3" rule (StyleKit.h's own kRadius
+    // comment) -- the previous 3px value was exactly the radius that
+    // rule calls out as reading like Qt's unstyled default, which was
+    // very likely part of what read as "plump" here.
     const QString quietCheckboxStyle = QStringLiteral(
         "QCheckBox { color: %1; spacing: 6px; }"
         "QCheckBox::indicator { width: 12px; height: 12px; background: %2;"
-        "  border: 1px solid %3; border-radius: 3px; }"
+        "  border: 1px solid %3; border-radius: 6px; }"
         "QCheckBox::indicator:checked { background: %4; border-color: %5; }")
         .arg(Style::kTextSecondary(), Style::kInsetBg(),
              Style::kInsetBorder(), Style::kTextScale(),
