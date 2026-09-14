@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Contestprogramm — das Programmsymbol.
+
+  Motiv "Yagi-Antenne" (Kandidat 5 von 10 aus dem früheren Icon-Entwurf,
+  operator-gewählt 2026-09-12: "yagi antenne war 5"). Boom-Linie plus
+  Reflektor/Direktoren-Elemente, davor zwei Bernstein-Signalbögen, gleiche
+  Formensprache wie die zwei amber Signalbögen im Longpath-eigenen
+  Programmsymbol (resources/branding/longpath-appicon.svg im
+  Geschwisterprojekt NereusSDR).
+
+  Strichstärken gegenüber dem ursprünglichen Mockup (das für eine
+  140px-Vorschau gezeichnet war) angehoben: 12 auf 26 für die fünf
+  Elemente, 10/12 auf 20/24 für die Signalbögen. Bei Dock-Größe (16/32px)
+  verschwammen die dünnen Striche zu einem Klumpen, live geprüft mit
+  echten 16/32/64/128px-Renderings vor dieser Anpassung.
+
+  Kachel-Formel identisch zu Longpaths eigenem App-Icon (Geschwister-
+  projekt, gleicher Hausstil):
+    Leinwand      1024 x 1024
+    Kachel         824 x 824, mittig (100 Rand rundum)
+    Eckradius      185
+    Verlauf        #26262b / #16161a / #0b0b0e
+    Rahmen         #33333b, 1px
+
+  © 2026 Martin Fischer (OE5SOS). GPL, wie das ganze Programm.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"
+     width="1024" height="1024" role="img"
+     aria-label="Contestprogramm">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#26262b"/>
+      <stop offset="0.5" stop-color="#16161a"/>
+      <stop offset="1"   stop-color="#0b0b0e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Die Kachel -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185"
+        fill="url(#tile)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" ry="184.5"
+        fill="none" stroke="#33333b" stroke-width="1"/>
+
+  <!-- Das Zeichen, mittig: Boom-Linie + 4 Elemente + 2 Signalbögen. -->
+  <g transform="translate(512,512)">
+    <line x1="-220" y1="0" x2="220" y2="0" stroke="#c4c4c9" stroke-width="26" stroke-linecap="round"/>
+    <line x1="-187" y1="-88" x2="-187" y2="88" stroke="#c4c4c9" stroke-width="26" stroke-linecap="round"/>
+    <line x1="-88" y1="-121" x2="-88" y2="121" stroke="#c4c4c9" stroke-width="26" stroke-linecap="round"/>
+    <line x1="22" y1="-105" x2="22" y2="105" stroke="#c4c4c9" stroke-width="26" stroke-linecap="round"/>
+    <line x1="121" y1="-77" x2="121" y2="77" stroke="#c4c4c9" stroke-width="26" stroke-linecap="round"/>
+    <path d="M 176,-66 A 99 99 0 0 1 176,66" fill="none" stroke="#c2924f" stroke-width="24" stroke-linecap="round"/>
+    <path d="M 220,-110 A 165 165 0 0 1 220,110" fill="none" stroke="#c2924f" stroke-width="20" stroke-linecap="round" opacity="0.75"/>
+  </g>
+</svg>

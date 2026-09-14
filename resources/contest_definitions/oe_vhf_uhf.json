@@ -1,0 +1,11 @@
+{
+  "id": "OE_VHF_UHF",
+  "name": "ÖVSV OE VHF/UHF Contest",
+  "bands": ["144", "432"],
+  "dupe_scope": ["callsign", "band", "mode"],
+  "exchange_fields": [
+    { "key": "rst",    "label": "RST",    "type": "rst" },
+    { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true },
+    { "key": "grid",   "label": "Grid",   "type": "grid6" }
+  ]
+}
