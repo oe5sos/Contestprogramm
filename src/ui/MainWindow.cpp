@@ -58,6 +58,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <algorithm>
 #include <optional>
 
 namespace Contestprogramm {
@@ -486,8 +487,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // smaller. This row's own bottom edge (78+365=443) is deliberately
     // NOT where the map/suggestion/rate column ends -- see the map
     // panel's own comment below for why they run taller.
-    m_panelLayoutManager->registerPanel(QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
-                                         /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365));
+    m_rotorRowContainer = m_panelLayoutManager->registerPanel(
+        QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
+        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365));
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -874,8 +876,73 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
+    reflowRotorRowForCanvasWidth();
     if (m_geometrySaveTimer != nullptr) {
         m_geometrySaveTimer->start();
+    }
+}
+
+void MainWindow::reflowRotorRowForCanvasWidth() {
+    // Full three-column canvas width the default layout is hand-tuned
+    // for (rotorrow 0-620, suggestion/ratemeter 630-900, map 910-1440 --
+    // see each panel's own registerPanel() comment). Below this width
+    // the columns no longer fit side by side anyway (clampPanelsToCanvas()
+    // is already pushing/overlapping them), so recentering rotorrow
+    // within whatever room is actually left is a real improvement, not a
+    // fight against the intended layout. At or above it, this function
+    // must do nothing at all -- unconditionally recentering rotorrow at
+    // the default canvas width would move it from x=0 to roughly x=400,
+    // straight on top of the suggestion/map columns it normally sits
+    // beside (operator, 2026-09-14: "rotoren sollten sich auch mittig
+    // zentrieren und dann auch ggf. kleiner werden, wenn das fenster
+    // kleiner wird" -- the "ggf./wenn kleiner" is load-bearing here).
+    //
+    // kFullLayoutWidth is 1440 minus the central widget's own 24px
+    // margin (setContentsMargins(12,12,12,12) around m_panelLayoutManager
+    // ->canvas() -- see the constructor), NOT the raw 1440 the panel
+    // QRects below are dimensioned against: canvas()->width() is always
+    // 24px narrower than the window's own content width, so comparing
+    // against the bare 1440 made this trigger even at the intended
+    // default window size (bench-found live, 2026-09-14 -- a fresh
+    // 1440-wide window still recentered rotorrow to ~x=400 on top of
+    // the map/suggestion columns instead of leaving it at its default
+    // x=0).
+    constexpr int kFullLayoutWidth = 1440 - 24;
+    constexpr int kRotorRowDefaultWidth = 620;
+    constexpr int kMargin = 10;
+
+    if (m_rotorRowContainer == nullptr || m_panelLayoutManager == nullptr) {
+        return;
+    }
+    QWidget* canvas = m_panelLayoutManager->canvas();
+    if (canvas == nullptr) {
+        return;
+    }
+    const int canvasWidth = canvas->width();
+    if (canvasWidth <= 0 || canvasWidth >= kFullLayoutWidth) {
+        return;
+    }
+
+    const int availableWidth = std::max(0, canvasWidth - kMargin * 2);
+    // trySetGeometry() itself still clamps this up to the content's real
+    // minimumSizeHint() (RotorWidget's own 300px-per-dial floor -- 600px
+    // for the row's two dials together) if availableWidth undershoots
+    // it -- see that method's own comment.
+    const int targetWidth = std::min(kRotorRowDefaultWidth, availableWidth);
+    QRect r = m_rotorRowContainer->geometry();
+    r.setWidth(targetWidth);
+    r.moveLeft(std::max(kMargin, (canvasWidth - targetWidth) / 2));
+    m_rotorRowContainer->trySetGeometry(r);
+
+    // Below the two-dial floor, trySetGeometry() just clamped the width
+    // back up past what x above was centered for -- re-center once more
+    // against the width it actually ended up with, so an extreme-narrow
+    // window doesn't leave the (now wider-than-requested) panel pushed
+    // off-center toward the left margin instead.
+    if (m_rotorRowContainer->width() != targetWidth) {
+        QRect corrected = m_rotorRowContainer->geometry();
+        corrected.moveLeft(std::max(kMargin, (canvasWidth - corrected.width()) / 2));
+        m_rotorRowContainer->trySetGeometry(corrected);
     }
 }
 

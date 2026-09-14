@@ -190,6 +190,13 @@ private slots:
     // persistence story (this is the crash-safety half; closeEvent()
     // is the clean-quit half).
     void persistWindowGeometryDebounced();
+    // Keeps the Rotoren panel centered and, if the window has been
+    // narrowed below the full three-column layout's own design width,
+    // shrinks it to fit -- operator, 2026-09-14: "rotoren sollten sich
+    // auch mittig zentrieren und dann auch ggf. kleiner werden, wenn das
+    // fenster kleiner wird". See the .cpp definition for why this only
+    // engages below kFullLayoutWidth rather than always recentering.
+    void reflowRotorRowForCanvasWidth();
 
 protected:
     // Window-geometry persistence (Martin: "der letzte stand sollte
@@ -329,6 +336,13 @@ private:
     RotorWidget* m_rotor1Widget = nullptr;
     RotorWidget* m_rotor2Widget = nullptr;
     MapWidget* m_mapWidget = nullptr;
+    // The rotorrow panel's own container -- kept (unlike most other
+    // panels, whose container is looked up via m_panelLayoutManager->
+    // panel(id) on the rare occasion it's needed) because
+    // reflowRotorRowForCanvasWidth() calls trySetGeometry() on it from
+    // every resizeEvent(), so a map lookup there would run needlessly
+    // often.
+    PanelContainerWidget* m_rotorRowContainer = nullptr;
     SuggestionPanel* m_suggestionPanel = nullptr;
     CwMacroPanel* m_cwMacroPanel = nullptr;
     // The dockable-panel wrapper around the CW macro row's content ("CW:"
