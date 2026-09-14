@@ -32,7 +32,13 @@ namespace Contestprogramm {
 namespace {
 constexpr int kHeaderHeight = 28;
 constexpr int kAccentBarWidth = 3;
-constexpr int kSettingsRowHeight = 26;
+// Two stacked rows of 22px each + a 6px gap between them -- see
+// buildSettingsRow()'s own comment for why this grew from a single
+// 26px row: ten checkboxes squeezed onto one line at this panel's
+// 530px width had no room left for full labels and started visibly
+// overlapping (operator, 2026-09-14: "grid, ring usw. teilweise
+// überschrieben und nicht gut lesbar").
+constexpr int kSettingsRowHeight = 50;
 constexpr int kLegendHeight = 30;
 constexpr int kCanvasMargin = 10;
 constexpr double kMinVisibleRangeKm = 25.0;
@@ -103,50 +109,53 @@ void MapWidget::buildSettingsRow()
     m_settingsRow = new QWidget(this);
     m_settingsRow->setFixedHeight(kSettingsRowHeight);
 
-    auto* layout = new QHBoxLayout(m_settingsRow);
-    layout->setContentsMargins(kAccentBarWidth + 9, 0, 8, 0);
-    // 6px, not 10 -- tightened alongside the label abbreviations below,
-    // same 2026-09-14 pass that also shrank this panel's own default
-    // width back from 660 to 500 (see MainWindow.cpp's own comment on
-    // registerPanel("map", ...): 660 only fit because the *window's*
-    // default had grown past this operator's actual 1470pt-wide screen,
-    // which was the real bug, not this row needing that much room).
-    layout->setSpacing(6);
+    // Two stacked rows instead of one -- ten checkboxes on a single
+    // 530px-wide line had no room left for full labels and started
+    // visibly overlapping (operator, 2026-09-14, pointing at this exact
+    // row: "grid, ring usw. teilweise überschrieben und nicht gut
+    // lesbar"). Splitting into "map layers" (row 1) and "live/behaviour
+    // toggles + zoom" (row 2) gives each checkbox roughly twice the
+    // width the single-row layout could ever have offered, at the same
+    // panel width -- so labels go back to their full, unabbreviated
+    // German words instead of yet another round of shortening the same
+    // ten words could never fully fix.
+    auto* outer = new QVBoxLayout(m_settingsRow);
+    outer->setContentsMargins(kAccentBarWidth + 9, 2, 8, 2);
+    outer->setSpacing(4);
+    auto* row1 = new QHBoxLayout();
+    row1->setContentsMargins(0, 0, 0, 0);
+    row1->setSpacing(10);
+    auto* row2 = new QHBoxLayout();
+    row2->setContentsMargins(0, 0, 0, 0);
+    row2->setSpacing(10);
+    outer->addLayout(row1);
+    outer->addLayout(row2);
 
     const QFont checkFont = Style::capsFont(font(), Style::kFontCaption);
 
     m_gridCheck = new QCheckBox(QStringLiteral("Grid"), m_settingsRow);
     m_ringsCheck = new QCheckBox(QStringLiteral("Ringe"), m_settingsRow);
-    m_spokesCheck = new QCheckBox(QStringLiteral("Speich."), m_settingsRow);
-    // "Gearb." not the full "Gearbeitet" -- this settings row already
-    // ran close to this panel's own default width with 8 short labels
-    // (Grid/Ringe/Speichen/Grenzen/Städte/Altern/Füllen); replacing the
-    // single "Links" with two new checkboxes (this one + "Rotoren")
-    // needs to stay inside roughly the same total width the row already
-    // had, not force the whole map panel wider just to keep one label
-    // unabbreviated (operator, 2026-09-14, after the row visibly
-    // overflowed: "wieder alles verschoben" -- traced to exactly this).
-    m_workedCellsCheck = new QCheckBox(QStringLiteral("Gearb."), m_settingsRow);
-    m_workedCellsCheck->setToolTip(QStringLiteral(
-        "Gearbeitete/gespottete Grid-Felder farbig markieren (unabhängig vom reinen Grid-Raster)"));
-    // Two separate checkboxes, not one shared "Rotoren" toggle -- operator,
-    // 2026-09-14: "rotor 1 und rotor 2 zum ein und ausblenden" (one
-    // heading needed to stay visible while the other was hidden, which a
-    // single combined toggle could not express). "Rot. 1"/"Rot. 2", not
-    // the full "Rotor 1"/"Rotor 2" -- same width-budget pass as
-    // "Speich."/"Grenz." below.
-    m_rotor1HeadingCheck = new QCheckBox(QStringLiteral("Rot. 1"), m_settingsRow);
-    m_rotor1HeadingCheck->setToolTip(QStringLiteral(
-        "Aktuelle Peilung von Rotor 1 einzeichnen"));
-    m_rotor2HeadingCheck = new QCheckBox(QStringLiteral("Rot. 2"), m_settingsRow);
-    m_rotor2HeadingCheck->setToolTip(QStringLiteral(
-        "Aktuelle Peilung von Rotor 2 einzeichnen"));
-    m_bordersCheck = new QCheckBox(QStringLiteral("Grenz."), m_settingsRow);
+    m_spokesCheck = new QCheckBox(QStringLiteral("Speichen"), m_settingsRow);
+    m_bordersCheck = new QCheckBox(QStringLiteral("Grenzen"), m_settingsRow);
     m_bordersCheck->setToolTip(QStringLiteral(
         "Staatsgrenzen/Küstenlinien (Natural Earth 1:110m)"));
     m_citiesCheck = new QCheckBox(QStringLiteral("Städte"), m_settingsRow);
     m_citiesCheck->setToolTip(QStringLiteral(
         "Wichtigste Großstädte ab 150 km Entfernung als Orientierungspunkte (Natural Earth 1:110m)"));
+
+    m_workedCellsCheck = new QCheckBox(QStringLiteral("Gearbeitet"), m_settingsRow);
+    m_workedCellsCheck->setToolTip(QStringLiteral(
+        "Gearbeitete/gespottete Grid-Felder farbig markieren (unabhängig vom reinen Grid-Raster)"));
+    // Two separate checkboxes, not one shared "Rotoren" toggle --
+    // operator, 2026-09-14: "rotor 1 und rotor 2 zum ein und ausblenden"
+    // (one heading needed to stay visible while the other was hidden,
+    // which a single combined toggle could not express).
+    m_rotor1HeadingCheck = new QCheckBox(QStringLiteral("Rotor 1"), m_settingsRow);
+    m_rotor1HeadingCheck->setToolTip(QStringLiteral(
+        "Aktuelle Peilung von Rotor 1 einzeichnen"));
+    m_rotor2HeadingCheck = new QCheckBox(QStringLiteral("Rotor 2"), m_settingsRow);
+    m_rotor2HeadingCheck->setToolTip(QStringLiteral(
+        "Aktuelle Peilung von Rotor 2 einzeichnen"));
     m_agingCheck = new QCheckBox(QStringLiteral("Altern"), m_settingsRow);
     m_agingCheck->setToolTip(QStringLiteral(
         "Gearbeitete Stationen/Grid-Felder verblassen nach einer Weile zu Grau,\n"
@@ -158,44 +167,42 @@ void MapWidget::buildSettingsRow()
     // The operator's own call on the app-wide checkbox style
     // (StyleKit::appStyleSheet's blue checked-indicator, correct per
     // HAUSSTIL for "an interactive/selected state" everywhere else):
-    // for these four layer toggles specifically, quieter and closer to
-    // the neutral zoom buttons beside them reads better than a blue
-    // square next to a mostly-monochrome instrument. Stays entirely in
-    // the gray family -- no new hue introduced, just a local override
-    // of this one widget's checked state.
-    // Indicator 12px->10px and its own text spacing 6px->4px -- same
-    // 2026-09-14 width-budget pass as buildSettingsRow()'s own label
-    // abbreviations (Speich./Gearb./Rot. 1/Rot. 2/Grenz.) and the
-    // layout's own 10px->6px gap: ten checkboxes' worth of a few pixels
-    // each adds up to real width back for this panel's now-narrower
-    // 530px default (see registerPanel("map", ...) in MainWindow.cpp).
+    // for these layer toggles specifically, quieter and closer to the
+    // neutral zoom buttons beside them reads better than a blue square
+    // next to a mostly-monochrome instrument. Stays entirely in the
+    // gray family -- no new hue introduced, just a local override of
+    // this one widget's checked state. Indicator back up to 12px (was
+    // briefly 10px during the single-row squeeze) now that two rows
+    // give every checkbox real room again.
     const QString quietCheckboxStyle = QStringLiteral(
-        "QCheckBox { color: %1; spacing: 4px; }"
-        "QCheckBox::indicator { width: 10px; height: 10px; background: %2;"
+        "QCheckBox { color: %1; spacing: 6px; }"
+        "QCheckBox::indicator { width: 12px; height: 12px; background: %2;"
         "  border: 1px solid %3; border-radius: 3px; }"
         "QCheckBox::indicator:checked { background: %4; border-color: %5; }")
         .arg(Style::kTextSecondary(), Style::kInsetBg(),
              Style::kInsetBorder(), Style::kTextScale(),
              Style::kTextSecondary());
 
-    for (QCheckBox* check : {m_gridCheck, m_ringsCheck, m_spokesCheck, m_workedCellsCheck, m_rotor1HeadingCheck,
-                              m_rotor2HeadingCheck, m_bordersCheck, m_citiesCheck, m_agingCheck, m_fitCheck}) {
+    for (QCheckBox* check : {m_gridCheck, m_ringsCheck, m_spokesCheck, m_bordersCheck, m_citiesCheck}) {
         check->setChecked(true);
         check->setFont(checkFont);
         check->setStyleSheet(quietCheckboxStyle);
-        layout->addWidget(check);
+        row1->addWidget(check);
     }
-    layout->addStretch(1);
+    row1->addStretch(1);
+
+    for (QCheckBox* check : {m_workedCellsCheck, m_rotor1HeadingCheck, m_rotor2HeadingCheck, m_agingCheck,
+                              m_fitCheck}) {
+        check->setChecked(true);
+        check->setFont(checkFont);
+        check->setStyleSheet(quietCheckboxStyle);
+        row2->addWidget(check);
+    }
+    row2->addStretch(1);
 
     m_zoomOutButton = new QPushButton(QStringLiteral("−"), m_settingsRow);
     m_zoomInButton = new QPushButton(QStringLiteral("+"), m_settingsRow);
     for (QPushButton* button : {m_zoomOutButton, m_zoomInButton}) {
-        // 18px, not 20 -- same width-budget pass as the checkboxes'
-        // 12px->10px indicator shrink above; the zoom cluster sits behind
-        // this row's addStretch(1), but that stretch only ever absorbs
-        // leftover space -- once the row is genuinely tight (as at this
-        // panel's now-narrower 530px default), every fixed-size widget
-        // here still competes for the same total width.
         button->setFixedSize(18, 18);
         button->setFont(Style::monoFont(font(), Style::kFontSmall, QFont::Bold));
     }
@@ -205,9 +212,11 @@ void MapWidget::buildSettingsRow()
     m_zoomRangeLabel->setAlignment(Qt::AlignCenter);
     m_zoomRangeLabel->setFixedWidth(48);
 
-    layout->addWidget(m_zoomOutButton);
-    layout->addWidget(m_zoomRangeLabel);
-    layout->addWidget(m_zoomInButton);
+    // Zoom cluster lives on row 2, beside the live/behaviour toggles --
+    // row 1 is purely the static map-layer checkboxes.
+    row2->addWidget(m_zoomOutButton);
+    row2->addWidget(m_zoomRangeLabel);
+    row2->addWidget(m_zoomInButton);
 
     connect(m_gridCheck, &QCheckBox::toggled, this, &MapWidget::setGridLayerVisible);
     connect(m_ringsCheck, &QCheckBox::toggled, this, &MapWidget::setRingsLayerVisible);
