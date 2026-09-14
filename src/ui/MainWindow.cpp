@@ -22,11 +22,13 @@
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
+#include "ui/LayoutProfileManager.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
 #include "ui/PanelContainerWidget.h"
 #include "ui/PanelHeaderBar.h"
 #include "ui/PanelLayoutManager.h"
+#include "ui/ProfileRail.h"
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
 #include "ui/SettingsDialog.h"
@@ -43,22 +45,28 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QHash>
+#include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMoveEvent>
+#include <QPair>
 #include <QPushButton>
 #include <QRect>
 #include <QResizeEvent>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QVector>
 #include <QWidget>
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 
 namespace Contestprogramm {
@@ -600,7 +608,44 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
 
     m_panelLayoutManager->finalizeInitialLayout();
 
-    setCentralWidget(central);
+    // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
+    // -- Longpath's own ProfileRail sits at the very left, full window
+    // height, outside its central content column
+    // (MainWindow.cpp:4089: "Profilschiene ganz links über die volle
+    // Höhe, wie bei Zeus"); reproduced here the same way, wrapping the
+    // existing `central` (toolbar rows + panel canvas) rather than
+    // living inside it. Constructed AFTER finalizeInitialLayout() so
+    // LayoutProfileManager's first-run migration snapshots each panel's
+    // already-restored (legacy PanelLayout_*) geometry as profile "1",
+    // not whatever placeholder state a not-yet-laid-out panel would
+    // otherwise report.
+    m_layoutProfileManager = new LayoutProfileManager(
+        m_appController.database(), *m_panelLayoutManager,
+        {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
+         QStringLiteral("suggestion"), QStringLiteral("ratemeter")},
+        this);
+    m_profileRail = new ProfileRail(this);
+    m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
+    connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this, [this]() {
+        m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
+    });
+    connect(m_profileRail, &ProfileRail::profileActivated, this,
+            [this](const QString& name) { m_layoutProfileManager->switchTo(name); });
+    connect(m_profileRail, &ProfileRail::newProfileRequested, this,
+            [this]() { m_layoutProfileManager->createProfile(); });
+    connect(m_profileRail, &ProfileRail::duplicateRequested, this,
+            [this](const QString& name) { m_layoutProfileManager->duplicateProfile(name); });
+    connect(m_profileRail, &ProfileRail::removeRequested, this,
+            [this](const QString& name) { m_layoutProfileManager->removeProfile(name); });
+    connect(m_profileRail, &ProfileRail::renameRequested, this, &MainWindow::handleProfileRenameRequested);
+
+    auto* outer = new QWidget(this);
+    auto* outerLayout = new QHBoxLayout(outer);
+    outerLayout->setContentsMargins(0, 0, 0, 0);
+    outerLayout->setSpacing(0);
+    outerLayout->addWidget(m_profileRail);
+    outerLayout->addWidget(central, 1);
+    setCentralWidget(outer);
 
     m_rigctldStatusLabel = makeStatusBadge(this);
     m_on4kstStatusLabel = makeStatusBadge(this);
@@ -808,8 +853,48 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's registration-time default around for exactly this purpose
     // -- a reasonable, in-scope addition per this wave's own task notes.
     QAction* resetLayoutAction = windowMenu->addAction(QStringLiteral("Fenster &zurücksetzen"));
-    connect(resetLayoutAction, &QAction::triggered, this, [this]() {
+
+    // Per-panel show/hide checkboxes -- the necessary other half of the
+    // profile rail: a brand-new profile starts with every one of these
+    // five panels hidden (LayoutProfileManager's own explicit design),
+    // and without a way to bring one back there would be no way out of
+    // a blank canvas. Scoped to the same five ids LayoutProfileManager
+    // itself tracks (NOT cwMacroRow -- see that class's own comment on
+    // why that panel stays on its independent checkbox).
+    windowMenu->addSeparator();
+    auto* panelsMenu = windowMenu->addMenu(QStringLiteral("&Panels"));
+    struct PanelMenuEntry { QString id; QString label; };
+    static const QVector<PanelMenuEntry> kPanelMenuEntries = {
+        {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
+        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
+        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
+        {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
+        {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+    };
+    auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
+    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = panelsMenu->addAction(entry.label);
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id](bool visible) {
+            if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+                panel->setVisible(visible);
+            }
+        });
+        panelActions->append({entry.id, action});
+    }
+    auto syncPanelMenuChecks = [this, panelActions]() {
+        for (const auto& [id, action] : *panelActions) {
+            if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+                const QSignalBlocker blocker(action);
+                action->setChecked(panel->isVisible());
+            }
+        }
+    };
+    syncPanelMenuChecks();
+    connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this, syncPanelMenuChecks);
+    connect(resetLayoutAction, &QAction::triggered, this, [this, syncPanelMenuChecks]() {
         m_panelLayoutManager->resetToDefaultLayout();
+        syncPanelMenuChecks();
     });
 
     applyActiveContestDefinition();
@@ -955,6 +1040,15 @@ void MainWindow::moveEvent(QMoveEvent* event) {
 
 void MainWindow::persistWindowGeometryDebounced() {
     saveWindowGeometry();
+}
+
+void MainWindow::handleProfileRenameRequested(const QString& name) {
+    bool ok = false;
+    const QString newName = QInputDialog::getText(this, QStringLiteral("Profil umbenennen"),
+                                                    QStringLiteral("Neuer Name:"), QLineEdit::Normal, name, &ok);
+    if (ok && m_layoutProfileManager != nullptr) {
+        m_layoutProfileManager->renameProfile(name, newName);
+    }
 }
 
 void MainWindow::saveWindowGeometry() {

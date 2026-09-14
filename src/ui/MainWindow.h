@@ -18,12 +18,14 @@ class AppController;
 class ContestDefinition;
 class ContestRulesEditor;
 class CwMacroPanel;
+class LayoutProfileManager;
 class LogTableModel;
 class MapWidget;
 class MultiplierWindow;
 class PanelContainerWidget;
 class PanelHeaderBar;
 class PanelLayoutManager;
+class ProfileRail;
 class RateMeterWidget;
 class RotctldClient;
 class RotorWidget;
@@ -197,6 +199,9 @@ private slots:
     // fenster kleiner wird". See the .cpp definition for why this only
     // engages below kFullLayoutWidth rather than always recentering.
     void reflowRotorRowForCanvasWidth();
+    // Only the rename action needs a modal prompt (the new name) --
+    // activate/duplicate/remove act on the clicked badge's name alone.
+    void handleProfileRenameRequested(const QString& name);
 
 protected:
     // Window-geometry persistence (Martin: "der letzte stand sollte
@@ -363,6 +368,14 @@ private:
     // header.
     PanelHeaderBar* m_logHeaderBar = nullptr;
     PanelLayoutManager* m_panelLayoutManager = nullptr;
+    // Left-side profile rail + the manager backing it -- operator,
+    // 2026-09-14: "mache zusätzlich wie bei longpath auf der linken
+    // seite eine leiste, dass ich ein zweites profil anlegen kann um
+    // zb die karte dort alleine zu platzieren". See
+    // LayoutProfileManager's own class comment for scope (five canvas
+    // panels, not cwMacroRow) and ProfileRail's for the widget itself.
+    ProfileRail* m_profileRail = nullptr;
+    LayoutProfileManager* m_layoutProfileManager = nullptr;
     UtcClockWidget* m_utcClockWidget = nullptr;
     QLineEdit* m_gridFilterEdit = nullptr;
     QLabel* m_rigctldStatusLabel = nullptr;
