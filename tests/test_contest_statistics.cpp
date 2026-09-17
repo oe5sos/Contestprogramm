@@ -30,6 +30,7 @@ private slots:
     void hoursCoverTheWholeSpanAndMarkTheBest();
     void longestListIsSortedCappedAndSkipsDupesAndInvalid();
     void emptyLogGivesEmptyStatistics();
+    void widelySpreadLogListsOnlyHoursWithQsos();
 };
 
 void TestContestStatistics::hoursCoverTheWholeSpanAndMarkTheBest()
@@ -76,6 +77,23 @@ void TestContestStatistics::longestListIsSortedCappedAndSkipsDupesAndInvalid()
         QVERIFY(e.callsign != QStringLiteral("DL13ABC"));
         QVERIFY(e.callsign != QStringLiteral("DL12ABC"));
     }
+}
+
+void TestContestStatistics::widelySpreadLogListsOnlyHoursWithQsos()
+{
+    QVector<QsoRecord> records = {
+        makeQso(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("14:05"), QStringLiteral("JN58SD"), 187.4),
+        makeQso(QStringLiteral("OE3XYZ"), QStringLiteral("144"), QStringLiteral("16:50"), QStringLiteral("JN88TC"), 214.6),
+    };
+    // A test QSO from three weeks earlier in the same contest id.
+    QsoRecord old = makeQso(QStringLiteral("OE5TEST"), QStringLiteral("144"), QStringLiteral("10:00"), QStringLiteral("JN67UT"), 0.0);
+    old.timestampUtc = QStringLiteral("2026-09-11T10:00:00Z");
+    records.append(old);
+    const ContestStatistics stats = computeContestStatistics(records, QStringLiteral("JN67UT"), {QStringLiteral("144")});
+    QCOMPARE(stats.hours.size(), 3); // no 500 empty rows in between
+    QCOMPARE(stats.hours.at(0).hourStartUtc.toString(QStringLiteral("dd HH:mm")), QStringLiteral("11 10:00"));
+    QCOMPARE(stats.hours.at(1).hourStartUtc.toString(QStringLiteral("dd HH:mm")), QStringLiteral("03 14:00"));
+    QCOMPARE(stats.hours.at(2).hourStartUtc.toString(QStringLiteral("dd HH:mm")), QStringLiteral("03 16:00"));
 }
 
 void TestContestStatistics::emptyLogGivesEmptyStatistics()

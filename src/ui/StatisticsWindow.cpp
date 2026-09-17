@@ -16,6 +16,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <cmath>
+
 namespace Contestprogramm {
 
 namespace {
@@ -184,9 +187,13 @@ void StatisticsWindow::refresh()
         m_hourTable->setItem(row, 0, new QTableWidgetItem(hour.hourStartUtc.toString(QStringLiteral("dd.MM. HH:00"))));
         m_hourTable->setItem(row, 1, numberItem(QString::number(hour.qsos)));
         m_hourTable->setItem(row, 2, numberItem(grouped(hour.points)));
-        // A bar of blocks, one per QSO, so the shape of the night reads
-        // without a chart -- the best hour in amber.
-        auto* bar = new QTableWidgetItem(QString(hour.qsos, QChar(0x2588)));
+        // A bar of blocks, scaled so the best hour is 16 blocks wide
+        // (a 60-QSO hour must not push the column off the window), so
+        // the shape of the night reads without a chart -- the best
+        // hour in amber. Any QSO at all still shows at least one block.
+        const int blocks = hour.qsos == 0 ? 0
+                                          : std::max(1, int(std::lround(16.0 * hour.qsos / std::max(1, stats.bestHourQsos))));
+        auto* bar = new QTableWidgetItem(QString(blocks, QChar(0x2588)));
         if (hour.qsos == stats.bestHourQsos && hour.qsos > 0) {
             bar->setForeground(QColor(Style::kAmberText()));
         } else {

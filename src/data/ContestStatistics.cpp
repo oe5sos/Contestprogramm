@@ -53,7 +53,15 @@ ContestStatistics computeContestStatistics(const QVector<QsoRecord>& records,
     }
 
     if (firstHour != 0) {
+        // Empty hours are part of the story of one contest weekend; a
+        // log that also holds test QSOs from weeks before would turn
+        // into hundreds of zero rows, so beyond 48 h only hours with
+        // QSOs are listed.
+        const bool contiguous = (lastHour - firstHour) <= 48 * 3600;
         for (qint64 h = firstHour; h <= lastHour; h += 3600) {
+            if (!contiguous && !byHour.contains(h)) {
+                continue;
+            }
             HourStats hour = byHour.value(h);
             hour.hourStartUtc = QDateTime::fromSecsSinceEpoch(h, QTimeZone::utc());
             stats.hours.append(hour);
