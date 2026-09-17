@@ -509,11 +509,23 @@ void TestUnifiedLogWidget::historyRowCallAndSerialGridRcvdAreEditableInPlace()
     // slot instead (setData()'s own comment).
     QCOMPARE(exchSpy.constFirst().at(1).toString(), QStringLiteral("599 002 JN88TC"));
 
-    // Zeit (and every other column) is NOT part of this task's scope --
-    // date/time/frequency/operator go through a separate dialog in real
-    // DXLog.net, not this cell.
+    // Zeit joined the editable set with the time-correction pass: the
+    // cell opens on its shown HH:mm and hands the typed text up
+    // verbatim -- MainWindow::handleHistoryTimeEditRequested() parses
+    // it (HH:MM keeps the date, YYYY-MM-DD HH:MM sets both).
     const QModelIndex timeIndex = model->index(0, UnifiedLogWidget::ColumnTime);
-    QVERIFY(!(model->flags(timeIndex) & Qt::ItemIsEditable));
+    QVERIFY(model->flags(timeIndex) & Qt::ItemIsEditable);
+    QCOMPARE(model->data(timeIndex, Qt::EditRole).toString(), model->data(timeIndex, Qt::DisplayRole).toString());
+    QSignalSpy timeSpy(&widget, &UnifiedLogWidget::historyTimeEditRequested);
+    QVERIFY(model->setData(timeIndex, QStringLiteral(" 11:58 ")));
+    QCOMPARE(timeSpy.count(), 1);
+    QCOMPARE(timeSpy.constFirst().at(0).toInt(), 42);
+    QCOMPARE(timeSpy.constFirst().at(1).toString(), QStringLiteral("11:58"));
+    QVERIFY(!model->setData(timeIndex, QString()));
+    QCOMPARE(timeSpy.count(), 1);
+
+    // Frequency/operator and the rest stay read-only.
+    QVERIFY(!(model->flags(model->index(0, UnifiedLogWidget::ColumnBand)) & Qt::ItemIsEditable));
 
     // An empty callsign is rejected, not silently logged as blank.
     QSignalSpy rejectedCallSpy(&widget, &UnifiedLogWidget::historyCallsignEditRequested);

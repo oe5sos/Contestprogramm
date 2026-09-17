@@ -48,6 +48,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QTimeZone>
 #include <QHash>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -714,6 +715,18 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);
+    connect(m_unifiedLog, &UnifiedLogWidget::historyTimeEditRequested, this, &MainWindow::handleHistoryTimeEditRequested);
+    // The five-minute log backup (AppController's LogBackup) reports
+    // into the status bar: a written copy briefly, a failure for longer
+    // -- a modal box every five minutes would be worse than the fault.
+    if (LogBackup* backup = m_appController.logBackup()) {
+        connect(backup, &LogBackup::backupWritten, this, [this](const QString& path) {
+            statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(QFileInfo(path).fileName()), 5000);
+        });
+        connect(backup, &LogBackup::backupFailed, this, [this](const QString& error) {
+            statusBar()->showMessage(QStringLiteral("Log-Sicherung fehlgeschlagen: %1").arg(error), 20000);
+        });
+    }
     connect(m_unifiedLog, &UnifiedLogWidget::chatMessageSendRequested, this, &MainWindow::handleSuggestionSendRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::cqDraftRequested, this, &MainWindow::handleCqDraftRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::awayStateChanged, this, &MainWindow::handleAwayToggled);
@@ -867,6 +880,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    fileMenu->addSeparator();
+    QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
+    connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -2346,6 +2362,70 @@ void MainWindow::loadScpFile()
                                      m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
     refreshCheckPartial();
     statusBar()->showMessage(QStringLiteral("SCP-Liste geladen: %1 Rufzeichen aus %2").arg(calls.size()).arg(QFileInfo(path).fileName()), 5000);
+}
+
+void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newText)
+{
+    const auto current = m_appController.database().qsoById(qsoId);
+    if (!current) {
+        return;
+    }
+    const QDateTime original = QDateTime::fromString(current->timestampUtc, Qt::ISODate);
+    const QString text = newText.trimmed();
+    // "HH:mm" / "HH:mm:ss" keep the QSO's own date; a full
+    // "yyyy-MM-dd HH:mm[:ss]" sets both. Anything else is refused with
+    // the accepted forms spelled out, and the row keeps its old time.
+    QDateTime corrected;
+    for (const char* timeOnly : {"HH:mm", "HH:mm:ss"}) {
+        const QTime t = QTime::fromString(text, QString::fromLatin1(timeOnly));
+        if (t.isValid() && original.isValid()) {
+            corrected = QDateTime(original.date(), t, QTimeZone::utc());
+            break;
+        }
+    }
+    if (!corrected.isValid()) {
+        for (const char* full : {"yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss"}) {
+            const QDateTime dt = QDateTime::fromString(text, QString::fromLatin1(full));
+            if (dt.isValid()) {
+                corrected = QDateTime(dt.date(), dt.time(), QTimeZone::utc());
+                break;
+            }
+        }
+    }
+    if (!corrected.isValid()) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Zeit nicht verstanden: \"%1\"\nErlaubt: HH:MM (UTC, Datum bleibt) "
+                                            "oder YYYY-MM-DD HH:MM.").arg(text));
+        return;
+    }
+    const QString iso = corrected.toString(Qt::ISODate);
+    QString error;
+    if (!m_appController.database().updateQsoTimestamp(qsoId, iso, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht aktualisiert werden:\n%1").arg(error));
+        return;
+    }
+    QsoRecord updated = *current;
+    updated.timestampUtc = iso;
+    m_logModel->updateRecord(updated);
+    // The rate windows and the EDI TDate span both read the timestamp.
+    m_rateMeterWidget->refresh();
+}
+
+void MainWindow::backupLogNow()
+{
+    LogBackup* backup = m_appController.logBackup();
+    if (!backup) {
+        return;
+    }
+    QString error;
+    const QString path = backup->backupNow(true, &error);
+    if (path.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Log-Sicherung fehlgeschlagen:\n%1").arg(error));
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(path), 8000);
 }
 
 void MainWindow::openMultiplierWindow()

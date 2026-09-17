@@ -384,7 +384,8 @@ signals:
     // A logged history row's Call cell / Exch Emp. cell was hand-edited
     // in place (double-click or Enter/F2 on the cell, DXLog.net-style --
     // see this task's report on the scope: Call/RST/Serial/Grid are
-    // correctable this way, date/time/frequency/operator are not).
+    // correctable this way, and since the time-correction pass so is
+    // the time; frequency/operator are not).
     // `qsoId` is the QSO's real database id (LogTableModel::recordAt().id),
     // not a row index, which shifts as new QSOs are logged.
     // historyExchangeRcvdEditRequested's `newText` is the whole
@@ -395,6 +396,10 @@ signals:
     // joins them in.
     void historyCallsignEditRequested(int qsoId, const QString& newCallsign);
     void historyExchangeRcvdEditRequested(int qsoId, const QString& newText);
+    // The Time cell, same mechanism: "HH:MM" keeps the QSO's date,
+    // "YYYY-MM-DD HH:MM" sets both -- the log time is when Enter was
+    // pressed, and after a pile-up that is not always when the QSO was.
+    void historyTimeEditRequested(int qsoId, const QString& newText);
 
     // The Status cell of a logged history row was clicked -- toggles
     // that QSO's invalid flag. DXLog.net deliberately has no delete

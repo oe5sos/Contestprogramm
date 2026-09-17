@@ -12,6 +12,7 @@
 #include "core/WeatherClient.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/ContestDatabase.h"
+#include "data/LogBackup.h"
 #include "data/ContestDefinition.h"
 #include "data/DupeChecker.h"
 #include "data/MultiplierTracker.h"
@@ -59,6 +60,9 @@ public:
     bool openDatabase(const QString& path, QString* errorOut = nullptr);
 
     ContestDatabase& database() { return m_database; }
+    // Periodic copies of the database (data/LogBackup.h); created in
+    // openDatabase() beside the database file, null before that.
+    LogBackup* logBackup() { return m_logBackup; }
     const ContestDatabase& database() const { return m_database; }
     DupeChecker& dupeChecker() { return m_dupeChecker; }
     RigctldClient& rigctldClient() { return m_rigctldClient; }
@@ -171,6 +175,7 @@ private:
 
     ContestSettings m_settings;
     ContestDatabase m_database;
+    LogBackup* m_logBackup = nullptr; // owned via QObject parent
     DupeChecker m_dupeChecker; // holds ContestDatabase& -- declared after m_database
     MultiplierTracker m_multiplierTracker; // holds ContestDatabase& -- declared after m_database
     RigctldClient m_rigctldClient;

@@ -110,6 +110,24 @@ public:
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
 
+    // Corrects a logged QSO's time (ISO-8601 UTC, same form insertQso()
+    // stores) -- the one field DXLog.net/N1MM+ hand-corrections need
+    // beyond call/exchange: the log time is when Enter was pressed,
+    // not always when the QSO happened.
+    bool updateQsoTimestamp(int id, const QString& timestampUtc, QString* errorOut = nullptr);
+
+    // Incremented by every QSO write (insert/update/invalid-toggle) --
+    // LogBackup compares it against the value at its last backup, so an
+    // idle log (or one where only layout/settings rows change) does not
+    // produce a new backup file every five minutes.
+    int qsoWriteCounter() const { return m_qsoWriteCounter; }
+
+    // A consistent copy of the whole database as of now -- SQLite's
+    // own VACUUM INTO, which includes everything still sitting in the
+    // WAL (a plain file copy of the .sqlite would silently miss the
+    // last QSOs). The target must not exist yet.
+    bool backupTo(const QString& path, QString* errorOut = nullptr);
+
     // Locally-known callsign -> grid (+ optional operator name), backed
     // by the `imported_locators` table -- the second lookup tier in
     // MainWindow::handleCallsignLookupRequested, after the operator's
@@ -152,6 +170,7 @@ private:
     QString m_connectionName;
     QString m_lastError;
     bool m_open = false;
+    int m_qsoWriteCounter = 0;
 };
 
 } // namespace Contestprogramm

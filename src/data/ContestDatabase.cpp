@@ -231,6 +231,7 @@ bool ContestDatabase::insertQso(QsoRecord& record)
         return false;
     }
     record.id = query.lastInsertId().toInt();
+    ++m_qsoWriteCounter;
     return true;
 }
 
@@ -393,6 +394,7 @@ bool ContestDatabase::updateQsoCallsign(int id, const QString& callsign, QString
         }
         return false;
     }
+    ++m_qsoWriteCounter;
     return true;
 }
 
@@ -420,6 +422,7 @@ bool ContestDatabase::updateQsoExchangeRcvd(int id, const QString& exchangeRcvd,
         }
         return false;
     }
+    ++m_qsoWriteCounter;
     return true;
 }
 
@@ -430,6 +433,41 @@ bool ContestDatabase::setQsoInvalid(int id, bool invalid, QString* errorOut)
     query.bindValue(QStringLiteral(":is_invalid"), invalid ? 1 : 0);
     query.bindValue(QStringLiteral(":id"), id);
     if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
+bool ContestDatabase::updateQsoTimestamp(int id, const QString& timestampUtc, QString* errorOut)
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET timestamp_utc = :timestamp_utc WHERE id = :id"));
+    query.bindValue(QStringLiteral(":timestamp_utc"), timestampUtc);
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
+bool ContestDatabase::backupTo(const QString& path, QString* errorOut)
+{
+    QSqlQuery query(m_db);
+    // The path goes in as a string literal: VACUUM INTO takes no bound
+    // parameter in SQLite, so a quote in the path is doubled by hand.
+    QString quoted = path;
+    quoted.replace(QLatin1Char('\''), QStringLiteral("''"));
+    if (!query.exec(QStringLiteral("VACUUM INTO '%1'").arg(quoted))) {
         m_lastError = query.lastError().text();
         if (errorOut) {
             *errorOut = m_lastError;

@@ -105,6 +105,8 @@ private slots:
     void handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign);
     void handleHistoryExchangeRcvdEditRequested(int qsoId, const QString& newText);
     void handleHistoryInvalidToggleRequested(int qsoId);
+    void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
+    void backupLogNow();
     void toggleOperatingMode();
     void updateStatusBar();
     // Kern-Welle 2: rotor + CW wiring. Creates/destroys each slot's

@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTimer>
 
 namespace Contestprogramm {
@@ -95,6 +96,12 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     }
 
     m_settings.loadFrom(m_database);
+    // Backups live beside the database itself ("backups/" next to the
+    // .sqlite), where a rescue after a crash looks first.
+    if (m_logBackup == nullptr) {
+        m_logBackup = new LogBackup(m_database, QFileInfo(path).dir().filePath(QStringLiteral("backups")), this);
+        m_logBackup->start();
+    }
     loadAvailableContestDefinitions();
     if (m_settings.activeContestId.isEmpty() && !m_availableContestDefinitions.isEmpty()) {
         m_settings.activeContestId = m_availableContestDefinitions.first().id();

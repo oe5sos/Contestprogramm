@@ -111,6 +111,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/EdiExporter.cpp
     src/data/ContestScoring.h
     src/data/ContestScoring.cpp
+    src/data/LogBackup.h
+    src/data/LogBackup.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h

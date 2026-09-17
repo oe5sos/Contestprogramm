@@ -27,6 +27,7 @@ private slots:
     void updateQsoCallsignPersists();
     void updateQsoExchangeRcvdPersists();
     void setQsoInvalidTogglesFlag();
+    void updateQsoTimestampPersistsAndCountsWrites();
     void preExistingTableWithoutNewColumnsIsMigrated();
 };
 
@@ -321,6 +322,37 @@ void TestContestDatabase::updateQsoExchangeRcvdPersists()
 // invalid flag is what marks a bad contact instead, and it must be
 // freely toggleable both ways (see UnifiedLogWidget's Status-cell
 // click, which is a toggle, not a one-way mark).
+void TestContestDatabase::updateQsoTimestampPersistsAndCountsWrites()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("timestamp.sqlite")), QStringLiteral("test_timestamp")));
+    QCOMPARE(db.qsoWriteCounter(), 0);
+
+    QsoRecord record;
+    record.callsign = QStringLiteral("OE1ABC");
+    record.band = QStringLiteral("144");
+    record.mode = QStringLiteral("SSB");
+    record.timestampUtc = QStringLiteral("2026-06-13T12:05:00Z");
+    record.contestId = QStringLiteral("OE_VHF_UHF");
+    QVERIFY(db.insertQso(record));
+    QCOMPARE(db.qsoWriteCounter(), 1);
+
+    QVERIFY(db.updateQsoTimestamp(record.id, QStringLiteral("2026-06-13T11:58:00Z")));
+    QCOMPARE(db.qsoWriteCounter(), 2);
+    const auto fetched = db.qsoById(record.id);
+    QVERIFY(fetched.has_value());
+    QCOMPARE(fetched->timestampUtc, QStringLiteral("2026-06-13T11:58:00Z"));
+
+    // Settings writes are not QSO writes -- the backup must not wake
+    // up for a saved panel position.
+    db.setSettingValue(QStringLiteral("x"), QStringLiteral("y"));
+    QCOMPARE(db.qsoWriteCounter(), 2);
+    QVERIFY(db.setQsoInvalid(record.id, true));
+    QCOMPARE(db.qsoWriteCounter(), 3);
+}
+
 void TestContestDatabase::setQsoInvalidTogglesFlag()
 {
     QTemporaryDir dir;

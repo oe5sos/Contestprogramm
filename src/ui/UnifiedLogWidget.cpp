@@ -628,7 +628,8 @@ public:
             return base;
         }
         const RowRef& ref = m_rows.at(index.row());
-        if (ref.kind == RowKind::History && (index.column() == ColCall || index.column() == ColSerialGridRcvd)) {
+        if (ref.kind == RowKind::History
+            && (index.column() == ColCall || index.column() == ColSerialGridRcvd || index.column() == ColTime)) {
             return base | Qt::ItemIsEditable;
         }
         return base;
@@ -659,6 +660,17 @@ public:
                 return false;
             }
             emit historyCallsignEditRequested(record.id, newCall);
+            return true;
+        }
+        if (index.column() == ColTime) {
+            // Typed as "HH:MM" (keeps the date) or "YYYY-MM-DD HH:MM";
+            // MainWindow::handleHistoryTimeEditRequested() parses and
+            // rejects anything else with a message, not here.
+            const QString text = value.toString().trimmed();
+            if (text.isEmpty()) {
+                return false;
+            }
+            emit historyTimeEditRequested(record.id, text);
             return true;
         }
         if (index.column() == ColSerialGridRcvd) {
@@ -733,6 +745,7 @@ signals:
     // its own same-named public signals.
     void historyCallsignEditRequested(int qsoId, const QString& newCallsign);
     void historyExchangeRcvdEditRequested(int qsoId, const QString& newText);
+    void historyTimeEditRequested(int qsoId, const QString& newText);
 
 private:
     enum class RowKind { History, Divider, Candidate };
@@ -768,6 +781,9 @@ private:
             // comment on why RST is re-attached separately rather than
             // ever entering the editable text at all.
             case ColSerialGridRcvd: return serialGridRcvdText(record);
+            // The shown HH:mm; a corrected time keeps the date unless
+            // one is typed along (see setData()).
+            case ColTime: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnTime));
             default: return QVariant();
             }
         }
@@ -1153,6 +1169,7 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     connect(m_feedModel, &UnifiedFeedModel::rebuilt, this, &UnifiedLogWidget::rebuildFeedRows);
     connect(m_feedModel, &UnifiedFeedModel::historyCallsignEditRequested, this, &UnifiedLogWidget::historyCallsignEditRequested);
     connect(m_feedModel, &UnifiedFeedModel::historyExchangeRcvdEditRequested, this, &UnifiedLogWidget::historyExchangeRcvdEditRequested);
+    connect(m_feedModel, &UnifiedFeedModel::historyTimeEditRequested, this, &UnifiedLogWidget::historyTimeEditRequested);
     // Drives m_entryRowScroll from m_feedTable's own horizontal
     // scrollbar (see that member's doc comment) -- one-directional:
     // m_entryRowScroll's own scrollbar is always hidden, the operator
