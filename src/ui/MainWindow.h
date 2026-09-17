@@ -358,6 +358,7 @@ private:
     CheckPartialIndex m_checkPartialIndex;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
+    bool m_scpLoaded = false;
     // Bandmap (core/BandmapModel.h + ui/BandmapWidget.h): fed by both
     // spot feeds, redrawn on every rig frequency report, logged QSO and
     // a 15 s timer for the age-out.

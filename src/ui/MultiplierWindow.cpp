@@ -20,7 +20,7 @@ MultiplierWindow::MultiplierWindow(MultiplierTracker& tracker, QWidget* parent)
     : QWidget(parent)
     , m_tracker(tracker)
 {
-    setWindowTitle(QStringLiteral("Contestprogramm - Multiplikatoren"));
+    setWindowTitle(QStringLiteral("Contestprogramm - Locator-Felder"));
     // No rounded-panel wrapper here: this is a real top-level window
     // (see the class comment), and a QSS border-radius on a top-level
     // widget's own rect leaves square corner gaps showing whatever the
@@ -28,11 +28,14 @@ MultiplierWindow::MultiplierWindow(MultiplierTracker& tracker, QWidget* parent)
     // QWidget the correct dark background/text colour (see
     // Style::appStyleSheet()'s base "QWidget {...}" rule); only the
     // header bar below needs its own chrome.
-    m_header = new PanelHeaderBar(QStringLiteral("Multiplikatoren"), this);
+    // "Locator-Felder", not "Multiplikatoren": with the km scoring
+    // (data/ContestScoring.h) a large square is no score factor, this
+    // list answers "which squares are still open on which band".
+    m_header = new PanelHeaderBar(QStringLiteral("Locator-Felder"), this);
 
     m_table = new QTableWidget(this);
     m_table->setColumnCount(3);
-    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), QStringLiteral("Multiplikator"), QStringLiteral("gearbeitet")});
+    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), QStringLiteral("Feld"), QStringLiteral("gearbeitet")});
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setFont(Style::capsFont(m_table->horizontalHeader()->font()));
     m_table->setFont(Style::monoFont(m_table->font(), Style::kFontSmall));

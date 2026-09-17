@@ -966,7 +966,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
     auto* windowMenu = menuBar()->addMenu(QStringLiteral("&Fenster"));
-    QAction* multiplierAction = windowMenu->addAction(QStringLiteral("&Multiplikatoren..."));
+    // Since the km scoring these are no multipliers -- the window is the
+    // worked/open large-square list, and says so.
+    QAction* multiplierAction = windowMenu->addAction(QStringLiteral("&Locator-Felder..."));
     connect(multiplierAction, &QAction::triggered, this, &MainWindow::openMultiplierWindow);
     QAction* statisticsAction = windowMenu->addAction(QStringLiteral("&Statistik..."));
     connect(statisticsAction, &QAction::triggered, this, &MainWindow::openStatisticsWindow);
@@ -2435,9 +2437,8 @@ void MainWindow::reloadCheckPartialSources()
     // The SCP list is loaded once from the remembered path; a missing
     // or unreadable file just leaves that source empty (and the panel's
     // status line offering to load one).
-    static bool scpLoaded = false;
-    if (!scpLoaded) {
-        scpLoaded = true;
+    if (!m_scpLoaded) {
+        m_scpLoaded = true;
         const QString path = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
         QFile file(path);
         if (!path.isEmpty() && file.open(QIODevice::ReadOnly)) {
