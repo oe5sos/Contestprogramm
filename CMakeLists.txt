@@ -119,6 +119,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/ContestScoring.cpp
     src/data/LogBackup.h
     src/data/LogBackup.cpp
+    src/data/ContestStatistics.h
+    src/data/ContestStatistics.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h
@@ -168,6 +170,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/BandmapWidget.cpp
     src/ui/ScoreboardDialog.h
     src/ui/ScoreboardDialog.cpp
+    src/ui/StatisticsWindow.h
+    src/ui/StatisticsWindow.cpp
     src/ui/MapWidget.h
     src/ui/MapWidget.cpp
     src/ui/UtcClockWidget.h

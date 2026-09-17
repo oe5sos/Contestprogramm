@@ -33,6 +33,7 @@ class PanelHeaderBar;
 class PanelLayoutManager;
 class ProfileRail;
 class RateMeterWidget;
+class StatisticsWindow;
 class RotctldClient;
 class RotorWidget;
 class SuggestionPanel;
@@ -78,6 +79,7 @@ private slots:
     void loadScpFile();
     void refreshCheckPartial();
     void openMultiplierWindow();
+    void openStatisticsWindow();
     void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
     void handleCallsignLookupRequested(const QString& callsign);
     // Live km/bearing preview for the in-progress entry -- recomputes
@@ -367,6 +369,7 @@ private:
     OnlineScoreboard* m_scoreboard = nullptr;
     void refreshScoreboard();
     MultiplierWindow* m_multiplierWindow = nullptr;
+    StatisticsWindow* m_statisticsWindow = nullptr;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;

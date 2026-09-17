@@ -40,6 +40,7 @@
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
 #include "ui/ScoreboardDialog.h"
+#include "ui/StatisticsWindow.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StyleKit.h"
 #include "ui/SuggestionPanel.h"
@@ -967,6 +968,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* windowMenu = menuBar()->addMenu(QStringLiteral("&Fenster"));
     QAction* multiplierAction = windowMenu->addAction(QStringLiteral("&Multiplikatoren..."));
     connect(multiplierAction, &QAction::triggered, this, &MainWindow::openMultiplierWindow);
+    QAction* statisticsAction = windowMenu->addAction(QStringLiteral("&Statistik..."));
+    connect(statisticsAction, &QAction::triggered, this, &MainWindow::openStatisticsWindow);
     windowMenu->addSeparator();
     // "Fenster zurücksetzen" -- the real Longpath ContainerManager has no
     // literal equivalent (Thetis/Longpath never lost track of a
@@ -2651,6 +2654,21 @@ void MainWindow::openMultiplierWindow()
     m_multiplierWindow->show();
     m_multiplierWindow->raise();
     m_multiplierWindow->activateWindow();
+}
+
+void MainWindow::openStatisticsWindow()
+{
+    if (!m_statisticsWindow) {
+        m_statisticsWindow = new StatisticsWindow(m_appController.database(), this);
+        m_statisticsWindow->setWindowFlag(Qt::Window, true);
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    m_statisticsWindow->setContest(settings.activeContestId, settings.ownGrid, def ? def->bands() : QStringList(),
+                                   def ? def->scoring() : QStringLiteral("distance_km"));
+    m_statisticsWindow->show();
+    m_statisticsWindow->raise();
+    m_statisticsWindow->activateWindow();
 }
 
 } // namespace Contestprogramm
