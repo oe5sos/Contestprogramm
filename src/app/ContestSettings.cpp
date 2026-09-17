@@ -261,6 +261,14 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     esmTu = database.settingValue(QStringLiteral("esm_tu"), esmTu);
     esmMyCall = database.settingValue(QStringLiteral("esm_my_call"), esmMyCall);
     esmSpExchange = database.settingValue(QStringLiteral("esm_sp_exchange"), esmSpExchange);
+    scoreboardEnabled = boolFromString(
+        database.settingValue(QStringLiteral("scoreboard_enabled"), boolToString(scoreboardEnabled)), scoreboardEnabled);
+    scoreboardUrl = database.settingValue(QStringLiteral("scoreboard_url"), scoreboardUrl);
+    scoreboardUsername = database.settingValue(QStringLiteral("scoreboard_username"), scoreboardUsername);
+    scoreboardPassword = database.settingValue(QStringLiteral("scoreboard_password"), scoreboardPassword);
+    scoreboardContestName = database.settingValue(QStringLiteral("scoreboard_contest_name"), scoreboardContestName);
+    scoreboardIntervalMinutes = database.settingValue(QStringLiteral("scoreboard_interval_minutes"),
+                                                      QString::number(scoreboardIntervalMinutes)).toInt();
 
     contestEndUtc = database.settingValue(QStringLiteral("contest_end_utc"), contestEndUtc);
     countdownVisible = boolFromString(
@@ -336,6 +344,12 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("esm_tu"), esmTu);
     database.setSettingValue(QStringLiteral("esm_my_call"), esmMyCall);
     database.setSettingValue(QStringLiteral("esm_sp_exchange"), esmSpExchange);
+    database.setSettingValue(QStringLiteral("scoreboard_enabled"), boolToString(scoreboardEnabled));
+    database.setSettingValue(QStringLiteral("scoreboard_url"), scoreboardUrl);
+    database.setSettingValue(QStringLiteral("scoreboard_username"), scoreboardUsername);
+    database.setSettingValue(QStringLiteral("scoreboard_password"), scoreboardPassword);
+    database.setSettingValue(QStringLiteral("scoreboard_contest_name"), scoreboardContestName);
+    database.setSettingValue(QStringLiteral("scoreboard_interval_minutes"), QString::number(scoreboardIntervalMinutes));
 
     database.setSettingValue(QStringLiteral("contest_end_utc"), contestEndUtc);
     database.setSettingValue(QStringLiteral("countdown_visible"), boolToString(countdownVisible));

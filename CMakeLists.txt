@@ -64,6 +64,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/EsmPlanner.cpp
     src/core/BandmapModel.h
     src/core/BandmapModel.cpp
+    src/core/OnlineScoreboard.h
+    src/core/OnlineScoreboard.cpp
     src/core/DxClusterClient.h
     src/core/DxClusterClient.cpp
     src/core/CallsignLocatorLookup.h
@@ -164,6 +166,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/EsmTemplatesDialog.cpp
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
+    src/ui/ScoreboardDialog.h
+    src/ui/ScoreboardDialog.cpp
     src/ui/MapWidget.h
     src/ui/MapWidget.cpp
     src/ui/UtcClockWidget.h

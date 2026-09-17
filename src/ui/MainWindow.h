@@ -20,6 +20,7 @@ namespace Contestprogramm {
 class AppController;
 class ContestDefinition;
 class BandmapWidget;
+class OnlineScoreboard;
 class CheckPartialWidget;
 class ContestRulesEditor;
 class CwMacroPanel;
@@ -110,6 +111,8 @@ private slots:
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void openEsmTemplatesDialog();
+    void openScoreboardDialog();
+    void postScoreNow();
     void toggleOperatingMode();
     void updateStatusBar();
     // Kern-Welle 2: rotor + CW wiring. Creates/destroys each slot's
@@ -359,6 +362,10 @@ private:
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
     void refreshBandmap();
+    // Online scoreboard (core/OnlineScoreboard.h): config follows the
+    // settings/contest, records follow the log.
+    OnlineScoreboard* m_scoreboard = nullptr;
+    void refreshScoreboard();
     MultiplierWindow* m_multiplierWindow = nullptr;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;

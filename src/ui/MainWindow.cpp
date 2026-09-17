@@ -8,6 +8,7 @@
 #include "core/CheckPartialIndex.h"
 #include "core/DxClusterClient.h"
 #include "core/EsmPlanner.h"
+#include "core/OnlineScoreboard.h"
 #include "core/Maidenhead.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
@@ -38,6 +39,7 @@
 #include "ui/ProfileRail.h"
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
+#include "ui/ScoreboardDialog.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StyleKit.h"
 #include "ui/SuggestionPanel.h"
@@ -865,6 +867,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(bandmapTimer, &QTimer::timeout, this, &MainWindow::refreshBandmap);
     bandmapTimer->start();
 
+    m_scoreboard = new OnlineScoreboard(this);
+    connect(m_scoreboard, &OnlineScoreboard::posted, this,
+            [this](const QString& summary) { statusBar()->showMessage(summary, 5000); });
+    connect(m_scoreboard, &OnlineScoreboard::failed, this,
+            [this](const QString& error) { statusBar()->showMessage(error, 20000); });
+
     // A terrain sector that was Unknown (its SRTM tile still loading)
     // resolving to a real classification later must still reach the
     // compass ring -- see refreshTerrainSectors()'s own doc comment.
@@ -928,6 +936,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
     QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
     connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
+    QAction* scoreboardAction = fileMenu->addAction(QStringLiteral("&Online-Scoreboard..."));
+    connect(scoreboardAction, &QAction::triggered, this, &MainWindow::openScoreboardDialog);
+    QAction* postScoreAction = fileMenu->addAction(QStringLiteral("Score &jetzt senden"));
+    connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
     fileMenu->addSeparator();
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
@@ -1226,6 +1238,7 @@ void MainWindow::applyActiveContestDefinition()
         m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
     }
     reloadCheckPartialSources();
+    refreshScoreboard();
     refreshSentExchangePreview();
     updateStatusBar();
 }
@@ -1901,6 +1914,7 @@ void MainWindow::handleLogRequested()
     updateStatusBar();
     reloadCheckPartialSources();
     refreshBandmap();
+    refreshScoreboard();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -2547,6 +2561,55 @@ void MainWindow::refreshBandmap()
     m_bandmapWidget->setBand(m_currentBand);
     m_bandmapWidget->setOwnFrequencyHz(rig.isConnected() ? rig.frequencyHz() : 0);
     m_bandmapWidget->setSpots(spots);
+}
+
+void MainWindow::refreshScoreboard()
+{
+    if (!m_scoreboard) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    ScoreboardConfig config;
+    config.enabled = settings.scoreboardEnabled;
+    config.url = QUrl(settings.scoreboardUrl);
+    config.username = settings.scoreboardUsername;
+    config.password = settings.scoreboardPassword;
+    config.intervalMinutes = settings.scoreboardIntervalMinutes;
+    config.contestName = settings.scoreboardContestName.isEmpty() ? settings.activeContestId : settings.scoreboardContestName;
+    config.callsign = settings.ownCallsign;
+    config.grid = settings.ownGrid;
+    EdiStationInfo station;
+    station.loadFrom(m_appController.database());
+    config.club = station.club;
+    config.scoring = def ? def->scoring() : QStringLiteral("distance_km");
+    config.bandOrder = def ? def->bands() : QStringList();
+    m_scoreboard->setConfig(config);
+    m_scoreboard->setRecords(m_appController.database().qsosForContest(settings.activeContestId));
+}
+
+void MainWindow::openScoreboardDialog()
+{
+    ContestSettings settings = m_appController.settings();
+    ScoreboardDialog dialog(settings, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    dialog.applyTo(settings);
+    m_appController.setSettings(settings);
+    refreshScoreboard();
+}
+
+void MainWindow::postScoreNow()
+{
+    refreshScoreboard();
+    QString error;
+    if (!m_scoreboard->postNow(&error)) {
+        QMessageBox::information(this, QStringLiteral("Contestprogramm"),
+                                 error.isEmpty() ? QStringLiteral("Online-Scoreboard ist nicht eingeschaltet "
+                                                                  "(Datei > Online-Scoreboard...).")
+                                                 : error);
+    }
 }
 
 void MainWindow::openMultiplierWindow()

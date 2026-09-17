@@ -235,6 +235,14 @@ struct ContestSettings {
     QString esmTu = QStringLiteral("TU {mycall}");
     QString esmMyCall = QStringLiteral("{mycall}");
     QString esmSpExchange = QStringLiteral("{exchange}");
+    // Online scoreboard (core/OnlineScoreboard.h) -- off until a URL and
+    // account are entered under Datei > Online-Scoreboard.
+    bool scoreboardEnabled = false;
+    QString scoreboardUrl;
+    QString scoreboardUsername;
+    QString scoreboardPassword;
+    QString scoreboardContestName;
+    int scoreboardIntervalMinutes = 5;
 
     // Contest-end timestamp for the top-bar countdown (ui/
     // UtcClockWidget.h), operator-set in SettingsDialog -- there is no
