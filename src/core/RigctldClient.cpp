@@ -189,6 +189,19 @@ void RigctldClient::sendMorse(const QString& text)
     send(sendMorseCommand(text), Pending::Report);
 }
 
+QByteArray RigctldClient::stopMorseCommand()
+{
+    return QByteArrayLiteral("\\stop_morse\n");
+}
+
+void RigctldClient::stopMorse()
+{
+    if (!isConnected()) {
+        return;
+    }
+    send(stopMorseCommand(), Pending::Report);
+}
+
 void RigctldClient::send(const QByteArray& command, Pending expect)
 {
     m_queue.enqueue(Command{command, expect});

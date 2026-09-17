@@ -69,6 +69,7 @@
 #include <QRect>
 #include <QResizeEvent>
 #include <QSet>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTimer>
@@ -912,7 +913,23 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_cwMacroPanel, &CwMacroPanel::macroActivated, this, [this](const QString& templateText) {
         const QString text = CwMacroPanel::substitute(templateText, m_unifiedLog->callsign(), currentSentExchangeText());
         m_appController.rigctldClient().sendMorse(text);
+        statusBar()->showMessage(QStringLiteral("CW: %1").arg(text), 3000);
     });
+    connect(m_cwMacroPanel, &CwMacroPanel::stopRequested, this, [this]() {
+        m_appController.rigctldClient().stopMorse();
+        statusBar()->showMessage(QStringLiteral("CW gestoppt"), 2000);
+    });
+    // F1..F6 = the macro buttons, Esc = stop keying -- N1MM+/DXLog.net's
+    // keyboard habit, whether or not the macro row is on screen. Window
+    // scope, so a dialog's own Esc stays its own.
+    for (int i = 0; i < 6; ++i) {
+        auto* shortcut = new QShortcut(QKeySequence(Qt::Key_F1 + i), this);
+        shortcut->setContext(Qt::WindowShortcut);
+        connect(shortcut, &QShortcut::activated, this, [this, i]() { m_cwMacroPanel->activateMacro(i); });
+    }
+    auto* stopShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    stopShortcut->setContext(Qt::WindowShortcut);
+    connect(stopShortcut, &QShortcut::activated, m_cwMacroPanel, &CwMacroPanel::stopRequested);
 
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&Datei"));
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));

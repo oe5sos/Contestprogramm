@@ -31,6 +31,11 @@ public:
     // "4-6 buttons" scope; a caller with fewer templates gets fewer
     // buttons.
     void setMacroTemplates(const QStringList& templates);
+    // Fires macroActivated() for the `index`-th template (0-based), the
+    // way a click on its button would -- MainWindow's F1..F6 shortcuts
+    // land here so the operator's hands can stay on the keyboard, as in
+    // N1MM+/DXLog.net. Out of range: nothing.
+    void activateMacro(int index);
     QStringList macroTemplates() const { return m_templates; }
 
     // Replaces "{call}" with `callsign` and "{exchange}" with `exchange`
@@ -44,12 +49,16 @@ signals:
     // substituted) -- see the class comment for why substitution happens
     // in MainWindow, not here.
     void macroActivated(const QString& templateText);
+    // The "■ Esc" button: abort keying in progress (MainWindow ->
+    // RigctldClient::stopMorse()).
+    void stopRequested();
 
 private:
     void rebuildButtons();
 
     QStringList m_templates;
     QVector<QPushButton*> m_buttons;
+    QPushButton* m_stopButton = nullptr;
     QHBoxLayout* m_layout = nullptr;
 };
 

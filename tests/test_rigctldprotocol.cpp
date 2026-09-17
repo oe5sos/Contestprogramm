@@ -92,6 +92,7 @@ private slots:
     void errorReportIsNeverReadAsPtt();
     void setFrequencyCommandFormatsPlainInteger();
     void setPttCommandFormatsZeroOrOne();
+    void morseCommandsAreTheDocumentedForms();
 
     void liveClientReceivesFrequencyModeAndPtt();
     void liveClientSendsSetFrequencyCommand();
@@ -151,6 +152,15 @@ void TestRigctldProtocol::errorReportIsNeverReadAsPtt()
 void TestRigctldProtocol::setFrequencyCommandFormatsPlainInteger()
 {
     QCOMPARE(RigctldClient::setFrequencyCommand(145500000), QByteArrayLiteral("F 145500000\n"));
+}
+
+void TestRigctldProtocol::morseCommandsAreTheDocumentedForms()
+{
+    // `b <text>` keys, `\stop_morse` (long form, no letter alias in
+    // Hamlib 4.7.2) aborts -- see the header comment.
+    QCOMPARE(RigctldClient::sendMorseCommand(QStringLiteral("CQ TEST")), QByteArray("b CQ TEST\n"));
+    QCOMPARE(RigctldClient::sendMorseCommand(QStringLiteral("TU\nDE")), QByteArray("b TU DE\n"));
+    QCOMPARE(RigctldClient::stopMorseCommand(), QByteArray("\\stop_morse\n"));
 }
 
 void TestRigctldProtocol::setPttCommandFormatsZeroOrOne()

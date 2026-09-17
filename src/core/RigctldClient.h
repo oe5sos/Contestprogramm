@@ -130,6 +130,12 @@ public:
     // command line); CwMacroPanel is the caller in practice, after
     // substituting its {call}/{exchange} placeholders.
     void sendMorse(const QString& text);
+    // Aborts keying in progress -- rigctld's long-form `\stop_morse`
+    // (Hamlib 4.7.2 lists it without a single-letter alias, hence the
+    // backslash form). The Esc key in MainWindow ends here; a backend
+    // without RIG_FUNC stop support answers with a negative RPRT, which
+    // surfaces as errorOccurred and nothing worse.
+    void stopMorse();
 
     // -- Protocol, as pure functions --------------------------------
 
@@ -162,6 +168,7 @@ public:
     // space, since either would otherwise be read as ending the
     // command line early.
     static QByteArray sendMorseCommand(const QString& text);
+    static QByteArray stopMorseCommand();
 
 signals:
     void stateChanged();
