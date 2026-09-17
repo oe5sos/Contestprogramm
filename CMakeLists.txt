@@ -105,6 +105,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/CabrilloExporter.cpp
     src/data/AdifExporter.h
     src/data/AdifExporter.cpp
+    src/data/EdiExporter.h
+    src/data/EdiExporter.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h
@@ -144,6 +146,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/RotorWidget.cpp
     src/ui/CwMacroPanel.h
     src/ui/CwMacroPanel.cpp
+    src/ui/EdiExportDialog.h
+    src/ui/EdiExportDialog.cpp
     src/ui/MapWidget.h
     src/ui/MapWidget.cpp
     src/ui/UtcClockWidget.h

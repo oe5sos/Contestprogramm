@@ -68,6 +68,7 @@ private slots:
     void openContestPicker();
     void exportCabrillo();
     void exportAdif();
+    void exportEdi();
     void openMultiplierWindow();
     void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
     void handleCallsignLookupRequested(const QString& callsign);

@@ -22,6 +22,7 @@
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
+#include "ui/EdiExportDialog.h"
 #include "ui/LayoutProfileManager.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
@@ -838,6 +839,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportCabrilloAction, &QAction::triggered, this, &MainWindow::exportCabrillo);
     QAction* exportAdifAction = fileMenu->addAction(QStringLiteral("&ADIF exportieren..."));
     connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
+    // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
+    // Cabrillo alone is not enough for a VHF/UHF contest entry.
+    QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
+    connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -2226,6 +2231,25 @@ void MainWindow::exportAdif()
     file.close();
 
     statusBar()->showMessage(QStringLiteral("ADIF-Log exportiert: %1").arg(path), 5000);
+}
+
+void MainWindow::exportEdi()
+{
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    if (!def) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"), QStringLiteral("Kein aktiver Contest ausgewählt."));
+        return;
+    }
+
+    // The dialog writes the files itself (one per band) -- see
+    // EdiExportDialog.h; only the confirmation is shown here.
+    EdiExportDialog dialog(m_appController.database(), *def, settings, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QStringList files = dialog.writtenFiles();
+    statusBar()->showMessage(QStringLiteral("EDI-Log exportiert: %1").arg(files.join(QStringLiteral(", "))), 8000);
 }
 
 void MainWindow::openMultiplierWindow()
