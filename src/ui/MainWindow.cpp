@@ -4,6 +4,7 @@
 #include "core/BandUtils.h"
 #include "core/BeamHeading.h"
 #include "core/CallsignLocatorLookup.h"
+#include "core/CheckPartialIndex.h"
 #include "core/DxClusterClient.h"
 #include "core/Maidenhead.h"
 #include "core/RigctldClient.h"
@@ -19,6 +20,7 @@
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 #include "models/LogTableModel.h"
+#include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
@@ -45,6 +47,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHash>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -606,6 +609,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
                                          /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130));
+    // Check Partial, under the rate panel in the same 270px column --
+    // hidden in every already-saved profile (LayoutProfileManager's
+    // "a panel the profile never saved starts hidden"), switched on
+    // via Fenster > Panels > Check.
+    m_checkPartialWidget = new CheckPartialWidget(this);
+    connect(m_checkPartialWidget, &CheckPartialWidget::callsignChosen, this,
+            [this](const QString& callsign, const QString& grid) { handleCandidateActivated(callsign, grid, 0); });
+    connect(m_checkPartialWidget, &CheckPartialWidget::scpLoadRequested, this, &MainWindow::loadScpFile);
+    m_panelLayoutManager->registerPanel(QStringLiteral("checkpartial"), QStringLiteral("Check"), m_checkPartialWidget,
+                                         /*contentHasOwnChrome=*/false, QRect(630, 585, 270, 150));
 
     m_panelLayoutManager->finalizeInitialLayout();
 
@@ -623,7 +636,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_layoutProfileManager = new LayoutProfileManager(
         m_appController.database(), *m_panelLayoutManager,
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
-         QStringLiteral("suggestion"), QStringLiteral("ratemeter")},
+         QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial")},
         this);
     m_profileRail = new ProfileRail(this);
     m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
@@ -686,6 +699,15 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
 
     connect(m_unifiedLog, &UnifiedLogWidget::logRequested, this, &MainWindow::handleLogRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::formChanged, this, &MainWindow::recheckDupeIndicator);
+    connect(m_unifiedLog, &UnifiedLogWidget::formChanged, this, &MainWindow::refreshCheckPartial);
+    // Calls heard on ON4KST/cluster feed the Check panel's "Seen" source
+    // -- the people actually around tonight, ahead of any static list.
+    const auto noteSeenCall = [this](const SpotCandidate& candidate) {
+        m_checkPartialIndex.addSeenCall(candidate.callsign, candidate.grid);
+    };
+    connect(&m_appController.on4kstClient(), &On4kstClient::spotReceived, this, noteSeenCall);
+    connect(&m_appController.on4kstClient(), &On4kstClient::chatLineReceived, this, noteSeenCall);
+    connect(&m_appController.dxClusterClient(), &DxClusterClient::spotReceived, this, noteSeenCall);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
     connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
@@ -843,6 +865,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Cabrillo alone is not enough for a VHF/UHF contest entry.
     QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
+    QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
+    connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -875,6 +899,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
         {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
         {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+        {QStringLiteral("checkpartial"), QStringLiteral("Check")},
     };
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
@@ -1135,6 +1160,7 @@ void MainWindow::applyActiveContestDefinition()
         // same settings/contest switch that lands here.
         m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
     }
+    reloadCheckPartialSources();
     refreshSentExchangePreview();
     updateStatusBar();
 }
@@ -1779,6 +1805,7 @@ void MainWindow::handleLogRequested()
     refreshMapWidget();
     refreshSuggestionPanel();
     updateStatusBar();
+    reloadCheckPartialSources();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -2254,6 +2281,71 @@ void MainWindow::exportEdi()
     }
     const QStringList files = dialog.writtenFiles();
     statusBar()->showMessage(QStringLiteral("EDI-Log exportiert: %1").arg(files.join(QStringLiteral(", "))), 8000);
+}
+
+void MainWindow::reloadCheckPartialSources()
+{
+    const ContestSettings settings = m_appController.settings();
+    QVector<QPair<QString, QString>> logCalls;
+    for (const QsoRecord& record : m_appController.database().qsosForContest(settings.activeContestId)) {
+        if (!record.isInvalid) {
+            logCalls.append({record.callsign, record.band});
+        }
+    }
+    m_checkPartialIndex.setLogCalls(logCalls);
+    m_checkPartialIndex.setHistoryCalls(m_appController.database().allImportedLocators());
+
+    // The SCP list is loaded once from the remembered path; a missing
+    // or unreadable file just leaves that source empty (and the panel's
+    // status line offering to load one).
+    static bool scpLoaded = false;
+    if (!scpLoaded) {
+        scpLoaded = true;
+        const QString path = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
+        QFile file(path);
+        if (!path.isEmpty() && file.open(QIODevice::ReadOnly)) {
+            m_checkPartialIndex.setScpCalls(CheckPartialIndex::parseScp(file.readAll()));
+        }
+    }
+    const QString scpPath = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
+    m_checkPartialWidget->setSources(m_checkPartialIndex.scpCount(),
+                                     m_checkPartialIndex.scpCount() > 0 ? QFileInfo(scpPath).fileName() : QString(),
+                                     m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
+    refreshCheckPartial();
+}
+
+void MainWindow::refreshCheckPartial()
+{
+    const QString fragment = m_unifiedLog->callsign();
+    m_checkPartialWidget->setMatches(fragment, m_checkPartialIndex.matches(fragment, m_currentBand));
+}
+
+void MainWindow::loadScpFile()
+{
+    const QString previous = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("SCP-Liste laden"), previous,
+                                                      QStringLiteral("Super-Check-Partial-Listen (*.scp *.txt *.dta);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("SCP-Liste konnte nicht gelesen werden:\n%1").arg(file.errorString()));
+        return;
+    }
+    const QStringList calls = CheckPartialIndex::parseScp(file.readAll());
+    if (calls.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("In dieser Datei steht kein Rufzeichen (erwartet: eines je Zeile, # für Kommentare)."));
+        return;
+    }
+    m_checkPartialIndex.setScpCalls(calls);
+    m_appController.database().setSettingValue(QStringLiteral("scp_file_path"), path);
+    m_checkPartialWidget->setSources(m_checkPartialIndex.scpCount(), QFileInfo(path).fileName(),
+                                     m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
+    refreshCheckPartial();
+    statusBar()->showMessage(QStringLiteral("SCP-Liste geladen: %1 Rufzeichen aus %2").arg(calls.size()).arg(QFileInfo(path).fileName()), 5000);
 }
 
 void MainWindow::openMultiplierWindow()

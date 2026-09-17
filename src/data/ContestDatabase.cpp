@@ -439,6 +439,22 @@ bool ContestDatabase::setQsoInvalid(int id, bool invalid, QString* errorOut)
     return true;
 }
 
+QHash<QString, QString> ContestDatabase::allImportedLocators() const
+{
+    QHash<QString, QString> result;
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT callsign, grid FROM imported_locators"))) {
+        return result;
+    }
+    while (query.next()) {
+        const QString call = query.value(0).toString().trimmed().toUpper();
+        if (!call.isEmpty()) {
+            result.insert(call, query.value(1).toString().trimmed().toUpper());
+        }
+    }
+    return result;
+}
+
 std::optional<ContestDatabase::ImportedLocator> ContestDatabase::importedLocatorForCallsign(const QString& callsign) const
 {
     QSqlQuery query(m_db);

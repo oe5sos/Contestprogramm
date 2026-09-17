@@ -58,6 +58,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/RotorDialStyle.h
     src/core/On4kstClient.h
     src/core/On4kstClient.cpp
+    src/core/CheckPartialIndex.h
+    src/core/CheckPartialIndex.cpp
     src/core/DxClusterClient.h
     src/core/DxClusterClient.cpp
     src/core/CallsignLocatorLookup.h
@@ -150,6 +152,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/CwMacroPanel.cpp
     src/ui/EdiExportDialog.h
     src/ui/EdiExportDialog.cpp
+    src/ui/CheckPartialWidget.h
+    src/ui/CheckPartialWidget.cpp
     src/ui/MapWidget.h
     src/ui/MapWidget.cpp
     src/ui/UtcClockWidget.h

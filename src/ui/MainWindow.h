@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/CheckPartialIndex.h"
+
 #include <QMainWindow>
 #include <QString>
 
@@ -16,6 +18,7 @@ namespace Contestprogramm {
 
 class AppController;
 class ContestDefinition;
+class CheckPartialWidget;
 class ContestRulesEditor;
 class CwMacroPanel;
 class LayoutProfileManager;
@@ -69,6 +72,8 @@ private slots:
     void exportCabrillo();
     void exportAdif();
     void exportEdi();
+    void loadScpFile();
+    void refreshCheckPartial();
     void openMultiplierWindow();
     void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
     void handleCallsignLookupRequested(const QString& callsign);
@@ -336,6 +341,13 @@ private:
     // skip the very first (post-login) switch.
     QString m_currentOn4kstRoom;
     RateMeterWidget* m_rateMeterWidget = nullptr;
+    // Check Partial (core/CheckPartialIndex.h + ui/CheckPartialWidget.h):
+    // the index is refilled by reloadCheckPartialSources() on every
+    // contest switch and logged QSO, the widget is refreshed from
+    // the entry row's formChanged.
+    CheckPartialIndex m_checkPartialIndex;
+    CheckPartialWidget* m_checkPartialWidget = nullptr;
+    void reloadCheckPartialSources();
     MultiplierWindow* m_multiplierWindow = nullptr;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;
