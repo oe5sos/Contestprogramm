@@ -477,6 +477,21 @@ bool ContestDatabase::backupTo(const QString& path, QString* errorOut)
     return true;
 }
 
+std::optional<QString> ContestDatabase::lastKnownGridForCallsign(const QString& callsign) const
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "SELECT grid_square FROM qsos "
+        "WHERE UPPER(TRIM(callsign)) = UPPER(TRIM(:callsign)) AND is_invalid = 0 "
+        "AND grid_square IS NOT NULL AND TRIM(grid_square) != '' "
+        "ORDER BY timestamp_utc DESC LIMIT 1"));
+    query.bindValue(QStringLiteral(":callsign"), callsign);
+    if (!query.exec() || !query.next()) {
+        return std::nullopt;
+    }
+    return query.value(0).toString().trimmed().toUpper();
+}
+
 QHash<QString, QString> ContestDatabase::allImportedLocators() const
 {
     QHash<QString, QString> result;

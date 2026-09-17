@@ -1997,6 +1997,14 @@ void MainWindow::handleCallsignLookupRequested(const QString& callsign)
         return;
     }
 
+    // Tier 1b: any earlier contest in this database -- the station
+    // worked last year from the same hill still sits in the same
+    // square. Grid only; a serial belongs to one contest.
+    if (const auto earlier = m_appController.database().lastKnownGridForCallsign(callsign)) {
+        m_unifiedLog->applyKnownExchange(*earlier, std::nullopt);
+        return;
+    }
+
     // Tier 2: the imported/cached locator table (core/
     // CallsignLocatorLookup.h) -- still synchronous, instant, and
     // offline-safe. Populated by a one-time CSV import (SettingsDialog's

@@ -81,6 +81,12 @@ public:
     // case-folded callsign).
     std::optional<KnownCallsignExchange> knownExchangeForCallsign(const QString& callsign, const QString& contestId) const;
 
+    // The locator this station last gave us in ANY contest (non-invalid
+    // QSO, newest first) -- the "worked them last year" memory N1MM+'s
+    // Call History and DXLog.net's callsign database grow from old logs.
+    // Only the grid: serials belong to one contest.
+    std::optional<QString> lastKnownGridForCallsign(const QString& callsign) const;
+
     // Hand-correct an already-logged QSO's callsign in place -- see
     // UnifiedLogWidget's history-row Call cell and this task's report
     // (DXLog.net's own real scope: the "Nr"/exchange fields are

@@ -54,6 +54,7 @@ class TestGridAutofill : public QObject
 private slots:
     void databaseHitReturnsMostRecentGridAndSerial();
     void databaseMissReturnsNullopt();
+    void earlierContestSuppliesTheGridOnly();
     void widgetPrefillsEmptyFieldsOnly();
     void widgetDoesNotOverwriteAlreadyFilledFields();
 };
@@ -78,6 +79,43 @@ void TestGridAutofill::databaseHitReturnsMostRecentGridAndSerial()
     QCOMPARE(found->gridSquare, QStringLiteral("JN88TC")); // the more recent of the two
     QVERIFY(found->serialRcvd.has_value());
     QCOMPARE(*found->serialRcvd, 7);
+}
+
+void TestGridAutofill::earlierContestSuppliesTheGridOnly()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("earlier.sqlite")), QStringLiteral("grid_earlier")));
+
+    QsoRecord lastYear;
+    lastYear.callsign = QStringLiteral("DL1ABC");
+    lastYear.band = QStringLiteral("144");
+    lastYear.mode = QStringLiteral("SSB");
+    lastYear.timestampUtc = QStringLiteral("2025-10-04T09:00:00Z");
+    lastYear.gridSquare = QStringLiteral("jn58sd");
+    lastYear.serialRcvd = 44;
+    lastYear.contestId = QStringLiteral("IARU_R1_VHF_UHF_2025");
+    QVERIFY(db.insertQso(lastYear));
+    // A later QSO without a grid must not shadow the one that had it,
+    // and an invalid one never counts.
+    QsoRecord noGrid = lastYear;
+    noGrid.timestampUtc = QStringLiteral("2026-03-01T09:00:00Z");
+    noGrid.gridSquare.clear();
+    QVERIFY(db.insertQso(noGrid));
+    QsoRecord wrong = lastYear;
+    wrong.timestampUtc = QStringLiteral("2026-05-01T09:00:00Z");
+    wrong.gridSquare = QStringLiteral("KN05IX");
+    QVERIFY(db.insertQso(wrong));
+    QVERIFY(db.setQsoInvalid(wrong.id, true));
+
+    // This contest knows nothing about the call...
+    QVERIFY(!db.knownExchangeForCallsign(QStringLiteral("DL1ABC"), QStringLiteral("IARU_R1_VHF_UHF")).has_value());
+    // ...but the database as a whole does, grid only, upper-cased.
+    const auto grid = db.lastKnownGridForCallsign(QStringLiteral(" dl1abc "));
+    QVERIFY(grid.has_value());
+    QCOMPARE(*grid, QStringLiteral("JN58SD"));
+    QVERIFY(!db.lastKnownGridForCallsign(QStringLiteral("OE9ZZZ")).has_value());
 }
 
 void TestGridAutofill::databaseMissReturnsNullopt()
