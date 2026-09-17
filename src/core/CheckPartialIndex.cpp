@@ -152,6 +152,8 @@ QVector<CheckPartialMatch> CheckPartialIndex::matches(const QString& partial, co
             match.grid = known->grid;
             match.sources = known->sources;
             match.workedThisBand = !band.isEmpty() && known->bands.contains(band);
+            match.workedBands = QStringList(known->bands.begin(), known->bands.end());
+            std::sort(match.workedBands.begin(), match.workedBands.end());
         }
         if (m_scpSet.contains(call)) {
             match.sources |= CheckPartialMatch::Scp;

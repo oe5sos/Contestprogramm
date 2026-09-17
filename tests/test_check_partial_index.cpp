@@ -90,6 +90,8 @@ void TestCheckPartialIndex::flagsDupesOnTheCurrentBandOnly()
 
     auto on432 = index.matches(QStringLiteral("OE5X"), QStringLiteral("432"));
     QVERIFY(!find(on432, QStringLiteral("OE5XYZ"))->workedThisBand);
+    QCOMPARE(find(on432, QStringLiteral("OE5XYZ"))->workedBands, QStringList{QStringLiteral("144")});
+    QVERIFY(find(on432, QStringLiteral("OE5XYA"))->workedBands.isEmpty());
     // Log-known calls rank before SCP-only ones.
     QCOMPARE(calls(on432).first(), QStringLiteral("OE5XYZ"));
 }

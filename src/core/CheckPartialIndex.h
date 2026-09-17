@@ -36,6 +36,7 @@ struct CheckPartialMatch {
     QString grid;        // from History/Seen/Log when any of them knows it
     int sources = 0;     // OR of Source flags
     bool workedThisBand = false; // logged on the queried band already
+    QStringList workedBands;     // every band this call is in the log on, sorted
     bool nearMiss = false;       // matched by N+1, not as a substring
 };
 

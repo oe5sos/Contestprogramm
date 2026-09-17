@@ -32,11 +32,20 @@ QString callSpan(const CheckPartialMatch& match)
         prefix = QStringLiteral("&asymp;");
     }
     QString label = prefix + escaped(match.callsign);
+    QStringList small;
     if (!match.grid.isEmpty()) {
+        small << escaped(match.grid.left(4));
+    }
+    // Worked on another band already: N1MM+'s "QSO B4 on ..." hint --
+    // a station still open on this band, but its locator is known.
+    if (!match.workedThisBand && !match.workedBands.isEmpty()) {
+        small << QStringLiteral("&#10003;") + escaped(match.workedBands.join(QLatin1Char('/')));
+    }
+    if (!small.isEmpty()) {
         label += QStringLiteral("<span style='color:%1; font-size:%2px;'>&nbsp;%3</span>")
                      .arg(Style::kTextTertiary())
                      .arg(Style::kFontCaption)
-                     .arg(escaped(match.grid.left(4)));
+                     .arg(small.join(QStringLiteral("&nbsp;")));
     }
     return QStringLiteral("<a href='%1|%2' style='color:%3; text-decoration:%4;'>%5</a>")
         .arg(escaped(match.callsign), escaped(match.grid), color, decoration, label);

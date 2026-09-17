@@ -47,15 +47,24 @@ void TestCheckPartialWidget::rendersMatchesAndEmitsTheClickedCall()
     dupe.callsign = QStringLiteral("DL1ABC");
     dupe.sources = CheckPartialMatch::Log;
     dupe.workedThisBand = true;
+    dupe.workedBands = {QStringLiteral("144")};
+    CheckPartialMatch otherBand;
+    otherBand.callsign = QStringLiteral("OE5XYB");
+    otherBand.sources = CheckPartialMatch::Log;
+    otherBand.workedBands = {QStringLiteral("432")};
     CheckPartialMatch near;
     near.callsign = QStringLiteral("OE5XYA");
     near.nearMiss = true;
     near.sources = CheckPartialMatch::Scp;
-    widget.setMatches(QStringLiteral("OE5X"), {known, dupe, near});
+    widget.setMatches(QStringLiteral("OE5X"), {known, dupe, near, otherBand});
 
     const QString text = plainText(widget);
     QVERIFY2(text.contains(QStringLiteral("OE5XYZ JN67")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("DL1ABC")), qPrintable(text));
+    // Worked on the current band: no band hint (it is struck through);
+    // worked elsewhere: the "✓432" hint.
+    QVERIFY2(!text.contains(QStringLiteral("DL1ABC ✓")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("OE5XYB ✓432")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("≈OE5XYA")), qPrintable(text));
 
     // The link carries call and grid; activating it hands both on.
