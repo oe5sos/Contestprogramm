@@ -3,6 +3,7 @@
   "name": "IARU Region 1 VHF/UHF Contest",
   "bands": ["144", "432"],
   "dupe_scope": ["callsign", "band", "mode"],
+  "scoring": "distance_km",
   "exchange_fields": [
     { "key": "rst",    "label": "RST",    "type": "rst" },
     { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true },

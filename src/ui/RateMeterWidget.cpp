@@ -1,9 +1,12 @@
 #include "ui/RateMeterWidget.h"
 
+#include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
+#include "data/ContestScoring.h"
 #include "ui/StyleKit.h"
 
 #include <QDateTime>
+#include <QLocale>
 #include <QMap>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -62,7 +65,8 @@ QString trendGlyph(RateBreakdown::Trend trend)
 // "name: count" mono span per entry, one size step down from the
 // headline row's own value size (kFontCaption+1, not kFontSub) since
 // this is a secondary reading, not the primary rate.
-QString breakdownLine(const QString& caption, const QVector<QPair<QString, int>>& entries)
+QString breakdownLine(const QString& caption, const QVector<QPair<QString, QString>>& entries,
+                      const QString& valueColor = Style::kTextSecondary())
 {
     if (entries.isEmpty()) {
         return QString();
@@ -73,12 +77,30 @@ QString breakdownLine(const QString& caption, const QVector<QPair<QString, int>>
                                      .arg(caption.toUpper());
     QStringList parts;
     for (const auto& entry : entries) {
-        parts << QStringLiteral("<span style='font-family:Menlo; font-size:%1px; color:%2;'>%3: %4</span>")
+        parts << QStringLiteral("<span style='font-family:Menlo; font-size:%1px; color:%2;'>%3</span>")
                      .arg(Style::kFontCaption + 1)
-                     .arg(Style::kTextSecondary())
-                     .arg(entry.first, QString::number(entry.second));
+                     .arg(valueColor)
+                     .arg(entry.first.isEmpty() ? entry.second
+                                                : QStringLiteral("%1: %2").arg(entry.first, entry.second));
     }
     return captionSpan + parts.join(QStringLiteral("&nbsp;&nbsp;"));
+}
+
+QString breakdownLine(const QString& caption, const QVector<QPair<QString, int>>& entries)
+{
+    QVector<QPair<QString, QString>> formatted;
+    for (const auto& entry : entries) {
+        formatted.append({entry.first, QString::number(entry.second)});
+    }
+    return breakdownLine(caption, formatted);
+}
+
+// "4 812" (narrow no-break space, the Austrian grouping) -- the km
+// sums pass 10 000 on a good 2m weekend and are unreadable as a bare
+// digit run.
+QString groupedNumber(qint64 value)
+{
+    return QLocale(QLocale::German, QLocale::Austria).toString(value);
 }
 
 } // namespace
@@ -150,12 +172,14 @@ RateMeterWidget::RateMeterWidget(QWidget* parent)
     , m_headlineLabel(new QLabel(this))
     , m_bandLabel(new QLabel(this))
     , m_modeLabel(new QLabel(this))
+    , m_scoreLabel(new QLabel(this))
+    , m_odxLabel(new QLabel(this))
 {
     // A plain bordered/rounded panel, no header bar -- matches the
     // design mockups' bare `.panel` treatment for this row.
     Style::applyPanelFrameStyle(this);
 
-    for (QLabel* label : {m_headlineLabel, m_bandLabel, m_modeLabel}) {
+    for (QLabel* label : {m_headlineLabel, m_bandLabel, m_modeLabel, m_scoreLabel, m_odxLabel}) {
         label->setTextFormat(Qt::RichText);
         label->setFont(Style::capsFont(label->font()));
         // 2026-09-13, kartendominante Anordnung: this panel moved out of
@@ -173,6 +197,8 @@ RateMeterWidget::RateMeterWidget(QWidget* parent)
     layout->addWidget(m_headlineLabel);
     layout->addWidget(m_bandLabel);
     layout->addWidget(m_modeLabel);
+    layout->addWidget(m_scoreLabel);
+    layout->addWidget(m_odxLabel);
     layout->addStretch(1);
 
     m_timer->setInterval(kRefreshIntervalMs);
@@ -189,6 +215,14 @@ void RateMeterWidget::setSource(ContestDatabase* database, const QString& contes
     refresh();
 }
 
+void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring)
+{
+    m_ownGrid = ownGrid.trimmed().toUpper();
+    m_bandOrder = bandOrder;
+    m_scoring = scoring;
+    refresh();
+}
+
 void RateMeterWidget::refresh()
 {
     if (!m_database || m_contestId.isEmpty()) {
@@ -198,6 +232,8 @@ void RateMeterWidget::refresh()
         m_headlineLabel->setText(readoutSpan(QStringLiteral("Rate"), Style::unknownDash(), Style::kTextInactive()));
         m_bandLabel->clear();
         m_modeLabel->clear();
+        m_scoreLabel->clear();
+        m_odxLabel->clear();
         emit last10MinRateChanged(0);
         return;
     }
@@ -235,6 +271,39 @@ void RateMeterWidget::refresh()
     // already know; it only earns its place once a second mode appears.
     m_modeLabel->setText(breakdown.byMode.size() > 1 ? breakdownLine(QStringLiteral("Mode"), breakdown.byMode)
                                                       : QString());
+
+    // The claimed score, the way the IARU-R1/ÖVSV rules count it (see
+    // ContestScoring.h): km per band and the sum, plus the ODX. Without
+    // an own locator every distance would be 0 -- that is "unknown",
+    // not a score, so the row shows the dash (HAUSSTIL rule 7 again).
+    if (!isValidGridSquare(m_ownGrid) && m_scoring == QStringLiteral("distance_km")) {
+        m_scoreLabel->setText(breakdownLine(QStringLiteral("Punkte"), {{QString(), Style::unknownDash()}},
+                                            Style::kTextInactive()));
+        m_odxLabel->clear();
+    } else {
+        const ContestScore score = computeContestScore(records, m_ownGrid, m_bandOrder, m_scoring);
+        QVector<QPair<QString, QString>> perBand;
+        int bandsWithQsos = 0;
+        for (const BandScore& band : score.bands) {
+            perBand.append({band.band, groupedNumber(band.points)});
+            if (band.validQsos > 0) {
+                ++bandsWithQsos;
+            }
+        }
+        // The sum only says something once a second band contributes;
+        // in a single-band log it would just repeat the band's number
+        // in the 270px this panel gets.
+        if (bandsWithQsos > 1) {
+            perBand.append({QStringLiteral("Σ"), groupedNumber(score.points)});
+        }
+        m_scoreLabel->setText(breakdownLine(QStringLiteral("Punkte"), perBand, Style::kAmberText()));
+        m_odxLabel->setText(score.odxKm > 0
+                                ? breakdownLine(QStringLiteral("ODX"),
+                                                {{QString(), QStringLiteral("%1 %2 %3 km")
+                                                                 .arg(score.odxCall, score.odxGrid)
+                                                                 .arg(groupedNumber(score.odxKm))}})
+                                : QString());
+    }
 
     emit last10MinRateChanged(breakdown.last10Min);
 }

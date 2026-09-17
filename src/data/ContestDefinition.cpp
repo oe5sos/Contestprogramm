@@ -99,6 +99,17 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
     if (root.value(QStringLiteral("multiplier_field")).isString()) {
         def.m_multiplierField = root.value(QStringLiteral("multiplier_field")).toString();
     }
+    // Optional as well; only "distance_km" and "qso_count" are known
+    // (see ContestScoring.h), anything else is rejected rather than
+    // silently scored as one of them.
+    if (root.value(QStringLiteral("scoring")).isString()) {
+        const QString scoring = root.value(QStringLiteral("scoring")).toString();
+        if (scoring != QStringLiteral("distance_km") && scoring != QStringLiteral("qso_count")) {
+            if (errorOut) { *errorOut = QStringLiteral("unknown \"scoring\" value \"%1\"").arg(scoring); }
+            return ContestDefinition();
+        }
+        def.m_scoring = scoring;
+    }
 
     def.m_valid = true;
     return def;
@@ -151,6 +162,7 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
     root.insert(QStringLiteral("dupe_scope"), dupeScopeArray);
     root.insert(QStringLiteral("exchange_fields"), fieldsArray);
     root.insert(QStringLiteral("multiplier_field"), m_multiplierField);
+    root.insert(QStringLiteral("scoring"), m_scoring);
 
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {

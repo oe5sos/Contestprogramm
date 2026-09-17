@@ -107,6 +107,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/AdifExporter.cpp
     src/data/EdiExporter.h
     src/data/EdiExporter.cpp
+    src/data/ContestScoring.h
+    src/data/ContestScoring.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h

@@ -8,7 +8,6 @@ namespace Contestprogramm {
 class ContestDatabase;
 class ContestDefinition;
 struct ContestSettings;
-struct QsoRecord;
 
 // The station-description part of an EDI header -- the P*/R*/M*/S*
 // keys that say who operated from where with what. Deliberately NOT
@@ -58,10 +57,11 @@ struct EdiStationInfo {
 //   - CRLF line endings and Latin-1 bytes are what the format's
 //     Windows-era readers expect; the caller writes the QString with
 //     toLatin1() (see EdiExportDialog).
-//   - QSO points = great-circle distance in whole kilometres between
-//     locator centres (the IARU-R1 "1 point per km" rule), at least 1
-//     for a valid QSO with a known locator -- the usual evaluator
-//     convention for a same-square contact. No locator, no points.
+//   - QSO points come from data/ContestScoring.h (the definition's
+//     scoring rule, normally 1 point per whole km between locator
+//     centres, at least 1 with a known locator) -- the same function
+//     that feeds the live score panel, so the claimed C* header
+//     values are exactly what the operator watched all night.
 //   - A dupe (QsoRecord::isDupe) stays in the file, scores 0 and
 //     carries the "D" flag; the organiser's robot wants to see it. A
 //     QSO marked invalid (isInvalid) is left out entirely, same as
@@ -95,11 +95,6 @@ public:
     // REG1TEST mode codes: 1 SSB, 2 CW, 5 AM, 6 FM, 7 RTTY, 8 SSTV,
     // 9 ATV; 0 for anything else ("no mode information").
     static int modeCode(const QString& mode);
-
-    // Whole-kilometre points for one record, see the class comment.
-    // Falls back to computing the distance from `ownGrid` and the
-    // record's locator when the record carries no distanceKm.
-    static int qsoPoints(const QsoRecord& record, const QString& ownGrid);
 
     // "OE5SOS_144MHz.edi" -- one file name per band, call first so a
     // folder of several entrants' files sorts by station.

@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QWidget>
 
@@ -56,6 +57,12 @@ public:
     // holds ContestDatabase/AppController references elsewhere).
     void setSource(ContestDatabase* database, const QString& contestId);
 
+    // What the "Punkte"/"ODX" rows need beyond the records themselves
+    // (see data/ContestScoring.h): the own locator for distances, the
+    // definition's band order, and its scoring rule. Without a valid
+    // own grid the rows show a dash rather than a wrong zero.
+    void setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring);
+
 public slots:
     void refresh();
 
@@ -73,10 +80,15 @@ signals:
 private:
     ContestDatabase* m_database = nullptr;
     QString m_contestId;
+    QString m_ownGrid;
+    QStringList m_bandOrder;
+    QString m_scoring = QStringLiteral("distance_km");
     QTimer* m_timer;
     QLabel* m_headlineLabel;
     QLabel* m_bandLabel;
     QLabel* m_modeLabel;
+    QLabel* m_scoreLabel;
+    QLabel* m_odxLabel;
 };
 
 } // namespace Contestprogramm

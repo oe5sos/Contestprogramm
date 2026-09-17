@@ -54,6 +54,12 @@ public:
     // existing contest_definitions/*.json files need no change.
     const QString& multiplierField() const { return m_multiplierField; }
 
+    // How a valid QSO scores -- see data/ContestScoring.h. "distance_km"
+    // (1 point per km, the IARU-R1/ÖVSV/DARC VHF-UHF rule and the
+    // default when the JSON key "scoring" is absent) or "qso_count"
+    // (1 point per QSO).
+    const QString& scoring() const { return m_scoring; }
+
     // Returns a copy of this definition with exchangeFields() replaced
     // by `fields` -- id/name/bands/dupe_scope/multiplier_field stay
     // unchanged. Used by ContestRulesEditor to build the definition it
@@ -79,6 +85,7 @@ private:
     QStringList m_dupeScope;
     QVector<ExchangeField> m_exchangeFields;
     QString m_multiplierField = QStringLiteral("grid");
+    QString m_scoring = QStringLiteral("distance_km");
     bool m_valid = false;
 };
 

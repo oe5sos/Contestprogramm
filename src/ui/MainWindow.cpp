@@ -1130,6 +1130,10 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
+        // The score rows (km per band, ODX) need the own locator and the
+        // contest's band order/scoring rule -- both can change with the
+        // same settings/contest switch that lands here.
+        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
     }
     refreshSentExchangePreview();
     updateStatusBar();

@@ -4,6 +4,7 @@
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
+#include "data/ContestScoring.h"
 #include "data/QsoRecord.h"
 
 #include <QDateTime>
@@ -200,34 +201,33 @@ QString EdiExporter::exportBand(const QString& contestId,
     const QString ownCall = settings.ownCallsign.trimmed().toUpper();
     const QString ownGrid = settings.ownGrid.trimmed().toUpper();
 
-    int validCount = 0;
-    qint64 points = 0;
-    QSet<QString> worked4;
-    QString odxCall;
-    QString odxGrid;
-    int odxKm = 0;
-    QStringList qsoLines;
-
+    QVector<QsoRecord> records;
     for (const QsoRecord& record : all) {
-        if (record.band != band) {
-            continue;
+        if (record.band == band) {
+            records << record;
         }
-        const int qsoPts = record.isDupe ? 0 : qsoPoints(record, ownGrid);
+    }
+    // The header's claimed numbers, from the one scoring function the
+    // live panel uses too (see the class comment).
+    const ContestScore score = computeContestScore(records, ownGrid, {band}, definition.scoring());
+    const BandScore* bandScore = score.band(band);
+    const int validCount = bandScore ? bandScore->validQsos : 0;
+    const qint64 points = bandScore ? bandScore->points : 0;
+    const int squares = bandScore ? bandScore->largeSquares : 0;
+    const QString odxCall = bandScore ? bandScore->odxCall : QString();
+    const QString odxGrid = bandScore ? bandScore->odxGrid : QString();
+    const int odxKm = bandScore ? bandScore->odxKm : 0;
+
+    QSet<QString> worked4;
+    QStringList qsoLines;
+    for (const QsoRecord& record : records) {
+        const int qsoPts = qsoPoints(record, ownGrid, definition.scoring());
         QString newWwl;
-        if (!record.isDupe) {
-            ++validCount;
-            points += qsoPts;
-            if (isValidGridSquare(record.gridSquare)) {
-                const QString square = largeSquare(record.gridSquare);
-                if (!worked4.contains(square)) {
-                    worked4.insert(square);
-                    newWwl = QStringLiteral("N");
-                }
-            }
-            if (qsoPts > odxKm) {
-                odxKm = qsoPts;
-                odxCall = record.callsign.toUpper();
-                odxGrid = record.gridSquare.toUpper();
+        if (!record.isDupe && isValidGridSquare(record.gridSquare)) {
+            const QString square = largeSquare(record.gridSquare);
+            if (!worked4.contains(square)) {
+                worked4.insert(square);
+                newWwl = QStringLiteral("N");
             }
         }
 
@@ -283,7 +283,7 @@ QString EdiExporter::exportBand(const QString& contestId,
                  .arg(static_cast<int>(std::lround(settings.ownElevationM)));
     lines << QStringLiteral("CQSOs=%1;1").arg(validCount);
     lines << QStringLiteral("CQSOP=%1").arg(points);
-    lines << QStringLiteral("CWWLs=%1;0;1").arg(worked4.size());
+    lines << QStringLiteral("CWWLs=%1;0;1").arg(squares);
     lines << QStringLiteral("CWWLB=0");
     lines << QStringLiteral("CExcs=0;0;1");
     lines << QStringLiteral("CExcB=0");
@@ -333,20 +333,6 @@ int EdiExporter::modeCode(const QString& mode)
     if (m == QStringLiteral("SSTV")) { return 8; }
     if (m == QStringLiteral("ATV")) { return 9; }
     return 0;
-}
-
-int EdiExporter::qsoPoints(const QsoRecord& record, const QString& ownGrid)
-{
-    double km = -1.0;
-    if (record.distanceKm) {
-        km = *record.distanceKm;
-    } else if (isValidGridSquare(ownGrid) && isValidGridSquare(record.gridSquare)) {
-        km = calculateDistanceKm(ownGrid, record.gridSquare);
-    }
-    if (km < 0.0) {
-        return 0;
-    }
-    return std::max(1, static_cast<int>(std::lround(km)));
 }
 
 QString EdiExporter::suggestedFileName(const QString& ownCallsign, const QString& band)

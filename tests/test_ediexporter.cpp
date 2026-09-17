@@ -89,7 +89,6 @@ class TestEdiExporter : public QObject
 private slots:
     void bandLabelsUseReg1testSpellings();
     void modeCodesFollowTheSpec();
-    void pointsAreWholeKilometresWithAFloorOfOne();
     void exportsGoldenBandFile();
     void secondBandGetsItsOwnFileAndSharedDates();
     void invalidQsoIsLeftOutEverywhere();
@@ -117,28 +116,6 @@ void TestEdiExporter::modeCodesFollowTheSpec()
     QCOMPARE(EdiExporter::modeCode(QStringLiteral("RTTY")), 7);
     QCOMPARE(EdiExporter::modeCode(QStringLiteral("FT8")), 0);
     QCOMPARE(EdiExporter::modeCode(QString()), 0);
-}
-
-void TestEdiExporter::pointsAreWholeKilometresWithAFloorOfOne()
-{
-    QsoRecord r;
-    r.gridSquare = QStringLiteral("JN58SD");
-    r.distanceKm = 187.4;
-    QCOMPARE(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")), 187);
-    r.distanceKm = 214.6;
-    QCOMPARE(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")), 215);
-    // Same square: 0 km on the map, 1 point in the log.
-    r.distanceKm = 0.0;
-    QCOMPARE(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")), 1);
-    // No stored distance but both locators known -> computed on the fly.
-    r.distanceKm.reset();
-    r.gridSquare = QStringLiteral("JN67UT");
-    QCOMPARE(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")), 1);
-    r.gridSquare = QStringLiteral("JN88TC");
-    QVERIFY(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")) > 150);
-    // No locator at all: nothing to score.
-    r.gridSquare.clear();
-    QCOMPARE(EdiExporter::qsoPoints(r, QStringLiteral("JN67UT")), 0);
 }
 
 void TestEdiExporter::exportsGoldenBandFile()
