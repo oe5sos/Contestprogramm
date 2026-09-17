@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/BandmapModel.h"
 #include "core/CheckPartialIndex.h"
 
 #include <QMainWindow>
@@ -18,6 +19,7 @@ namespace Contestprogramm {
 
 class AppController;
 class ContestDefinition;
+class BandmapWidget;
 class CheckPartialWidget;
 class ContestRulesEditor;
 class CwMacroPanel;
@@ -351,6 +353,12 @@ private:
     CheckPartialIndex m_checkPartialIndex;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
+    // Bandmap (core/BandmapModel.h + ui/BandmapWidget.h): fed by both
+    // spot feeds, redrawn on every rig frequency report, logged QSO and
+    // a 15 s timer for the age-out.
+    BandmapModel m_bandmapModel;
+    BandmapWidget* m_bandmapWidget = nullptr;
+    void refreshBandmap();
     MultiplierWindow* m_multiplierWindow = nullptr;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;

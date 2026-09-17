@@ -62,6 +62,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/CheckPartialIndex.cpp
     src/core/EsmPlanner.h
     src/core/EsmPlanner.cpp
+    src/core/BandmapModel.h
+    src/core/BandmapModel.cpp
     src/core/DxClusterClient.h
     src/core/DxClusterClient.cpp
     src/core/CallsignLocatorLookup.h
@@ -160,6 +162,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/CheckPartialWidget.cpp
     src/ui/EsmTemplatesDialog.h
     src/ui/EsmTemplatesDialog.cpp
+    src/ui/BandmapWidget.h
+    src/ui/BandmapWidget.cpp
     src/ui/MapWidget.h
     src/ui/MapWidget.cpp
     src/ui/UtcClockWidget.h

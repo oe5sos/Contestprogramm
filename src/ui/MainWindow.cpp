@@ -2,6 +2,7 @@
 
 #include "app/AppController.h"
 #include "core/BandUtils.h"
+#include "core/BandmapModel.h"
 #include "core/BeamHeading.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
@@ -21,6 +22,7 @@
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 #include "models/LogTableModel.h"
+#include "ui/BandmapWidget.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
@@ -627,6 +629,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_checkPartialWidget, &CheckPartialWidget::scpLoadRequested, this, &MainWindow::loadScpFile);
     m_panelLayoutManager->registerPanel(QStringLiteral("checkpartial"), QStringLiteral("Check"), m_checkPartialWidget,
                                          /*contentHasOwnChrome=*/false, QRect(630, 585, 270, 150));
+    // Bandmap -- same "starts hidden in a saved profile" rule as Check.
+    m_bandmapWidget = new BandmapWidget(this);
+    connect(m_bandmapWidget, &BandmapWidget::spotActivated, this,
+            [this](const QString& callsign, const QString& grid, qint64 freqHz) {
+        // A bandmap click is a QSY: tune first, then fill the entry row
+        // the way a feed-row click does (rotor included).
+        if (m_appController.rigctldClient().isConnected() && freqHz > 0) {
+            m_appController.rigctldClient().setFrequency(freqHz);
+        }
+        handleCandidateActivated(callsign, grid, freqHz);
+    });
+    m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
+                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260));
 
     m_panelLayoutManager->finalizeInitialLayout();
 
@@ -644,7 +659,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_layoutProfileManager = new LayoutProfileManager(
         m_appController.database(), *m_panelLayoutManager,
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
-         QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial")},
+         QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
+         QStringLiteral("bandmap")},
         this);
     m_profileRail = new ProfileRail(this);
     m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
@@ -831,6 +847,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.dxClusterClient(), &DxClusterClient::connected, this, &MainWindow::updateStatusBar);
     connect(&m_appController.dxClusterClient(), &DxClusterClient::disconnected, this, &MainWindow::updateStatusBar);
 
+    // Bandmap feed: every spot with a frequency, from either source;
+    // the rig's frequency report moves the marker (and, via the
+    // connection above that sets m_currentBand first, the band);
+    // the timer ages spots out.
+    const auto noteBandmapSpot = [this](const SpotCandidate& candidate) {
+        if (candidate.freqHz > 0) {
+            m_bandmapModel.addSpot(candidate);
+            refreshBandmap();
+        }
+    };
+    connect(&m_appController.on4kstClient(), &On4kstClient::spotReceived, this, noteBandmapSpot);
+    connect(&m_appController.dxClusterClient(), &DxClusterClient::spotReceived, this, noteBandmapSpot);
+    connect(&m_appController.rigctldClient(), &RigctldClient::frequencyChanged, this, [this](qint64) { refreshBandmap(); });
+    auto* bandmapTimer = new QTimer(this);
+    bandmapTimer->setInterval(15000);
+    connect(bandmapTimer, &QTimer::timeout, this, &MainWindow::refreshBandmap);
+    bandmapTimer->start();
+
     // A terrain sector that was Unknown (its SRTM tile still loading)
     // resolving to a real classification later must still reach the
     // compass ring -- see refreshTerrainSectors()'s own doc comment.
@@ -930,6 +964,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
         {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
+        {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
     };
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
@@ -1865,6 +1900,7 @@ void MainWindow::handleLogRequested()
     refreshSuggestionPanel();
     updateStatusBar();
     reloadCheckPartialSources();
+    refreshBandmap();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -2491,6 +2527,26 @@ void MainWindow::openEsmTemplatesDialog()
     settings.esmMyCall = edited.myCall;
     settings.esmSpExchange = edited.spExchange;
     m_appController.setSettings(settings);
+}
+
+void MainWindow::refreshBandmap()
+{
+    if (!m_bandmapWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const QStringList dupeScope = def ? def->dupeScope()
+                                      : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
+    QVector<BandmapSpot> spots = m_bandmapModel.spotsForBand(m_currentBand, QDateTime::currentDateTimeUtc());
+    for (BandmapSpot& spot : spots) {
+        spot.worked = m_appController.dupeChecker().isDupe(spot.callsign, m_currentBand, m_currentMode,
+                                                          settings.activeContestId, dupeScope);
+    }
+    const RigctldClient& rig = m_appController.rigctldClient();
+    m_bandmapWidget->setBand(m_currentBand);
+    m_bandmapWidget->setOwnFrequencyHz(rig.isConnected() ? rig.frequencyHz() : 0);
+    m_bandmapWidget->setSpots(spots);
 }
 
 void MainWindow::openMultiplierWindow()
