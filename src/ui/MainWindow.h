@@ -78,6 +78,7 @@ private slots:
     void exportEdi();
     void loadScpFile();
     void importOldLogs();
+    void archiveActiveContest();
     void refreshCheckPartial();
     void openMultiplierWindow();
     void openStatisticsWindow();

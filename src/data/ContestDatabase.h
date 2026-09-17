@@ -6,6 +6,7 @@
 #include <QSqlDatabase>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include <optional>
@@ -121,6 +122,17 @@ public:
     // beyond call/exchange: the log time is when Enter was pressed,
     // not always when the QSO happened.
     bool updateQsoTimestamp(int id, const QString& timestampUtc, QString* errorOut = nullptr);
+
+    // Closes a contest log: every QSO of `contestId` is moved under
+    // `archiveId` (e.g. "IARU_R1_VHF_UHF@2026-10-04"), so the active
+    // contest starts empty -- serials from 001, no dupes against last
+    // year, a clean EDI -- while the old QSOs stay in the database for
+    // lastKnownGridForCallsign() and the backups. Nothing is deleted.
+    // Returns the number of QSOs moved, -1 on error.
+    int archiveContest(const QString& contestId, const QString& archiveId, QString* errorOut = nullptr);
+
+    // Every contest_id present in the qsos table, active or archived.
+    QStringList contestIdsInLog() const;
 
     // Incremented by every QSO write (insert/update/invalid-toggle) --
     // LogBackup compares it against the value at its last backup, so an

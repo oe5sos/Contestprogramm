@@ -28,6 +28,7 @@ private slots:
     void updateQsoExchangeRcvdPersists();
     void setQsoInvalidTogglesFlag();
     void updateQsoTimestampPersistsAndCountsWrites();
+    void archiveContestMovesQsosAndKeepsTheirLocators();
     void preExistingTableWithoutNewColumnsIsMigrated();
 };
 
@@ -322,6 +323,41 @@ void TestContestDatabase::updateQsoExchangeRcvdPersists()
 // invalid flag is what marks a bad contact instead, and it must be
 // freely toggleable both ways (see UnifiedLogWidget's Status-cell
 // click, which is a toggle, not a one-way mark).
+void TestContestDatabase::archiveContestMovesQsosAndKeepsTheirLocators()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("archive.sqlite")), QStringLiteral("test_archive")));
+
+    for (int i = 0; i < 3; ++i) {
+        QsoRecord record;
+        record.callsign = QStringLiteral("OE%1ABC").arg(i);
+        record.band = QStringLiteral("144");
+        record.mode = QStringLiteral("SSB");
+        record.timestampUtc = QStringLiteral("2025-10-04T1%1:00:00Z").arg(i);
+        record.gridSquare = QStringLiteral("JN58SD");
+        record.serialSent = i + 1;
+        record.contestId = QStringLiteral("IARU_R1_VHF_UHF");
+        QVERIFY(db.insertQso(record));
+    }
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF")), 4);
+
+    QString error;
+    QCOMPARE(db.archiveContest(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("IARU_R1_VHF_UHF@2025-10-04"), &error), 3);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    // The active contest is empty again, serials restart, nothing lost.
+    QCOMPARE(db.qsoCountForContest(QStringLiteral("IARU_R1_VHF_UHF")), 0);
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF")), 1);
+    QCOMPARE(db.qsoCountForContest(QStringLiteral("IARU_R1_VHF_UHF@2025-10-04")), 3);
+    QCOMPARE(db.contestIdsInLog(), QStringList{QStringLiteral("IARU_R1_VHF_UHF@2025-10-04")});
+    // ...and the locator memory still knows the stations.
+    QCOMPARE(db.lastKnownGridForCallsign(QStringLiteral("OE1ABC")).value_or(QString()), QStringLiteral("JN58SD"));
+    // Same id twice, or an empty one: refused, nothing changes.
+    QVERIFY(db.archiveContest(QStringLiteral("X"), QStringLiteral("X"), &error) < 0);
+    QCOMPARE(db.archiveContest(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("IARU_R1_VHF_UHF@x"), &error), 0);
+}
+
 void TestContestDatabase::updateQsoTimestampPersistsAndCountsWrites()
 {
     QTemporaryDir dir;

@@ -973,6 +973,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     fileMenu->addSeparator();
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
+    QAction* archiveAction = fileMenu->addAction(QStringLiteral("Log &abschließen und archivieren..."));
+    connect(archiveAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -2596,6 +2598,79 @@ void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newTex
     m_logModel->updateRecord(updated);
     // The rate windows and the EDI TDate span both read the timestamp.
     m_rateMeterWidget->refresh();
+}
+
+void MainWindow::archiveActiveContest()
+{
+    // The contest is over (or the test QSOs from the dry run are in the
+    // way): move everything logged under the active contest id to an
+    // archive id, so the next contest with the same definition starts
+    // at 001 with no dupes against last year and a clean EDI -- N1MM's
+    // "New log in database", DXLog's new file, without a second file.
+    // The old QSOs stay in the database: locator memory and backups
+    // keep them, nothing is deleted.
+    const ContestSettings settings = m_appController.settings();
+    const QString contestId = settings.activeContestId;
+    if (contestId.isEmpty()) {
+        return;
+    }
+    ContestDatabase& db = m_appController.database();
+    const QVector<QsoRecord> records = db.qsosForContest(contestId);
+    if (records.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("Contestprogramm"),
+                                 QStringLiteral("Das Log des aktiven Contests ist leer -- nichts zu archivieren."));
+        return;
+    }
+    QString lastDate = QStringLiteral("undatiert");
+    for (const QsoRecord& record : records) {
+        const QDateTime ts = QDateTime::fromString(record.timestampUtc, Qt::ISODate);
+        if (ts.isValid()) {
+            const QString date = ts.toUTC().date().toString(Qt::ISODate);
+            if (lastDate == QStringLiteral("undatiert") || date > lastDate) {
+                lastDate = date;
+            }
+        }
+    }
+    QString archiveId = QStringLiteral("%1@%2").arg(contestId, lastDate);
+    // A second archive on the same day gets a suffix rather than merging
+    // into the first.
+    const QStringList existing = db.contestIdsInLog();
+    for (int n = 2; existing.contains(archiveId); ++n) {
+        archiveId = QStringLiteral("%1@%2-%3").arg(contestId, lastDate).arg(n);
+    }
+    const auto answer = QMessageBox::question(
+        this, QStringLiteral("Contestprogramm"),
+        QStringLiteral("%1 QSOs des Contests \"%2\" werden unter \"%3\" archiviert.\n\n"
+                       "Danach beginnt das Log leer: Seriennummern ab 001, keine Dupes gegen die alten QSOs, "
+                       "ein leerer EDI-Export. Die alten QSOs bleiben in der Datenbank (Locator-Gedächtnis, "
+                       "Sicherungen) -- aber EDI/ADIF des alten Logs vorher exportieren!\n\nJetzt archivieren?")
+            .arg(records.size())
+            .arg(contestId, archiveId),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+    QString error;
+    const int moved = db.archiveContest(contestId, archiveId, &error);
+    if (moved < 0) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Archivieren fehlgeschlagen:\n%1").arg(error));
+        return;
+    }
+    // Everything that reads the active contest's QSOs, same sequence
+    // openContestPicker() uses after a contest switch.
+    applyActiveContestDefinition();
+    refreshMultiplierAndFeedScores();
+    refreshLogTable();
+    refreshMapWidget();
+    refreshSuggestionPanel();
+    refreshBandmap();
+    m_rateMeterWidget->setSource(&db, contestId);
+    updateStatusBar();
+    if (LogBackup* backup = m_appController.logBackup()) {
+        backup->backupNow(true);
+    }
+    statusBar()->showMessage(QStringLiteral("%1 QSOs archiviert unter %2 -- Log ist leer").arg(moved).arg(archiveId), 10000);
 }
 
 void MainWindow::backupLogNow()

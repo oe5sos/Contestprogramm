@@ -460,6 +460,42 @@ bool ContestDatabase::updateQsoTimestamp(int id, const QString& timestampUtc, QS
     return true;
 }
 
+int ContestDatabase::archiveContest(const QString& contestId, const QString& archiveId, QString* errorOut)
+{
+    if (contestId.isEmpty() || archiveId.isEmpty() || contestId == archiveId) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("archive id must differ from the contest id");
+        }
+        return -1;
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET contest_id = :archive_id WHERE contest_id = :contest_id"));
+    query.bindValue(QStringLiteral(":archive_id"), archiveId);
+    query.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return -1;
+    }
+    ++m_qsoWriteCounter;
+    return query.numRowsAffected();
+}
+
+QStringList ContestDatabase::contestIdsInLog() const
+{
+    QStringList result;
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT DISTINCT contest_id FROM qsos ORDER BY contest_id"))) {
+        return result;
+    }
+    while (query.next()) {
+        result << query.value(0).toString();
+    }
+    return result;
+}
+
 bool ContestDatabase::backupTo(const QString& path, QString* errorOut)
 {
     QSqlQuery query(m_db);
