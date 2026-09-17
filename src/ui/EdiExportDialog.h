@@ -52,6 +52,10 @@ public:
     // can drive it without a modal exec().
     bool exportNow();
 
+    // Tests only: skip the "section is empty" question (a modal box
+    // cannot be answered headlessly).
+    void setSkipSectionCheck(bool skip) { m_skipSectionCheck = skip; }
+
     // Full paths written by the last successful exportNow().
     QStringList writtenFiles() const { return m_writtenFiles; }
 
@@ -63,6 +67,7 @@ private:
     ContestDefinition m_definition;
     ContestSettings m_settings;
     QStringList m_writtenFiles;
+    bool m_skipSectionCheck = false;
 
     QLineEdit* m_sectionEdit;
     QLineEdit* m_clubEdit;

@@ -96,6 +96,11 @@ void TestCwMacroKeys::functionKeysKeyTheMacroAndEscStops()
 
     QTest::keyClick(&window, Qt::Key_Escape);
     QCOMPARE(window.statusBar()->currentMessage(), QStringLiteral("CW gestoppt"));
+
+    // Alt+W wipes the entry row.
+    QCOMPARE(log->callsign(), QStringLiteral("DL1ABC"));
+    QTest::keyClick(&window, Qt::Key_W, Qt::AltModifier);
+    QVERIFY(log->callsign().isEmpty());
 }
 
 int main(int argc, char* argv[])

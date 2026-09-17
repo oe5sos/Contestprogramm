@@ -281,6 +281,18 @@ bool EdiExportDialog::exportNow()
     }
 
     const EdiStationInfo station = stationInfo();
+    // The one header field the robots actually reject a log for:
+    // without a section the entry cannot be placed in a category.
+    if (station.section.trimmed().isEmpty() && !m_skipSectionCheck) {
+        const auto answer = QMessageBox::question(
+            this, QStringLiteral("Contestprogramm"),
+            QStringLiteral("Klasse/Sektion (PSect) ist leer -- die Auswertung braucht sie, um das Log "
+                           "einer Kategorie zuzuordnen.\nTrotzdem exportieren?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
     QStringList written;
     for (const QString& band : bands) {
         const QString text = exporter.exportBand(m_settings.activeContestId, band, m_definition, m_settings, station);

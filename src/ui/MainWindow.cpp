@@ -931,6 +931,15 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* stopShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     stopShortcut->setContext(Qt::WindowShortcut);
     connect(stopShortcut, &QShortcut::activated, m_cwMacroPanel, &CwMacroPanel::stopRequested);
+    // Alt+W wipes the entry row (N1MM+'s "Wipe"): a busted call or a
+    // station that went away, gone with one chord instead of field by
+    // field.
+    auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
+    wipeShortcut->setContext(Qt::WindowShortcut);
+    connect(wipeShortcut, &QShortcut::activated, this, [this]() {
+        m_unifiedLog->resetForNextEntry();
+        refreshCheckPartial();
+    });
 
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&Datei"));
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
