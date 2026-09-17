@@ -1575,6 +1575,17 @@ void UnifiedLogWidget::setExchangeFieldValue(const QString& key, const QString& 
     }
 }
 
+void UnifiedLogWidget::focusFirstEmptyExchangeField()
+{
+    for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
+        QLineEdit* edit = m_exchangeEditsByKey.value(field.key, nullptr);
+        if (edit && field.type != QStringLiteral("rst") && edit->text().trimmed().isEmpty()) {
+            edit->setFocus();
+            return;
+        }
+    }
+}
+
 void UnifiedLogWidget::resetForNextEntry()
 {
     m_callsignEdit->clear();

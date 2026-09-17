@@ -107,6 +107,7 @@ private slots:
     void handleHistoryInvalidToggleRequested(int qsoId);
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
+    void openEsmTemplatesDialog();
     void toggleOperatingMode();
     void updateStatusBar();
     // Kern-Welle 2: rotor + CW wiring. Creates/destroys each slot's

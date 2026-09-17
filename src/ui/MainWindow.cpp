@@ -6,6 +6,7 @@
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
 #include "core/DxClusterClient.h"
+#include "core/EsmPlanner.h"
 #include "core/Maidenhead.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
@@ -25,6 +26,7 @@
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
 #include "ui/EdiExportDialog.h"
+#include "ui/EsmTemplatesDialog.h"
 #include "ui/LayoutProfileManager.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
@@ -291,6 +293,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* countdownVisibleCheck = new QCheckBox(QStringLiteral("Contest-Countdown anzeigen"), filterRow);
     countdownVisibleCheck->setChecked(m_appController.settings().countdownVisible);
     filterLayout->addWidget(countdownVisibleCheck);
+    // Enter Sends Message (core/EsmPlanner.h) -- flipped live like the
+    // two toggles above; the texts live under Datei > ESM-Texte.
+    auto* esmCheck = new QCheckBox(QStringLiteral("ESM (Enter sendet, CW)"), filterRow);
+    esmCheck->setChecked(m_appController.settings().esmEnabled);
+    filterLayout->addWidget(esmCheck);
     filterLayout->addStretch();
     layout->addWidget(filterRow);
 
@@ -750,6 +757,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         settings.countdownVisible = visible;
         m_appController.setSettings(settings);
     });
+    connect(esmCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+        ContestSettings settings = m_appController.settings();
+        settings.esmEnabled = enabled;
+        m_appController.setSettings(settings);
+    });
     connect(m_modeToggleButton, &QPushButton::clicked, this, &MainWindow::toggleOperatingMode);
 
     // Rate-derived adaptive chat filtering (plan's "Adaptive
@@ -880,6 +892,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
+    connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
     fileMenu->addSeparator();
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
@@ -1707,11 +1721,40 @@ void MainWindow::updateStatusBar()
 void MainWindow::handleLogRequested()
 {
     const QString callsign = m_unifiedLog->callsign();
+    const ContestSettings settings = m_appController.settings();
+
+    // Enter Sends Message: Enter keys the text this state calls for
+    // and only logs once the exchange is complete -- see
+    // core/EsmPlanner.h. CW only: there is nothing to "send" in SSB
+    // without a voice keyer, so Enter keeps its plain log meaning there.
+    if (settings.esmEnabled && m_currentMode.trimmed().toUpper() == QStringLiteral("CW")) {
+        const ContestDefinition* esmDef = findContestDefinition(settings.activeContestId);
+        const bool complete = esmDef ? exchangeComplete(*esmDef, m_unifiedLog->exchangeReceived()) : true;
+        EsmTemplates templates;
+        templates.cq = settings.esmCq;
+        templates.runExchange = settings.esmRunExchange;
+        templates.tu = settings.esmTu;
+        templates.myCall = settings.esmMyCall;
+        templates.spExchange = settings.esmSpExchange;
+        const EsmPlan plan = planEnter(settings.operatingMode == ContestSettings::OperatingMode::Run
+                                           ? EsmMode::Run
+                                           : EsmMode::SearchAndPounce,
+                                       !callsign.isEmpty(), complete, templates);
+        if (!plan.templateText.isEmpty()) {
+            const QString text = substituteEsm(plan.templateText, callsign, currentSentExchangeText(), settings.ownCallsign);
+            m_appController.rigctldClient().sendMorse(text);
+            statusBar()->showMessage(QStringLiteral("ESM: %1").arg(text), 3000);
+        }
+        if (plan.focusExchange) {
+            m_unifiedLog->focusFirstEmptyExchangeField();
+        }
+        if (!plan.logQso) {
+            return;
+        }
+    }
     if (callsign.isEmpty()) {
         return;
     }
-
-    const ContestSettings settings = m_appController.settings();
     // m_currentBand/m_currentMode, not UI fields -- see the class
     // comment in MainWindow.h.
     const QString band = m_currentBand;
@@ -2426,6 +2469,28 @@ void MainWindow::backupLogNow()
         return;
     }
     statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(path), 8000);
+}
+
+void MainWindow::openEsmTemplatesDialog()
+{
+    ContestSettings settings = m_appController.settings();
+    EsmTemplates current;
+    current.cq = settings.esmCq;
+    current.runExchange = settings.esmRunExchange;
+    current.tu = settings.esmTu;
+    current.myCall = settings.esmMyCall;
+    current.spExchange = settings.esmSpExchange;
+    EsmTemplatesDialog dialog(current, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const EsmTemplates edited = dialog.templates();
+    settings.esmCq = edited.cq;
+    settings.esmRunExchange = edited.runExchange;
+    settings.esmTu = edited.tu;
+    settings.esmMyCall = edited.myCall;
+    settings.esmSpExchange = edited.spExchange;
+    m_appController.setSettings(settings);
 }
 
 void MainWindow::openMultiplierWindow()

@@ -287,6 +287,10 @@ public:
     // matching DXLog.net's own behaviour at the start of a fresh entry
     // -- then focuses the callsign field.
     void resetForNextEntry();
+    // ESM (see core/EsmPlanner.h): after keying "<call> <exchange>" the
+    // cursor belongs in the first still-empty received field, so the
+    // reply can be typed without a Tab.
+    void focusFirstEmptyExchangeField();
 
     // Grid-square substring filter over the log-history rows only --
     // same scope m_gridFilterEdit already had against LogTableView's

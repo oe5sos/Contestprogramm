@@ -226,6 +226,15 @@ struct ContestSettings {
     // display toggle -- RigctldClient::sendMorse() and the macro
     // templates themselves are unaffected either way.
     bool cwMacroPanelVisible = false;
+    // Enter Sends Message (core/EsmPlanner.h) -- off by default, the
+    // "ESM" checkbox in the filter row flips it live. The five texts
+    // are what Enter keys in each state; {call}/{exchange}/{mycall}.
+    bool esmEnabled = false;
+    QString esmCq = QStringLiteral("CQ TEST {mycall} {mycall} TEST");
+    QString esmRunExchange = QStringLiteral("{call} {exchange}");
+    QString esmTu = QStringLiteral("TU {mycall}");
+    QString esmMyCall = QStringLiteral("{mycall}");
+    QString esmSpExchange = QStringLiteral("{exchange}");
 
     // Contest-end timestamp for the top-bar countdown (ui/
     // UtcClockWidget.h), operator-set in SettingsDialog -- there is no

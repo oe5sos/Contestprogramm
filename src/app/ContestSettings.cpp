@@ -255,6 +255,12 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     cwMacroPanelVisible = boolFromString(
         database.settingValue(QStringLiteral("cw_macro_panel_visible"), boolToString(cwMacroPanelVisible)),
         cwMacroPanelVisible);
+    esmEnabled = boolFromString(database.settingValue(QStringLiteral("esm_enabled"), boolToString(esmEnabled)), esmEnabled);
+    esmCq = database.settingValue(QStringLiteral("esm_cq"), esmCq);
+    esmRunExchange = database.settingValue(QStringLiteral("esm_run_exchange"), esmRunExchange);
+    esmTu = database.settingValue(QStringLiteral("esm_tu"), esmTu);
+    esmMyCall = database.settingValue(QStringLiteral("esm_my_call"), esmMyCall);
+    esmSpExchange = database.settingValue(QStringLiteral("esm_sp_exchange"), esmSpExchange);
 
     contestEndUtc = database.settingValue(QStringLiteral("contest_end_utc"), contestEndUtc);
     countdownVisible = boolFromString(
@@ -324,6 +330,12 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("cw_macros"), stringListToJson(cwMacros));
 
     database.setSettingValue(QStringLiteral("cw_macro_panel_visible"), boolToString(cwMacroPanelVisible));
+    database.setSettingValue(QStringLiteral("esm_enabled"), boolToString(esmEnabled));
+    database.setSettingValue(QStringLiteral("esm_cq"), esmCq);
+    database.setSettingValue(QStringLiteral("esm_run_exchange"), esmRunExchange);
+    database.setSettingValue(QStringLiteral("esm_tu"), esmTu);
+    database.setSettingValue(QStringLiteral("esm_my_call"), esmMyCall);
+    database.setSettingValue(QStringLiteral("esm_sp_exchange"), esmSpExchange);
 
     database.setSettingValue(QStringLiteral("contest_end_utc"), contestEndUtc);
     database.setSettingValue(QStringLiteral("countdown_visible"), boolToString(countdownVisible));
