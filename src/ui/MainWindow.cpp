@@ -2424,6 +2424,9 @@ void MainWindow::exportEdi()
 
 void MainWindow::reloadCheckPartialSources()
 {
+    if (!m_checkPartialWidget) {
+        return;
+    }
     const ContestSettings settings = m_appController.settings();
     QVector<QPair<QString, QString>> logCalls;
     for (const QsoRecord& record : m_appController.database().qsosForContest(settings.activeContestId)) {
@@ -2454,6 +2457,9 @@ void MainWindow::reloadCheckPartialSources()
 
 void MainWindow::refreshCheckPartial()
 {
+    if (!m_checkPartialWidget) {
+        return;
+    }
     const QString fragment = m_unifiedLog->callsign();
     m_checkPartialWidget->setMatches(fragment, m_checkPartialIndex.matches(fragment, m_currentBand));
 }
