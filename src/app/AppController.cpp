@@ -86,6 +86,13 @@ AppController::AppController(QObject* parent)
     m_radioInfoTimer->start();
 }
 
+AppController::~AppController()
+{
+    if (m_logBackup && m_database.isOpen()) {
+        m_logBackup->backupNow(false);
+    }
+}
+
 bool AppController::openDatabase(const QString& path, QString* errorOut)
 {
     if (!m_database.open(path)) {

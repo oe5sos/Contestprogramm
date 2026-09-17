@@ -121,6 +121,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/LogBackup.cpp
     src/data/ContestStatistics.h
     src/data/ContestStatistics.cpp
+    src/data/LogFileReader.h
+    src/data/LogFileReader.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h

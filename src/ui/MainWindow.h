@@ -77,6 +77,7 @@ private slots:
     void exportAdif();
     void exportEdi();
     void loadScpFile();
+    void importOldLogs();
     void refreshCheckPartial();
     void openMultiplierWindow();
     void openStatisticsWindow();

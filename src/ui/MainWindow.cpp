@@ -20,6 +20,7 @@
 #include "data/CabrilloExporter.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
+#include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 #include "models/LogTableModel.h"
@@ -961,6 +962,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
+    connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
     QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
     connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
     QAction* scoreboardAction = fileMenu->addAction(QStringLiteral("&Online-Scoreboard..."));
@@ -2473,6 +2476,52 @@ void MainWindow::refreshCheckPartial()
     m_checkPartialWidget->setMatches(fragment, m_checkPartialIndex.matches(fragment, m_currentBand));
 }
 
+void MainWindow::importOldLogs()
+{
+    // Old contest logs from any program (EDI is what the robots took,
+    // ADIF is what every logger exports) feed the locator memory --
+    // N1MM+'s Call History, grown from what was actually worked. Only
+    // call + locator are taken; nothing is logged as a QSO.
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        this, QStringLiteral("Alte Logs (EDI/ADIF)"), QString(),
+        QStringLiteral("Contest-Logs (*.edi *.adi *.adif);;Alle Dateien (*)"));
+    if (paths.isEmpty()) {
+        return;
+    }
+    int imported = 0;
+    int withoutGrid = 0;
+    QStringList unreadable;
+    for (const QString& path : paths) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            unreadable << QFileInfo(path).fileName();
+            continue;
+        }
+        const QVector<ImportedQso> qsos = LogFileReader::parse(file.readAll(), path);
+        if (qsos.isEmpty()) {
+            unreadable << QFileInfo(path).fileName();
+            continue;
+        }
+        for (const ImportedQso& qso : qsos) {
+            if (isValidGridSquare(qso.grid)) {
+                m_appController.database().upsertImportedLocator(qso.callsign, qso.grid);
+                ++imported;
+            } else {
+                ++withoutGrid;
+            }
+        }
+    }
+    reloadCheckPartialSources();
+    QString summary = QStringLiteral("%1 Rufzeichen mit Locator übernommen").arg(imported);
+    if (withoutGrid > 0) {
+        summary += QStringLiteral(", %1 ohne Locator übersprungen").arg(withoutGrid);
+    }
+    if (!unreadable.isEmpty()) {
+        summary += QStringLiteral("\nNicht lesbar (kein EDI/ADIF?): %1").arg(unreadable.join(QStringLiteral(", ")));
+    }
+    QMessageBox::information(this, QStringLiteral("Contestprogramm"), summary);
+}
+
 void MainWindow::loadScpFile()
 {
     const QString previous = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
@@ -2516,7 +2565,7 @@ void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newTex
     for (const char* timeOnly : {"HH:mm", "HH:mm:ss"}) {
         const QTime t = QTime::fromString(text, QString::fromLatin1(timeOnly));
         if (t.isValid() && original.isValid()) {
-            corrected = QDateTime(original.date(), t, QTimeZone::utc());
+            corrected = QDateTime(original.date(), t, QTimeZone::UTC);
             break;
         }
     }
@@ -2524,7 +2573,7 @@ void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newTex
         for (const char* full : {"yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss"}) {
             const QDateTime dt = QDateTime::fromString(text, QString::fromLatin1(full));
             if (dt.isValid()) {
-                corrected = QDateTime(dt.date(), dt.time(), QTimeZone::utc());
+                corrected = QDateTime(dt.date(), dt.time(), QTimeZone::UTC);
                 break;
             }
         }

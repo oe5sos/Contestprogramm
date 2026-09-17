@@ -53,6 +53,10 @@ class AppController : public QObject {
 
 public:
     explicit AppController(QObject* parent = nullptr);
+    // A last log copy on the way out (LogBackup::backupNow(false): only
+    // when a QSO was written since the previous copy) -- the five-minute
+    // timer never sees the QSOs of the final minutes otherwise.
+    ~AppController() override;
 
     // Opens `path`, loads settings + available ContestDefinitions, and
     // applies them to the network clients/GeoFilter. Returns false and
