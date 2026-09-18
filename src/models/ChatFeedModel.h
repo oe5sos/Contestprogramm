@@ -46,18 +46,15 @@ class RecentPropagationTracker;
 //       the top-scored fraction. A pure function, not logic buried in
 //       this class, so it stays independently testable.
 //
-// Deviation from a literal DupeChecker::isDupe(dupeScope) hookup: a
-// SpotCandidate carries no band/mode (ON4KST's 144/432 room mixes both
-// bands, and a spot's qrg is not reliably mappable to the exact
-// dupe_scope columns), so the "already worked" check here is always
-// scoped to callsign only, regardless of the active contest's actual
-// dupe_scope. This under-detects "already worked" for contests whose
-// dupe_scope includes band/mode (a station worked on 144 might still
-// show as a candidate on what would be a valid 432 QSO) -- a safe
-// direction (a candidate that is actually still needed is never hidden
-// as a false dupe), and it is a purely display-side simplification:
-// the log's own per-QSO DupeChecker call in MainWindow is untouched and
-// still uses the contest's real dupe_scope.
+// "Already worked" is decided per band, the way the IARU R1 rule
+// counts ("once per band"): a spot with a frequency is checked on that
+// band; a chat line without one (ON4KST's 144/432 room mixes both
+// bands) counts as worked only when the station is in the log on EVERY
+// band the active contest has -- as long as one band is still open,
+// the station is still a candidate. (Until 2026-09-18 the check was
+// callsign-only, which hid a station worked on 144 from the 432 side
+// of a two-band contest.) The log's own per-QSO DupeChecker call in
+// MainWindow uses the contest's real dupe_scope as before.
 class ChatFeedModel : public QAbstractTableModel {
     Q_OBJECT
 
@@ -79,6 +76,10 @@ public:
     // why this is callsign-only); MainWindow/AppController call this
     // whenever the active contest changes.
     void setActiveContest(const QString& contestId);
+    // The contest's bands, for the "worked on every band?" reading of
+    // a candidate without a frequency (see the class comment). Empty
+    // falls back to callsign-only.
+    void setContestBands(const QStringList& bands);
 
     // Optional (nullptr = no multiplier boost, e.g. before
     // AppController has recomputed one yet). Non-owning; the caller
@@ -144,7 +145,7 @@ private:
 
     double computeScore(const SpotCandidate& candidate, bool worked, const GeoFilter::Result& geo) const;
     void rebuildVisibleRows();
-    bool computeWorked(const QString& callsign) const;
+    bool computeWorked(const QString& callsign, qint64 freqHz) const;
 
     GeoFilter& m_geoFilter;
     DupeChecker& m_dupeChecker;
@@ -155,6 +156,7 @@ private:
     QVector<int> m_visibleIndices; // indices into m_allEntries
     bool m_showRaw = false;
     QString m_activeContestId;
+    QStringList m_contestBands;
 };
 
 } // namespace Contestprogramm

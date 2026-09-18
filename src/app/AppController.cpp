@@ -219,6 +219,10 @@ void AppController::applyNetworkSettings()
 
     if (const ContestDefinition* def = findContestDefinition(m_settings.activeContestId)) {
         m_multiplierTracker.recompute(m_settings.activeContestId, *def);
+        // "Worked" in the feeds is per band (see ChatFeedModel's class
+        // comment) -- the models need the contest's band list for it.
+        m_on4kstFeedModel.setContestBands(def->bands());
+        m_clusterFeedModel.setContestBands(def->bands());
     }
 
     m_rigctldClient.setTarget(m_settings.rigctldHost, static_cast<quint16>(m_settings.rigctldPort));

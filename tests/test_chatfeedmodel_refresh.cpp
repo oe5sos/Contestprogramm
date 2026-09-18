@@ -29,6 +29,7 @@ class TestChatFeedModelRefresh : public QObject
 
 private slots:
     void refreshPicksUpAFreshlyLoggedDupe();
+    void workedIsPerBandForATwoBandContest();
 };
 
 void TestChatFeedModelRefresh::refreshPicksUpAFreshlyLoggedDupe()
@@ -82,6 +83,64 @@ void TestChatFeedModelRefresh::refreshPicksUpAFreshlyLoggedDupe()
     model.setShowRawFeed(true);
     QCOMPARE(model.rowCount(), 1);
     QVERIFY(model.data(model.index(0, ChatFeedModel::ColumnCallsign), ChatFeedModel::DupeRole).toBool());
+}
+
+// IARU R1: once per band. A chat line (no frequency) stays a
+// candidate while any of the contest's bands is still open; a spot with
+// a frequency is judged on its own band.
+void TestChatFeedModelRefresh::workedIsPerBandForATwoBandContest()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("perband.sqlite")), QStringLiteral("chatfeed_perband")));
+
+    GeoFilter geoFilter;
+    geoFilter.setOwnGrid(QStringLiteral("JN67VV"));
+    geoFilter.setRadiusKm(1000.0);
+    DupeChecker dupeChecker(db);
+
+    ChatFeedModel model(geoFilter, dupeChecker, nullptr);
+    model.setActiveContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    model.setContestBands({QStringLiteral("144"), QStringLiteral("432")});
+    model.setShowRawFeed(true); // inspect flags, nothing hidden
+
+    QsoRecord logged;
+    logged.callsign = QStringLiteral("OE1ABC");
+    logged.band = QStringLiteral("144");
+    logged.mode = QStringLiteral("SSB");
+    logged.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    logged.contestId = QStringLiteral("IARU_R1_VHF_UHF");
+    QVERIFY(db.insertQso(logged));
+
+    SpotCandidate chat;
+    chat.callsign = QStringLiteral("OE1ABC");
+    chat.grid = QStringLiteral("JN77XX");
+    chat.timestampUtc = QDateTime::currentDateTimeUtc();
+    chat.source = QStringLiteral("on4kst");
+    model.addCandidate(chat); // row 0: no frequency
+    SpotCandidate on144 = chat;
+    on144.freqHz = 144300000;
+    on144.source = QStringLiteral("cluster");
+    model.addCandidate(on144); // row 1
+    SpotCandidate on432 = chat;
+    on432.freqHz = 432200000;
+    on432.source = QStringLiteral("cluster");
+    model.addCandidate(on432); // row 2
+
+    QCOMPARE(model.rowCount(), 3);
+    auto worked = [&](int row) {
+        return model.data(model.index(row, ChatFeedModel::ColumnCallsign), ChatFeedModel::DupeRole).toBool();
+    };
+    QVERIFY(!worked(0)); // 432 still open -> the chat line is still a candidate
+    QVERIFY(worked(1));  // spotted on 144, worked on 144
+    QVERIFY(!worked(2)); // spotted on 432, open there
+
+    logged.band = QStringLiteral("432");
+    QVERIFY(db.insertQso(logged));
+    model.refreshWorkedAndScores();
+    QVERIFY(worked(0)); // now every band is done
+    QVERIFY(worked(2));
 }
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication

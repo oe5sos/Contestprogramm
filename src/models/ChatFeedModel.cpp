@@ -112,12 +112,34 @@ void ChatFeedModel::setShowRawFeed(bool show)
     rebuildVisibleRows();
 }
 
-bool ChatFeedModel::computeWorked(const QString& callsign) const
+bool ChatFeedModel::computeWorked(const QString& callsign, qint64 freqHz) const
 {
     if (m_activeContestId.isEmpty()) {
         return false;
     }
-    return m_dupeChecker.isDupe(callsign, QString(), QString(), m_activeContestId, kCallsignOnlyScope);
+    static const QStringList kCallsignBandScope{QStringLiteral("callsign"), QStringLiteral("band")};
+    const QString spotBand = freqHz > 0 ? bandLabelForFrequencyHz(freqHz) : QString();
+    if (!spotBand.isEmpty()) {
+        return m_dupeChecker.isDupe(callsign, spotBand, QString(), m_activeContestId, kCallsignBandScope);
+    }
+    if (m_contestBands.isEmpty()) {
+        return m_dupeChecker.isDupe(callsign, QString(), QString(), m_activeContestId, kCallsignOnlyScope);
+    }
+    for (const QString& band : m_contestBands) {
+        if (!m_dupeChecker.isDupe(callsign, band, QString(), m_activeContestId, kCallsignBandScope)) {
+            return false; // still open on this band
+        }
+    }
+    return true;
+}
+
+void ChatFeedModel::setContestBands(const QStringList& bands)
+{
+    if (m_contestBands == bands) {
+        return;
+    }
+    m_contestBands = bands;
+    refreshWorkedAndScores();
 }
 
 double ChatFeedModel::computeScore(const SpotCandidate& candidate, bool worked, const GeoFilter::Result& geo) const
@@ -157,7 +179,7 @@ void ChatFeedModel::refreshWorkedAndScores()
     // only runs on an explicit trigger (contest switch, a QSO logged/
     // edited/invalidated), never per incoming spot.
     for (Entry& entry : m_allEntries) {
-        entry.worked = computeWorked(entry.candidate.callsign);
+        entry.worked = computeWorked(entry.candidate.callsign, entry.candidate.freqHz);
         entry.score = computeScore(entry.candidate, entry.worked, entry.geo);
     }
     rebuildVisibleRows();
@@ -229,7 +251,7 @@ void ChatFeedModel::addCandidate(const SpotCandidate& candidate)
     Entry entry;
     entry.candidate = candidate;
     entry.geo = m_geoFilter.classify(candidate);
-    entry.worked = computeWorked(candidate.callsign);
+    entry.worked = computeWorked(candidate.callsign, candidate.freqHz);
     entry.score = computeScore(candidate, entry.worked, entry.geo);
 
     m_allEntries.append(entry);
