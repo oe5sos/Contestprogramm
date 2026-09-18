@@ -101,6 +101,15 @@ void TestCwMacroKeys::functionKeysKeyTheMacroAndEscStops()
     QCOMPARE(log->callsign(), QStringLiteral("DL1ABC"));
     QTest::keyClick(&window, Qt::Key_W, Qt::AltModifier);
     QVERIFY(log->callsign().isEmpty());
+
+    // PgUp/PgDn move the keyer speed by 2 WpM and remember it.
+    QCOMPARE(controller->settings().cwSpeedWpm, 24);
+    QTest::keyClick(&window, Qt::Key_PageUp);
+    QCOMPARE(controller->settings().cwSpeedWpm, 26);
+    QCOMPARE(window.statusBar()->currentMessage(), QStringLiteral("CW 26 WpM"));
+    QTest::keyClick(&window, Qt::Key_PageDown);
+    QTest::keyClick(&window, Qt::Key_PageDown);
+    QCOMPARE(controller->settings().cwSpeedWpm, 22);
 }
 
 int main(int argc, char* argv[])

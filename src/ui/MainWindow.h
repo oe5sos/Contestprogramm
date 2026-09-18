@@ -114,6 +114,7 @@ private slots:
     void handleHistoryInvalidToggleRequested(int qsoId);
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
+    void adjustCwSpeed(int deltaWpm);
     void openEsmTemplatesDialog();
     void openScoreboardDialog();
     void postScoreNow();

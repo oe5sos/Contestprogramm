@@ -256,6 +256,7 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
         database.settingValue(QStringLiteral("cw_macro_panel_visible"), boolToString(cwMacroPanelVisible)),
         cwMacroPanelVisible);
     esmEnabled = boolFromString(database.settingValue(QStringLiteral("esm_enabled"), boolToString(esmEnabled)), esmEnabled);
+    cwSpeedWpm = database.settingValue(QStringLiteral("cw_speed_wpm"), QString::number(cwSpeedWpm)).toInt();
     esmCq = database.settingValue(QStringLiteral("esm_cq"), esmCq);
     esmRunExchange = database.settingValue(QStringLiteral("esm_run_exchange"), esmRunExchange);
     esmTu = database.settingValue(QStringLiteral("esm_tu"), esmTu);
@@ -339,6 +340,7 @@ void ContestSettings::saveTo(ContestDatabase& database) const
 
     database.setSettingValue(QStringLiteral("cw_macro_panel_visible"), boolToString(cwMacroPanelVisible));
     database.setSettingValue(QStringLiteral("esm_enabled"), boolToString(esmEnabled));
+    database.setSettingValue(QStringLiteral("cw_speed_wpm"), QString::number(cwSpeedWpm));
     database.setSettingValue(QStringLiteral("esm_cq"), esmCq);
     database.setSettingValue(QStringLiteral("esm_run_exchange"), esmRunExchange);
     database.setSettingValue(QStringLiteral("esm_tu"), esmTu);

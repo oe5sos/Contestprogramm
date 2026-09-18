@@ -16,6 +16,8 @@
 
 #include <QTimer>
 
+#include <algorithm>
+
 namespace Contestprogramm {
 
 RigctldClient::RigctldClient(QObject* parent) : QObject(parent)
@@ -192,6 +194,19 @@ void RigctldClient::sendMorse(const QString& text)
 QByteArray RigctldClient::stopMorseCommand()
 {
     return QByteArrayLiteral("\\stop_morse\n");
+}
+
+QByteArray RigctldClient::setKeyerSpeedCommand(int wpm)
+{
+    return QStringLiteral("L KEYSPD %1\n").arg(std::clamp(wpm, 5, 60)).toLatin1();
+}
+
+void RigctldClient::setKeyerSpeed(int wpm)
+{
+    if (!isConnected()) {
+        return;
+    }
+    send(setKeyerSpeedCommand(wpm), Pending::Report);
 }
 
 void RigctldClient::stopMorse()

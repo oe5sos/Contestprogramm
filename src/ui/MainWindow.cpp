@@ -942,6 +942,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Alt+W wipes the entry row (N1MM+'s "Wipe"): a busted call or a
     // station that went away, gone with one chord instead of field by
     // field.
+    // PgUp/PgDn: keyer speed ±2 WpM (N1MM+'s keys), sent to the rig as
+    // KEYSPD and remembered; the rig gets the stored speed once it
+    // connects, so a restart does not silently key at the rig's own.
+    auto* fasterShortcut = new QShortcut(QKeySequence(Qt::Key_PageUp), this);
+    fasterShortcut->setContext(Qt::WindowShortcut);
+    connect(fasterShortcut, &QShortcut::activated, this, [this]() { adjustCwSpeed(+2); });
+    auto* slowerShortcut = new QShortcut(QKeySequence(Qt::Key_PageDown), this);
+    slowerShortcut->setContext(Qt::WindowShortcut);
+    connect(slowerShortcut, &QShortcut::activated, this, [this]() { adjustCwSpeed(-2); });
+    connect(&m_appController.rigctldClient(), &RigctldClient::stateChanged, this, [this]() {
+        if (m_appController.rigctldClient().isConnected()) {
+            m_appController.rigctldClient().setKeyerSpeed(m_appController.settings().cwSpeedWpm);
+        }
+    });
     auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
     wipeShortcut->setContext(Qt::WindowShortcut);
     connect(wipeShortcut, &QShortcut::activated, this, [this]() {
@@ -2682,6 +2696,15 @@ void MainWindow::archiveActiveContest()
         backup->backupNow(true);
     }
     statusBar()->showMessage(QStringLiteral("%1 QSOs archiviert unter %2 -- Log ist leer").arg(moved).arg(archiveId), 10000);
+}
+
+void MainWindow::adjustCwSpeed(int deltaWpm)
+{
+    ContestSettings settings = m_appController.settings();
+    settings.cwSpeedWpm = std::clamp(settings.cwSpeedWpm + deltaWpm, 5, 60);
+    m_appController.setSettings(settings);
+    m_appController.rigctldClient().setKeyerSpeed(settings.cwSpeedWpm);
+    statusBar()->showMessage(QStringLiteral("CW %1 WpM").arg(settings.cwSpeedWpm), 2000);
 }
 
 void MainWindow::backupLogNow()

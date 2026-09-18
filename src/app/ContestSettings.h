@@ -230,6 +230,7 @@ struct ContestSettings {
     // "ESM" checkbox in the filter row flips it live. The five texts
     // are what Enter keys in each state; {call}/{exchange}/{mycall}.
     bool esmEnabled = false;
+    int cwSpeedWpm = 24; // PgUp/PgDn, sent to the rig as KEYSPD
     QString esmCq = QStringLiteral("CQ TEST {mycall} {mycall} TEST");
     QString esmRunExchange = QStringLiteral("{call} {exchange}");
     QString esmTu = QStringLiteral("TU {mycall}");

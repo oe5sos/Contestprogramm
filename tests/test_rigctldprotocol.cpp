@@ -161,6 +161,10 @@ void TestRigctldProtocol::morseCommandsAreTheDocumentedForms()
     QCOMPARE(RigctldClient::sendMorseCommand(QStringLiteral("CQ TEST")), QByteArray("b CQ TEST\n"));
     QCOMPARE(RigctldClient::sendMorseCommand(QStringLiteral("TU\nDE")), QByteArray("b TU DE\n"));
     QCOMPARE(RigctldClient::stopMorseCommand(), QByteArray("\\stop_morse\n"));
+    // Keyer speed is a level in WPM, clamped to what a keyer can do.
+    QCOMPARE(RigctldClient::setKeyerSpeedCommand(24), QByteArray("L KEYSPD 24\n"));
+    QCOMPARE(RigctldClient::setKeyerSpeedCommand(200), QByteArray("L KEYSPD 60\n"));
+    QCOMPARE(RigctldClient::setKeyerSpeedCommand(0), QByteArray("L KEYSPD 5\n"));
 }
 
 void TestRigctldProtocol::setPttCommandFormatsZeroOrOne()

@@ -136,6 +136,10 @@ public:
     // without RIG_FUNC stop support answers with a negative RPRT, which
     // surfaces as errorOccurred and nothing worse.
     void stopMorse();
+    // Keyer speed in words per minute -- rigctld `L KEYSPD <wpm>` (the
+    // level's unit is WPM per the man page). Clamped to 5..60. PgUp/PgDn
+    // in MainWindow end here.
+    void setKeyerSpeed(int wpm);
 
     // -- Protocol, as pure functions --------------------------------
 
@@ -169,6 +173,7 @@ public:
     // command line early.
     static QByteArray sendMorseCommand(const QString& text);
     static QByteArray stopMorseCommand();
+    static QByteArray setKeyerSpeedCommand(int wpm);
 
 signals:
     void stateChanged();
