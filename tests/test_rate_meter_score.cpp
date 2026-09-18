@@ -75,22 +75,22 @@ void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
     widget.setScoring(QString(), {QStringLiteral("144"), QStringLiteral("432")}, QStringLiteral("distance_km"));
     QString text = visibleText(widget);
     QVERIFY2(text.contains(QStringLiteral("PUNKTE")), qPrintable(text));
-    QVERIFY2(!text.contains(QStringLiteral("4 812")), qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("4 814")), qPrintable(text));
     QVERIFY2(!text.contains(QStringLiteral("ODX")), qPrintable(text));
 
     widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("144"), QStringLiteral("432")},
                       QStringLiteral("distance_km"));
     text = visibleText(widget);
-    QVERIFY2(text.contains(QStringLiteral("144: 4 812")), qPrintable(text)); // 4612 + 200, grouped
+    QVERIFY2(text.contains(QStringLiteral("144: 4 814")), qPrintable(text)); // 4613 + 201 (truncated + 1 each), grouped
     QVERIFY2(text.contains(QStringLiteral("432: 1")), qPrintable(text));     // same-square QSO, floor of 1
-    QVERIFY2(text.contains(QStringLiteral("Σ: 4 813")), qPrintable(text));
-    QVERIFY2(text.contains(QStringLiteral("ODX DL1ABC JN58SD 4 612 km")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("Σ: 4 815")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("ODX DL1ABC JN58SD 4 613 km")), qPrintable(text));
 
     // Only one band worked: the sum would just repeat the band's number.
     QVERIFY(db.setQsoInvalid(c.id, true));
     widget.refresh();
     text = visibleText(widget);
-    QVERIFY2(text.contains(QStringLiteral("144: 4 812  432: 0")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("144: 4 814  432: 0")), qPrintable(text));
     QVERIFY2(!text.contains(QStringLiteral("Σ")), qPrintable(text));
 }
 

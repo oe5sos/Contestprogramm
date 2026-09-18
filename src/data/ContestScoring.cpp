@@ -43,7 +43,10 @@ int qsoDistancePoints(const QsoRecord& record, const QString& ownGrid)
     if (km < 0.0) {
         return 0;
     }
-    return std::max(1, static_cast<int>(std::lround(km)));
+    // IARU Region 1 rule, verbatim: "the calculated distance in
+    // kilometres will be truncated to an integer value and 1 km will be
+    // added" -- so 187.4 km scores 188, and a same-square contact 1.
+    return static_cast<int>(std::floor(km)) + 1;
 }
 
 int qsoPoints(const QsoRecord& record, const QString& ownGrid, const QString& scoring)

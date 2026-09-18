@@ -46,7 +46,8 @@ private slots:
 void TestContestScoring::distancePointsAreWholeKilometresWithAFloorOfOne()
 {
     QsoRecord r = makeQso(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("JN58SD"), 187.4);
-    QCOMPARE(qsoDistancePoints(r, kOwn), 187);
+    // IARU R1: truncated to whole km, plus 1.
+    QCOMPARE(qsoDistancePoints(r, kOwn), 188);
     r.distanceKm = 214.6;
     QCOMPARE(qsoDistancePoints(r, kOwn), 215);
     // Same square: 0 km on the map, 1 point in the log.
@@ -104,7 +105,7 @@ void TestContestScoring::sumsPerBandInDefinitionOrderWithOdxAndSquares()
     const BandScore* b144 = score.band(QStringLiteral("144"));
     QVERIFY(b144);
     QCOMPARE(b144->validQsos, 3);
-    QCOMPARE(b144->points, qint64(187 + 215 + 200));
+    QCOMPARE(b144->points, qint64(188 + 215 + 201));
     QCOMPARE(b144->largeSquares, 2); // JN58 + JN88
     QCOMPARE(b144->odxCall, QStringLiteral("OE3XYZ"));
     QCOMPARE(b144->odxGrid, QStringLiteral("JN88TC"));
@@ -117,10 +118,10 @@ void TestContestScoring::sumsPerBandInDefinitionOrderWithOdxAndSquares()
     QCOMPARE(b432->largeSquares, 1);
 
     QCOMPARE(score.validQsos, 5);
-    QCOMPARE(score.points, qint64(187 + 215 + 200 + 1 + 300));
+    QCOMPARE(score.points, qint64(188 + 215 + 201 + 1 + 301));
     QCOMPARE(score.odxCall, QStringLiteral("HB9ZZZ"));
     QCOMPARE(score.odxBand, QStringLiteral("1296"));
-    QCOMPARE(score.odxKm, 300);
+    QCOMPARE(score.odxKm, 301);
     QVERIFY(!score.band(QStringLiteral("70")));
 }
 
@@ -136,7 +137,7 @@ void TestContestScoring::qsoCountRuleScoresOnePointPerQso()
     QCOMPARE(score.validQsos, 1);
     QCOMPARE(score.dupes, 1);
     // ODX stays a distance whatever the rule.
-    QCOMPARE(score.odxKm, 187);
+    QCOMPARE(score.odxKm, 188);
 }
 
 void TestContestScoring::definitionParsesAndRoundTripsTheScoringKey()

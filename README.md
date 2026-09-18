@@ -52,9 +52,12 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 }
 ```
 
-`scoring`: `distance_km` (Standard – 1 Punkt je km zwischen den
-Locator-Mitten, Summe je Band, keine Multiplikatoren; so werten IARU R1,
-ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
+`scoring`: `distance_km` (Standard – Distanz zwischen den Locator-Mitten,
+abgerundet auf ganze km plus 1, Summe je Band, keine Multiplikatoren; so
+werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
+`serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
+001, IARU-R1-Regel) oder `contest`. `dupe_scope`: bei IARU R1/ÖVSV
+`["callsign", "band"]` – einmal je Band, unabhängig von der Betriebsart.
 
 ## Funktionen
 

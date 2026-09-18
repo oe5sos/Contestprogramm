@@ -10,7 +10,7 @@ struct QsoRecord;
 
 // The claimed score of a contest log, computed the way the IARU-R1 /
 // ÖVSV / DARC VHF-UHF rules count: 1 point per kilometre between
-// locator centres, summed per band, no multipliers. (MultiplierTracker's
+// locator centres (truncated, plus 1), summed per band, no multipliers. (MultiplierTracker's
 // worked/needed large-square grid is a "which squares are still
 // missing" aid, not a score factor -- that ARRL-style rule set is not
 // what these contests use.) A pure function over records, like
@@ -46,10 +46,10 @@ struct ContestScore {
     const BandScore* band(const QString& band) const;
 };
 
-// Whole-kilometre distance points for one record -- the record's stored
-// distance, else computed from `ownGrid` and the record's locator; at
-// least 1 for a valid QSO with a known locator (the evaluators'
-// convention for a same-square contact); 0 without a locator.
+// Distance points for one record, the IARU Region 1 way: the distance
+// (the record's stored one, else computed from `ownGrid` and the
+// record's locator) truncated to whole kilometres plus 1 -- a same-
+// square contact scores 1; 0 without a locator.
 int qsoDistancePoints(const QsoRecord& record, const QString& ownGrid);
 
 // Points for one record under `scoring` ("distance_km" / "qso_count").

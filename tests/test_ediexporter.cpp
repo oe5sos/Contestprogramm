@@ -182,19 +182,19 @@ void TestEdiExporter::exportsGoldenBandFile()
         QStringLiteral("SAnte=2 x 12 el. Yagi"),
         QStringLiteral("SAntH=10;1592"),
         QStringLiteral("CQSOs=2;1"),
-        QStringLiteral("CQSOP=402"),
+        QStringLiteral("CQSOP=403"),
         QStringLiteral("CWWLs=2;0;1"),
         QStringLiteral("CWWLB=0"),
         QStringLiteral("CExcs=0;0;1"),
         QStringLiteral("CExcB=0"),
         QStringLiteral("CDXCs=0;0;1"),
         QStringLiteral("CDXCB=0"),
-        QStringLiteral("CToSc=402"),
+        QStringLiteral("CToSc=403"),
         QStringLiteral("CODXC=OE3XYZ;JN88TC;215"),
         QStringLiteral("[Remarks]"),
         QStringLiteral("Created by Contestprogramm"),
         QStringLiteral("[QSORecords;3]"),
-        QStringLiteral("261003;1401;DL1ABC;1;59;001;59;003;;JN58SD;187;;N;;"),
+        QStringLiteral("261003;1401;DL1ABC;1;59;001;59;003;;JN58SD;188;;N;;"),
         QStringLiteral("261003;1411;OE3XYZ;2;599;002;599;017;;JN88TC;215;;N;;"),
         QStringLiteral("261003;1420;DL1ABC;1;59;003;59;009;;JN58SD;0;;;;D"),
     };
@@ -270,7 +270,7 @@ void TestEdiExporter::invalidQsoIsLeftOutEverywhere()
     const QString file144 = exporter.exportBand(definition.id(), QStringLiteral("144"), definition, feuerkogelSettings(),
                                                 sampleStation());
     QVERIFY(!file144.contains(QStringLiteral("OE9ZZZ")));
-    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;187\r\n")));
+    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;188\r\n")));
 }
 
 void TestEdiExporter::stationInfoRoundTripsThroughTheDatabase()

@@ -58,8 +58,8 @@ struct EdiStationInfo {
 //     Windows-era readers expect; the caller writes the QString with
 //     toLatin1() (see EdiExportDialog).
 //   - QSO points come from data/ContestScoring.h (the definition's
-//     scoring rule, normally 1 point per whole km between locator
-//     centres, at least 1 with a known locator) -- the same function
+//     scoring rule, normally the whole kilometres between locator
+//     centres plus 1, the IARU R1 wording) -- the same function
 //     that feeds the live score panel, so the claimed C* header
 //     values are exactly what the operator watched all night.
 //   - A dupe (QsoRecord::isDupe) stays in the file, scores 0 and

@@ -2,7 +2,7 @@
   "id": "OE_VHF_UHF",
   "name": "ÖVSV OE VHF/UHF Contest",
   "bands": ["144", "432"],
-  "dupe_scope": ["callsign", "band", "mode"],
+  "dupe_scope": ["callsign", "band"],
   "scoring": "distance_km",
   "serial_scope": "band",
   "exchange_fields": [

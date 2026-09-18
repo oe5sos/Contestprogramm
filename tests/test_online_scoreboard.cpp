@@ -111,12 +111,12 @@ void TestOnlineScoreboard::xmlCarriesBreakdownScoreAndStation()
     QVERIFY2(xml.contains(QStringLiteral("<grid6>JN67UT</grid6>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("<qso band=\"144\" mode=\"CW\">1</qso>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("<qso band=\"144\" mode=\"PH\">1</qso>")), qPrintable(xml)); // the dupe does not count
-    QVERIFY2(xml.contains(QStringLiteral("<point band=\"144\" mode=\"ALL\">402</point>")), qPrintable(xml));
+    QVERIFY2(xml.contains(QStringLiteral("<point band=\"144\" mode=\"ALL\">403</point>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("<qso band=\"432\" mode=\"PH\">1</qso>")), qPrintable(xml));
-    QVERIFY2(xml.contains(QStringLiteral("<point band=\"432\" mode=\"ALL\">50</point>")), qPrintable(xml));
+    QVERIFY2(xml.contains(QStringLiteral("<point band=\"432\" mode=\"ALL\">51</point>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("<qso band=\"total\" mode=\"ALL\">3</qso>")), qPrintable(xml));
-    QVERIFY2(xml.contains(QStringLiteral("<point band=\"total\" mode=\"ALL\">452</point>")), qPrintable(xml));
-    QVERIFY2(xml.contains(QStringLiteral("<score>452</score>")), qPrintable(xml));
+    QVERIFY2(xml.contains(QStringLiteral("<point band=\"total\" mode=\"ALL\">454</point>")), qPrintable(xml));
+    QVERIFY2(xml.contains(QStringLiteral("<score>454</score>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("<timestamp>2026-10-03 14:05:00</timestamp>")), qPrintable(xml));
     QVERIFY2(xml.contains(QStringLiteral("bands=\"ALL\"")), qPrintable(xml));
 }
@@ -146,7 +146,7 @@ void TestOnlineScoreboard::postsWithBasicAuthAndReportsSuccess()
     // "oe5sos:geheim" in Base64.
     QVERIFY2(server.request.contains("Authorization: Basic b2U1c29zOmdlaGVpbQ=="), server.request.constData());
     QVERIFY2(server.request.toLower().contains("content-type: text/xml"), server.request.constData());
-    QVERIFY2(server.body.contains("<score>187</score>"), server.body.constData());
+    QVERIFY2(server.body.contains("<score>188</score>"), server.body.constData());
 }
 
 void TestOnlineScoreboard::disabledOrUnconfiguredSendsNothing()

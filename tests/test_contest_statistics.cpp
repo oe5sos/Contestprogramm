@@ -46,7 +46,7 @@ void TestContestStatistics::hoursCoverTheWholeSpanAndMarkTheBest()
     QCOMPARE(stats.hours.size(), 3);
     QCOMPARE(stats.hours.at(0).hourStartUtc.toString(QStringLiteral("HH:mm")), QStringLiteral("14:00"));
     QCOMPARE(stats.hours.at(0).qsos, 2);
-    QCOMPARE(stats.hours.at(0).points, qint64(187 + 215));
+    QCOMPARE(stats.hours.at(0).points, qint64(188 + 215));
     QCOMPARE(stats.hours.at(1).qsos, 0);
     QCOMPARE(stats.hours.at(1).points, qint64(0));
     QCOMPARE(stats.hours.at(2).qsos, 1);
@@ -54,8 +54,8 @@ void TestContestStatistics::hoursCoverTheWholeSpanAndMarkTheBest()
     QCOMPARE(stats.bestHourQsos, 2);
     QCOMPARE(stats.bestHourStartUtc.toString(QStringLiteral("HH:mm")), QStringLiteral("14:00"));
     QCOMPARE(stats.score.validQsos, 3);
-    QCOMPARE(stats.score.points, qint64(187 + 215 + 1));
-    QCOMPARE(qRound(stats.averageKm), qRound((187 + 215 + 1) / 3.0));
+    QCOMPARE(stats.score.points, qint64(188 + 215 + 1));
+    QCOMPARE(qRound(stats.averageKm), qRound((188 + 215 + 1) / 3.0));
 }
 
 void TestContestStatistics::longestListIsSortedCappedAndSkipsDupesAndInvalid()
@@ -71,7 +71,7 @@ void TestContestStatistics::longestListIsSortedCappedAndSkipsDupesAndInvalid()
     const ContestStatistics stats = computeContestStatistics(records, QStringLiteral("JN67UT"), {QStringLiteral("144")});
     QCOMPARE(stats.longest.size(), 10);
     QCOMPARE(stats.longest.first().callsign, QStringLiteral("DL11ABC"));
-    QCOMPARE(stats.longest.first().km, 210);
+    QCOMPARE(stats.longest.first().km, 211);
     QVERIFY(stats.longest.first().km >= stats.longest.last().km);
     for (const OdxEntry& e : stats.longest) {
         QVERIFY(e.callsign != QStringLiteral("DL13ABC"));
