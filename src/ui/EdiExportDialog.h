@@ -52,8 +52,8 @@ public:
     // can drive it without a modal exec().
     bool exportNow();
 
-    // Tests only: skip the "section is empty" question (a modal box
-    // cannot be answered headlessly).
+    // Tests only: skip the "header fields missing" question (a modal
+    // box cannot be answered headlessly).
     void setSkipSectionCheck(bool skip) { m_skipSectionCheck = skip; }
 
     // Full paths written by the last successful exportNow().

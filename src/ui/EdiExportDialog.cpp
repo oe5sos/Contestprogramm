@@ -5,6 +5,7 @@
 #include "data/QsoRecord.h"
 #include "ui/StyleKit.h"
 
+#include <QCompleter>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
@@ -56,7 +57,7 @@ EdiExportDialog::EdiExportDialog(ContestDatabase& database,
     , m_database(&database)
     , m_definition(definition)
     , m_settings(settings)
-    , m_sectionEdit(makeEdit(this, QStringLiteral("z.B. SINGLE, MULTI, 6H -- wie in der Ausschreibung")))
+    , m_sectionEdit(makeEdit(this, QStringLiteral("SINGLE / MULTI / 6HOURS / SINGLE LOW POWER / MULTI LOW POWER")))
     , m_clubEdit(makeEdit(this))
     , m_location1Edit(makeEdit(this, QStringLiteral("z.B. Feuerkogel, 1592 m")))
     , m_location2Edit(makeEdit(this))
@@ -81,6 +82,16 @@ EdiExportDialog::EdiExportDialog(ContestDatabase& database,
     m_powerSpin->setRange(0, 99999);
     m_powerSpin->setSuffix(QStringLiteral(" W"));
     m_powerSpin->setSpecialValueText(QStringLiteral("-"));
+
+    // The IARU R1 sections as the rules spell them (SO, MO, 6H, SO-LP,
+    // MO-LP); a national contest may name its classes differently, so
+    // the field stays free text with these as completions.
+    auto* sectionCompleter = new QCompleter(
+        {QStringLiteral("SINGLE"), QStringLiteral("MULTI"), QStringLiteral("6HOURS"),
+         QStringLiteral("SINGLE LOW POWER"), QStringLiteral("MULTI LOW POWER")},
+        this);
+    sectionCompleter->setCaseSensitivity(Qt::CaseInsensitive);
+    m_sectionEdit->setCompleter(sectionCompleter);
 
     EdiStationInfo stored;
     stored.loadFrom(*m_database);
@@ -281,13 +292,21 @@ bool EdiExportDialog::exportNow()
     }
 
     const EdiStationInfo station = stationInfo();
-    // The one header field the robots actually reject a log for:
-    // without a section the entry cannot be placed in a category.
-    if (station.section.trimmed().isEmpty() && !m_skipSectionCheck) {
+    // The IARU R1 rules name the header minimum: PCall/PWWLo (checked
+    // above), PSect, PBand, RCall, RHBBS (e-mail), SPowe (TX power in
+    // watts), SAnte (antenna). Missing ones are asked about, not
+    // refused -- a national robot may be lenient, the operator decides.
+    QStringList missing;
+    if (station.section.trimmed().isEmpty()) { missing << QStringLiteral("Klasse/Sektion (PSect)"); }
+    if (station.email.trimmed().isEmpty()) { missing << QStringLiteral("E-Mail (RHBBS)"); }
+    if (station.powerWatts <= 0) { missing << QStringLiteral("Leistung (SPowe)"); }
+    if (station.antenna.trimmed().isEmpty()) { missing << QStringLiteral("Antenne (SAnte)"); }
+    if (!missing.isEmpty() && !m_skipSectionCheck) {
         const auto answer = QMessageBox::question(
             this, QStringLiteral("Contestprogramm"),
-            QStringLiteral("Klasse/Sektion (PSect) ist leer -- die Auswertung braucht sie, um das Log "
-                           "einer Kategorie zuzuordnen.\nTrotzdem exportieren?"),
+            QStringLiteral("Die IARU-R1-Regeln verlangen im EDI-Kopf mindestens: Sektion, E-Mail, "
+                           "Leistung und Antenne. Es fehlt: %1.\nTrotzdem exportieren?")
+                .arg(missing.join(QStringLiteral(", "))),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) {
             return false;

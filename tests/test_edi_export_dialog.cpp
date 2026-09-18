@@ -95,6 +95,7 @@ void TestEdiExportDialog::writesOneFilePerBandAndRemembersStationInfo()
         station.powerWatts = 100;
         dialog.setStationInfo(station);
         dialog.setOutputDirectory(outDir);
+        dialog.setSkipSectionCheck(true); // e-mail/antenna left empty on purpose
 
         QVERIFY(dialog.exportNow());
         const QStringList written = dialog.writtenFiles();
