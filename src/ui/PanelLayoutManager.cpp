@@ -145,6 +145,14 @@ void PanelLayoutManager::finalizeInitialLayout()
     m_zOrder = applied;
 }
 
+void PanelLayoutManager::raisePanel(const QString& id)
+{
+    if (PanelContainerWidget* container = panel(id)) {
+        container->raise();
+        bumpZOrder(id);
+    }
+}
+
 void PanelLayoutManager::bumpZOrder(const QString& id)
 {
     if (!m_zOrder.contains(id)) {

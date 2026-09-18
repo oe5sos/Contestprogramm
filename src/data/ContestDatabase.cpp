@@ -185,6 +185,26 @@ bool ContestDatabase::ensureSchema()
         return false;
     }
 
+    // Skeds (core/SkedList.h): state is the enum's name, time as ISO
+    // UTC like qsos.timestamp_utc.
+    static const QString kCreateSkeds = QStringLiteral(
+        "CREATE TABLE IF NOT EXISTS skeds ("
+        "    id          INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    contest_id  TEXT    NOT NULL,"
+        "    callsign    TEXT    NOT NULL,"
+        "    grid        TEXT,"
+        "    band        TEXT,"
+        "    freq_hz     INTEGER,"
+        "    time_utc    TEXT,"
+        "    state       TEXT    NOT NULL DEFAULT 'open',"
+        "    source      TEXT,"
+        "    note        TEXT,"
+        "    created_utc TEXT"
+        ")");
+    if (!execOrRecord(query, kCreateSkeds, m_lastError)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -497,6 +517,106 @@ QStringList ContestDatabase::contestIdsInLog() const
     }
     while (query.next()) {
         result << query.value(0).toString();
+    }
+    return result;
+}
+
+namespace {
+
+QString skedStateName(Sked::State state)
+{
+    switch (state) {
+    case Sked::State::Suggested: return QStringLiteral("suggested");
+    case Sked::State::Open: return QStringLiteral("open");
+    case Sked::State::Done: return QStringLiteral("done");
+    case Sked::State::Missed: return QStringLiteral("missed");
+    }
+    return QStringLiteral("open");
+}
+
+Sked::State skedStateFromName(const QString& name)
+{
+    if (name == QStringLiteral("suggested")) { return Sked::State::Suggested; }
+    if (name == QStringLiteral("done")) { return Sked::State::Done; }
+    if (name == QStringLiteral("missed")) { return Sked::State::Missed; }
+    return Sked::State::Open;
+}
+
+} // namespace
+
+bool ContestDatabase::insertSked(const QString& contestId, Sked& sked)
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral(
+        "INSERT INTO skeds (contest_id, callsign, grid, band, freq_hz, time_utc, state, source, note, created_utc) "
+        "VALUES (:contest_id, :callsign, :grid, :band, :freq_hz, :time_utc, :state, :source, :note, :created_utc)"));
+    query.bindValue(QStringLiteral(":contest_id"), contestId);
+    query.bindValue(QStringLiteral(":callsign"), sked.callsign.trimmed().toUpper());
+    query.bindValue(QStringLiteral(":grid"), sked.grid.trimmed().toUpper());
+    query.bindValue(QStringLiteral(":band"), sked.band);
+    query.bindValue(QStringLiteral(":freq_hz"), sked.freqHz);
+    query.bindValue(QStringLiteral(":time_utc"), sked.timeUtc.isValid() ? sked.timeUtc.toUTC().toString(Qt::ISODate) : QString());
+    query.bindValue(QStringLiteral(":state"), skedStateName(sked.state));
+    query.bindValue(QStringLiteral(":source"), sked.source);
+    query.bindValue(QStringLiteral(":note"), sked.note);
+    query.bindValue(QStringLiteral(":created_utc"),
+                    (sked.createdUtc.isValid() ? sked.createdUtc : QDateTime::currentDateTimeUtc()).toUTC().toString(Qt::ISODate));
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+    sked.id = query.lastInsertId().toInt();
+    return true;
+}
+
+bool ContestDatabase::updateSkedState(int id, Sked::State state)
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE skeds SET state = :state WHERE id = :id"));
+    query.bindValue(QStringLiteral(":state"), skedStateName(state));
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool ContestDatabase::deleteSked(int id)
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("DELETE FROM skeds WHERE id = :id"));
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+QVector<Sked> ContestDatabase::skedsForContest(const QString& contestId) const
+{
+    QVector<Sked> result;
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("SELECT id, callsign, grid, band, freq_hz, time_utc, state, source, note, created_utc "
+                                 "FROM skeds WHERE contest_id = :contest_id ORDER BY time_utc ASC, id ASC"));
+    query.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        Sked sked;
+        sked.id = query.value(0).toInt();
+        sked.callsign = query.value(1).toString();
+        sked.grid = query.value(2).toString();
+        sked.band = query.value(3).toString();
+        sked.freqHz = query.value(4).toLongLong();
+        sked.timeUtc = QDateTime::fromString(query.value(5).toString(), Qt::ISODate).toUTC();
+        sked.state = skedStateFromName(query.value(6).toString());
+        sked.source = query.value(7).toString();
+        sked.note = query.value(8).toString();
+        sked.createdUtc = QDateTime::fromString(query.value(9).toString(), Qt::ISODate).toUTC();
+        result.append(sked);
     }
     return result;
 }

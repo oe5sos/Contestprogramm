@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/SkedList.h"
 #include "data/QsoRecord.h"
 
 #include <QDateTime>
@@ -136,6 +137,13 @@ public:
 
     // Every contest_id present in the qsos table, active or archived.
     QStringList contestIdsInLog() const;
+
+    // Skeds (core/SkedList.h), one table for every contest, keyed by
+    // contest_id like the QSOs. A restart mid-contest keeps them.
+    bool insertSked(const QString& contestId, Sked& sked);
+    bool updateSkedState(int id, Sked::State state);
+    bool deleteSked(int id);
+    QVector<Sked> skedsForContest(const QString& contestId) const;
 
     // Incremented by every QSO write (insert/update/invalid-toggle) --
     // LogBackup compares it against the value at its last backup, so an

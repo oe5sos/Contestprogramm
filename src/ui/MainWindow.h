@@ -1,9 +1,11 @@
 #pragma once
 
 #include "core/BandmapModel.h"
+#include "core/SkedList.h"
 #include "core/CheckPartialIndex.h"
 
 #include <QMainWindow>
+#include <QSet>
 #include <QString>
 
 class QCloseEvent;
@@ -36,6 +38,7 @@ class RateMeterWidget;
 class StatisticsWindow;
 class RotctldClient;
 class RotorWidget;
+class SkedPanel;
 class SuggestionPanel;
 class UnifiedLogWidget;
 class UtcClockWidget;
@@ -372,6 +375,16 @@ private:
     // settings/contest, records follow the log.
     OnlineScoreboard* m_scoreboard = nullptr;
     void refreshScoreboard();
+    // Skeds (core/SkedList.h + ui/SkedPanel.h): kept in the database,
+    // reloaded per contest, statuses refreshed every 15 s and after each
+    // logged QSO; a suggestion arrives from the ON4KST chat.
+    SkedPanel* m_skedPanel = nullptr;
+    QVector<Sked> m_skeds;
+    QSet<int> m_skedAlarmed;
+    void reloadSkeds();
+    void refreshSkeds();
+    void addSkedFromEntry(const QString& callsign, const QString& grid, const QString& qrgText, const QString& timeText);
+    void activateSked(int skedId);
     MultiplierWindow* m_multiplierWindow = nullptr;
     StatisticsWindow* m_statisticsWindow = nullptr;
     QWidget* m_rotorRow = nullptr;

@@ -41,6 +41,7 @@
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
 #include "ui/ScoreboardDialog.h"
+#include "ui/SkedPanel.h"
 #include "ui/StatisticsWindow.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StyleKit.h"
@@ -49,6 +50,7 @@
 #include "ui/UtcClockWidget.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QByteArray>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -647,6 +649,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
                                          /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260));
+    // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
+    // like Check and Bandmap.
+    m_skedPanel = new SkedPanel(this);
+    connect(m_skedPanel, &SkedPanel::addRequested, this, &MainWindow::addSkedFromEntry);
+    connect(m_skedPanel, &SkedPanel::skedActivated, this, &MainWindow::activateSked);
+    connect(m_skedPanel, &SkedPanel::suggestionAccepted, this, [this](int skedId) {
+        m_appController.database().updateSkedState(skedId, Sked::State::Open);
+        reloadSkeds();
+    });
+    connect(m_skedPanel, &SkedPanel::deleteRequested, this, [this](int skedId) {
+        m_appController.database().deleteSked(skedId);
+        reloadSkeds();
+    });
+    m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
+                                         /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
 
     m_panelLayoutManager->finalizeInitialLayout();
 
@@ -665,7 +682,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         m_appController.database(), *m_panelLayoutManager,
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
-         QStringLiteral("bandmap")},
+         QStringLiteral("bandmap"), QStringLiteral("skeds")},
         this);
     m_profileRail = new ProfileRail(this);
     m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
@@ -877,6 +894,39 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(bandmapTimer, &QTimer::timeout, this, &MainWindow::refreshBandmap);
     bandmapTimer->start();
 
+    // A chat line addressed to us that names a frequency is a sked
+    // proposal: it lands in the Skeds panel as a suggestion, one click
+    // makes it real.
+    connect(&m_appController.on4kstClient(), &On4kstClient::chatLineReceived, this, [this](const SpotCandidate& candidate) {
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        const auto suggestion = SkedRules::suggestionFromChat(candidate, m_appController.settings().ownCallsign, now);
+        if (!suggestion) {
+            return;
+        }
+        for (const Sked& existing : m_skeds) {
+            if (existing.callsign == suggestion->callsign && existing.band == suggestion->band
+                && (existing.state == Sked::State::Open || existing.state == Sked::State::Suggested)
+                && std::abs(existing.timeUtc.secsTo(suggestion->timeUtc)) < 120) {
+                return; // already there
+            }
+        }
+        Sked sked = *suggestion;
+        if (sked.grid.isEmpty()) {
+            sked.grid = m_appController.database().lastKnownGridForCallsign(sked.callsign).value_or(QString());
+        }
+        m_appController.database().insertSked(m_appController.settings().activeContestId, sked);
+        reloadSkeds();
+        statusBar()->showMessage(QStringLiteral("Sked-Vorschlag von %1: %2 %3 UTC (Skeds-Panel)")
+                                     .arg(sked.callsign)
+                                     .arg(sked.freqHz / 1000000.0, 0, 'f', 3)
+                                     .arg(sked.timeUtc.time().toString(QStringLiteral("HH:mm"))),
+                                 8000);
+    });
+    auto* skedTimer = new QTimer(this);
+    skedTimer->setInterval(15000);
+    connect(skedTimer, &QTimer::timeout, this, &MainWindow::refreshSkeds);
+    skedTimer->start();
+
     m_scoreboard = new OnlineScoreboard(this);
     connect(m_scoreboard, &OnlineScoreboard::posted, this,
             [this](const QString& summary) { statusBar()->showMessage(summary, 5000); });
@@ -1034,6 +1084,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
         {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
+        {QStringLiteral("skeds"), QStringLiteral("Skeds")},
     };
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
@@ -1042,6 +1093,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         connect(action, &QAction::toggled, this, [this, id = entry.id](bool visible) {
             if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
                 panel->setVisible(visible);
+                // A panel switched on from the menu comes to the front --
+                // otherwise a newly added one (Check, Bandmap, Skeds) can
+                // sit invisibly behind the map at its default place.
+                if (visible) {
+                    m_panelLayoutManager->raisePanel(id);
+                }
             }
         });
         panelActions->append({entry.id, action});
@@ -1296,6 +1353,10 @@ void MainWindow::applyActiveContestDefinition()
     }
     reloadCheckPartialSources();
     refreshScoreboard();
+    if (m_skedPanel) {
+        m_skedPanel->setOwnGrid(m_appController.settings().ownGrid);
+    }
+    reloadSkeds();
     refreshSentExchangePreview();
     updateStatusBar();
 }
@@ -1976,6 +2037,7 @@ void MainWindow::handleLogRequested()
     reloadCheckPartialSources();
     refreshBandmap();
     refreshScoreboard();
+    refreshSkeds();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -2811,6 +2873,115 @@ void MainWindow::postScoreNow()
                                  error.isEmpty() ? QStringLiteral("Online-Scoreboard ist nicht eingeschaltet "
                                                                   "(Datei > Online-Scoreboard...).")
                                                  : error);
+    }
+}
+
+void MainWindow::reloadSkeds()
+{
+    if (!m_skedPanel) {
+        return;
+    }
+    m_skeds = m_appController.database().skedsForContest(m_appController.settings().activeContestId);
+    refreshSkeds();
+}
+
+void MainWindow::refreshSkeds()
+{
+    if (!m_skedPanel) {
+        return;
+    }
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const ContestSettings settings = m_appController.settings();
+    static const QStringList kCallBandScope{QStringLiteral("callsign"), QStringLiteral("band")};
+    bool changed = false;
+    for (Sked& sked : m_skeds) {
+        if (sked.state != Sked::State::Open) {
+            continue;
+        }
+        // Worked on that band since the sked was made: done -- the log
+        // closes the sked, nobody has to tick it off.
+        const QString band = sked.band.isEmpty() ? m_currentBand : sked.band;
+        if (m_appController.dupeChecker().isDupe(sked.callsign, band, QString(), settings.activeContestId, kCallBandScope)) {
+            sked.state = Sked::State::Done;
+            m_appController.database().updateSkedState(sked.id, Sked::State::Done);
+            changed = true;
+        } else if (SkedRules::isOverdue(sked, now)) {
+            sked.state = Sked::State::Missed;
+            m_appController.database().updateSkedState(sked.id, Sked::State::Missed);
+            changed = true;
+        }
+    }
+    Q_UNUSED(changed);
+    // One alarm per sked, two minutes ahead: status line + the system
+    // beep -- the operator is on the radio, not on the screen.
+    if (const Sked* next = SkedRules::nextOpen(m_skeds, now)) {
+        const qint64 secs = now.secsTo(next->timeUtc);
+        if (secs <= SkedRules::kAlarmBeforeSecs && !m_skedAlarmed.contains(next->id)) {
+            m_skedAlarmed.insert(next->id);
+            statusBar()->showMessage(QStringLiteral("SKED %1 %2 MHz %3 UTC -- %4")
+                                         .arg(next->callsign)
+                                         .arg(next->freqHz / 1000000.0, 0, 'f', 3)
+                                         .arg(next->timeUtc.time().toString(QStringLiteral("HH:mm")))
+                                         .arg(secs > 0 ? QStringLiteral("in %1 min").arg((secs + 30) / 60) : QStringLiteral("jetzt")),
+                                     60000);
+            QApplication::beep();
+        }
+    }
+    m_skedPanel->setSkeds(m_skeds, now);
+}
+
+void MainWindow::addSkedFromEntry(const QString& callsign, const QString& grid, const QString& qrgText, const QString& timeText)
+{
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const auto time = SkedRules::parseManualTime(timeText, now);
+    if (!time) {
+        statusBar()->showMessage(QStringLiteral("Sked-Zeit nicht verstanden: \"%1\" (UTC HH:MM oder +Minuten)").arg(timeText), 6000);
+        return;
+    }
+    Sked sked;
+    sked.callsign = callsign.trimmed().toUpper();
+    sked.grid = grid.trimmed().toUpper();
+    if (sked.grid.isEmpty()) {
+        sked.grid = m_appController.database().lastKnownGridForCallsign(sked.callsign).value_or(QString());
+    }
+    if (const auto hz = SkedRules::parseFrequencyHz(qrgText)) {
+        sked.freqHz = *hz;
+    } else if (qrgText.trimmed().isEmpty() && m_appController.rigctldClient().isConnected()) {
+        sked.freqHz = m_appController.rigctldClient().frequencyHz();
+    } else if (!qrgText.trimmed().isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("Sked-Frequenz nicht verstanden: \"%1\" (MHz, z.B. 144.317)").arg(qrgText), 6000);
+        return;
+    }
+    sked.band = sked.freqHz > 0 ? bandLabelForFrequencyHz(sked.freqHz) : m_currentBand;
+    sked.timeUtc = *time;
+    sked.state = Sked::State::Open;
+    sked.source = QStringLiteral("manual");
+    sked.createdUtc = now;
+    if (!m_appController.database().insertSked(m_appController.settings().activeContestId, sked)) {
+        statusBar()->showMessage(QStringLiteral("Sked konnte nicht gespeichert werden: %1").arg(m_appController.database().lastError()), 8000);
+        return;
+    }
+    m_skedPanel->clearEntry();
+    reloadSkeds();
+}
+
+void MainWindow::activateSked(int skedId)
+{
+    for (const Sked& sked : m_skeds) {
+        if (sked.id != skedId) {
+            continue;
+        }
+        // The sked's whole point: tune, turn, fill -- the QSO can start.
+        if (sked.freqHz > 0 && m_appController.rigctldClient().isConnected()) {
+            m_appController.rigctldClient().setFrequency(sked.freqHz);
+        }
+        handleCandidateActivated(sked.callsign, sked.grid, sked.freqHz);
+        statusBar()->showMessage(QStringLiteral("Sked %1: %2 MHz, Rotor %3")
+                                     .arg(sked.callsign)
+                                     .arg(sked.freqHz / 1000000.0, 0, 'f', 3)
+                                     .arg(sked.grid.isEmpty() ? QStringLiteral("(kein Locator)") : sked.grid),
+                                 5000);
+        return;
     }
 }
 

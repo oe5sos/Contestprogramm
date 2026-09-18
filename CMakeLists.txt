@@ -64,6 +64,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/EsmPlanner.cpp
     src/core/BandmapModel.h
     src/core/BandmapModel.cpp
+    src/core/SkedList.h
+    src/core/SkedList.cpp
     src/core/OnlineScoreboard.h
     src/core/OnlineScoreboard.cpp
     src/core/DxClusterClient.h
@@ -170,6 +172,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/EsmTemplatesDialog.cpp
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
+    src/ui/SkedPanel.h
+    src/ui/SkedPanel.cpp
     src/ui/ScoreboardDialog.h
     src/ui/ScoreboardDialog.cpp
     src/ui/StatisticsWindow.h

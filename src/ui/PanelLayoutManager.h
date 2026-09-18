@@ -89,6 +89,11 @@ public:
     // wrong, not just wasteful.
     void saveLayout(const QString& onlyId = QString());
 
+    // Brings `id` to the front and records it in the persisted z-order
+    // -- what a header click does, for callers without a mouse (the
+    // Panels menu switching a hidden panel on).
+    void raisePanel(const QString& id);
+
 protected:
     // Watches canvas() for QEvent::Resize -- see clampPanelsToCanvas()'s
     // own comment for why the clamp has to live here rather than in
