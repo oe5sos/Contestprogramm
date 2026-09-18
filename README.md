@@ -70,13 +70,14 @@ werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 | Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
 | Check Partial | Rufzeichen-Vorschläge beim Tippen aus Log, Locator-Liste, gehörten Stationen, SCP-Liste; N+1 ab vier Zeichen; Klick übernimmt Call+Locator | Panel „Check"; *Datei › SCP-Liste laden…* |
 | Bandmap | Spots (KST/Cluster) auf der Frequenzachse, eigene Frequenz, gearbeitet gedimmt; Klick = QSY | Panel „Bandmap" |
+| Skeds | Verabredungen mit Zeitleiste der nächsten Stunde; Eingabe von Hand oder als Vorschlag aus einer KST-Nachricht an dich; Klick = QSY + Rotor + Eingabezeile; Alarm 2 min vorher; ein QSO schließt den Sked | Panel „Skeds" |
 | CW | Makro-Zeile, F1–F6 als Tasten (Tastung über `rigctld`), Esc stoppt, Alt+W leert die Eingabe; ESM: Enter sendet, was der QSO-Stand verlangt, und loggt erst am Ende | Checkbox „CW-Makros anzeigen" / „ESM"; *Datei › ESM-Texte…* |
 | Feeds | ON4KST-Chat und DX-Cluster, geografisch gefiltert (Radius, Terrain), Nächstes-Ziel-Vorschlag mit Nachrichtenentwurf | Panele „Log" (Kandidaten), „Nächstes Ziel" |
 | Karte / Rotoren | Locator-Karte mit Ringen, Rotoren über `rotctld`, Standortvergleich per Horizont | Panele „Karte", „Rotoren"; *Datei › Standortvergleich…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 
-Neue Panele (Check, Bandmap) sind in bereits gespeicherten Layout-Profilen
+Neue Panele (Check, Bandmap, Skeds) sind in bereits gespeicherten Layout-Profilen
 zunächst ausgeblendet – *Fenster › Panels* schaltet sie ein; die Position
 bleibt dann im Profil.
 
