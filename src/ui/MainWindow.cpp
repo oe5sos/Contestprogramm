@@ -809,9 +809,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         }
         const QString bandLabel = bandLabelForFrequencyHz(hz);
         if (!bandLabel.isEmpty()) {
+            const bool bandChanged = bandLabel != m_currentBand;
             m_currentBand = bandLabel;
             syncOn4kstRoomForCurrentBand();
             updateStatusBar();
+            // The next serial is per band -- a band change shows the
+            // other band's next number at once.
+            if (bandChanged) {
+                refreshSentExchangePreview();
+                recheckDupeIndicator();
+            }
         }
     });
     connect(&m_appController.rigctldClient(), &RigctldClient::modeChanged, this,
@@ -1531,7 +1538,8 @@ QString MainWindow::currentSentExchangeText() const
     if (!def) {
         return QString();
     }
-    const int serialSent = m_appController.database().nextSerialForContest(settings.activeContestId);
+    const int serialSent = m_appController.database().nextSerialForContest(
+        settings.activeContestId, def->serialScope() == QStringLiteral("band") ? m_currentBand : QString());
     return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode));
 }
 
@@ -1861,7 +1869,10 @@ void MainWindow::handleLogRequested()
                                   .arg(m_appController.dupeChecker().lastError()));
     }
 
-    const int serialSent = m_appController.database().nextSerialForContest(settings.activeContestId);
+    // Per band (IARU R1: 001 for the first contact on each band) unless
+    // the definition says one sequence for the whole contest.
+    const int serialSent = m_appController.database().nextSerialForContest(
+        settings.activeContestId, def && def->serialScope() == QStringLiteral("band") ? band : QString());
 
     // The grid_square/serial_rcvd DB columns (used for distance/
     // bearing, the dupe/multiplier/known-exchange machinery -- see

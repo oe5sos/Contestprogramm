@@ -60,6 +60,12 @@ public:
     // (1 point per QSO).
     const QString& scoring() const { return m_scoring; }
 
+    // Where the sent serial number counts: "band" (the default -- IARU
+    // Region 1 rule: "a serial number commencing with 001 for the first
+    // contact on each band", ÖVSV likewise) or "contest" (one sequence
+    // across all bands). JSON key "serial_scope".
+    const QString& serialScope() const { return m_serialScope; }
+
     // Returns a copy of this definition with exchangeFields() replaced
     // by `fields` -- id/name/bands/dupe_scope/multiplier_field stay
     // unchanged. Used by ContestRulesEditor to build the definition it
@@ -86,6 +92,7 @@ private:
     QVector<ExchangeField> m_exchangeFields;
     QString m_multiplierField = QStringLiteral("grid");
     QString m_scoring = QStringLiteral("distance_km");
+    QString m_serialScope = QStringLiteral("band");
     bool m_valid = false;
 };
 

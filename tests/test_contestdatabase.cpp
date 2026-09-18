@@ -29,6 +29,7 @@ private slots:
     void setQsoInvalidTogglesFlag();
     void updateQsoTimestampPersistsAndCountsWrites();
     void archiveContestMovesQsosAndKeepsTheirLocators();
+    void nextSerialCountsPerBandWhenAsked();
     void preExistingTableWithoutNewColumnsIsMigrated();
 };
 
@@ -323,6 +324,36 @@ void TestContestDatabase::updateQsoExchangeRcvdPersists()
 // invalid flag is what marks a bad contact instead, and it must be
 // freely toggleable both ways (see UnifiedLogWidget's Status-cell
 // click, which is a toggle, not a one-way mark).
+void TestContestDatabase::nextSerialCountsPerBandWhenAsked()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("serial.sqlite")), QStringLiteral("test_serial_band")));
+
+    auto insert = [&](const QString& band, int serial) {
+        QsoRecord r;
+        r.callsign = QStringLiteral("OE%1ABC").arg(serial);
+        r.band = band;
+        r.mode = QStringLiteral("SSB");
+        r.timestampUtc = QStringLiteral("2026-10-03T14:0%1:00Z").arg(serial);
+        r.serialSent = serial;
+        r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
+        QVERIFY(db.insertQso(r));
+    };
+    insert(QStringLiteral("144"), 1);
+    insert(QStringLiteral("144"), 2);
+    insert(QStringLiteral("144"), 3);
+    insert(QStringLiteral("432"), 1);
+
+    // IARU R1: 001 for the first contact on each band.
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("144")), 4);
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("432")), 2);
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("1296")), 1);
+    // One sequence across the contest when no band is given.
+    QCOMPARE(db.nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF")), 4);
+}
+
 void TestContestDatabase::archiveContestMovesQsosAndKeepsTheirLocators()
 {
     QTemporaryDir dir;

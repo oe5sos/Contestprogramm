@@ -40,6 +40,7 @@ private slots:
     void qsoCountRuleScoresOnePointPerQso();
     void definitionParsesAndRoundTripsTheScoringKey();
     void definitionRejectsUnknownScoring();
+    void definitionSerialScopeDefaultsToBandAndRoundTrips();
 };
 
 void TestContestScoring::distancePointsAreWholeKilometresWithAFloorOfOne()
@@ -160,6 +161,33 @@ void TestContestScoring::definitionParsesAndRoundTripsTheScoringKey()
     const ContestDefinition reloaded = ContestDefinition::loadFromFile(path, &error);
     QVERIFY2(reloaded.isValid(), qPrintable(error));
     QCOMPARE(reloaded.scoring(), QStringLiteral("qso_count"));
+}
+
+void TestContestScoring::definitionSerialScopeDefaultsToBandAndRoundTrips()
+{
+    const char* json = R"JSON({"id":"X","name":"X","bands":["144"],"dupe_scope":["callsign","band","mode"],
+        "exchange_fields":[{"key":"grid","label":"Grid","type":"grid6"}]})JSON";
+    QString error;
+    ContestDefinition def = ContestDefinition::loadFromJson(QByteArray(json), &error);
+    QVERIFY2(def.isValid(), qPrintable(error));
+    QCOMPARE(def.serialScope(), QStringLiteral("band")); // the IARU R1 rule is the default
+
+    const char* whole = R"JSON({"id":"X","name":"X","bands":["144"],"dupe_scope":["callsign","band","mode"],
+        "serial_scope":"contest","exchange_fields":[{"key":"grid","label":"Grid","type":"grid6"}]})JSON";
+    def = ContestDefinition::loadFromJson(QByteArray(whole), &error);
+    QVERIFY2(def.isValid(), qPrintable(error));
+    QCOMPARE(def.serialScope(), QStringLiteral("contest"));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("x.json"));
+    QVERIFY(def.saveToFile(path, &error));
+    QCOMPARE(ContestDefinition::loadFromFile(path, &error).serialScope(), QStringLiteral("contest"));
+
+    const char* bad = R"JSON({"id":"X","name":"X","bands":["144"],"dupe_scope":["callsign","band","mode"],
+        "serial_scope":"operator","exchange_fields":[{"key":"grid","label":"Grid","type":"grid6"}]})JSON";
+    QVERIFY(!ContestDefinition::loadFromJson(QByteArray(bad), &error).isValid());
+    QVERIFY(error.contains(QStringLiteral("operator")));
 }
 
 void TestContestScoring::definitionRejectsUnknownScoring()

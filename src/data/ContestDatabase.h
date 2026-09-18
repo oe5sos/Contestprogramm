@@ -70,8 +70,11 @@ public:
 
     // Next serial number to send for `contestId`: 1 + the highest
     // serial_sent already logged for that contest (1 if none logged
-    // yet). Used to auto-fill the "serial" exchange field.
-    int nextSerialForContest(const QString& contestId) const;
+    // yet). With `band` given, only that band's QSOs count -- the IARU
+    // Region 1 "001 for the first contact on each band" rule (see
+    // ContestDefinition::serialScope()). Used to auto-fill the "serial"
+    // exchange field.
+    int nextSerialForContest(const QString& contestId, const QString& band = QString()) const;
 
     // Grid-autofill lookup, per the plan's UI section
     // ("Grid-Autofill bei bekanntem Rufzeichen"): the most recent

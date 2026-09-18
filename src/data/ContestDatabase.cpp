@@ -335,10 +335,15 @@ int ContestDatabase::qsoCountSince(const QString& contestId, const QDateTime& si
     return query.value(0).toInt();
 }
 
-int ContestDatabase::nextSerialForContest(const QString& contestId) const
+int ContestDatabase::nextSerialForContest(const QString& contestId, const QString& band) const
 {
     QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT MAX(serial_sent) FROM qsos WHERE contest_id = :contest_id"));
+    if (band.isEmpty()) {
+        query.prepare(QStringLiteral("SELECT MAX(serial_sent) FROM qsos WHERE contest_id = :contest_id"));
+    } else {
+        query.prepare(QStringLiteral("SELECT MAX(serial_sent) FROM qsos WHERE contest_id = :contest_id AND band = :band"));
+        query.bindValue(QStringLiteral(":band"), band);
+    }
     query.bindValue(QStringLiteral(":contest_id"), contestId);
     if (!query.exec() || !query.next() || query.value(0).isNull()) {
         return 1;

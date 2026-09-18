@@ -4,6 +4,7 @@
   "bands": ["144", "432"],
   "dupe_scope": ["callsign", "band", "mode"],
   "scoring": "distance_km",
+  "serial_scope": "band",
   "exchange_fields": [
     { "key": "rst",    "label": "RST",    "type": "rst" },
     { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true },

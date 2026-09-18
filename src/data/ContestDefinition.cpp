@@ -110,6 +110,14 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         }
         def.m_scoring = scoring;
     }
+    if (root.value(QStringLiteral("serial_scope")).isString()) {
+        const QString scope = root.value(QStringLiteral("serial_scope")).toString();
+        if (scope != QStringLiteral("band") && scope != QStringLiteral("contest")) {
+            if (errorOut) { *errorOut = QStringLiteral("unknown \"serial_scope\" value \"%1\"").arg(scope); }
+            return ContestDefinition();
+        }
+        def.m_serialScope = scope;
+    }
 
     def.m_valid = true;
     return def;
@@ -163,6 +171,7 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
     root.insert(QStringLiteral("exchange_fields"), fieldsArray);
     root.insert(QStringLiteral("multiplier_field"), m_multiplierField);
     root.insert(QStringLiteral("scoring"), m_scoring);
+    root.insert(QStringLiteral("serial_scope"), m_serialScope);
 
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {
