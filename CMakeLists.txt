@@ -123,6 +123,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/ContestSchedule.cpp
     src/data/LogCheck.h
     src/data/LogCheck.cpp
+    src/data/DupeRescore.h
+    src/data/DupeRescore.cpp
     src/data/LogBackup.h
     src/data/LogBackup.cpp
     src/data/ContestStatistics.h

@@ -111,7 +111,16 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     }
     loadAvailableContestDefinitions();
     if (m_settings.activeContestId.isEmpty() && !m_availableContestDefinitions.isEmpty()) {
+        // A fresh database starts in the first all-mode contest of the
+        // list (file-name order), not in a single-mode one like the
+        // Marconi Memorial -- that would put a new install into CW.
         m_settings.activeContestId = m_availableContestDefinitions.first().id();
+        for (const ContestDefinition& def : m_availableContestDefinitions) {
+            if (def.modes().isEmpty()) {
+                m_settings.activeContestId = def.id();
+                break;
+            }
+        }
     }
 
     applyNetworkSettings();

@@ -20,6 +20,7 @@
 #include "data/CabrilloExporter.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
+#include "data/DupeRescore.h"
 #include "data/LogCheck.h"
 #include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
@@ -1343,6 +1344,13 @@ void MainWindow::applyActiveContestDefinition()
         if (m_currentMode.isEmpty()) {
             m_currentMode = QStringLiteral("SSB");
         }
+        // A single-mode contest (the Marconi Memorial: "modes": ["CW"])
+        // starts in that mode -- without CAT nothing else would ever
+        // set it, and every QSO would go into the log as SSB with a
+        // 59. A live radio still overrides this on its next mode report.
+        if (def->modes().size() == 1 && !def->modes().contains(m_currentMode)) {
+            m_currentMode = def->modes().first();
+        }
         m_unifiedLog->setCurrentMode(m_currentMode);
         // The literal gap this task closes: the entry row's exchange
         // sub-fields now actually reflect the active ContestDefinition's
@@ -2063,6 +2071,17 @@ void MainWindow::handleLogRequested()
     // preview must reflect the *next* one immediately, not the one that
     // was just logged.
     refreshSentExchangePreview();
+    // Logged outside the contest period: a note, not a refusal --
+    // practice QSOs before the start are how the dry run works, and
+    // Datei > Log prüfen lists them as errors anyway before the export.
+    if (def) {
+        const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
+        const ContestWindow window = effectiveContestWindow(def->schedule(), settings.contestEndUtc, nowUtc);
+        if (window.isValid() && !window.contains(nowUtc)) {
+            statusBar()->showMessage(QStringLiteral("Hinweis: QSO außerhalb des Contestzeitraums geloggt (%1)")
+                                         .arg(window.describe()), 10000);
+        }
+    }
 }
 
 void MainWindow::recheckDupeIndicator()
@@ -2203,6 +2222,14 @@ void MainWindow::handleHistoryCallsignEditRequested(int qsoId, const QString& ne
     QsoRecord updated = *current;
     updated.callsign = newCallsign;
     m_logModel->updateRecord(updated);
+    // The corrected call may now duplicate an earlier QSO, or no longer
+    // be the dupe it was marked as (data/DupeRescore.h); the worked-
+    // station map and the feed scoring read the callsign too.
+    rescoreDupes();
+    recheckDupeIndicator();
+    refreshMultiplierAndFeedScores();
+    refreshMapWidget();
+    refreshSuggestionPanel();
 }
 
 void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString& newText)
@@ -2304,7 +2331,9 @@ void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
     // row's dupe status, the worked-station map, AND the multiplier/
     // feed scoring -- see DupeChecker/MultiplierTracker/
     // CabrilloExporter/AdifExporter for the matching is_invalid
-    // exclusion this reflects.
+    // exclusion this reflects. It also frees (or re-takes) the
+    // callsign for a later QSO of the same station: rescoreDupes().
+    rescoreDupes();
     recheckDupeIndicator();
     refreshMultiplierAndFeedScores();
     refreshMapWidget();
@@ -2706,8 +2735,43 @@ void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newTex
     QsoRecord updated = *current;
     updated.timestampUtc = iso;
     m_logModel->updateRecord(updated);
-    // The rate windows and the EDI TDate span both read the timestamp.
+    // The rate windows and the EDI TDate span both read the timestamp,
+    // and which of two QSOs with the same station is the dupe is a
+    // question of time order.
     m_rateMeterWidget->refresh();
+    rescoreDupes();
+}
+
+int MainWindow::rescoreDupes()
+{
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    if (!def || !m_logModel) {
+        return 0;
+    }
+    const QVector<QsoRecord> records = m_appController.database().qsosForContest(settings.activeContestId);
+    const QVector<DupeFlagChange> changes = recomputeDupeFlags(records, def->dupeScope());
+    int applied = 0;
+    for (const DupeFlagChange& change : changes) {
+        QString error;
+        if (!m_appController.database().setQsoDupe(change.qsoId, change.isDupe, &error)) {
+            statusBar()->showMessage(QStringLiteral("Dupe-Status konnte nicht gespeichert werden: %1").arg(error), 20000);
+            continue;
+        }
+        // Patched row by row, never a model reset: this runs from a
+        // history-cell edit whose editor may still be mid-commit (see
+        // UnifiedFeedModel::setLogModel's own note on that).
+        if (const auto refreshed = m_appController.database().qsoById(change.qsoId)) {
+            m_logModel->updateRecord(*refreshed);
+        }
+        ++applied;
+    }
+    if (applied > 0) {
+        m_rateMeterWidget->refresh();
+        statusBar()->showMessage(QStringLiteral("Dupe-Status von %1 QSO%2 nach der Korrektur angepasst")
+                                     .arg(applied).arg(applied == 1 ? QString() : QStringLiteral("s")), 8000);
+    }
+    return applied;
 }
 
 void MainWindow::archiveActiveContest()

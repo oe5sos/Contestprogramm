@@ -120,6 +120,9 @@ public:
     // MultiplierTracker/CabrilloExporter/AdifExporter for where
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
+    // The dupe flag as data/DupeRescore.h recomputes it after a
+    // correction; the flag set at logging time is DupeChecker's.
+    bool setQsoDupe(int id, bool dupe, QString* errorOut = nullptr);
 
     // Corrects a logged QSO's time (ISO-8601 UTC, same form insertQso()
     // stores) -- the one field DXLog.net/N1MM+ hand-corrections need

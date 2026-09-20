@@ -468,6 +468,23 @@ bool ContestDatabase::setQsoInvalid(int id, bool invalid, QString* errorOut)
     return true;
 }
 
+bool ContestDatabase::setQsoDupe(int id, bool dupe, QString* errorOut)
+{
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET is_dupe = :is_dupe WHERE id = :id"));
+    query.bindValue(QStringLiteral(":is_dupe"), dupe ? 1 : 0);
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
 bool ContestDatabase::updateQsoTimestamp(int id, const QString& timestampUtc, QString* errorOut)
 {
     QSqlQuery query(m_db);

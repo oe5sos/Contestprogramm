@@ -91,6 +91,10 @@ private slots:
     void openLogCheckWindow();
     void refreshLogCheck();
     void jumpToQso(int qsoId);
+    // After a history-row correction: re-derive every dupe flag of the
+    // active contest (data/DupeRescore.h), write the ones that changed,
+    // patch their rows in place. Returns how many changed.
+    int rescoreDupes();
     void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
     void handleCallsignLookupRequested(const QString& callsign);
     // Live km/bearing preview for the in-progress entry -- recomputes

@@ -64,7 +64,8 @@ werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 `serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
 001, IARU-R1-Regel) oder `contest`. `dupe_scope`: bei IARU R1/ÖVSV
 `["callsign", "band"]` – einmal je Band, unabhängig von der Betriebsart.
-`modes` (optional): erlaubte Betriebsarten, sonst alle. `schedule`
+`modes` (optional): erlaubte Betriebsarten, sonst alle; bei genau einer
+startet das Programm ohne CAT in dieser Betriebsart (Marconi: CW/599). `schedule`
 (optional): wann der Contest läuft – „n-tes volles Wochenende im Monat,
 Sa 14:00 UTC, 24 h" ist die IARU-R1-Regel, das Programm rechnet die Termine
 für jedes Jahr selbst aus (Countdown in der Kopfzeile, Zeitprüfung); ein von
@@ -76,7 +77,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 |---|---|---|
 | Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests), Locator-Liste, QRZ/HamQTH | Panel „Log" |
 | Vor/nach dem Contest | Log abschließen und archivieren (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
-| Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter); statt Löschen „ungültig" markieren | Panel „Log" |
+| Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter); statt Löschen „ungültig" markieren. Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
 | Wertung | km je Band, Σ, ODX | Panel „Rate"; *Fenster › Statistik…* (je Band, je Stunde, längste QSOs) |
 | Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
 | Check Partial | Rufzeichen-Vorschläge beim Tippen aus Log, Locator-Liste, gehörten Stationen, SCP-Liste; N+1 ab vier Zeichen; Klick übernimmt Call+Locator | Panel „Check"; *Datei › SCP-Liste laden…* |
