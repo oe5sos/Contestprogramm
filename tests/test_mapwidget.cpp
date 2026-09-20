@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QDateTime>
+#include <QAction>
 #include <QSignalSpy>
 
 #include "core/Maidenhead.h"
@@ -283,6 +284,7 @@ private slots:
     void preferencesTextRoundTrips();
     void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
     void clickingASkylineTickActivatesTheStation();
+    void secondAntennaMenuEntryReportsTheStationSetting();
 };
 
 void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
@@ -592,6 +594,31 @@ void TestMapWidgetLive::clickingASkylineTickActivatesTheStation()
     // Far from any tick: nothing.
     QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, QPoint(at.x() + 60, at.y()));
     QCOMPARE(spy.count(), 0);
+}
+
+void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
+{
+    MapWidget widget;
+    QSignalSpy toggled(&widget, &MapWidget::secondAntennaToggled);
+    // Fed from the settings: the menu entry follows, no signal.
+    widget.setRotor2SecondAntenna(true, 45.0);
+    QCOMPARE(toggled.count(), 0);
+    QAction* rotor2 = nullptr;
+    for (QAction* action : widget.findChildren<QAction*>()) {
+        if (action->text().startsWith(QStringLiteral("Rotor 2: Zweitantenne"))) {
+            rotor2 = action;
+        }
+    }
+    QVERIFY(rotor2);
+    QVERIFY(rotor2->isChecked());
+    QVERIFY(rotor2->text().contains(QStringLiteral("+45°")));
+    // Operator unticks it: reported once, so MainWindow can store it.
+    rotor2->setChecked(false);
+    QCOMPARE(toggled.count(), 1);
+    QCOMPARE(toggled.first().at(0).toInt(), 2);
+    QCOMPARE(toggled.first().at(1).toBool(), false);
+    // Not a map preference: the preferences text does not carry it.
+    QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
 }
 
 int main(int argc, char* argv[])

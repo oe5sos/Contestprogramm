@@ -542,6 +542,15 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
         m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
     });
+    // "Zweitantenne" from the map's ⚙ menu is the station setting the
+    // settings dialog edits: stored once, then re-applied to the rotor
+    // dials and the map alike.
+    connect(m_mapWidget, &MapWidget::secondAntennaToggled, this, [this](int rotor, bool enabled) {
+        ContestSettings settings = m_appController.settings();
+        (rotor == 1 ? settings.rotor1SecondAntennaEnabled : settings.rotor2SecondAntennaEnabled) = enabled;
+        m_appController.setSettings(settings);
+        applyRotorWidgetSettings();
+    });
     // 2026-09-13/14, kartendominante Anordnung ("A -- Kartenreihe
     // groß"): the map becomes the single biggest panel on the canvas,
     // both wider AND taller than before. x=910: right of rotorrow
@@ -582,8 +591,17 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // clampPanelsToCanvas() to trim the overflow at random. Only the
     // WIDTH changes in this pass -- that real ~690px height ceiling is
     // unrelated to and unaffected by the width fix above.
-    m_panelLayoutManager->registerPanel(QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
-                                         /*contentHasOwnChrome=*/true, QRect(910, 78, 530, 501));
+    // Header mode: the container's PanelHeaderBar carries title, lock
+    // and the ⚙ -- top right with its own symbol like every other panel
+    // (operator, 2026-09-20) -- which opens the map's own layer menu.
+    PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
+        QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
+        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501));
+    if (mapContainer && mapContainer->headerBar()) {
+        mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
+        connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                [this] { m_mapWidget->optionsMenu()->popup(QCursor::pos()); });
+    }
     // Clicking a station marker on the map -- same signal shape (and the
     // same consumer, which also commands the rotor when one is
     // configured) ChatFeedView/UnifiedLogWidget's own candidateActivated

@@ -46,10 +46,13 @@ namespace Contestprogramm {
 // through preferencesChanged() so MainWindow can keep them in the
 // settings table (preferencesText()/applyPreferencesText()).
 //
-// Own panel chrome (header band) like RotorWidget, so it sits in a
-// PanelContainerWidget with contentHasOwnChrome = true. Projection is
-// azimuthal equidistant around the own locator: bearing on screen is
-// the bearing to turn the rotor to, distance is the distance to log.
+// Sits in a PanelContainerWidget in header mode: the container's
+// PanelHeaderBar carries title, lock and the ⚙ that opens optionsMenu()
+// -- top right with its own symbol, like every other panel (operator,
+// 2026-09-20: "optionen sollen immer rechts oben mit eigenem symbol
+// erreichbar sein"). Projection is azimuthal equidistant around the own
+// locator: bearing on screen is the bearing to turn the rotor to,
+// distance is the distance to log.
 class MapWidget : public QWidget {
     Q_OBJECT
 
@@ -140,6 +143,10 @@ public:
     void zoomIn();
     void zoomOut();
 
+    // The layer/beamwidth menu, for the panel header's ⚙ (MainWindow
+    // pops it up on PanelHeaderBar::optionsRequested).
+    QMenu* optionsMenu() const { return m_optionsMenu; }
+
     // "view=radar;grid=1;..." -- what MainWindow persists.
     QString preferencesText() const;
     void applyPreferencesText(const QString& text);
@@ -166,6 +173,11 @@ public:
 signals:
     // A click on a station (marker or skyline tick).
     void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
+    // The ⚙ menu's "Zweitantenne" entry for rotor 1 or 2 -- the same
+    // station setting the settings dialog edits (operator, 2026-09-20:
+    // "dies soll eine option sein, dann kann ich es selbst machen");
+    // MainWindow stores it and feeds it back via setRotorNSecondAntenna.
+    void secondAntennaToggled(int rotor, bool enabled);
     // View or any layer toggle changed by the operator or a setter.
     void preferencesChanged();
 
@@ -205,7 +217,6 @@ private:
     QVector<GridCell> computeGridCells(const QRectF& area) const;
 
     // Painting
-    void drawPanelHeader(QPainter& painter) const;
     void drawScopeFace(QPainter& painter, const QRectF& area) const;
     void drawBordersLayer(QPainter& painter, const QRectF& area) const;
     void drawCitiesLayer(QPainter& painter, const QRectF& area) const;
@@ -270,7 +281,6 @@ private:
     QWidget* m_controlsRow = nullptr;
     QPushButton* m_radarButton = nullptr;
     QPushButton* m_mapButton = nullptr;
-    QToolButton* m_optionsButton = nullptr;
     QMenu* m_optionsMenu = nullptr;
     QAction* m_gridAction = nullptr;
     QAction* m_ringsAction = nullptr;
@@ -283,6 +293,8 @@ private:
     QAction* m_rotor1Action = nullptr;
     QAction* m_rotor2Action = nullptr;
     QAction* m_horizonAction = nullptr;
+    QAction* m_rotor1SecondAction = nullptr;
+    QAction* m_rotor2SecondAction = nullptr;
     QMenu* m_beamwidth1Menu = nullptr;
     QMenu* m_beamwidth2Menu = nullptr;
     QPushButton* m_zoomOutButton = nullptr;

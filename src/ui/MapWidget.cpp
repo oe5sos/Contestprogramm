@@ -24,7 +24,6 @@
 #include <QRadialGradient>
 #include <QSet>
 #include <QTimer>
-#include <QToolButton>
 #include <QVBoxLayout>
 #include <QtMath>
 
@@ -34,8 +33,6 @@
 namespace Contestprogramm {
 
 namespace {
-constexpr int kHeaderHeight = 28;
-constexpr int kAccentBarWidth = 3;
 constexpr int kControlsRowHeight = 24;
 constexpr int kCanvasMargin = 8;
 // Radar: the number column to the right of the scope, and the least
@@ -149,7 +146,7 @@ MapWidget::MapWidget(QWidget* parent)
     buildControls();
 
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, kHeaderHeight, 0, 0);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_controlsRow);
     layout->addStretch(1);
@@ -171,7 +168,7 @@ void MapWidget::buildControls()
     m_controlsRow = new QWidget(this);
     m_controlsRow->setFixedHeight(kControlsRowHeight);
     auto* row = new QHBoxLayout(m_controlsRow);
-    row->setContentsMargins(kAccentBarWidth + 9, 2, 8, 2);
+    row->setContentsMargins(10, 2, 8, 2);
     row->setSpacing(6);
 
     // View switch: two quiet capsule buttons, one always down.
@@ -197,8 +194,9 @@ void MapWidget::buildControls()
     connect(m_mapButton, &QPushButton::clicked, this, [this] { setView(View::MapHorizon); });
     row->addStretch(1);
 
-    // ⚙: every layer as a checkable menu entry -- the ten checkboxes of
-    // the old panel, off the face of the instrument.
+    // The ⚙ menu (opened from the panel header): every layer as a
+    // checkable entry -- the ten checkboxes of the old panel, off the
+    // face of the instrument.
     m_optionsMenu = new QMenu(this);
     const auto addToggle = [this](const QString& text, const QString& tip, void (MapWidget::*setter)(bool)) {
         QAction* action = m_optionsMenu->addAction(text);
@@ -221,6 +219,24 @@ void MapWidget::buildControls()
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
     m_rotor1Action = addToggle(QStringLiteral("Rotor 1"), QStringLiteral("Peilung von Rotor 1 als Lichtkegel"), &MapWidget::setRotor1HeadingLayerVisible);
     m_rotor2Action = addToggle(QStringLiteral("Rotor 2"), QStringLiteral("Peilung von Rotor 2"), &MapWidget::setRotor2HeadingLayerVisible);
+    // Whether a rotor carries a second antenna: a station setting (the
+    // settings dialog has it too), switchable here where the cones are.
+    const auto addSecondAntenna = [this](int rotor) {
+        QAction* action = m_optionsMenu->addAction(QStringLiteral("Rotor %1: Zweitantenne").arg(rotor));
+        action->setCheckable(true);
+        action->setToolTip(QStringLiteral("Zweite Antenne auf Rotor %1 (Versatz aus den Einstellungen) -- zweiter Kegel").arg(rotor));
+        connect(action, &QAction::toggled, this, [this, rotor](bool on) {
+            if (m_syncingControls) {
+                return;
+            }
+            (rotor == 1 ? m_rotor1SecondEnabled : m_rotor2SecondEnabled) = on;
+            update();
+            emit secondAntennaToggled(rotor, on);
+        });
+        return action;
+    };
+    m_rotor1SecondAction = addSecondAntenna(1);
+    m_rotor2SecondAction = addSecondAntenna(2);
     // Opening angle of each rotor's antennas -- the width of its cone.
     const auto beamwidthMenu = [this](const QString& title, void (MapWidget::*setter)(double)) {
         QMenu* menu = m_optionsMenu->addMenu(title);
@@ -247,20 +263,6 @@ void MapWidget::buildControls()
     m_citiesAction = addToggle(QStringLiteral("Städte"), QStringLiteral("Wichtigste Großstädte ab 150 km (Natural Earth 1:110m)"), &MapWidget::setCitiesLayerVisible);
     m_gridAction = addToggle(QStringLiteral("Locator-Raster"), QStringLiteral("Großfelder als Raster mit Beschriftung"), &MapWidget::setGridLayerVisible);
     m_workedCellsAction = addToggle(QStringLiteral("Gearbeitete Felder färben"), QStringLiteral("Gearbeitete/gespottete Großfelder im Raster tönen"), &MapWidget::setWorkedCellsLayerVisible);
-
-    m_optionsButton = new QToolButton(m_controlsRow);
-    m_optionsButton->setText(QStringLiteral("⚙"));
-    m_optionsButton->setToolTip(QStringLiteral("Ebenen und Darstellung"));
-    m_optionsButton->setPopupMode(QToolButton::InstantPopup);
-    m_optionsButton->setMenu(m_optionsMenu);
-    m_optionsButton->setFixedSize(22, kControlsRowHeight - 4);
-    m_optionsButton->setFocusPolicy(Qt::NoFocus);
-    m_optionsButton->setStyleSheet(QStringLiteral(
-        "QToolButton { background: transparent; border: none; color: %1; font-size: 14px; }"
-        "QToolButton::menu-indicator { image: none; }"
-        "QToolButton:hover { background: %2; color: %3; border-radius: 3px; }")
-        .arg(Style::kTextScale(), Style::kButtonHover(), Style::kTextPrimary()));
-    row->addWidget(m_optionsButton);
 
     m_zoomOutButton = new QPushButton(QStringLiteral("−"), m_controlsRow);
     m_zoomInButton = new QPushButton(QStringLiteral("+"), m_controlsRow);
@@ -305,6 +307,16 @@ void MapWidget::syncControls()
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
+    sync(m_rotor1SecondAction, m_rotor1SecondEnabled);
+    sync(m_rotor2SecondAction, m_rotor2SecondEnabled);
+    if (m_rotor1SecondAction) {
+        m_rotor1SecondAction->setText(QStringLiteral("Rotor 1: Zweitantenne (%1%2°)")
+                                          .arg(m_rotor1SecondOffsetDeg >= 0 ? QStringLiteral("+") : QString())
+                                          .arg(m_rotor1SecondOffsetDeg, 0, 'f', 0));
+        m_rotor2SecondAction->setText(QStringLiteral("Rotor 2: Zweitantenne (%1%2°)")
+                                          .arg(m_rotor2SecondOffsetDeg >= 0 ? QStringLiteral("+") : QString())
+                                          .arg(m_rotor2SecondOffsetDeg, 0, 'f', 0));
+    }
     const auto syncBeamwidth = [](QMenu* menu, double deg) {
         if (!menu) {
             return;
@@ -440,6 +452,7 @@ void MapWidget::setRotor1SecondAntenna(bool enabled, double offsetDeg)
 {
     m_rotor1SecondEnabled = enabled;
     m_rotor1SecondOffsetDeg = offsetDeg;
+    syncControls();
     update();
 }
 
@@ -447,6 +460,7 @@ void MapWidget::setRotor2SecondAntenna(bool enabled, double offsetDeg)
 {
     m_rotor2SecondEnabled = enabled;
     m_rotor2SecondOffsetDeg = offsetDeg;
+    syncControls();
     update();
 }
 
@@ -662,21 +676,20 @@ QColor MapWidget::agedMarkerColor(const QColor& base, qint64 secondsSinceWorked)
 
 QSize MapWidget::minimumSizeHint() const
 {
-    return QSize(300, kHeaderHeight + kControlsRowHeight + 220 + 2 * kCanvasMargin);
+    return QSize(300, kControlsRowHeight + 220 + 2 * kCanvasMargin);
 }
 
 QSize MapWidget::sizeHint() const
 {
-    return QSize(340, kHeaderHeight + kControlsRowHeight + 300 + 2 * kCanvasMargin);
+    return QSize(340, kControlsRowHeight + 300 + 2 * kCanvasMargin);
 }
 
 // --- geometry --------------------------------------------------------------
 
 QRectF MapWidget::canvasRect() const
 {
-    const int controlsBottom = m_controlsRow ? m_controlsRow->geometry().bottom() + 1
-                                              : kHeaderHeight + kControlsRowHeight;
-    const int top = std::max(controlsBottom, kHeaderHeight + kControlsRowHeight) + kCanvasMargin;
+    const int controlsBottom = m_controlsRow ? m_controlsRow->geometry().bottom() + 1 : kControlsRowHeight;
+    const int top = std::max(controlsBottom, kControlsRowHeight) + kCanvasMargin;
     const int bottom = height() - kCanvasMargin;
     return QRectF(kCanvasMargin, top, std::max(0, width() - 2 * kCanvasMargin), std::max(0, bottom - top));
 }
@@ -826,26 +839,6 @@ QVector<MapWidget::GridCell> MapWidget::computeGridCells(const QRectF& area) con
 }
 
 // --- painting --------------------------------------------------------------
-
-void MapWidget::drawPanelHeader(QPainter& painter) const
-{
-    const QRect headerRect(0, 0, width(), kHeaderHeight);
-    painter.save();
-    painter.setRenderHint(QPainter::Antialiasing, false);
-    QLinearGradient bg(0, 0, 0, kHeaderHeight);
-    bg.setColorAt(0.0, QColor(Style::kPanelHeadTop()));
-    bg.setColorAt(0.5, QColor(Style::kPanelHeadMid()));
-    bg.setColorAt(1.0, QColor(Style::kPanelHeadBot()));
-    painter.fillRect(headerRect, bg);
-    painter.fillRect(QRect(0, 0, kAccentBarWidth, kHeaderHeight), QColor(Style::kAmberText()));
-    painter.setPen(QColor(Style::kTitleBorder()));
-    painter.drawLine(0, kHeaderHeight - 1, width(), kHeaderHeight - 1);
-    painter.setFont(Style::capsFont(font()));
-    painter.setPen(QColor(Style::kTextSecondary()));
-    const QRect textRect(kAccentBarWidth + 9, 0, width() - kAccentBarWidth - 18, kHeaderHeight);
-    painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, QStringLiteral("Karte / Verbindungen"));
-    painter.restore();
-}
 
 void MapWidget::drawScopeFace(QPainter& painter, const QRectF& area) const
 {
@@ -1492,13 +1485,8 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setRenderHint(QPainter::TextAntialiasing, true);
-    QPainterPath panelPath;
-    panelPath.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), Style::kPanelRadius, Style::kPanelRadius);
-    painter.fillPath(panelPath, QColor(Style::kPanelBg()));
-    painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
-    painter.drawPath(panelPath);
-    painter.setClipPath(panelPath);
-    drawPanelHeader(painter);
+    // The container draws the frame and header; this is the inside.
+    painter.fillRect(rect(), QColor(Style::kPanelBg()));
 
     const QRectF area = scopeRect();
     if (area.width() <= 4.0 || area.height() <= 4.0 || !isValidGridSquare(m_ownGrid)) {
