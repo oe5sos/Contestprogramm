@@ -2,10 +2,12 @@
 
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
+#include "data/LogCheck.h"
 #include "data/QsoRecord.h"
 #include "ui/StyleKit.h"
 
 #include <QCompleter>
+#include <QDateTime>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
@@ -242,6 +244,17 @@ void EdiExportDialog::chooseDirectory()
     }
 }
 
+LogCheckResult EdiExportDialog::runLogCheck() const
+{
+    const QVector<QsoRecord> records = m_database->qsosForContest(m_settings.activeContestId);
+    return checkLog(records, logCheckContextFor(m_definition, m_settings, records, QDateTime::currentDateTimeUtc()));
+}
+
+QString EdiExportDialog::previewText() const
+{
+    return m_previewLabel->text();
+}
+
 void EdiExportDialog::refreshPreview()
 {
     QMap<QString, int> countByBand;
@@ -262,6 +275,11 @@ void EdiExportDialog::refreshPreview()
                      .arg(EdiExporter::suggestedFileName(m_settings.ownCallsign, band))
                      .arg(countByBand.value(band));
     }
+    // The same check Datei > Log prüfen runs, in one line: the operator
+    // sees "3 Fehler" before, not after, pressing Exportieren.
+    const LogCheckResult check = runLogCheck();
+    parts << QStringLiteral("Log-Prüfung: %1%2")
+                 .arg(check.countsText(), check.submittable() ? QString() : QStringLiteral(" -- siehe Datei > Log prüfen"));
     m_previewLabel->setText(parts.join(QLatin1Char('\n')));
 }
 
@@ -307,6 +325,32 @@ bool EdiExportDialog::exportNow()
             QStringLiteral("Die IARU-R1-Regeln verlangen im EDI-Kopf mindestens: Sektion, E-Mail, "
                            "Leistung und Antenne. Es fehlt: %1.\nTrotzdem exportieren?")
                 .arg(missing.join(QStringLiteral(", "))),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+    // Errors are what the robot scores 0 or rejects (data/LogCheck.h);
+    // asked about the same way -- the operator may know better.
+    const LogCheckResult check = runLogCheck();
+    if (!check.submittable() && !m_skipSectionCheck) {
+        QStringList lines;
+        for (const LogCheckIssue& issue : check.issues) {
+            if (issue.severity != LogCheckIssue::Severity::Error) {
+                continue;
+            }
+            lines << QStringLiteral("%1 %2: %3").arg(issue.callsign, issue.band, issue.message);
+            if (lines.size() == 6) {
+                lines << QStringLiteral("…");
+                break;
+            }
+        }
+        const auto answer = QMessageBox::question(
+            this, QStringLiteral("Contestprogramm"),
+            QStringLiteral("Die Log-Prüfung meldet %1 Fehler, die der Auswerter mit 0 Punkten wertet oder "
+                           "beanstandet:\n%2\n\nTrotzdem exportieren?")
+                .arg(check.errors)
+                .arg(lines.join(QLatin1Char('\n'))),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) {
             return false;

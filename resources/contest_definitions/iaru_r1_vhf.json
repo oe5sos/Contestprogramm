@@ -1,10 +1,11 @@
 {
-  "id": "IARU_R1_VHF_UHF",
-  "name": "IARU Region 1 VHF/UHF Contest (Subregional März/Mai/Juli, 144 + 432)",
-  "bands": ["144", "432"],
+  "id": "IARU_R1_VHF",
+  "name": "IARU Region 1 VHF Contest (144 MHz, September)",
+  "bands": ["144"],
   "dupe_scope": ["callsign", "band"],
   "scoring": "distance_km",
   "serial_scope": "band",
+  "schedule": { "month": 9, "weekend": 1, "day": "sat", "start": "14:00", "hours": 24 },
   "exchange_fields": [
     { "key": "rst",    "label": "RST",    "type": "rst" },
     { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true },

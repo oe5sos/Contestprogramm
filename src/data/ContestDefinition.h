@@ -1,5 +1,7 @@
 #pragma once
 
+#include "data/ContestSchedule.h"
+
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -66,6 +68,19 @@ public:
     // across all bands). JSON key "serial_scope".
     const QString& serialScope() const { return m_serialScope; }
 
+    // When the contest runs, as a rule the program turns into dates for
+    // any year (see data/ContestSchedule.h). Optional JSON key
+    // "schedule"; a definition without one has an invalid schedule and
+    // the countdown/log check then rely on ContestSettings::
+    // contestEndUtc alone.
+    const ContestSchedule& schedule() const { return m_schedule; }
+
+    // Modes the rules allow ("CW", "SSB", ...), upper-cased; empty (the
+    // default) means any. Optional JSON key "modes" -- the Marconi
+    // Memorial is CW only, and a QSO logged in SSB there is one the log
+    // check flags (data/LogCheck.h).
+    const QStringList& modes() const { return m_modes; }
+
     // Returns a copy of this definition with exchangeFields() replaced
     // by `fields` -- id/name/bands/dupe_scope/multiplier_field stay
     // unchanged. Used by ContestRulesEditor to build the definition it
@@ -93,6 +108,8 @@ private:
     QString m_multiplierField = QStringLiteral("grid");
     QString m_scoring = QStringLiteral("distance_km");
     QString m_serialScope = QStringLiteral("band");
+    ContestSchedule m_schedule;
+    QStringList m_modes;
     bool m_valid = false;
 };
 

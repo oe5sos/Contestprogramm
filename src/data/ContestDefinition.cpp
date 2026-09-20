@@ -118,6 +118,30 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         }
         def.m_serialScope = scope;
     }
+    if (root.contains(QStringLiteral("schedule"))) {
+        if (!root.value(QStringLiteral("schedule")).isObject()) {
+            if (errorOut) { *errorOut = QStringLiteral("\"schedule\" is not an object"); }
+            return ContestDefinition();
+        }
+        QString scheduleError;
+        def.m_schedule = ContestSchedule::fromJson(root.value(QStringLiteral("schedule")).toObject(), &scheduleError);
+        if (!def.m_schedule.isValid()) {
+            if (errorOut) { *errorOut = scheduleError; }
+            return ContestDefinition();
+        }
+    }
+    if (root.contains(QStringLiteral("modes"))) {
+        if (!root.value(QStringLiteral("modes")).isArray()) {
+            if (errorOut) { *errorOut = QStringLiteral("\"modes\" is not an array"); }
+            return ContestDefinition();
+        }
+        for (const QJsonValue& v : root.value(QStringLiteral("modes")).toArray()) {
+            const QString mode = v.toString().trimmed().toUpper();
+            if (!mode.isEmpty()) {
+                def.m_modes.append(mode);
+            }
+        }
+    }
 
     def.m_valid = true;
     return def;
@@ -172,6 +196,18 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
     root.insert(QStringLiteral("multiplier_field"), m_multiplierField);
     root.insert(QStringLiteral("scoring"), m_scoring);
     root.insert(QStringLiteral("serial_scope"), m_serialScope);
+    // Optional keys are written only when set, so a saved override of a
+    // definition without them stays identical in shape to the shipped file.
+    if (m_schedule.isValid()) {
+        root.insert(QStringLiteral("schedule"), m_schedule.toJson());
+    }
+    if (!m_modes.isEmpty()) {
+        QJsonArray modesArray;
+        for (const QString& mode : m_modes) {
+            modesArray.append(mode);
+        }
+        root.insert(QStringLiteral("modes"), modesArray);
+    }
 
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) {

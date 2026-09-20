@@ -36,6 +36,9 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 
 `resources/contest_definitions/*.json`, eine Datei je Contest; Änderungen
 über *Datei › Contest-Regeln…* landen als Override im Anwendungsdatenordner.
+Mitgeliefert: IARU R1 VHF (144, September), UHF/Microwave (432 + 1296,
+Oktober), Marconi Memorial (144 CW, November), die Subregionals
+(144 + 432, März/Mai/Juli) und ein ÖVSV-Contest.
 
 ```json
 {
@@ -44,6 +47,9 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
   "bands": ["144", "432"],
   "dupe_scope": ["callsign", "band", "mode"],
   "scoring": "distance_km",
+  "serial_scope": "band",
+  "modes": ["CW"],
+  "schedule": { "month": 11, "weekend": 1, "day": "sat", "start": "14:00", "hours": 24 },
   "exchange_fields": [
     { "key": "rst",    "label": "RST",  "type": "rst" },
     { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true },
@@ -58,6 +64,11 @@ werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 `serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
 001, IARU-R1-Regel) oder `contest`. `dupe_scope`: bei IARU R1/ÖVSV
 `["callsign", "band"]` – einmal je Band, unabhängig von der Betriebsart.
+`modes` (optional): erlaubte Betriebsarten, sonst alle. `schedule`
+(optional): wann der Contest läuft – „n-tes volles Wochenende im Monat,
+Sa 14:00 UTC, 24 h" ist die IARU-R1-Regel, das Programm rechnet die Termine
+für jedes Jahr selbst aus (Countdown in der Kopfzeile, Zeitprüfung); ein von
+Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 
 ## Funktionen
 
@@ -74,6 +85,7 @@ werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 | CW | Makro-Zeile, F1–F6 als Tasten (Tastung über `rigctld`), Esc stoppt, Alt+W leert die Eingabe; ESM: Enter sendet, was der QSO-Stand verlangt, und loggt erst am Ende | Checkbox „CW-Makros anzeigen" / „ESM"; *Datei › ESM-Texte…* |
 | Feeds | ON4KST-Chat und DX-Cluster, geografisch gefiltert (Radius, Terrain), Nächstes-Ziel-Vorschlag mit Nachrichtenentwurf | Panele „Log" (Kandidaten), „Nächstes Ziel" |
 | Karte / Rotoren | Locator-Karte mit Ringen, Rotoren über `rotctld`, Standortvergleich per Horizont | Panele „Karte", „Rotoren"; *Datei › Standortvergleich…* |
+| Log prüfen | Was der Auswerter beanstanden würde, vorher: Fehler (kein/kurzer Locator, keine empfangene Nummer, Zeit außerhalb des Contests, verbotene Betriebsart, doppelt gesendete Nummer, eigenes Rufzeichen), Warnungen (RST-Form, seltsames Rufzeichen, ein Call mit zwei Locatoren, > 1500 km, Frequenz ≠ Band, unmarkiertes Dupe, Nummer außer der Reihe), Hinweise (Lücken, Dupes, ungültige). Doppelklick springt zum QSO; der EDI-Export zeigt das Ergebnis und fragt bei Fehlern | *Datei › Log prüfen…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 

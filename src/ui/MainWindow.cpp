@@ -20,6 +20,7 @@
 #include "data/CabrilloExporter.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
+#include "data/LogCheck.h"
 #include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
@@ -32,6 +33,7 @@
 #include "ui/EdiExportDialog.h"
 #include "ui/EsmTemplatesDialog.h"
 #include "ui/LayoutProfileManager.h"
+#include "ui/LogCheckWindow.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
 #include "ui/PanelContainerWidget.h"
@@ -1029,6 +1031,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
     // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
     // Cabrillo alone is not enough for a VHF/UHF contest entry.
+    // What the robot would find, found first -- see data/LogCheck.h.
+    QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
+    connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
     QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
@@ -1624,6 +1629,9 @@ void MainWindow::refreshLogTable()
         return;
     }
     m_logModel->setRecords(m_appController.database().qsosForContest(m_appController.settings().activeContestId));
+    if (m_logCheckWindow && m_logCheckWindow->isVisible()) {
+        refreshLogCheck();
+    }
 }
 
 void MainWindow::refreshMultiplierAndFeedScores()
@@ -1639,7 +1647,19 @@ void MainWindow::refreshMultiplierAndFeedScores()
 void MainWindow::applyClockSettings()
 {
     const ContestSettings settings = m_appController.settings();
-    m_utcClockWidget->setContestEndUtc(settings.contestEndUtc);
+    // The definition's schedule gives start and end for any year (see
+    // data/ContestSchedule.h); a manually set contest end still wins.
+    // Counting towards the next occurrence: once this year's contest
+    // is over, next year's is the one the readout should name.
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const ContestSchedule schedule = def ? def->schedule() : ContestSchedule();
+    ContestWindow window;
+    if (!settings.contestEndUtc.trimmed().isEmpty()) {
+        window = effectiveContestWindow(schedule, settings.contestEndUtc, QDateTime::currentDateTimeUtc());
+    } else {
+        window = schedule.windowUpcoming(QDateTime::currentDateTimeUtc());
+    }
+    m_utcClockWidget->setContestWindow(window.startUtc, window.endUtc);
     m_utcClockWidget->setCountdownVisible(settings.countdownVisible);
 }
 
@@ -3014,6 +3034,45 @@ void MainWindow::openStatisticsWindow()
     m_statisticsWindow->show();
     m_statisticsWindow->raise();
     m_statisticsWindow->activateWindow();
+}
+
+void MainWindow::openLogCheckWindow()
+{
+    if (!m_logCheckWindow) {
+        m_logCheckWindow = new LogCheckWindow(this);
+        m_logCheckWindow->setWindowFlag(Qt::Window, true);
+        connect(m_logCheckWindow, &LogCheckWindow::refreshRequested, this, &MainWindow::refreshLogCheck);
+        connect(m_logCheckWindow, &LogCheckWindow::qsoActivated, this, &MainWindow::jumpToQso);
+    }
+    refreshLogCheck();
+    m_logCheckWindow->show();
+    m_logCheckWindow->raise();
+    m_logCheckWindow->activateWindow();
+}
+
+void MainWindow::refreshLogCheck()
+{
+    if (!m_logCheckWindow) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    if (!def) {
+        m_logCheckWindow->setResult(LogCheckResult(), QString());
+        return;
+    }
+    const QVector<QsoRecord> records = m_appController.database().qsosForContest(settings.activeContestId);
+    const LogCheckContext context = logCheckContextFor(*def, settings, records, QDateTime::currentDateTimeUtc());
+    m_logCheckWindow->setResult(checkLog(records, context), def->name());
+}
+
+void MainWindow::jumpToQso(int qsoId)
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    m_panelLayoutManager->raisePanel(QStringLiteral("unifiedlog"));
+    m_unifiedLog->selectHistoryQso(qsoId);
 }
 
 } // namespace Contestprogramm

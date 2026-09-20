@@ -35,6 +35,7 @@ class PanelHeaderBar;
 class PanelLayoutManager;
 class ProfileRail;
 class RateMeterWidget;
+class LogCheckWindow;
 class StatisticsWindow;
 class RotctldClient;
 class RotorWidget;
@@ -85,6 +86,11 @@ private slots:
     void refreshCheckPartial();
     void openMultiplierWindow();
     void openStatisticsWindow();
+    // Datei > Log prüfen... (data/LogCheck.h): the window, its refresh,
+    // and the jump from one of its rows to the QSO in the log.
+    void openLogCheckWindow();
+    void refreshLogCheck();
+    void jumpToQso(int qsoId);
     void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
     void handleCallsignLookupRequested(const QString& callsign);
     // Live km/bearing preview for the in-progress entry -- recomputes
@@ -387,6 +393,7 @@ private:
     void activateSked(int skedId);
     MultiplierWindow* m_multiplierWindow = nullptr;
     StatisticsWindow* m_statisticsWindow = nullptr;
+    LogCheckWindow* m_logCheckWindow = nullptr;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;

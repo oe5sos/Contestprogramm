@@ -119,6 +119,10 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/EdiExporter.cpp
     src/data/ContestScoring.h
     src/data/ContestScoring.cpp
+    src/data/ContestSchedule.h
+    src/data/ContestSchedule.cpp
+    src/data/LogCheck.h
+    src/data/LogCheck.cpp
     src/data/LogBackup.h
     src/data/LogBackup.cpp
     src/data/ContestStatistics.h
@@ -146,6 +150,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/ProfileRail.cpp
     src/ui/LayoutProfileManager.h
     src/ui/LayoutProfileManager.cpp
+    src/ui/LogCheckWindow.h
+    src/ui/LogCheckWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/UnifiedLogWidget.h

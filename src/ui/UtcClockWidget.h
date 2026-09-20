@@ -42,6 +42,11 @@ public:
     // Style::unknownDash() rather than a fake 00:00:00 or a wrong guess
     // (see formatRemaining below).
     void setContestEndUtc(const QString& iso8601);
+    // Both ends of the contest (data/ContestSchedule.h's ContestWindow,
+    // from the definition's schedule or the manual end): with a start
+    // the readout also counts down to it before the contest and says
+    // "Beendet" after it. An invalid start means end-only, as above.
+    void setContestWindow(const QDateTime& startUtc, const QDateTime& endUtc);
     void setCountdownVisible(bool visible);
 
     // Pure, testable formatting -- HH:MM:SS remaining from `nowUtc` to
@@ -52,13 +57,20 @@ public:
     // is not valid at all.
     static QString formatRemaining(const QDateTime& nowUtc, const QDateTime& endUtc);
 
+    // The whole readout: "Noch " + formatRemaining() while the contest
+    // runs (or without a known start); before a known start "Start in
+    // HH:MM:SS", or "Start Sa 03.10. 14:00 UTC" when that is more than a
+    // week away; "Beendet" once the end has passed with a known start.
+    static QString formatCountdown(const QDateTime& nowUtc, const QDateTime& startUtc, const QDateTime& endUtc);
+
 private slots:
     void tick();
 
 private:
     QLabel* m_utcLabel;
     QLabel* m_countdownLabel;
-    QDateTime m_contestEndUtc; // invalid == unset
+    QDateTime m_contestStartUtc; // invalid == unknown
+    QDateTime m_contestEndUtc;   // invalid == unset
     QTimer* m_timer;
 };
 

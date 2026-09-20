@@ -59,7 +59,15 @@ void UtcClockWidget::setContestEndUtc(const QString& iso8601)
         // inferred from the string.
         parsed.setTimeZone(QTimeZone::utc());
     }
+    m_contestStartUtc = QDateTime();
     m_contestEndUtc = parsed;
+    tick();
+}
+
+void UtcClockWidget::setContestWindow(const QDateTime& startUtc, const QDateTime& endUtc)
+{
+    m_contestStartUtc = startUtc.isValid() ? startUtc.toUTC() : QDateTime();
+    m_contestEndUtc = endUtc.isValid() ? endUtc.toUTC() : QDateTime();
     tick();
 }
 
@@ -89,12 +97,33 @@ QString UtcClockWidget::formatRemaining(const QDateTime& nowUtc, const QDateTime
         .arg(seconds, 2, 10, QLatin1Char('0'));
 }
 
+QString UtcClockWidget::formatCountdown(const QDateTime& nowUtc, const QDateTime& startUtc, const QDateTime& endUtc)
+{
+    if (endUtc.isValid() && startUtc.isValid()) {
+        if (nowUtc < startUtc) {
+            constexpr qint64 kWeekSecs = 7 * 24 * 3600;
+            if (nowUtc.secsTo(startUtc) > kWeekSecs) {
+                static const char* const kDays[] = {"", "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+                const QDateTime start = startUtc.toUTC();
+                return QStringLiteral("Start %1 %2 %3 UTC")
+                    .arg(QLatin1String(kDays[start.date().dayOfWeek()]), start.date().toString(QStringLiteral("dd.MM.")),
+                         start.time().toString(QStringLiteral("HH:mm")));
+            }
+            return QStringLiteral("Start in ") + formatRemaining(nowUtc, startUtc);
+        }
+        if (nowUtc > endUtc) {
+            return QStringLiteral("Beendet");
+        }
+    }
+    return QStringLiteral("Noch ") + formatRemaining(nowUtc, endUtc);
+}
+
 void UtcClockWidget::tick()
 {
     const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
     // "hh:mm:ss UTC", verbatim TitleBar.cpp's own tickUtc() format string.
     m_utcLabel->setText(nowUtc.time().toString(QStringLiteral("hh:mm:ss")) + QStringLiteral(" UTC"));
-    m_countdownLabel->setText(QStringLiteral("Noch ") + formatRemaining(nowUtc, m_contestEndUtc));
+    m_countdownLabel->setText(formatCountdown(nowUtc, m_contestStartUtc, m_contestEndUtc));
 }
 
 } // namespace Contestprogramm

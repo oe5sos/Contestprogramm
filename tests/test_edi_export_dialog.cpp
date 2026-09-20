@@ -62,6 +62,7 @@ class TestEdiExportDialog : public QObject
 
 private slots:
     void writesOneFilePerBandAndRemembersStationInfo();
+    void previewShowsTheLogCheckVerdict();
 };
 
 void TestEdiExportDialog::writesOneFilePerBandAndRemembersStationInfo()
@@ -121,6 +122,44 @@ void TestEdiExportDialog::writesOneFilePerBandAndRemembersStationInfo()
     QCOMPARE(again.stationInfo().name, QStringLiteral("Martin Fischer"));
     QCOMPARE(again.stationInfo().powerWatts, 100);
     QCOMPARE(again.outputDirectory(), outDir);
+}
+
+// The pre-export check (data/LogCheck.h) shows in the preview: a QSO
+// without a locator is an error the operator sees before pressing
+// Exportieren; with the question skipped (tests) the export still
+// happens, as it does after a "Ja".
+void TestEdiExportDialog::previewShowsTheLogCheckVerdict()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("check.sqlite")), QStringLiteral("edi_dialog_check")));
+    QString defError;
+    const ContestDefinition definition = ContestDefinition::loadFromJson(QByteArray(kIaruJson), &defError);
+    QVERIFY2(definition.isValid(), qPrintable(defError));
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = definition.id();
+
+    QsoRecord good = makeQso(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("JN58SD"), 187.4);
+    QsoRecord noGrid = makeQso(QStringLiteral("DL2ABC"), QStringLiteral("144"), QString(), 0.0);
+    noGrid.serialSent = 2;
+    noGrid.distanceKm.reset();
+    QVERIFY(db.insertQso(good));
+    QVERIFY(db.insertQso(noGrid));
+
+    EdiExportDialog dialog(db, definition, settings);
+    QVERIFY(dialog.previewText().contains(QStringLiteral("Log-Prüfung: 1 Fehler")));
+    QVERIFY(dialog.previewText().contains(QStringLiteral("Datei > Log prüfen")));
+    const LogCheckResult check = dialog.runLogCheck();
+    QCOMPARE(check.errors, 1);
+    QCOMPARE(check.issues.first().code, QStringLiteral("no_locator"));
+
+    dialog.setOutputDirectory(dir.filePath(QStringLiteral("out")));
+    dialog.setSkipSectionCheck(true);
+    QVERIFY(dialog.exportNow());
+    QCOMPARE(dialog.writtenFiles().size(), 1);
 }
 
 int main(int argc, char* argv[])

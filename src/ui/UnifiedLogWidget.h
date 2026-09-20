@@ -291,6 +291,10 @@ public:
     // cursor belongs in the first still-empty received field, so the
     // reply can be typed without a Tab.
     void focusFirstEmptyExchangeField();
+    // Selects and scrolls to the logged QSO with this database id (the
+    // log-check window's "jump to the QSO"); a no-op when the id is not
+    // among the history rows. Returns whether it was found.
+    bool selectHistoryQso(int qsoId);
 
     // Grid-square substring filter over the log-history rows only --
     // same scope m_gridFilterEdit already had against LogTableView's

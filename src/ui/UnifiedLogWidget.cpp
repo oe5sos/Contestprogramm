@@ -1586,6 +1586,21 @@ void UnifiedLogWidget::focusFirstEmptyExchangeField()
     }
 }
 
+bool UnifiedLogWidget::selectHistoryQso(int qsoId)
+{
+    for (int row = 0; row < m_feedModel->rowCount(); ++row) {
+        if (m_feedModel->historyQsoIdForRow(row) != qsoId) {
+            continue;
+        }
+        const QModelIndex index = m_feedModel->index(row, ColCall);
+        m_feedTable->selectRow(row);
+        m_feedTable->setCurrentIndex(index);
+        m_feedTable->scrollTo(index, QAbstractItemView::PositionAtCenter);
+        return true;
+    }
+    return false;
+}
+
 void UnifiedLogWidget::resetForNextEntry()
 {
     m_callsignEdit->clear();

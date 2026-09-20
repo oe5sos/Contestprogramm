@@ -3,6 +3,7 @@
 #include "app/ContestSettings.h"
 #include "data/ContestDefinition.h"
 #include "data/EdiExporter.h"
+#include "data/LogCheck.h"
 
 #include <QDialog>
 #include <QString>
@@ -52,9 +53,15 @@ public:
     // can drive it without a modal exec().
     bool exportNow();
 
-    // Tests only: skip the "header fields missing" question (a modal
-    // box cannot be answered headlessly).
+    // Tests only: skip the "header fields missing" and "log check found
+    // errors" questions (a modal box cannot be answered headlessly).
     void setSkipSectionCheck(bool skip) { m_skipSectionCheck = skip; }
+
+    // data/LogCheck.h over the active contest's log, as the preview
+    // line and the pre-export question use it.
+    LogCheckResult runLogCheck() const;
+    // Tests: the "which files, how many QSOs, log check" preview text.
+    QString previewText() const;
 
     // Full paths written by the last successful exportNow().
     QStringList writtenFiles() const { return m_writtenFiles; }
