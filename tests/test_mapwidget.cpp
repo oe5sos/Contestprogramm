@@ -279,6 +279,10 @@ private slots:
     void clickingEmptyAreaDoesNotEmitCandidateActivated();
     void terrainSectorWashPaintsCleanlyWhenSet();
     void agingPaintsCleanlyForAnAgedWorkedStation();
+    void viewSwitchRoundTripsAndReportsPreferences();
+    void preferencesTextRoundTrips();
+    void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
+    void clickingASkylineTickActivatesTheStation();
 };
 
 void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
@@ -463,6 +467,131 @@ void TestMapWidgetLive::agingPaintsCleanlyForAnAgedWorkedStation()
 
     QVERIFY(widget.agingEnabled());
     QVERIFY(!widget.grab().isNull());
+}
+
+void TestMapWidgetLive::viewSwitchRoundTripsAndReportsPreferences()
+{
+    MapWidget widget;
+    QCOMPARE(widget.view(), MapWidget::View::Radar);
+    QSignalSpy changed(&widget, &MapWidget::preferencesChanged);
+    widget.setView(MapWidget::View::MapHorizon);
+    QCOMPARE(widget.view(), MapWidget::View::MapHorizon);
+    QCOMPARE(changed.count(), 1);
+    widget.setView(MapWidget::View::MapHorizon); // no change, no signal
+    QCOMPARE(changed.count(), 1);
+    widget.setRingsLayerVisible(false);
+    QCOMPARE(changed.count(), 2);
+    widget.setRotor1BeamwidthDeg(20.0);
+    QCOMPARE(widget.rotor1BeamwidthDeg(), 20.0);
+    QCOMPARE(changed.count(), 3);
+    // Out-of-range beamwidths are clamped, not refused.
+    widget.setRotor2BeamwidthDeg(500.0);
+    QVERIFY(widget.rotor2BeamwidthDeg() <= 120.0);
+}
+
+void TestMapWidgetLive::preferencesTextRoundTrips()
+{
+    MapWidget widget;
+    widget.setView(MapWidget::View::MapHorizon);
+    widget.setGridLayerVisible(false);
+    widget.setCitiesLayerVisible(false);
+    widget.setHorizonLayerVisible(false);
+    widget.setAgingEnabled(false);
+    widget.setRotor1BeamwidthDeg(25.0);
+    widget.setRotor2BeamwidthDeg(40.0);
+    const QString text = widget.preferencesText();
+    QVERIFY(text.contains(QStringLiteral("view=map")));
+    QVERIFY(text.contains(QStringLiteral("grid=0")));
+    QVERIFY(text.contains(QStringLiteral("bw1=25")));
+
+    MapWidget other;
+    QSignalSpy changed(&other, &MapWidget::preferencesChanged);
+    other.applyPreferencesText(text);
+    QCOMPARE(other.view(), MapWidget::View::MapHorizon);
+    QVERIFY(!other.gridLayerVisible());
+    QVERIFY(!other.citiesLayerVisible());
+    QVERIFY(!other.horizonLayerVisible());
+    QVERIFY(!other.agingEnabled());
+    QVERIFY(other.ringsLayerVisible()); // untouched keys keep their default
+    QCOMPARE(other.rotor1BeamwidthDeg(), 25.0);
+    QCOMPARE(other.rotor2BeamwidthDeg(), 40.0);
+    QCOMPARE(changed.count(), 0); // applying stored preferences is not a change to store again
+    // Garbage is ignored, a fresh-install default line works.
+    other.applyPreferencesText(QStringLiteral("nonsense;=;view=;bw1=abc"));
+    QCOMPARE(other.rotor1BeamwidthDeg(), 25.0);
+    other.applyPreferencesText(QStringLiteral("view=radar;grid=0;borders=0;cities=0"));
+    QCOMPARE(other.view(), MapWidget::View::Radar);
+    QVERIFY(!other.bordersLayerVisible());
+}
+
+void TestMapWidgetLive::horizonProfileAndSecondAntennasPaintCleanlyInBothViews()
+{
+    MapWidget widget;
+    widget.resize(774, 510);
+    widget.setOwnGrid(QStringLiteral("JN67VV"));
+    widget.setOwnLabel(QStringLiteral("OE5SOS"));
+    QVector<double> profile(360, 0.0);
+    for (int deg = 120; deg < 200; ++deg) {
+        profile[deg] = 5.0;
+    }
+    widget.setHorizonProfile(profile);
+    QCOMPARE(widget.horizonProfile().size(), 360);
+    widget.setHorizonProfile(QVector<double>(10, 1.0)); // wrong length: rejected
+    QVERIFY(widget.horizonProfile().isEmpty());
+    widget.setHorizonProfile(profile);
+    widget.setRotor1Heading(true, 322.0, QStringLiteral("2m"));
+    widget.setRotor1SecondAntenna(true, 45.0);
+    widget.setRotor2Heading(true, 140.0, QStringLiteral("70cm"));
+    widget.setScoreSummary(47, 9812, QStringLiteral("DJ5AR 469 km"));
+    MapWidget::Station open;
+    open.callsign = QStringLiteral("DL0GTH");
+    open.grid = QStringLiteral("JO50JP");
+    MapWidget::Station worked;
+    worked.callsign = QStringLiteral("OE3XYZ");
+    worked.grid = QStringLiteral("JN88TC");
+    worked.worked = true;
+    worked.workedAtUtc = QDateTime::currentDateTimeUtc().addSecs(-600);
+    widget.setStations({open, worked});
+    QVERIFY(!widget.grab().isNull());
+    widget.setView(MapWidget::View::MapHorizon);
+    QVERIFY(!widget.horizonStripRectForTest().isEmpty());
+    QVERIFY(!widget.grab().isNull());
+    widget.setHorizonLayerVisible(false);
+    QVERIFY(widget.horizonStripRectForTest().isEmpty());
+    QVERIFY(!widget.grab().isNull());
+    widget.setFitToWindowEnabled(false);
+    QVERIFY(!widget.grab().isNull());
+}
+
+void TestMapWidgetLive::clickingASkylineTickActivatesTheStation()
+{
+    MapWidget widget;
+    widget.resize(774, 510);
+    widget.setOwnGrid(QStringLiteral("JN67VV"));
+    widget.setView(MapWidget::View::MapHorizon);
+    widget.setVisibleRangeKm(400.0);
+    MapWidget::Station station;
+    station.callsign = QStringLiteral("DL0GTH");
+    station.grid = QStringLiteral("JO50JP"); // roughly north-west
+    station.freqHz = 144300000;
+    widget.setStations({station});
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    const QRectF strip = widget.horizonStripRectForTest();
+    QVERIFY(!strip.isEmpty());
+    // The tick's x follows the bearing across the plot (30 px in from
+    // the strip's left, 36 px narrower than the strip -- see
+    // MapWidget::drawHorizonStrip).
+    const double bearing = calculateBearingInDegrees(QStringLiteral("JN67VV"), QStringLiteral("JO50JP"));
+    const QRectF plot(strip.left() + 30.0, strip.top() + 22.0, strip.width() - 36.0, strip.height() - 40.0);
+    const QPoint at(static_cast<int>(plot.left() + plot.width() * bearing / 360.0), static_cast<int>(plot.center().y()));
+    QSignalSpy spy(&widget, &MapWidget::candidateActivated);
+    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, at);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("DL0GTH"));
+    // Far from any tick: nothing.
+    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, QPoint(at.x() + 60, at.y()));
+    QCOMPARE(spy.count(), 0);
 }
 
 int main(int argc, char* argv[])

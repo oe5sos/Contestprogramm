@@ -91,6 +91,9 @@ public:
     // at all. Same "*ForTest" naming convention On4kstClient::
     // parseDxSpotLineForTest() already established in this codebase.
     SrtmTileLoader& tileLoaderForTest() { return *m_loader; }
+    // The same loader for MainWindow's horizon profile (core/terrain/
+    // HorizonProfile.h) -- one tile cache in the process, not two.
+    SrtmTileLoader& tileLoader() { return *m_loader; }
 
 signals:
     // Emitted whenever a previously-Unknown (or since-changed, e.g.

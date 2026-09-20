@@ -15,9 +15,12 @@
 #include "core/WeatherClient.h"
 #include "core/assistant/MessageDrafter.h"
 #include "core/assistant/NextTargetSuggester.h"
+#include "core/terrain/HorizonProfile.h"
+#include "core/terrain/SrtmTileLoader.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/AdifExporter.h"
 #include "data/CabrilloExporter.h"
+#include "data/ContestScoring.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
 #include "data/DupeRescore.h"
@@ -531,6 +534,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // so it registers chromeless, the same reasoning each individual
     // RotorWidget uses one level down inside the rotor row above.
     m_mapWidget = new MapWidget(this);
+    // View and layer toggles live in the settings table; a fresh
+    // install starts on the radar without map ballast (the design
+    // sheet the operator chose, 2026-09-20).
+    m_mapWidget->applyPreferencesText(m_appController.database().settingValue(
+        QStringLiteral("map_preferences"), QStringLiteral("view=radar;grid=0;borders=0;cities=0")));
+    connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
+        m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
+    });
     // 2026-09-13/14, kartendominante Anordnung ("A -- Kartenreihe
     // groß"): the map becomes the single biggest panel on the canvas,
     // both wider AND taller than before. x=910: right of rotorrow
@@ -1414,6 +1425,13 @@ void MainWindow::applyRotorWidgetSettings()
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
 
+    // The map draws one cone per antenna: a rotor with a second antenna
+    // shows both directions (operator, 2026-09-20).
+    if (m_mapWidget) {
+        m_mapWidget->setRotor1SecondAntenna(settings.rotor1SecondAntennaEnabled, settings.rotor1SecondAntennaOffsetDeg);
+        m_mapWidget->setRotor2SecondAntenna(settings.rotor2SecondAntennaEnabled, settings.rotor2SecondAntennaOffsetDeg);
+    }
+
     refreshTerrainSectors();
 }
 
@@ -1440,7 +1458,48 @@ void MainWindow::refreshTerrainSectors()
     // separate computation needed.
     if (m_mapWidget) {
         m_mapWidget->setTerrainSectors(sectors);
+        m_mapWidget->setHorizonProfile(horizonProfileForOwnStation());
     }
+}
+
+QVector<double> MainWindow::horizonProfileForOwnStation()
+{
+    const ContestSettings settings = m_appController.settings();
+    if (!isValidGridSquare(settings.ownGrid)) {
+        return {};
+    }
+    // The exact position the settings dialog can store (keys written
+    // by its "genauer Standort" option) beats the locator's centre:
+    // for a hilltop station the skyline from the summit and from the
+    // valley floor of the same square are different mountains.
+    ContestDatabase& db = m_appController.database();
+    double lat = 0.0;
+    double lon = 0.0;
+    calculateLatLonFromGridSquare(settings.ownGrid, lat, lon);
+    if (db.settingValue(QStringLiteral("use_exact_own_location")) == QStringLiteral("1")) {
+        bool okLat = false;
+        bool okLon = false;
+        const double exactLat = db.settingValue(QStringLiteral("own_exact_latitude")).toDouble(&okLat);
+        const double exactLon = db.settingValue(QStringLiteral("own_exact_longitude")).toDouble(&okLon);
+        if (okLat && okLon && std::fabs(exactLat) <= 90.0 && std::fabs(exactLon) <= 180.0) {
+            lat = exactLat;
+            lon = exactLon;
+        }
+    }
+    const QString key = QStringLiteral("%1,%2|%3|%4").arg(lat, 0, 'f', 5).arg(lon, 0, 'f', 5)
+                            .arg(settings.ownElevationM).arg(settings.antennaHeightM);
+    if (key == m_horizonProfileKey) {
+        return m_horizonProfile;
+    }
+    SrtmTileLoader& loader = m_appController.terrainDataManager().tileLoader();
+    loader.ensureTileAvailable(lat, lon);
+    // Own elevation from the settings when given, else the terrain at
+    // the locator's centre; antenna height 10 m unless set.
+    const double ground = settings.ownElevationM > 0.0 ? settings.ownElevationM : loader.elevationAt(lat, lon).value_or(0.0);
+    const double eye = ground + (settings.antennaHeightM > 0.0 ? settings.antennaHeightM : 10.0);
+    m_horizonProfile = computeHorizonProfile(loader, lat, lon, eye);
+    m_horizonProfileKey = key;
+    return m_horizonProfile;
 }
 
 void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClient& client, RotorWidget*& widget, int insertIndex)
@@ -1688,6 +1747,9 @@ void MainWindow::refreshMapWidget()
     // "has a grid" filtering in SQL).
     const QVector<QsoRecord> worked = m_appController.database().qsosWithGrid(settings.activeContestId);
     for (const QsoRecord& record : worked) {
+        if (record.isInvalid) {
+            continue; // struck from the log, not a worked station
+        }
         MapWidget::Station station;
         station.callsign = record.callsign;
         station.grid = record.gridSquare;
@@ -1741,6 +1803,13 @@ void MainWindow::refreshMapWidget()
     appendSpotted(m_appController.clusterFeedModel());
 
     m_mapWidget->setStations(stations);
+    // The radar's number column shows the same score as the Rate panel.
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const ContestScore score = computeContestScore(m_appController.database().qsosForContest(settings.activeContestId),
+                                                  settings.ownGrid, def ? def->bands() : QStringList(),
+                                                  def ? def->scoring() : QStringLiteral("distance_km"));
+    m_mapWidget->setScoreSummary(score.validQsos, score.points,
+                                 score.odxKm > 0 ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
 }
 
 void MainWindow::refreshSuggestionPanel()

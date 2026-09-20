@@ -94,6 +94,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/terrain/PathProfile.cpp
     src/core/terrain/LineOfSight.h
     src/core/terrain/LineOfSight.cpp
+    src/core/terrain/HorizonProfile.h
+    src/core/terrain/HorizonProfile.cpp
     src/core/terrain/TerrainDataManager.h
     src/core/terrain/TerrainDataManager.cpp
     src/core/assistant/NextTargetSuggester.h

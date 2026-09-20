@@ -218,6 +218,10 @@ private slots:
     // invokeMethod-able by tests without needing a real async tile
     // fetch to complete.
     void refreshTerrainSectors();
+    // The terrain horizon around the own locator (core/terrain/
+    // HorizonProfile.h) for the map's rim and skyline; computed once per
+    // grid/elevation/antenna-height combination, then cached.
+    QVector<double> horizonProfileForOwnStation();
     // Fires ~400ms after the last resizeEvent()/moveEvent(), so a live
     // window drag/resize doesn't hammer the settings table on every
     // pixel -- see saveWindowGeometry()'s doc comment for the full
@@ -375,6 +379,8 @@ private:
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
     bool m_scpLoaded = false;
+    QVector<double> m_horizonProfile;
+    QString m_horizonProfileKey;
     // Bandmap (core/BandmapModel.h + ui/BandmapWidget.h): fed by both
     // spot feeds, redrawn on every rig frequency report, logged QSO and
     // a 15 s timer for the age-out.
