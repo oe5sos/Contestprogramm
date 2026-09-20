@@ -2454,6 +2454,9 @@ void MainWindow::openContestPicker()
     settings.activeContestId = selectedId;
     m_appController.setSettings(settings);
     applyActiveContestDefinition();
+    // The countdown follows the definition's schedule now, so a contest
+    // switch must re-derive it too, not only the settings dialog.
+    applyClockSettings();
     applyRotorWidgetSettings();
     refreshLogTable();
     refreshMapWidget();
