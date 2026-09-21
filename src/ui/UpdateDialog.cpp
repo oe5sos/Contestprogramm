@@ -34,6 +34,7 @@ UpdateDialog::UpdateDialog(QWidget* parent)
     auto* header = new PanelHeaderBar(QStringLiteral("Auf neueste Version aktualisieren"), this);
 
     m_status = new QLabel(this);
+    m_status->setObjectName(QStringLiteral("updateStatus"));
     m_status->setWordWrap(true);
     m_status->setTextFormat(Qt::RichText);
     m_status->setOpenExternalLinks(true);
@@ -48,6 +49,7 @@ UpdateDialog::UpdateDialog(QWidget* parent)
     m_progress->setTextVisible(false);
 
     m_primary = new QPushButton(this);
+    m_primary->setObjectName(QStringLiteral("updatePrimary"));
     m_primary->setDefault(true);
     m_primary->hide();
     connect(m_primary, &QPushButton::clicked, this, &UpdateDialog::startDownload);
