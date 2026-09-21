@@ -1,0 +1,200 @@
+# Bauen, prüfen, packen -- auf allen drei Plattformen, bei jedem Push auf
+# main und für jeden Tag v*. Martin, 2026-09-21: "die windowsversion und
+# die linuxversion sollten auch weiter programmiert werden" -- hier
+# zeigt jeder Push, ob der Baum dort noch übersetzt, und ein Tag liefert
+# die Pakete an das GitHub-Release (macOS-DMG, Windows-ZIP,
+# Linux-AppImage).
+name: Bauen und packen
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag, der gebaut und veröffentlicht werden soll (z.B. v0.1.0); leer = nur bauen'
+        required: false
+        default: ''
+
+env:
+  QT_VERSION: 6.8.3
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.meta.outputs.ref }}
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ -z "$TAG" && "${GITHUB_REF}" == refs/tags/v* ]]; then TAG="${GITHUB_REF#refs/tags/}"; fi
+          if [[ -n "$TAG" ]]; then
+            git fetch --tags --quiet
+            git checkout --quiet "$TAG"
+            echo "ref=$TAG" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          VERSION=$(grep -oE 'project\(Contestprogramm VERSION [0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | awk '{print $3}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ -n "$TAG" && "v$VERSION" != "$TAG" ]]; then
+            echo "::error::CMakeLists.txt sagt $VERSION, der Tag $TAG"; exit 1
+          fi
+
+  linux:
+    needs: meta
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build zlib1g-dev \
+            libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libfuse2 file
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+      - name: Konfigurieren und bauen
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+      - name: Prüfen
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp build/Contestprogramm AppDir/usr/bin/
+          cp -r resources AppDir/usr/bin/resources
+          rm -rf AppDir/usr/bin/resources/mac AppDir/usr/bin/resources/branding
+          cp packaging/linux/contestprogramm.desktop AppDir/usr/share/applications/
+          cp resources/mac/AppIcon.iconset/icon_256x256.png AppDir/usr/share/icons/hicolor/256x256/apps/contestprogramm.png
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o linuxdeploy-plugin-qt https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy linuxdeploy-plugin-qt
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export OUTPUT="Contestprogramm-$VERSION-x86_64.AppImage"
+          ./linuxdeploy --appdir AppDir --plugin qt --output appimage
+          mkdir -p dist && mv "$OUTPUT" dist/ && (cd dist && sha256sum "$OUTPUT" > "$OUTPUT.sha256")
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*
+
+  windows:
+    needs: meta
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          cache: true
+      - name: zlib (vcpkg, statisch, dynamische CRT)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib:x64-windows-static-md
+      - name: Konfigurieren und bauen
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          cmake --build build --parallel
+      - name: Prüfen
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: Portables ZIP
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          $stage = "stage/Contestprogramm"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item build/Contestprogramm.exe $stage/
+          Copy-Item -Recurse resources $stage/resources
+          Remove-Item -Recurse -Force $stage/resources/mac, $stage/resources/branding -ErrorAction SilentlyContinue
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --no-opengl-sw --no-system-d3d-compiler "$stage/Contestprogramm.exe"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $zip = "dist/Contestprogramm-$env:VERSION-Windows-x64-portable.zip"
+          Compress-Archive -Path "$stage" -DestinationPath $zip
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $zip -Leaf) | Out-File -Encoding ascii "$zip.sha256"
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/*
+
+  macos:
+    needs: meta
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          cache: true
+      - name: Konfigurieren und bauen
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+      - name: Prüfen
+        run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: DMG
+        run: scripts/package-macos.sh build dist "$QT_ROOT_DIR/bin/macdeployqt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-apple-silicon
+          path: dist/*
+
+  publish:
+    needs: [meta, linux, windows, macos]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: pakete
+          merge-multiple: true
+      - name: Ans Release hängen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.ref }}
+        run: |
+          set -euo pipefail
+          ls -la pakete
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Contestprogramm ${TAG#v}" --notes "Pakete aus der CI."
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber pakete/*

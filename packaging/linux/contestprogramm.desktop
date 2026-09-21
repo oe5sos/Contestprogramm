@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Contestprogramm
+Comment=Contest-Logger für den 24-h-VHF/UHF-Contest (2 m / 70 cm)
+Exec=Contestprogramm
+Icon=contestprogramm
+Categories=HamRadio;Network;
+Terminal=false
