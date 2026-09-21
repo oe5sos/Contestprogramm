@@ -217,8 +217,7 @@ void TestLogCorrections::mapOptionsMenuOpensFromThePanelHeader()
     shown->close();
     QTRY_COMPARE(visibleMenus(), 0);
 
-    // The same in the other view, and a second time (a fresh menu each).
-    map->setView(MapWidget::View::Radar);
+    // And a second time (a fresh menu each).
     QTest::mouseClick(window.windowHandle(), Qt::LeftButton, Qt::NoModifier, inWindow);
     QTRY_COMPARE(visibleMenus(), 1);
     for (QMenu* menu : window.findChildren<QMenu*>()) {

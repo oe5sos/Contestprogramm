@@ -35,10 +35,9 @@ QVector<ShortcutsWindow::Entry> ShortcutsWindow::entries()
         // Targets
         {QStringLiteral("Klick auf Station"), QStringLiteral("QSY aufs Band/die Frequenz, Rotor dreht hin, Rufzeichen in die Eingabezeile"), QStringLiteral("Karte, Bandmap, Skeds, Kandidaten")},
         {QStringLiteral("Klick auf „Offen in Richtung“"), QStringLiteral("Die nächste offene Station im Beam anfunken (weiteste zuerst, reihum)"), QStringLiteral("Radar, Zahlenspalte")},
-        {QStringLiteral("Klick auf die Skyline"), QStringLiteral("Station am Strich anfunken"), QStringLiteral("Karte + Horizont")},
         {QStringLiteral("Zahl + Enter im Feld „Ziel“"), QStringLiteral("Rotor auf diese Richtung drehen (0–360°)"), QStringLiteral("Rotor-Skala")},
         {QStringLiteral("Doppelklick auf die Skala"), QStringLiteral("Rotor auf die angeklickte Richtung drehen"), QStringLiteral("Rotor-Skala")},
-        {QStringLiteral("⚙ rechts oben"), QStringLiteral("Optionen des Panels (Karte: Ansicht, Ebenen, Antennen, Öffnungswinkel; Rotor: Skalenstil)"), QStringLiteral("jeder Panelkopf")},
+        {QStringLiteral("⚙ rechts oben"), QStringLiteral("Optionen des Panels (Karte: Ebenen, Antennen, Öffnungswinkel; Rotor: Skalenstil)"), QStringLiteral("jeder Panelkopf")},
         // Panels
         {QStringLiteral("Kopfzeile ziehen"), QStringLiteral("Panel verschieben; Griff rechts unten: Größe; Schloss: festhalten"), QStringLiteral("jedes Panel")},
         {QStringLiteral("1 / 2 / 3 links"), QStringLiteral("Layout-Profil wechseln; + legt ein neues an"), QStringLiteral("Profil-Leiste")},

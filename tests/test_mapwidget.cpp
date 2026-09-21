@@ -284,7 +284,6 @@ private slots:
     void viewSwitchRoundTripsAndReportsPreferences();
     void preferencesTextRoundTrips();
     void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
-    void clickingASkylineTickActivatesTheStation();
     void clickingOpenInBeamWalksThroughTheOpenStations();
     void secondAntennaMenuEntryReportsTheStationSetting();
 };
@@ -307,23 +306,21 @@ void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
 void TestMapWidgetLive::layerTogglesRoundTrip()
 {
     MapWidget widget;
-    // The radar (the default view) starts without map ballast; the map
-    // view with all of it -- and each view keeps its own four.
-    QCOMPARE(widget.view(), MapWidget::View::Radar);
+    // The radar starts without map ballast -- only the worked squares.
     QVERIFY(!widget.gridLayerVisible());
     QVERIFY(widget.workedCellsLayerVisible());
     QVERIFY(!widget.bordersLayerVisible());
     QVERIFY(!widget.citiesLayerVisible());
-    widget.setBordersLayerVisible(true);
-    QVERIFY(widget.bordersLayerVisible());
-    widget.setView(MapWidget::View::MapHorizon);
-    QVERIFY(widget.gridLayerVisible());
     QVERIFY(widget.ringsLayerVisible());
     QVERIFY(widget.spokesLayerVisible());
-    QVERIFY(widget.workedCellsLayerVisible());
     QVERIFY(widget.rotor1HeadingLayerVisible());
     QVERIFY(widget.rotor2HeadingLayerVisible());
+    widget.setBordersLayerVisible(true);
     QVERIFY(widget.bordersLayerVisible());
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("rborders=1")));
+    widget.setGridLayerVisible(true);
+    widget.setCitiesLayerVisible(true);
+    QVERIFY(widget.gridLayerVisible());
     QVERIFY(widget.citiesLayerVisible());
 
     widget.setGridLayerVisible(false);
@@ -343,12 +340,7 @@ void TestMapWidgetLive::layerTogglesRoundTrip()
     QVERIFY(!widget.rotor2HeadingLayerVisible());
     QVERIFY(!widget.bordersLayerVisible());
     QVERIFY(!widget.citiesLayerVisible());
-    // Back on the radar its own choice is still there, untouched by the map's.
-    widget.setView(MapWidget::View::Radar);
-    QVERIFY(widget.bordersLayerVisible());
-    QVERIFY(!widget.gridLayerVisible());
-    QVERIFY(widget.preferencesText().contains(QStringLiteral("rborders=1")));
-    QVERIFY(widget.preferencesText().contains(QStringLiteral("borders=0")));
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("rborders=0")));
 }
 
 void TestMapWidgetLive::zoomInHalvesVisibleRange()
@@ -491,19 +483,17 @@ void TestMapWidgetLive::agingPaintsCleanlyForAnAgedWorkedStation()
 
 void TestMapWidgetLive::viewSwitchRoundTripsAndReportsPreferences()
 {
+    // (The view switch itself is gone -- operator, 2026-09-21: "karte/
+    // horizont bitte weg"; the toggles still report each change once.)
     MapWidget widget;
-    QCOMPARE(widget.view(), MapWidget::View::Radar);
     QSignalSpy changed(&widget, &MapWidget::preferencesChanged);
-    widget.setView(MapWidget::View::MapHorizon);
-    QCOMPARE(widget.view(), MapWidget::View::MapHorizon);
-    QCOMPARE(changed.count(), 1);
-    widget.setView(MapWidget::View::MapHorizon); // no change, no signal
-    QCOMPARE(changed.count(), 1);
     widget.setRingsLayerVisible(false);
-    QCOMPARE(changed.count(), 2);
+    QCOMPARE(changed.count(), 1);
+    widget.setRingsLayerVisible(false); // no change, no signal
+    QCOMPARE(changed.count(), 1);
     widget.setRotor1BeamwidthDeg(20.0);
     QCOMPARE(widget.rotor1BeamwidthDeg(), 20.0);
-    QCOMPARE(changed.count(), 3);
+    QCOMPARE(changed.count(), 2);
     // Out-of-range beamwidths are clamped, not refused.
     widget.setRotor2BeamwidthDeg(500.0);
     QVERIFY(widget.rotor2BeamwidthDeg() <= 120.0);
@@ -512,36 +502,37 @@ void TestMapWidgetLive::viewSwitchRoundTripsAndReportsPreferences()
 void TestMapWidgetLive::preferencesTextRoundTrips()
 {
     MapWidget widget;
-    widget.setView(MapWidget::View::MapHorizon);
-    widget.setGridLayerVisible(false);
-    widget.setCitiesLayerVisible(false);
+    widget.setGridLayerVisible(true);
+    widget.setCitiesLayerVisible(true);
     widget.setHorizonLayerVisible(false);
     widget.setAgingEnabled(false);
     widget.setRotor1BeamwidthDeg(25.0);
     widget.setRotor2BeamwidthDeg(40.0);
     const QString text = widget.preferencesText();
-    QVERIFY(text.contains(QStringLiteral("view=map")));
-    QVERIFY(text.contains(QStringLiteral("grid=0")));
+    QVERIFY(!text.contains(QStringLiteral("view=")));
+    QVERIFY(text.contains(QStringLiteral("rgrid=1")));
+    QVERIFY(text.contains(QStringLiteral("rcities=1")));
     QVERIFY(text.contains(QStringLiteral("bw1=25")));
 
     MapWidget other;
     QSignalSpy changed(&other, &MapWidget::preferencesChanged);
     other.applyPreferencesText(text);
-    QCOMPARE(other.view(), MapWidget::View::MapHorizon);
-    QVERIFY(!other.gridLayerVisible());
-    QVERIFY(!other.citiesLayerVisible());
+    QVERIFY(other.gridLayerVisible());
+    QVERIFY(other.citiesLayerVisible());
     QVERIFY(!other.horizonLayerVisible());
     QVERIFY(!other.agingEnabled());
     QVERIFY(other.ringsLayerVisible()); // untouched keys keep their default
     QCOMPARE(other.rotor1BeamwidthDeg(), 25.0);
     QCOMPARE(other.rotor2BeamwidthDeg(), 40.0);
     QCOMPARE(changed.count(), 0); // applying stored preferences is not a change to store again
-    // Garbage is ignored, a fresh-install default line works.
+    // Garbage is ignored; a string stored by the two-view days (view=,
+    // and the map's own grid/borders/cities keys) is read for what is
+    // still there and nothing else.
     other.applyPreferencesText(QStringLiteral("nonsense;=;view=;bw1=abc"));
     QCOMPARE(other.rotor1BeamwidthDeg(), 25.0);
-    other.applyPreferencesText(QStringLiteral("view=radar;grid=0;borders=0;cities=0"));
-    QCOMPARE(other.view(), MapWidget::View::Radar);
+    other.applyPreferencesText(QStringLiteral("view=map;grid=0;borders=1;cities=1;rborders=0;rgrid=0"));
     QVERIFY(!other.bordersLayerVisible());
+    QVERIFY(!other.gridLayerVisible());
 }
 
 void TestMapWidgetLive::horizonProfileAndSecondAntennasPaintCleanlyInBothViews()
@@ -573,45 +564,14 @@ void TestMapWidgetLive::horizonProfileAndSecondAntennasPaintCleanlyInBothViews()
     worked.workedAtUtc = QDateTime::currentDateTimeUtc().addSecs(-600);
     widget.setStations({open, worked});
     QVERIFY(!widget.grab().isNull());
-    widget.setView(MapWidget::View::MapHorizon);
-    QVERIFY(!widget.horizonStripRectForTest().isEmpty());
-    QVERIFY(!widget.grab().isNull());
     widget.setHorizonLayerVisible(false);
-    QVERIFY(widget.horizonStripRectForTest().isEmpty());
     QVERIFY(!widget.grab().isNull());
     widget.setFitToWindowEnabled(false);
     QVERIFY(!widget.grab().isNull());
-}
-
-void TestMapWidgetLive::clickingASkylineTickActivatesTheStation()
-{
-    MapWidget widget;
-    widget.resize(774, 510);
-    widget.setOwnGrid(QStringLiteral("JN67VV"));
-    widget.setView(MapWidget::View::MapHorizon);
-    widget.setVisibleRangeKm(400.0);
-    MapWidget::Station station;
-    station.callsign = QStringLiteral("DL0GTH");
-    station.grid = QStringLiteral("JO50JP"); // roughly north-west
-    station.freqHz = 144300000;
-    widget.setStations({station});
-    widget.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&widget));
-    const QRectF strip = widget.horizonStripRectForTest();
-    QVERIFY(!strip.isEmpty());
-    // The tick's x follows the bearing across the plot (30 px in from
-    // the strip's left, 36 px narrower than the strip -- see
-    // MapWidget::drawHorizonStrip).
-    const double bearing = calculateBearingInDegrees(QStringLiteral("JN67VV"), QStringLiteral("JO50JP"));
-    const QRectF plot(strip.left() + 30.0, strip.top() + 22.0, strip.width() - 36.0, strip.height() - 40.0);
-    const QPoint at(static_cast<int>(plot.left() + plot.width() * bearing / 360.0), static_cast<int>(plot.center().y()));
-    QSignalSpy spy(&widget, &MapWidget::candidateActivated);
-    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, at);
-    QCOMPARE(spy.count(), 1);
-    QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("DL0GTH"));
-    // Far from any tick: nothing.
-    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, QPoint(at.x() + 60, at.y()));
-    QCOMPARE(spy.count(), 0);
+    widget.setBordersLayerVisible(true);
+    widget.setCitiesLayerVisible(true);
+    widget.setGridLayerVisible(true);
+    QVERIFY(!widget.grab().isNull());
 }
 
 void TestMapWidgetLive::clickingOpenInBeamWalksThroughTheOpenStations()
@@ -619,7 +579,6 @@ void TestMapWidgetLive::clickingOpenInBeamWalksThroughTheOpenStations()
     MapWidget widget;
     widget.resize(774, 510);
     widget.setOwnGrid(QStringLiteral("JN67VV"));
-    widget.setView(MapWidget::View::Radar);
     widget.setVisibleRangeKm(500.0);
     // Rotor 1 points north-west, 30° wide: two open stations and one
     // worked inside the cone, one open station well outside it.

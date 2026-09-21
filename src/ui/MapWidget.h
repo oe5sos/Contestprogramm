@@ -28,23 +28,20 @@ namespace Contestprogramm {
 // and who is still open there. Rebuilt 2026-09-20 from two chosen
 // design sheets (operator: "baue 1 und 4, die man wechseln kann"):
 //
-//   View::Radar       a dark scope, range rings, bearing ticks, the
-//                     stations as dots (green worked, blue open), the
-//                     rotor as a light cone, the terrain horizon as a
-//                     dark rim -- thick where mountains block -- and a
-//                     column of numbers (beam, open in that direction,
-//                     QSOs/points, ODX). No map ballast.
-//   View::MapHorizon  a quiet geographic map (borders, a few cities,
-//                     locator squares) and, beneath it, the horizon
-//                     unrolled 0-360°: the skyline as a profile, every
-//                     station a tick at its bearing, the beam a marker.
+//   The radar: a dark scope, range rings, bearing ticks, the stations
+//   as dots (green worked, blue open), the rotor as a light cone, the
+//   terrain horizon as a dark rim -- thick where mountains block -- and
+//   a column of numbers (beam, open in that direction, QSOs/points,
+//   ODX). No map ballast. (A second view, "Karte + Horizont" -- a quiet
+//   map with the skyline unrolled beneath -- existed from 2026-09-20 to
+//   2026-09-21; operator: "karte/horizont bitte weg".)
 //
-// Every layer the panel had before stays available in both views --
-// Grid, Ringe, Speichen, Gearbeitet, Grenzen, Städte, Altern, Füllen,
-// Rotor 1/2, plus the new Horizont -- now behind one ⚙ menu instead of
-// ten checkboxes, and the choice of view plus all toggles are reported
-// through preferencesChanged() so MainWindow can keep them in the
-// settings table (preferencesText()/applyPreferencesText()).
+// Every layer the panel had before stays available -- Grid, Ringe,
+// Speichen, Gearbeitet, Grenzen, Städte, Altern, Füllen, Rotor 1/2,
+// plus Horizont -- behind one ⚙ menu instead of ten checkboxes, and
+// all toggles are reported through preferencesChanged() so MainWindow
+// can keep them in the settings table (preferencesText()/
+// applyPreferencesText()).
 //
 // Sits in a PanelContainerWidget in header mode: the container's
 // PanelHeaderBar carries title, lock and the ⚙ whose menu
@@ -58,8 +55,6 @@ class MapWidget : public QWidget {
     Q_OBJECT
 
 public:
-    enum class View { Radar, MapHorizon };
-
     // One plottable row -- a worked QSO or a spotted-but-unworked
     // candidate. freqHz 0 = unknown (passed through candidateActivated
     // unchanged); workedAtUtc invalid = "age unknown, never fade".
@@ -82,14 +77,10 @@ public:
     void setStations(const QVector<Station>& stations);
     const QVector<Station>& stations() const { return m_stations; }
 
-    void setView(View view);
-    View view() const { return m_view; }
-
     // Layer toggles. Each also drives the ⚙ menu's checkmark. Grid,
-    // cells, borders and cities are kept per view -- the radar starts
-    // without map ballast, the map with it, and each remembers its own
-    // choice (operator, 2026-09-21: "bei RADAR ein- und ausblenden").
-    // The getters/setters below address the current view's set.
+    // cells, borders and cities start off but the worked squares -- the
+    // radar without map ballast -- and can be switched on (operator,
+    // 2026-09-21: "bei RADAR ein- und ausblenden").
     void setGridLayerVisible(bool visible);
     void setRingsLayerVisible(bool visible);
     void setSpokesLayerVisible(bool visible);
@@ -101,12 +92,12 @@ public:
     void setRotor1HeadingLayerVisible(bool visible);
     void setRotor2HeadingLayerVisible(bool visible);
     void setHorizonLayerVisible(bool visible);
-    bool gridLayerVisible() const { return layers().grid; }
+    bool gridLayerVisible() const { return m_layers.grid; }
     bool ringsLayerVisible() const { return m_showRings; }
     bool spokesLayerVisible() const { return m_showSpokes; }
-    bool workedCellsLayerVisible() const { return layers().cells; }
-    bool bordersLayerVisible() const { return layers().borders; }
-    bool citiesLayerVisible() const { return layers().cities; }
+    bool workedCellsLayerVisible() const { return m_layers.cells; }
+    bool bordersLayerVisible() const { return m_layers.borders; }
+    bool citiesLayerVisible() const { return m_layers.cities; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
@@ -168,10 +159,9 @@ public:
     static QColor gridLabelColor(bool worked);
     static QColor agedMarkerColor(const QColor& base, qint64 secondsSinceWorked);
 
-    // The scope (Radar) or map (MapHorizon) rectangle -- its centre is
-    // the own station. Tests click there.
+    // The scope rectangle -- its centre is the own station. Tests click
+    // there.
     QRectF canvasRectForTest() const { return scopeRect(); }
-    QRectF horizonStripRectForTest() const { return horizonStripRect(); }
     QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
 
     QSize minimumSizeHint() const override;
@@ -222,7 +212,6 @@ private:
     // farthest first -- the "Offen in Richtung" reading, and what a
     // click on it walks through.
     QVector<const Station*> openStationsInBeam() const;
-    QRectF horizonStripRect() const; // MapHorizon: the strip below the map, empty when off
     double horizonAngleAt(int bearingDeg) const; // profile, else from sectors, 0 = flat
     bool hasHorizon() const;
     QVector<Plotted> plotStations(const QRectF& area) const;
@@ -251,7 +240,6 @@ private:
     void drawStations(QPainter& painter, const QRectF& area) const;
     void drawHomeMarker(QPainter& painter, const QRectF& area) const;
     void drawNumbersColumn(QPainter& painter, const QRectF& column) const;
-    void drawHorizonStrip(QPainter& painter, const QRectF& strip) const;
     void drawLegend(QPainter& painter, const QPointF& bottomLeft) const;
 
     QString m_ownGrid;
@@ -261,17 +249,15 @@ private:
     // click target), and which of its stations the next click takes.
     mutable QRectF m_openInBeamRect;
     int m_openInBeamCursor = 0;
-    View m_view = View::Radar;
-    struct ViewLayers {
-        bool grid = true;
+    // The map layers -- off by default but the worked squares: a radar
+    // without map ballast.
+    struct Layers {
+        bool grid = false;
         bool cells = true;
-        bool borders = true;
-        bool cities = true;
+        bool borders = false;
+        bool cities = false;
     };
-    ViewLayers& layers() { return m_view == View::Radar ? m_radarLayers : m_mapLayers; }
-    const ViewLayers& layers() const { return m_view == View::Radar ? m_radarLayers : m_mapLayers; }
-    ViewLayers m_radarLayers{false, true, false, false};
-    ViewLayers m_mapLayers;
+    Layers m_layers;
     bool m_showRings = true;
     bool m_showSpokes = true;
     bool m_showAging = true;
@@ -301,8 +287,6 @@ private:
     QVector<CityPoint> m_cities;
 
     QWidget* m_controlsRow = nullptr;
-    QPushButton* m_radarButton = nullptr;
-    QPushButton* m_mapButton = nullptr;
     QAction* m_gridAction = nullptr;
     QAction* m_ringsAction = nullptr;
     QAction* m_spokesAction = nullptr;

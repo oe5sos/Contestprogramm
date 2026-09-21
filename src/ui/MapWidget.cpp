@@ -42,10 +42,7 @@ constexpr int kCanvasMargin = 8;
 // takes the whole canvas).
 constexpr int kNumbersColumnWidth = 186;
 constexpr int kMinScopeWidthWithNumbers = 240;
-// MapHorizon: the skyline strip under the map.
-constexpr int kStripMinHeight = 96;
-constexpr int kStripMaxHeight = 180;
-constexpr double kStripFraction = 0.34;
+// The horizon rim: elevation angles above this count as "blocked".
 constexpr double kStripMaxElevationDeg = 8.0;
 constexpr double kRimMaxThicknessPx = 22.0;
 constexpr double kMinVisibleRangeKm = 25.0;
@@ -173,27 +170,8 @@ void MapWidget::buildControls()
     row->setContentsMargins(10, 2, 8, 2);
     row->setSpacing(6);
 
-    // View switch: two quiet capsule buttons, one always down.
-    const QString segmentStyle = QStringLiteral(
-        "QPushButton { background: %1; color: %2; border: 1px solid %3; border-radius: %4px; padding: 0 8px; }"
-        "QPushButton:checked { background: %5; color: %6; border-color: %7; }"
-        "QPushButton:hover { color: %6; }")
-        .arg(Style::kBadgeOffBg(), Style::kTextTertiary(), Style::kBorderSubtle())
-        .arg(Style::kRadius - 1)
-        .arg(Style::kBadgeWarnBg(), Style::kAmberText(), Style::kAmberBorder());
-    QFont segmentFont = Style::capsFont(font(), Style::kFontCaption);
-    m_radarButton = new QPushButton(QStringLiteral("RADAR"), m_controlsRow);
-    m_mapButton = new QPushButton(QStringLiteral("KARTE + HORIZONT"), m_controlsRow);
-    for (QPushButton* button : {m_radarButton, m_mapButton}) {
-        button->setCheckable(true);
-        button->setFont(segmentFont);
-        button->setStyleSheet(segmentStyle);
-        button->setFixedHeight(kControlsRowHeight - 4);
-        button->setFocusPolicy(Qt::NoFocus);
-        row->addWidget(button);
-    }
-    connect(m_radarButton, &QPushButton::clicked, this, [this] { setView(View::Radar); });
-    connect(m_mapButton, &QPushButton::clicked, this, [this] { setView(View::MapHorizon); });
+    // Only the zoom lives here, on the right; the view switch that
+    // used to sit on the left went with the second view.
     row->addStretch(1);
 
     // The ⚙ menu's entries. The QActions live here, parented to the
@@ -277,21 +255,17 @@ void MapWidget::buildControls()
 void MapWidget::syncControls()
 {
     m_syncingControls = true;
-    if (m_radarButton) {
-        m_radarButton->setChecked(m_view == View::Radar);
-        m_mapButton->setChecked(m_view == View::MapHorizon);
-    }
     const auto sync = [](QAction* action, bool on) {
         if (action && action->isChecked() != on) {
             action->setChecked(on);
         }
     };
-    sync(m_gridAction, layers().grid);
+    sync(m_gridAction, m_layers.grid);
     sync(m_ringsAction, m_showRings);
     sync(m_spokesAction, m_showSpokes);
-    sync(m_workedCellsAction, layers().cells);
-    sync(m_bordersAction, layers().borders);
-    sync(m_citiesAction, layers().cities);
+    sync(m_workedCellsAction, m_layers.cells);
+    sync(m_bordersAction, m_layers.borders);
+    sync(m_citiesAction, m_layers.cities);
     sync(m_agingAction, m_showAging);
     sync(m_fitAction, m_fitToWindow);
     sync(m_rotor1Action, m_showRotor1Heading);
@@ -319,11 +293,6 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
         return;
     }
     syncControls();
-    const auto section = [menu](const QString& text) {
-        QAction* title = menu->addAction(text);
-        title->setEnabled(false);
-    };
-    section(QStringLiteral("Beide Ansichten"));
     menu->addAction(m_ringsAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
@@ -354,8 +323,6 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     menu->addAction(m_agingAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
-    // Remembered per view: the radar and the map each keep their own.
-    section(m_view == View::Radar ? QStringLiteral("Radar") : QStringLiteral("Karte"));
     menu->addAction(m_bordersAction);
     menu->addAction(m_citiesAction);
     menu->addAction(m_gridAction);
@@ -402,16 +369,6 @@ void MapWidget::setStations(const QVector<Station>& stations)
     update();
 }
 
-void MapWidget::setView(View view)
-{
-    if (m_view == view) {
-        syncControls();
-        return;
-    }
-    m_view = view;
-    notePreferenceChange();
-}
-
 #define MAPWIDGET_TOGGLE(Setter, member)                                                                            \
     void MapWidget::Setter(bool on)                                                                                 \
     {                                                                                                               \
@@ -423,12 +380,12 @@ void MapWidget::setView(View view)
         notePreferenceChange();                                                                                     \
     }
 
-MAPWIDGET_TOGGLE(setGridLayerVisible, layers().grid)
+MAPWIDGET_TOGGLE(setGridLayerVisible, m_layers.grid)
 MAPWIDGET_TOGGLE(setRingsLayerVisible, m_showRings)
 MAPWIDGET_TOGGLE(setSpokesLayerVisible, m_showSpokes)
-MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, layers().cells)
-MAPWIDGET_TOGGLE(setBordersLayerVisible, layers().borders)
-MAPWIDGET_TOGGLE(setCitiesLayerVisible, layers().cities)
+MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, m_layers.cells)
+MAPWIDGET_TOGGLE(setBordersLayerVisible, m_layers.borders)
+MAPWIDGET_TOGGLE(setCitiesLayerVisible, m_layers.cities)
 MAPWIDGET_TOGGLE(setFitToWindowEnabled, m_fitToWindow)
 MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
@@ -550,15 +507,14 @@ void MapWidget::zoomOut()
 QString MapWidget::preferencesText() const
 {
     const auto flag = [](bool on) { return on ? QStringLiteral("1") : QStringLiteral("0"); };
-    // grid/cells/borders/cities are the map view's, rgrid/... the radar's.
-    return QStringLiteral("view=%1;grid=%2;rings=%3;spokes=%4;cells=%5;borders=%6;cities=%7;aging=%8;fit=%9;"
-                          "rotor1=%10;rotor2=%11;horizon=%12;bw1=%13;bw2=%14;rgrid=%15;rcells=%16;rborders=%17;rcities=%18")
-        .arg(m_view == View::Radar ? QStringLiteral("radar") : QStringLiteral("map"), flag(m_mapLayers.grid),
-             flag(m_showRings), flag(m_showSpokes), flag(m_mapLayers.cells), flag(m_mapLayers.borders),
-             flag(m_mapLayers.cities), flag(m_showAging), flag(m_fitToWindow))
-        .arg(flag(m_showRotor1Heading), flag(m_showRotor2Heading), flag(m_showHorizon))
+    // The layer keys keep their "r" prefix from the days of two views,
+    // so a stored preference string still reads the same.
+    return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13")
+        .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
+             flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
-        .arg(flag(m_radarLayers.grid), flag(m_radarLayers.cells), flag(m_radarLayers.borders), flag(m_radarLayers.cities));
+        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -579,32 +535,20 @@ void MapWidget::applyPreferencesText(const QString& text)
                 changed = true;
             }
         };
-        if (key == QStringLiteral("view")) {
-            const View view = value == QStringLiteral("map") ? View::MapHorizon : View::Radar;
-            if (view != m_view) {
-                m_view = view;
-                changed = true;
-            }
-        } else if (key == QStringLiteral("grid")) {
-            apply(m_mapLayers.grid);
-        } else if (key == QStringLiteral("rings")) {
+        // "view", "grid", "cells", "borders", "cities" were the second
+        // view's keys; a stored string may still carry them -- ignored.
+        if (key == QStringLiteral("rings")) {
             apply(m_showRings);
         } else if (key == QStringLiteral("spokes")) {
             apply(m_showSpokes);
-        } else if (key == QStringLiteral("cells")) {
-            apply(m_mapLayers.cells);
-        } else if (key == QStringLiteral("borders")) {
-            apply(m_mapLayers.borders);
-        } else if (key == QStringLiteral("cities")) {
-            apply(m_mapLayers.cities);
         } else if (key == QStringLiteral("rgrid")) {
-            apply(m_radarLayers.grid);
+            apply(m_layers.grid);
         } else if (key == QStringLiteral("rcells")) {
-            apply(m_radarLayers.cells);
+            apply(m_layers.cells);
         } else if (key == QStringLiteral("rborders")) {
-            apply(m_radarLayers.borders);
+            apply(m_layers.borders);
         } else if (key == QStringLiteral("rcities")) {
-            apply(m_radarLayers.cities);
+            apply(m_layers.cities);
         } else if (key == QStringLiteral("aging")) {
             if (m_showAging != on) {
                 changed = true;
@@ -738,9 +682,6 @@ QRectF MapWidget::canvasRect() const
 
 QRectF MapWidget::numbersRect() const
 {
-    if (m_view != View::Radar) {
-        return QRectF();
-    }
     const QRectF canvas = canvasRect();
     if (canvas.width() - kNumbersColumnWidth < kMinScopeWidthWithNumbers) {
         return QRectF();
@@ -748,37 +689,15 @@ QRectF MapWidget::numbersRect() const
     return QRectF(canvas.right() - kNumbersColumnWidth + 12, canvas.top(), kNumbersColumnWidth - 12, canvas.height());
 }
 
-QRectF MapWidget::horizonStripRect() const
-{
-    if (m_view != View::MapHorizon || !m_showHorizon) {
-        return QRectF();
-    }
-    const QRectF canvas = canvasRect();
-    const double h = std::clamp(canvas.height() * kStripFraction, static_cast<double>(kStripMinHeight),
-                                static_cast<double>(kStripMaxHeight));
-    if (canvas.height() - h < 120.0) {
-        return QRectF();
-    }
-    return QRectF(canvas.left(), canvas.bottom() - h, canvas.width(), h);
-}
-
 QRectF MapWidget::scopeRect() const
 {
     QRectF area = canvasRect();
-    if (m_view == View::Radar) {
-        const QRectF numbers = numbersRect();
-        if (!numbers.isEmpty()) {
-            area.setRight(numbers.left() - 8.0);
-        }
-        // The rim labels and the beam labels outside them need air.
-        area.adjust(32.0, 32.0, -32.0, -32.0);
-    } else {
-        const QRectF strip = horizonStripRect();
-        if (!strip.isEmpty()) {
-            area.setBottom(strip.top() - 6.0);
-        }
-        area.adjust(32.0, 32.0, -32.0, -32.0);
+    const QRectF numbers = numbersRect();
+    if (!numbers.isEmpty()) {
+        area.setRight(numbers.left() - 8.0);
     }
+    // The rim labels and the beam labels outside them need air.
+    area.adjust(32.0, 32.0, -32.0, -32.0);
     if (area.width() <= 0.0 || area.height() <= 0.0) {
         return QRectF();
     }
@@ -906,7 +825,7 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     // school atlas. The radar dims them further.
     // Quieter still on the radar, where the scope is the point.
     QColor line{Style::kTextInactive()};
-    line.setAlpha(m_view == View::Radar ? 90 : 150);
+    line.setAlpha(90);
     painter.setPen(QPen(line, 1.0));
     painter.setBrush(Qt::NoBrush);
     const QRectF keep = area.adjusted(-2000, -2000, 2000, 2000);
@@ -972,7 +891,7 @@ void MapWidget::drawGridLayer(QPainter& painter, const QRectF& area) const
         qreal strokeWidth = 0.6;
         // Tints, not blocks: the squares are a background hint, the
         // dots on top are the information.
-        if (layers().cells && cell.hasWorked) {
+        if (m_layers.cells && cell.hasWorked) {
             fill = QColor(Style::kGreenText());
             fill.setAlpha(34);
             stroke = QColor(Style::kGreenBorder());
@@ -982,7 +901,7 @@ void MapWidget::drawGridLayer(QPainter& painter, const QRectF& area) const
                 fill = agedMarkerColor(fill, secs);
                 stroke = agedMarkerColor(stroke, secs);
             }
-        } else if (layers().cells && cell.hasSpotted) {
+        } else if (m_layers.cells && cell.hasSpotted) {
             fill = QColor(Style::kBlueBg());
             fill.setAlpha(28);
             stroke = QColor(Style::kBlueBorder());
@@ -1028,16 +947,7 @@ void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
     const QPointF center = area.center();
     const double rx = area.width() / 2.0;
     const double ry = area.height() / 2.0;
-    // Map view: faint spokes every 45°; both views: ticks on the rim
-    // every 10°, labels every 30°.
-    if (m_view == View::MapHorizon) {
-        QColor spoke{Style::kBorder()};
-        spoke.setAlpha(150);
-        painter.setPen(QPen(spoke, 0.8));
-        for (int deg = 0; deg < 360; deg += 45) {
-            painter.drawLine(center, polar(center, deg, rx, ry));
-        }
-    }
+    // Ticks on the rim every 10°, labels every 30°.
     for (int deg = 0; deg < 360; deg += 10) {
         const bool major = deg % 30 == 0;
         QColor tick{Style::kTextScale()};
@@ -1252,11 +1162,6 @@ void MapWidget::drawHomeMarker(QPainter& painter, const QRectF& area) const
     painter.setPen(QPen(withAlpha(Style::kAmberText(), 120), 1.0));
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(center, 7.0, 7.0);
-    if (m_view == View::MapHorizon && !m_ownLabel.isEmpty()) {
-        painter.setFont(Style::monoFont(font(), Style::kFontCaption, QFont::DemiBold));
-        painter.setPen(amber);
-        painter.drawText(center + QPointF(9.0, -6.0), m_ownLabel);
-    }
 }
 
 void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
@@ -1372,143 +1277,6 @@ void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft) const
     painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("GEARBEITET"));
 }
 
-void MapWidget::drawHorizonStrip(QPainter& painter, const QRectF& strip) const
-{
-    painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
-    painter.drawLine(strip.topLeft(), strip.topRight());
-    // Caption, scale on the left, bearings below.
-    painter.setFont(Style::capsFont(font(), Style::kFontCaption));
-    painter.setPen(QColor(Style::kTextScale()));
-    painter.drawText(QPointF(strip.left() + 2.0, strip.top() + 14.0),
-                     hasHorizon() ? QStringLiteral("HORIZONT VON %1 · BERGE VERDECKEN, WAS DARUNTER LIEGT").arg(m_ownGrid.toUpper())
-                                  : QStringLiteral("HORIZONT · KEINE GELÄNDEDATEN"));
-    const QRectF plot(strip.left() + 30.0, strip.top() + 22.0, strip.width() - 36.0, strip.height() - 40.0);
-    if (plot.width() <= 10.0 || plot.height() <= 10.0) {
-        return;
-    }
-    painter.fillRect(plot, QColor(Style::kInsetBg()));
-    const auto xFor = [&](double deg) {
-        return plot.left() + plot.width() * (std::fmod(deg + 360.0, 360.0) / 360.0);
-    };
-    const auto yFor = [&](double elevationDeg) {
-        return plot.bottom() - std::clamp(elevationDeg, 0.0, kStripMaxElevationDeg) / kStripMaxElevationDeg * plot.height();
-    };
-    if (hasHorizon()) {
-        QPainterPath sky;
-        sky.moveTo(plot.left(), plot.bottom());
-        for (int deg = 0; deg <= 360; ++deg) {
-            sky.lineTo(xFor(deg), yFor(horizonAngleAt(deg)));
-        }
-        sky.lineTo(plot.right(), plot.bottom());
-        sky.closeSubpath();
-        QLinearGradient fill(plot.topLeft(), plot.bottomLeft());
-        fill.setColorAt(0.0, withAlpha(Style::kAmberDim(), 120));
-        fill.setColorAt(1.0, withAlpha(Style::kAmberDim(), 40));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(fill);
-        painter.drawPath(sky);
-        QPainterPath line;
-        for (int deg = 0; deg <= 360; ++deg) {
-            const QPointF p(xFor(deg), yFor(horizonAngleAt(deg)));
-            if (deg == 0) {
-                line.moveTo(p);
-            } else {
-                line.lineTo(p);
-            }
-        }
-        painter.setPen(QPen(withAlpha(Style::kAmberWarn(), 200), 1.0));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(line);
-    }
-    // Elevation scale
-    painter.setFont(Style::monoFont(font(), Style::kFontCaption));
-    for (int e : {2, 4, 6}) {
-        painter.setPen(QPen(withAlpha(Style::kBorder(), 110), 1.0, Qt::DotLine));
-        painter.drawLine(QPointF(plot.left(), yFor(e)), QPointF(plot.right(), yFor(e)));
-        painter.setPen(QColor(Style::kTextInactive()));
-        painter.drawText(QPointF(strip.left() + 4.0, yFor(e) + 3.0), QStringLiteral("%1°").arg(e));
-    }
-    // Bearing scale
-    painter.setFont(Style::capsFont(font(), Style::kFontCaption));
-    painter.setPen(QColor(Style::kTextScale()));
-    for (int deg = 0; deg <= 360; deg += 30) {
-        painter.drawText(QRectF(xFor(deg) - 14.0, plot.bottom() + 3.0, 28.0, 12.0), Qt::AlignCenter,
-                         compassLabel(deg % 360));
-    }
-    // Stations as ticks from the top down to the skyline, open ones labelled.
-    const QDateTime now = QDateTime::currentDateTimeUtc();
-    QVector<Plotted> ticks;
-    if (isValidGridSquare(m_ownGrid)) {
-        for (const Station& station : m_stations) {
-            if (!isValidGridSquare(station.grid)) {
-                continue;
-            }
-            Plotted p;
-            p.station = &station;
-            p.bearingDeg = calculateBearingInDegrees(m_ownGrid, station.grid);
-            p.distanceKm = calculateDistanceKm(m_ownGrid, station.grid);
-            ticks.append(p);
-        }
-    }
-    std::stable_sort(ticks.begin(), ticks.end(), [](const Plotted& a, const Plotted& b) { return a.bearingDeg < b.bearingDeg; });
-    painter.setFont(Style::monoFont(font(), Style::kFontCaption));
-    painter.save();
-    painter.setClipRect(plot.adjusted(0, -8.0, 0, 0));
-    double lastLabelX = -1000.0;
-    int row = 0;
-    for (const Plotted& p : ticks) {
-        const Station& station = *p.station;
-        const double x = xFor(p.bearingDeg);
-        const double yTop = plot.top() + (station.worked ? 10.0 : 4.0);
-        const double yBottom = yFor(horizonAngleAt(static_cast<int>(std::lround(p.bearingDeg)))) - 2.0;
-        QColor color = markerColor(station.worked);
-        if (station.worked) {
-            color.setAlpha(160);
-            if (m_showAging && station.workedAtUtc.isValid()) {
-                color = agedMarkerColor(color, station.workedAtUtc.secsTo(now));
-            }
-        }
-        painter.setPen(QPen(color, station.worked ? 1.0 : 1.5));
-        painter.drawLine(QPointF(x, yTop), QPointF(x, std::max(yTop, yBottom)));
-        if (!station.worked && x - lastLabelX >= 30.0) {
-            lastLabelX = x;
-            painter.setPen(QColor(Style::kTextPrimary()));
-            painter.drawText(QPointF(x + 3.0, plot.top() + 11.0 + (row++ % 3) * 11.0), station.callsign);
-        }
-    }
-    painter.restore();
-    // Antenna directions: the cone as a translucent band (wrapping past
-    // 360° when it must), the heading as a line with its label.
-    for (const Beam& beam : beams()) {
-        QColor band = beam.color;
-        band.setAlpha(28);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(band);
-        const double from = beam.azimuthDeg - beam.halfWidthDeg;
-        const double to = beam.azimuthDeg + beam.halfWidthDeg;
-        for (double shift : {-360.0, 0.0, 360.0}) {
-            const double x0 = std::max(plot.left(), plot.left() + plot.width() * (from + shift) / 360.0);
-            const double x1 = std::min(plot.right(), plot.left() + plot.width() * (to + shift) / 360.0);
-            if (x1 > x0) {
-                painter.drawRect(QRectF(x0, plot.top(), x1 - x0, plot.height()));
-            }
-        }
-        painter.setPen(QPen(beam.color, 1.5, beam.lineStyle));
-        painter.drawLine(QPointF(xFor(beam.azimuthDeg), plot.top()), QPointF(xFor(beam.azimuthDeg), plot.bottom()));
-        // Label low in the plot, where the skyline seldom is, on a dark
-        // backing so it reads over the ground fill.
-        painter.setFont(Style::monoFont(font(), beam.labelPx, QFont::DemiBold));
-        const QFontMetricsF fm(painter.font());
-        const QRectF box(xFor(beam.azimuthDeg) + 4.0, plot.bottom() - fm.height() - 4.0, fm.horizontalAdvance(beam.label) + 6.0,
-                         fm.height() + 2.0);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(withAlpha(Style::kInsetBg(), 200));
-        painter.drawRect(box);
-        painter.setPen(beam.color);
-        painter.drawText(box, Qt::AlignCenter, beam.label);
-    }
-}
-
 void MapWidget::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter painter(this);
@@ -1532,19 +1300,19 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     QPainterPath clip;
     clip.addEllipse(area);
     painter.setClipPath(clip, Qt::IntersectClip);
-    if (layers().borders) {
+    if (m_layers.borders) {
         drawBordersLayer(painter, area);
     }
-    if (layers().grid) {
+    if (m_layers.grid) {
         drawGridLayer(painter, area);
     }
     if (m_showRings) {
         drawRingsLayer(painter, area);
     }
-    if (layers().cities) {
+    if (m_layers.cities) {
         drawCitiesLayer(painter, area);
     }
-    if (m_view == View::Radar && m_showHorizon) {
+    if (m_showHorizon) {
         drawHorizonRim(painter, area);
     }
     drawRotorHeadingsLayer(painter, area);
@@ -1568,17 +1336,9 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     }
     painter.restore();
 
-    if (m_view == View::Radar) {
-        const QRectF numbers = numbersRect();
-        if (!numbers.isEmpty()) {
-            drawNumbersColumn(painter, numbers);
-        }
-    } else {
-        const QRectF strip = horizonStripRect();
-        if (!strip.isEmpty()) {
-            drawHorizonStrip(painter, strip);
-        }
-        drawLegend(painter, QPointF(canvasRect().left() + 2.0, (strip.isEmpty() ? canvasRect().bottom() : strip.top()) - 4.0));
+    const QRectF numbers = numbersRect();
+    if (!numbers.isEmpty()) {
+        drawNumbersColumn(painter, numbers);
     }
 }
 
@@ -1654,24 +1414,6 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         if (distSq <= bestDistSq) {
             bestDistSq = distSq;
             hit = p.station;
-        }
-    }
-    // The skyline ticks are targets too.
-    const QRectF strip = horizonStripRect();
-    if (!hit && !strip.isEmpty() && strip.contains(clickPos)) {
-        const QRectF plot(strip.left() + 30.0, strip.top() + 22.0, strip.width() - 36.0, strip.height() - 40.0);
-        double bestDx = 6.0;
-        for (const Station& station : m_stations) {
-            if (!isValidGridSquare(station.grid)) {
-                continue;
-            }
-            const double bearing = calculateBearingInDegrees(m_ownGrid, station.grid);
-            const double x = plot.left() + plot.width() * (std::fmod(bearing + 360.0, 360.0) / 360.0);
-            const double dx = std::fabs(x - clickPos.x());
-            if (dx <= bestDx) {
-                bestDx = dx;
-                hit = &station;
-            }
         }
     }
     if (hit) {
