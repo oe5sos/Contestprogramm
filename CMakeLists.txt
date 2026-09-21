@@ -77,6 +77,7 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/DxClusterClient.cpp
     src/core/CallsignLocatorLookup.h
     src/core/CallsignLocatorLookup.cpp
+    src/core/ClockCheck.cpp
     src/core/BandUtils.h
     src/core/BandUtils.cpp
     src/core/BroadcastPublisher.h

@@ -26,6 +26,7 @@
 #include "data/DupeChecker.h"
 #include "data/DupeRescore.h"
 #include "data/LogCheck.h"
+#include "core/ClockCheck.h"
 #include "data/ReadinessCheck.h"
 #include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
@@ -3332,6 +3333,8 @@ void MainWindow::openReadinessWindow()
         m_readinessWindow->setWindowFlag(Qt::Window, true);
         connect(m_readinessWindow, &ReadinessWindow::refreshRequested, this, &MainWindow::refreshReadiness);
         connect(m_readinessWindow, &ReadinessWindow::settingsRequested, this, &MainWindow::openSettingsDialog);
+        m_clockCheck = new ClockCheck(this);
+        connect(m_clockCheck, &ClockCheck::finished, this, &MainWindow::refreshReadiness);
     }
     refreshReadiness();
     m_readinessWindow->show();
@@ -3365,6 +3368,19 @@ void MainWindow::refreshReadiness()
     }
     ctx.ownElevationM = settings.ownElevationM;
     ctx.antennaHeightM = settings.antennaHeightM;
+
+    // The clock, asked anew once a minute while the window is open; the
+    // answer arrives later and refreshes this snapshot again.
+    if (m_clockCheck) {
+        if (!m_clockCheck->isRunning()
+            && (!m_clockCheck->hasResult() || m_clockCheck->checkedAtUtc().secsTo(ctx.nowUtc) >= 60)) {
+            m_clockCheck->start();
+        }
+        ctx.clockChecked = m_clockCheck->hasResult();
+        ctx.clockReachable = m_clockCheck->reachable();
+        ctx.clockOffsetSecs = m_clockCheck->offsetSecs();
+        ctx.clockSource = m_clockCheck->source();
+    }
 
     if (const ContestDefinition* def = findContestDefinition(settings.activeContestId)) {
         ctx.contestFound = true;

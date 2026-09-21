@@ -50,6 +50,13 @@ struct ReadinessContext {
     double ownExactLongitude = 0.0;
     double ownElevationM = 0.0;
     double antennaHeightM = 0.0;
+    // The machine's clock against a web server's (core/ClockCheck.h):
+    // unchecked while the first round runs, unreachable without
+    // internet, else the offset local minus server in seconds.
+    bool clockChecked = false;
+    bool clockReachable = false;
+    qint64 clockOffsetSecs = 0;
+    QString clockSource;
 
     // Contest
     bool contestFound = false;

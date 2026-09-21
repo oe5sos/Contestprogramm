@@ -129,6 +129,35 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             QStringLiteral("own_elevation"));
     }
 
+    // The clock: every QSO time comes from it, and the adjudication
+    // cross-checks times between logs.
+    if (!ctx.clockChecked) {
+        add(Level::Hint, kGroupStation, QStringLiteral("Uhrzeit"), QStringLiteral("Wird gegen einen Zeitserver geprüft…"),
+            QStringLiteral("clock"));
+    } else if (!ctx.clockReachable) {
+        add(Level::Hint, kGroupStation, QStringLiteral("Uhrzeit"),
+            QStringLiteral("Nicht prüfbar (kein Internet) — Systemuhr vor dem Start von Hand vergleichen."),
+            QStringLiteral("clock"));
+    } else {
+        const qint64 off = ctx.clockOffsetSecs;
+        const QString direction = off > 0 ? QStringLiteral("vor") : QStringLiteral("nach");
+        if (std::llabs(off) <= 5) {
+            add(Level::Ok, kGroupStation, QStringLiteral("Uhrzeit"),
+                QStringLiteral("Stimmt (%1%2 s gegen %3)").arg(off > 0 ? QStringLiteral("+") : QString()).arg(off).arg(ctx.clockSource),
+                QStringLiteral("clock"));
+        } else if (std::llabs(off) <= 60) {
+            add(Level::Warning, kGroupStation, QStringLiteral("Uhrzeit"),
+                QStringLiteral("Geht %1 s %2 (gegen %3) — Systemuhr stellen, jede QSO-Zeit hängt daran.")
+                    .arg(std::llabs(off)).arg(direction, ctx.clockSource),
+                QStringLiteral("clock"));
+        } else {
+            add(Level::Error, kGroupStation, QStringLiteral("Uhrzeit"),
+                QStringLiteral("Geht %1 %2 (gegen %3) — Systemuhr stellen, sonst stimmt keine QSO-Zeit.")
+                    .arg(describeSpan(off), direction, ctx.clockSource),
+                QStringLiteral("clock"));
+        }
+    }
+
     // ---- Contest -------------------------------------------------------
     if (!ctx.contestFound) {
         add(Level::Error, kGroupContest, QStringLiteral("Contest"),

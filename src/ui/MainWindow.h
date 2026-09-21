@@ -37,6 +37,7 @@ class ProfileRail;
 class RateMeterWidget;
 class LogCheckWindow;
 class ReadinessWindow;
+class ClockCheck;
 class StatisticsWindow;
 class RotctldClient;
 class RotorWidget;
@@ -426,6 +427,7 @@ private:
     StatisticsWindow* m_statisticsWindow = nullptr;
     LogCheckWindow* m_logCheckWindow = nullptr;
     ReadinessWindow* m_readinessWindow = nullptr;
+    ClockCheck* m_clockCheck = nullptr; // the Startcheck's clock round, created with the window
     // The last failure of a rotctld this program started, per slot --
     // shown by the Startcheck until the rotor connects.
     QString m_rotctldError1;

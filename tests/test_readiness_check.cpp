@@ -43,6 +43,10 @@ ReadinessContext readyContext()
     ctx.ownExactLongitude = 13.721506;
     ctx.ownElevationM = 1587.0;
     ctx.antennaHeightM = 10.0;
+    ctx.clockChecked = true;
+    ctx.clockReachable = true;
+    ctx.clockOffsetSecs = 0;
+    ctx.clockSource = QStringLiteral("www.google.com");
     ctx.contestFound = true;
     ctx.contestName = QStringLiteral("IARU Region 1 UHF/Microwave Contest");
     ctx.contestBands = {QStringLiteral("432"), QStringLiteral("1296")};
