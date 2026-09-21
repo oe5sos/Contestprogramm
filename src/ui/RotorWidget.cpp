@@ -50,6 +50,13 @@ constexpr int kReadoutBottomPad = 4;
 constexpr int kTextAreaHeight = kReadoutTopPad + kReadoutLabelHeight + kReadoutValueHeight + kReadoutRowGap
     + kReadoutLineHeight + kReadoutRowGap + kReadoutLineHeight + kReadoutBottomPad;
 
+// The dial keeps at least this much height; the readout block below it
+// gives way first (see textAreaHeight()). Found on a real layout,
+// 2026-09-21: a rotor row dragged lower than the widget's old fixed
+// minimum was simply clipped at the panel's bottom edge, readout and
+// all, instead of adapting.
+constexpr int kMinDialAreaHeight = 150;
+
 // Minimum widget width the three-column readout needs to avoid its own
 // columns overlapping -- measured, not guessed: QFontMetrics on this
 // ladder's kFontDisplay (38px) mono font puts a zero-padded "300°" at
@@ -354,12 +361,35 @@ QSize RotorWidget::minimumSizeHint() const
     // three, per the operator's 2026-09-11 correction -- see
     // paintDigitalDial()'s and drawDigitalReadout()'s own comments), so
     // one flat minimum for every style, same as before Digital existed.
-    return QSize(kReadoutMinWidth, kHeaderHeight + 220 + kTextAreaHeight);
+    // The readout is optional below that (textAreaHeight()): the
+    // smallest legible widget is the header and a small dial.
+    return QSize(kReadoutMinWidth, kHeaderHeight + kMinDialAreaHeight);
 }
 
 QSize RotorWidget::sizeHint() const
 {
-    return minimumSizeHint();
+    // Room for the full readout under a comfortable dial -- the size
+    // the default panel layout gives each rotor.
+    return QSize(kReadoutMinWidth, kHeaderHeight + 220 + kTextAreaHeight);
+}
+
+int RotorWidget::textAreaHeight() const
+{
+    // The readout block below the dial gives way before the dial does:
+    // too low for all of it, the widget drops the connection row, then
+    // the station caption, then the block itself, and never paints
+    // past its own bottom edge.
+    const int available = height() - kHeaderHeight - kMinDialAreaHeight;
+    const bool digital = m_dialStyle == RotorDialStyle::Digital;
+    const int full = digital ? kDigitalTextAreaHeight : kTextAreaHeight;
+    const int withoutStatus = full - (digital ? kDigitalRowGap + kDigitalStatusHeight : kReadoutRowGap + kReadoutLineHeight);
+    const int withoutCaption = withoutStatus - (digital ? kDigitalRowGap + kDigitalCaptionHeight : kReadoutRowGap + kReadoutLineHeight);
+    for (int candidate : {full, withoutStatus, withoutCaption}) {
+        if (candidate <= available) {
+            return candidate;
+        }
+    }
+    return 0;
 }
 
 void RotorWidget::resizeEvent(QResizeEvent* event)
@@ -468,7 +498,7 @@ double RotorWidget::bearingAt(const QPointF& pos) const
         return -1.0;
     }
     const int dialAreaTop = kHeaderHeight;
-    const int dialAreaHeight = height() - kHeaderHeight - kTextAreaHeight;
+    const int dialAreaHeight = height() - kHeaderHeight - textAreaHeight();
     const QPointF center(width() / 2.0, dialAreaTop + dialAreaHeight / 2.0);
     const double radius = (std::min(width(), dialAreaHeight) - kDialMargin * 2) / 2.0;
     if (radius <= 0.0) {
@@ -604,6 +634,12 @@ void RotorWidget::updateTargetInputGeometry()
         // drawDigitalReadout() has its own separate ZIEL glass panel,
         // with no equivalent input slot wired up yet -- hidden rather
         // than mispositioned over unrelated content.
+        m_targetInput->hide();
+        return;
+    }
+    if (textAreaHeight() == 0) {
+        // Too low for the readout: no cell to sit on (see
+        // textAreaHeight()).
         m_targetInput->hide();
         return;
     }
@@ -1017,7 +1053,8 @@ void RotorWidget::drawLinearBeamBand(QPainter& painter, double trackLeft, double
 
 QRect RotorWidget::readoutBlockRect() const
 {
-    const QRect textArea(0, height() - kTextAreaHeight, width(), kTextAreaHeight);
+    const int textHeight = textAreaHeight();
+    const QRect textArea(0, height() - textHeight, width(), textHeight);
     return QRect(textArea.left() + 6, textArea.top() + kReadoutTopPad, textArea.width() - 12,
                  kReadoutLabelHeight + kReadoutValueHeight);
 }
@@ -1234,6 +1271,14 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
 
     y += kReadoutValueHeight + kReadoutRowGap;
 
+    // A reduced block (see textAreaHeight()) ends here, or after the
+    // caption.
+    const bool hasCaptionRow = area.height() >= kTextAreaHeight - (kReadoutRowGap + kReadoutLineHeight);
+    const bool hasStatusRow = area.height() >= kTextAreaHeight;
+    if (!hasCaptionRow) {
+        return;
+    }
+
     // Row 3: target-station caption ("SP9XYZ · JO90 · 471 km") -- only
     // drawn with real content when a target is actually set AND its
     // station identity is known (never a fabricated placeholder); when
@@ -1255,6 +1300,9 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
         }
     }
     y += kReadoutLineHeight + kReadoutRowGap;
+    if (!hasStatusRow) {
+        return;
+    }
 
     // Row 4: connection status as a small badge dot + caps text --
     // unchanged from before this pass, matching the confirmed/off badge
@@ -1365,7 +1413,8 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
     drawPanelHeader(painter);
 
     const int dialAreaTop = kHeaderHeight;
-    const int dialAreaHeight = height() - kHeaderHeight - kTextAreaHeight;
+    const int textHeight = textAreaHeight();
+    const int dialAreaHeight = height() - kHeaderHeight - textHeight;
 
     // All four paint paths (RotorDialStyle, core/RotorDialStyle.h) share
     // this one fixed dial-area/text-area split -- Digital's ring is the
@@ -1412,7 +1461,10 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
     }
     }
 
-    const QRect textArea(0, height() - kTextAreaHeight, width(), kTextAreaHeight);
+    if (textHeight == 0) {
+        return; // too low for any readout: the dial alone
+    }
+    const QRect textArea(0, height() - textHeight, width(), textHeight);
     if (m_dialStyle == RotorDialStyle::Digital) {
         drawDigitalReadout(painter, textArea);
     } else {
@@ -2005,6 +2057,12 @@ void RotorWidget::drawDigitalReadout(QPainter& painter, const QRect& area) const
         y += boxHeight + kDigitalRowGap;
     }
 
+    // A reduced block (see textAreaHeight()) ends here, or after the
+    // caption.
+    if (area.height() < kDigitalTextAreaHeight - (kDigitalRowGap + kDigitalStatusHeight)) {
+        return;
+    }
+
     // Row 3: caption (target-station identity / SPERRZONE / unknown-
     // dash) -- same computeCaptionLine() logic drawReadout() uses, so
     // both readout styles show the identical message for the identical
@@ -2020,6 +2078,9 @@ void RotorWidget::drawDigitalReadout(QPainter& painter, const QRect& area) const
             painter.drawText(QRect(area.left(), y, area.width(), kDigitalCaptionHeight), Qt::AlignCenter, captionText);
         }
         y += kDigitalCaptionHeight + kDigitalRowGap;
+    }
+    if (area.height() < kDigitalTextAreaHeight) {
+        return;
     }
 
     // Row 4: connection status -- same drawConnectionStatusRow() helper

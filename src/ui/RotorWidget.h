@@ -151,6 +151,11 @@ public:
     static double secondAntennaBearing(double currentAzimuthDeg, double offsetDeg);
 
     QSize minimumSizeHint() const override;
+    // The height of the readout block under the dial at this widget's
+    // current height -- the full block when there is room, else with
+    // the connection row, then the station caption given up, then
+    // nothing (only the dial); see textAreaHeight() in the .cpp.
+    int textAreaHeightForTest() const { return textAreaHeight(); }
     QSize sizeHint() const override;
 
 signals:
@@ -287,6 +292,7 @@ private:
     // value row), shared by drawReadout() and updateTargetInputGeometry()
     // so the editable ZIEL field sits exactly on its painted cell.
     QRect readoutBlockRect() const;
+    int textAreaHeight() const;
     QRect readoutValuesRow() const;
     // The big readout number's size: kFontDisplay when a zero-padded
     // "000°" fits a cell with air around it, else the Digital style's

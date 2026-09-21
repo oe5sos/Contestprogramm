@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QLineEdit>
+
 #include <QApplication>
 #include <QFontMetrics>
 #include <QMenu>
@@ -530,6 +532,7 @@ private slots:
     void readoutPaintsCleanlyWithNoTargetAtAll();
     void minimumSizeHintFitsTheThreeColumnReadoutBlock();
     void minimumSizeHintAccountsForDigitalGlassPanels();
+    void readoutGivesWayBeforeTheDialInALowPanel();
 };
 
 void TestRotorWidgetReadout::targetAccessorsReturnWhatSetTargetBearingWasGiven()
@@ -657,7 +660,11 @@ void TestRotorWidgetReadout::minimumSizeHintFitsTheThreeColumnReadoutBlock()
     // session's own "always re-tune the default when content outgrows
     // it" practice (see MainWindow.cpp's own comment on that QRect).
     RotorWidget widget(QStringLiteral("2m"));
-    QVERIFY(widget.minimumSizeHint().height() >= 360);
+    // The full readout needs the default panel height (sizeHint); below
+    // it the block gives way row by row instead of being clipped -- see
+    // readoutGivesWayBeforeTheDialInALowPanel().
+    QVERIFY(widget.sizeHint().height() >= 360);
+    QVERIFY(widget.minimumSizeHint().height() < widget.sizeHint().height());
 
     // Width regression guard for a real bug this pass's own live-app
     // verification screenshot caught: at the widget's OWN declared
@@ -701,6 +708,63 @@ void TestRotorWidgetReadout::minimumSizeHintAccountsForDigitalGlassPanels()
     widget.setTargetBearing(72.0, 471.0, QStringLiteral("SP9XYZ"), QStringLiteral("JO90"));
     widget.setSecondAntenna(true, 70.0);
     QVERIFY(!widget.grab().isNull());
+}
+
+void TestRotorWidgetReadout::readoutGivesWayBeforeTheDialInALowPanel()
+{
+    // A rotor row dragged lower than the full widget (found on a real
+    // layout, 2026-09-21): the readout drops its connection row, then
+    // the caption, then itself -- the dial stays, nothing is clipped.
+    RotorWidget widget(QStringLiteral("2m"));
+    widget.setConnected(true);
+    widget.setAzimuthDeg(214.0);
+    widget.setTargetBearing(72.0, 471.0, QStringLiteral("SP9XYZ"), QStringLiteral("JO90"));
+    widget.show(); // resize events reach a hidden widget only on show
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+    // The dial shrinks first (down to its 150 px floor), then the
+    // readout: full at 362 and still at 292, one row less at 285,
+    // two at 265, none at the minimum.
+    widget.resize(320, widget.sizeHint().height());
+    const int full = widget.textAreaHeightForTest();
+    QVERIFY(full > 0);
+    widget.resize(320, 292);
+    QCOMPARE(widget.textAreaHeightForTest(), full);
+    widget.resize(320, 285);
+    const int withoutStatus = widget.textAreaHeightForTest();
+    QVERIFY(withoutStatus > 0 && withoutStatus < full);
+    widget.resize(320, 265);
+    const int withoutCaption = widget.textAreaHeightForTest();
+    QVERIFY(withoutCaption > 0 && withoutCaption < withoutStatus);
+    widget.resize(320, widget.minimumSizeHint().height());
+    QCOMPARE(widget.textAreaHeightForTest(), 0);
+    auto* input = widget.findChild<QLineEdit*>(QStringLiteral("rotorWidgetTargetInput"));
+    QVERIFY(input);
+    QVERIFY(input->isHidden());
+
+    // Every step paints, and the last rows of pixels above the bottom
+    // edge hold nothing but the panel itself: no half-drawn row.
+    for (int height : {widget.sizeHint().height(), 285, 265, widget.minimumSizeHint().height()}) {
+        widget.resize(320, height);
+        const QImage image = widget.grab().toImage();
+        QVERIFY(!image.isNull());
+        int inked = 0;
+        for (int y = image.height() - 6; y < image.height() - 2; ++y) {
+            for (int x = 20; x < image.width() - 20; ++x) {
+                const QColor c = image.pixelColor(x, y);
+                if (c.lightness() > 60) {
+                    ++inked;
+                }
+            }
+        }
+        QVERIFY2(inked == 0, qPrintable(QStringLiteral("height %1: %2 bright pixels at the bottom edge").arg(height).arg(inked)));
+    }
+    // And the digital style has the same three steps.
+    widget.setDialStyle(RotorDialStyle::Digital);
+    widget.resize(320, widget.sizeHint().height());
+    QVERIFY(widget.textAreaHeightForTest() > 0);
+    widget.resize(320, widget.minimumSizeHint().height());
+    QCOMPARE(widget.textAreaHeightForTest(), 0);
 }
 
 // The beam cones (design sheet "Rotoren: Kegel", 2026-09-21): one
