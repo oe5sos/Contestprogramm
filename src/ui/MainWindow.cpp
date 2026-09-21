@@ -26,6 +26,7 @@
 #include "data/DupeChecker.h"
 #include "data/DupeRescore.h"
 #include "data/LogCheck.h"
+#include "data/ReadinessCheck.h"
 #include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
@@ -40,6 +41,7 @@
 #include "ui/EsmTemplatesDialog.h"
 #include "ui/LayoutProfileManager.h"
 #include "ui/LogCheckWindow.h"
+#include "ui/ReadinessWindow.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
 #include "ui/PanelContainerWidget.h"
@@ -998,6 +1000,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // reason, first line, where the operator looks first.
     connect(&m_appController, &AppController::rotctldFailed, this, [this](int slot, const QString& message) {
         const QString reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        (slot == 1 ? m_rotctldError1 : m_rotctldError2) = reason;
         qWarning().noquote() << QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(message);
         statusBar()->showMessage(QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(reason), 15000);
     });
@@ -1089,6 +1092,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // What the robot would find, found first -- see data/LogCheck.h.
     QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
     connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
+    // Before the first CQ: station, contest, links, data -- see
+    // data/ReadinessCheck.h.
+    QAction* readinessAction = fileMenu->addAction(QStringLiteral("Start&check (bereit?)..."));
+    connect(readinessAction, &QAction::triggered, this, &MainWindow::openReadinessWindow);
     QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
@@ -3316,6 +3323,132 @@ void MainWindow::refreshLogCheck()
     const QVector<QsoRecord> records = m_appController.database().qsosForContest(settings.activeContestId);
     const LogCheckContext context = logCheckContextFor(*def, settings, records, QDateTime::currentDateTimeUtc());
     m_logCheckWindow->setResult(checkLog(records, context), def->name());
+}
+
+void MainWindow::openReadinessWindow()
+{
+    if (!m_readinessWindow) {
+        m_readinessWindow = new ReadinessWindow(this);
+        m_readinessWindow->setWindowFlag(Qt::Window, true);
+        connect(m_readinessWindow, &ReadinessWindow::refreshRequested, this, &MainWindow::refreshReadiness);
+        connect(m_readinessWindow, &ReadinessWindow::settingsRequested, this, &MainWindow::openSettingsDialog);
+    }
+    refreshReadiness();
+    m_readinessWindow->show();
+    m_readinessWindow->raise();
+    m_readinessWindow->activateWindow();
+}
+
+void MainWindow::refreshReadiness()
+{
+    if (!m_readinessWindow) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    ReadinessContext ctx;
+    ctx.nowUtc = QDateTime::currentDateTimeUtc();
+    ctx.ownCallsign = settings.ownCallsign;
+    ctx.ownGrid = settings.ownGrid;
+    // The exact position the settings dialog can store -- read by its
+    // raw keys, like horizonProfileForOwnStation() does.
+    {
+        const ContestDatabase& db = m_appController.database();
+        ctx.useExactOwnLocation = db.settingValue(QStringLiteral("use_exact_own_location")) == QStringLiteral("1");
+        bool okLat = false;
+        bool okLon = false;
+        const double exactLat = db.settingValue(QStringLiteral("own_exact_latitude")).toDouble(&okLat);
+        const double exactLon = db.settingValue(QStringLiteral("own_exact_longitude")).toDouble(&okLon);
+        if (okLat && okLon && std::fabs(exactLat) <= 90.0 && std::fabs(exactLon) <= 180.0) {
+            ctx.ownExactLatitude = exactLat;
+            ctx.ownExactLongitude = exactLon;
+        }
+    }
+    ctx.ownElevationM = settings.ownElevationM;
+    ctx.antennaHeightM = settings.antennaHeightM;
+
+    if (const ContestDefinition* def = findContestDefinition(settings.activeContestId)) {
+        ctx.contestFound = true;
+        ctx.contestName = def->name();
+        ctx.contestBands = def->bands();
+        ctx.window = effectiveContestWindow(def->schedule(), settings.contestEndUtc, ctx.nowUtc);
+        ctx.qsoCount = m_appController.database().qsoCountForContest(settings.activeContestId);
+    }
+    ctx.esmEnabled = settings.esmEnabled;
+
+    const auto rigLink = [](RigctldClient::State state) {
+        switch (state) {
+        case RigctldClient::State::Connected: return LinkState::Connected;
+        case RigctldClient::State::Connecting: return LinkState::Connecting;
+        case RigctldClient::State::Disconnected:
+        case RigctldClient::State::Error: return LinkState::Disconnected;
+        }
+        return LinkState::Disconnected;
+    };
+    const auto rotorLink = [](RotctldClient::State state) {
+        switch (state) {
+        case RotctldClient::State::Connected: return LinkState::Connected;
+        case RotctldClient::State::Connecting: return LinkState::Connecting;
+        case RotctldClient::State::Disconnected:
+        case RotctldClient::State::Error: return LinkState::Disconnected;
+        }
+        return LinkState::Disconnected;
+    };
+    if (!settings.rigctldHost.trimmed().isEmpty()) {
+        ctx.catTarget = QStringLiteral("%1:%2").arg(settings.rigctldHost.trimmed()).arg(settings.rigctldPort);
+        ctx.cat = rigLink(m_appController.rigctldClient().state());
+    }
+    const auto rotor = [&](bool enabled, const QString& label, const QString& host, int port, RotctldClient& client,
+                           QString& lastError) {
+        ReadinessContext::Rotor r;
+        r.enabled = enabled;
+        r.label = label;
+        r.target = QStringLiteral("%1:%2").arg(host.trimmed()).arg(port);
+        r.link = enabled ? rotorLink(client.state()) : LinkState::NotConfigured;
+        if (r.link == LinkState::Connected) {
+            lastError.clear();
+        }
+        r.rotctldError = lastError;
+        return r;
+    };
+    ctx.rotor1 = rotor(settings.rotor1Enabled, settings.rotor1Label, settings.rotor1Host, settings.rotor1Port,
+                       m_appController.rotor1Client(), m_rotctldError1);
+    ctx.rotor2 = rotor(settings.rotor2Enabled, settings.rotor2Label, settings.rotor2Host, settings.rotor2Port,
+                       m_appController.rotor2Client(), m_rotctldError2);
+    ctx.on4kstConfigured = !settings.on4kstUsername.trimmed().isEmpty();
+    ctx.on4kst = !ctx.on4kstConfigured ? LinkState::NotConfigured
+                 : m_appController.on4kstClient().isConnected() ? LinkState::Connected
+                                                                 : LinkState::Disconnected;
+    if (!settings.clusterHost.trimmed().isEmpty()) {
+        ctx.clusterTarget = QStringLiteral("%1:%2").arg(settings.clusterHost.trimmed()).arg(settings.clusterPort);
+        ctx.cluster = m_appController.dxClusterClient().isConnected() ? LinkState::Connected : LinkState::Disconnected;
+    }
+
+    if (LogBackup* backup = m_appController.logBackup()) {
+        ctx.backupDirectory = backup->directory();
+        ctx.backupDirectoryWritable = QFileInfo(ctx.backupDirectory).isWritable();
+        const QVector<LogBackup::Entry> backups = LogBackup::listBackups(ctx.backupDirectory);
+        if (!backups.isEmpty()) {
+            ctx.lastBackupUtc = backups.first().utc;
+        }
+    }
+    {
+        double lat = 0.0;
+        double lon = 0.0;
+        bool known = false;
+        if (ctx.useExactOwnLocation && (ctx.ownExactLatitude != 0.0 || ctx.ownExactLongitude != 0.0)) {
+            lat = ctx.ownExactLatitude;
+            lon = ctx.ownExactLongitude;
+            known = true;
+        } else if (isValidGridSquare(settings.ownGrid)) {
+            calculateLatLonFromGridSquare(settings.ownGrid, lat, lon);
+            known = true;
+        }
+        ctx.terrainLoadedForOwnLocation = known
+            && m_appController.terrainDataManager().tileLoader().isTileLoaded(SrtmTileLoader::tileNameForLatLon(lat, lon));
+    }
+    ctx.importedLocators = m_appController.database().importedLocatorCount();
+
+    m_readinessWindow->setResult(checkReadiness(ctx));
 }
 
 void MainWindow::jumpToQso(int qsoId)

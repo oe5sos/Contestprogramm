@@ -184,6 +184,8 @@ public:
     // Inserts or overwrites callsign's entry (callsign/grid are stored
     // trimmed+uppercased; `name` may be empty).
     void upsertImportedLocator(const QString& callsign, const QString& grid, const QString& name = QString());
+    // How many callsigns the list holds -- the Startcheck's "Locator-Liste" line.
+    int importedLocatorCount() const;
     // Every entry, callsign -> grid (grid may be empty) -- the Check
     // Partial index (core/CheckPartialIndex.h) takes the whole table
     // once per contest switch/logged QSO rather than one lookup per

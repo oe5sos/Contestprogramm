@@ -134,6 +134,7 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/ContestSchedule.cpp
     src/data/LogCheck.h
     src/data/LogCheck.cpp
+    src/data/ReadinessCheck.cpp
     src/data/DupeRescore.h
     src/data/DupeRescore.cpp
     src/data/LogBackup.h
@@ -167,6 +168,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/LayoutProfileManager.cpp
     src/ui/LogCheckWindow.h
     src/ui/LogCheckWindow.cpp
+    src/ui/ReadinessWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/UnifiedLogWidget.h

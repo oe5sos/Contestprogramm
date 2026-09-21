@@ -36,6 +36,7 @@ class PanelLayoutManager;
 class ProfileRail;
 class RateMeterWidget;
 class LogCheckWindow;
+class ReadinessWindow;
 class StatisticsWindow;
 class RotctldClient;
 class RotorWidget;
@@ -103,6 +104,10 @@ private slots:
     // and the jump from one of its rows to the QSO in the log.
     void openLogCheckWindow();
     void refreshLogCheck();
+    // Datei > Startcheck (bereit?)... (data/ReadinessCheck.h): the
+    // window and the snapshot it is refreshed from.
+    void openReadinessWindow();
+    void refreshReadiness();
     void jumpToQso(int qsoId);
     // After a history-row correction: re-derive every dupe flag of the
     // active contest (data/DupeRescore.h), write the ones that changed,
@@ -420,6 +425,11 @@ private:
     MultiplierWindow* m_multiplierWindow = nullptr;
     StatisticsWindow* m_statisticsWindow = nullptr;
     LogCheckWindow* m_logCheckWindow = nullptr;
+    ReadinessWindow* m_readinessWindow = nullptr;
+    // The last failure of a rotctld this program started, per slot --
+    // shown by the Startcheck until the rotor connects.
+    QString m_rotctldError1;
+    QString m_rotctldError2;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;

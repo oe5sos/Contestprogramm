@@ -691,6 +691,15 @@ QHash<QString, QString> ContestDatabase::allImportedLocators() const
     return result;
 }
 
+int ContestDatabase::importedLocatorCount() const
+{
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT COUNT(*) FROM imported_locators")) || !query.next()) {
+        return 0;
+    }
+    return query.value(0).toInt();
+}
+
 std::optional<ContestDatabase::ImportedLocator> ContestDatabase::importedLocatorForCallsign(const QString& callsign) const
 {
     QSqlQuery query(m_db);
