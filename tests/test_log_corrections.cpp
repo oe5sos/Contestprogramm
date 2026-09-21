@@ -1,6 +1,8 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QMenu>
+#include <QPushButton>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -10,6 +12,9 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/MainWindow.h"
+#include "ui/MapWidget.h"
+#include "ui/PanelContainerWidget.h"
+#include "ui/PanelHeaderBar.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -57,6 +62,7 @@ private slots:
     void invalidatingTheFirstQsoFreesTheSecond();
     void singleModeContestStartsInThatMode();
     void loggingOutsideThePeriodLeavesANote();
+    void mapOptionsMenuOpensFromThePanelHeader();
 };
 
 void TestLogCorrections::correctedCallsignRescoresTheDupeFlags()
@@ -155,6 +161,72 @@ void TestLogCorrections::loggingOutsideThePeriodLeavesANote()
     QVERIFY2(window.statusBar()->currentMessage().startsWith(QStringLiteral("Hinweis: QSO außerhalb des Contestzeitraums")),
              qPrintable(window.statusBar()->currentMessage()));
     QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("Mi 01.01. 00:00 – Do 02.01. 00:00 UTC")));
+}
+
+void TestLogCorrections::mapOptionsMenuOpensFromThePanelHeader()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* map = window.findChild<MapWidget*>();
+    QVERIFY(map);
+    // The ⚙ of the map panel's header bar: the PanelHeaderBar of the
+    // container the map widget lives in.
+    QWidget* container = map->parentWidget();
+    while (container && !qobject_cast<PanelContainerWidget*>(container)) {
+        container = container->parentWidget();
+    }
+    auto* panel = qobject_cast<PanelContainerWidget*>(container);
+    QVERIFY(panel);
+    QVERIFY(panel->headerBar());
+    auto* button = panel->headerBar()->findChild<QPushButton*>(QStringLiteral("panelHeaderOptionsButton"));
+    QVERIFY(button);
+    QVERIFY(button->isVisible());
+
+    const auto visibleMenus = [&window] {
+        int n = 0;
+        for (QMenu* menu : window.findChildren<QMenu*>()) {
+            n += menu->isVisible() ? 1 : 0;
+        }
+        return n;
+    };
+    QCOMPARE(visibleMenus(), 0);
+    // Through the window system: delivered like a real click, hit-tested
+    // to the widget under the point.
+    const QPoint inWindow = window.mapFromGlobal(button->mapToGlobal(button->rect().center()));
+    QCOMPARE(window.childAt(inWindow), button);
+    QTest::mouseClick(window.windowHandle(), Qt::LeftButton, Qt::NoModifier, inWindow);
+    QTRY_COMPARE(visibleMenus(), 1);
+    QMenu* shown = nullptr;
+    for (QMenu* menu : window.findChildren<QMenu*>()) {
+        if (menu->isVisible()) {
+            shown = menu;
+        }
+    }
+    QVERIFY(shown);
+    QStringList texts;
+    for (QAction* action : shown->actions()) {
+        texts << action->text();
+    }
+    QVERIFY2(texts.contains(QStringLiteral("Entfernungsringe")), qPrintable(texts.join(QStringLiteral(" | "))));
+    QVERIFY(texts.contains(QStringLiteral("Öffnungswinkel Rotor 1")));
+    QVERIFY(texts.contains(QStringLiteral("Grenzen")));
+    shown->close();
+    QTRY_COMPARE(visibleMenus(), 0);
+
+    // The same in the other view, and a second time (a fresh menu each).
+    map->setView(MapWidget::View::Radar);
+    QTest::mouseClick(window.windowHandle(), Qt::LeftButton, Qt::NoModifier, inWindow);
+    QTRY_COMPARE(visibleMenus(), 1);
+    for (QMenu* menu : window.findChildren<QMenu*>()) {
+        if (menu->isVisible()) {
+            menu->close();
+        }
+    }
+    QTRY_COMPARE(visibleMenus(), 0);
 }
 
 int main(int argc, char* argv[])

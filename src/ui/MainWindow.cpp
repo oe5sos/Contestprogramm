@@ -599,8 +599,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
-        connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
-                [this] { m_mapWidget->optionsMenu()->popup(QCursor::pos()); });
+        connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
+            // A fresh menu per click, parented to the main window and
+            // gone on close -- the same shape as the Log panel's ⚙
+            // popup (see showLogViewOptionsPopup). A QMenu kept alive as
+            // a child of the map widget crashed inside Cocoa's popup
+            // path (stale platform window) once the widget had been
+            // re-parented into its panel container.
+            auto* menu = new QMenu(this);
+            menu->setAttribute(Qt::WA_DeleteOnClose);
+            m_mapWidget->populateOptionsMenu(menu);
+            PanelHeaderBar* header = mapContainer->headerBar();
+            const QSize menuSize = menu->sizeHint();
+            menu->popup(header->mapToGlobal(QPoint(header->width() - menuSize.width() - 6, header->height())));
+        });
     }
     // Clicking a station marker on the map -- same signal shape (and the
     // same consumer, which also commands the rotor when one is

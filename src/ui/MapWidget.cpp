@@ -194,12 +194,14 @@ void MapWidget::buildControls()
     connect(m_mapButton, &QPushButton::clicked, this, [this] { setView(View::MapHorizon); });
     row->addStretch(1);
 
-    // The ⚙ menu (opened from the panel header): every layer as a
-    // checkable entry -- the ten checkboxes of the old panel, off the
-    // face of the instrument.
-    m_optionsMenu = new QMenu(this);
+    // The ⚙ menu's entries. The QActions live here, parented to the
+    // widget; the QMenu itself is built fresh for every click
+    // (populateOptionsMenu) -- a QMenu kept as a child of a widget that
+    // is later re-parented into its panel container crashed inside
+    // Cocoa's popup path on the second start (stale platform window),
+    // the Log panel's per-click menu never did.
     const auto addToggle = [this](const QString& text, const QString& tip, void (MapWidget::*setter)(bool)) {
-        QAction* action = m_optionsMenu->addAction(text);
+        auto* action = new QAction(text, this);
         action->setCheckable(true);
         action->setToolTip(tip);
         connect(action, &QAction::toggled, this, [this, setter](bool on) {
@@ -209,11 +211,6 @@ void MapWidget::buildControls()
         });
         return action;
     };
-    const auto section = [this](const QString& text) {
-        QAction* title = m_optionsMenu->addAction(text);
-        title->setEnabled(false);
-    };
-    section(QStringLiteral("Beide Ansichten"));
     m_ringsAction = addToggle(QStringLiteral("Entfernungsringe"), QStringLiteral("Ringe alle 100 km"), &MapWidget::setRingsLayerVisible);
     m_spokesAction = addToggle(QStringLiteral("Peilung"), QStringLiteral("Gradteilung am Rand, in der Karte auch Speichen"), &MapWidget::setSpokesLayerVisible);
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
@@ -222,7 +219,7 @@ void MapWidget::buildControls()
     // Whether a rotor carries a second antenna: a station setting (the
     // settings dialog has it too), switchable here where the cones are.
     const auto addSecondAntenna = [this](int rotor) {
-        QAction* action = m_optionsMenu->addAction(QStringLiteral("Rotor %1: Zweitantenne").arg(rotor));
+        auto* action = new QAction(QStringLiteral("Rotor %1: Zweitantenne").arg(rotor), this);
         action->setCheckable(true);
         action->setToolTip(QStringLiteral("Zweite Antenne auf Rotor %1 (Versatz aus den Einstellungen) -- zweiter Kegel").arg(rotor));
         connect(action, &QAction::toggled, this, [this, rotor](bool on) {
@@ -237,28 +234,8 @@ void MapWidget::buildControls()
     };
     m_rotor1SecondAction = addSecondAntenna(1);
     m_rotor2SecondAction = addSecondAntenna(2);
-    // Opening angle of each rotor's antennas -- the width of its cone.
-    const auto beamwidthMenu = [this](const QString& title, void (MapWidget::*setter)(double)) {
-        QMenu* menu = m_optionsMenu->addMenu(title);
-        auto* group = new QActionGroup(menu);
-        group->setExclusive(true);
-        for (int deg : kBeamwidthChoices) {
-            QAction* action = menu->addAction(QStringLiteral("%1°").arg(deg));
-            action->setCheckable(true);
-            action->setData(deg);
-            group->addAction(action);
-            connect(action, &QAction::triggered, this, [this, setter, deg] { (this->*setter)(deg); });
-        }
-        return menu;
-    };
-    m_beamwidth1Menu = beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), &MapWidget::setRotor1BeamwidthDeg);
-    m_beamwidth2Menu = beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), &MapWidget::setRotor2BeamwidthDeg);
     m_agingAction = addToggle(QStringLiteral("Alte Kontakte verblassen"), QStringLiteral("Gearbeitete Stationen werden nach 30 min langsam grau"), &MapWidget::setAgingEnabled);
     m_fitAction = addToggle(QStringLiteral("Fläche füllen"), QStringLiteral("Scheibe füllt die Fläche (elliptisch); aus: Kreis"), &MapWidget::setFitToWindowEnabled);
-    m_optionsMenu->addSeparator();
-    // Map ballast stays off the radar by definition -- these four are
-    // the map view's own.
-    section(QStringLiteral("Nur Karte"));
     m_bordersAction = addToggle(QStringLiteral("Grenzen"), QStringLiteral("Staatsgrenzen/Küstenlinien (Natural Earth 1:110m)"), &MapWidget::setBordersLayerVisible);
     m_citiesAction = addToggle(QStringLiteral("Städte"), QStringLiteral("Wichtigste Großstädte ab 150 km (Natural Earth 1:110m)"), &MapWidget::setCitiesLayerVisible);
     m_gridAction = addToggle(QStringLiteral("Locator-Raster"), QStringLiteral("Großfelder als Raster mit Beschriftung"), &MapWidget::setGridLayerVisible);
@@ -317,17 +294,53 @@ void MapWidget::syncControls()
                                           .arg(m_rotor2SecondOffsetDeg >= 0 ? QStringLiteral("+") : QString())
                                           .arg(m_rotor2SecondOffsetDeg, 0, 'f', 0));
     }
-    const auto syncBeamwidth = [](QMenu* menu, double deg) {
-        if (!menu) {
-            return;
-        }
-        for (QAction* action : menu->actions()) {
-            action->setChecked(std::fabs(action->data().toDouble() - deg) < 0.5);
+    m_syncingControls = false;
+}
+
+void MapWidget::populateOptionsMenu(QMenu* menu)
+{
+    if (!menu) {
+        return;
+    }
+    syncControls();
+    const auto section = [menu](const QString& text) {
+        QAction* title = menu->addAction(text);
+        title->setEnabled(false);
+    };
+    section(QStringLiteral("Beide Ansichten"));
+    menu->addAction(m_ringsAction);
+    menu->addAction(m_spokesAction);
+    menu->addAction(m_horizonAction);
+    menu->addAction(m_rotor1Action);
+    menu->addAction(m_rotor2Action);
+    menu->addAction(m_rotor1SecondAction);
+    menu->addAction(m_rotor2SecondAction);
+    // Opening angle of each rotor's antennas -- the width of its cone;
+    // the submenus are the menu's own, built per click.
+    const auto beamwidthMenu = [this, menu](const QString& title, double current, void (MapWidget::*setter)(double)) {
+        QMenu* sub = menu->addMenu(title);
+        auto* group = new QActionGroup(sub);
+        group->setExclusive(true);
+        for (int deg : kBeamwidthChoices) {
+            QAction* action = sub->addAction(QStringLiteral("%1°").arg(deg));
+            action->setCheckable(true);
+            action->setChecked(std::fabs(current - deg) < 0.5);
+            group->addAction(action);
+            connect(action, &QAction::triggered, this, [this, setter, deg] { (this->*setter)(deg); });
         }
     };
-    syncBeamwidth(m_beamwidth1Menu, m_beamwidth1Deg);
-    syncBeamwidth(m_beamwidth2Menu, m_beamwidth2Deg);
-    m_syncingControls = false;
+    beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), m_beamwidth1Deg, &MapWidget::setRotor1BeamwidthDeg);
+    beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), m_beamwidth2Deg, &MapWidget::setRotor2BeamwidthDeg);
+    menu->addAction(m_agingAction);
+    menu->addAction(m_fitAction);
+    menu->addSeparator();
+    // Map ballast stays off the radar by definition -- these four are
+    // the map view's own.
+    section(QStringLiteral("Nur Karte"));
+    menu->addAction(m_bordersAction);
+    menu->addAction(m_citiesAction);
+    menu->addAction(m_gridAction);
+    menu->addAction(m_workedCellsAction);
 }
 
 void MapWidget::notePreferenceChange()

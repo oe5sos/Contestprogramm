@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QAction>
+#include <QMenu>
 #include <QSignalSpy>
 
 #include "core/Maidenhead.h"
@@ -619,6 +620,15 @@ void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
     QCOMPARE(toggled.first().at(1).toBool(), false);
     // Not a map preference: the preferences text does not carry it.
     QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
+    // The menu is the caller's, filled per click; the entry is in it.
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+    QStringList texts;
+    for (QAction* action : menu.actions()) {
+        texts << action->text();
+    }
+    QVERIFY(texts.contains(QStringLiteral("Rotor 2: Zweitantenne (+45°)")));
+    QVERIFY(texts.contains(QStringLiteral("Öffnungswinkel Rotor 2")));
 }
 
 int main(int argc, char* argv[])

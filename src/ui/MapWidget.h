@@ -47,7 +47,8 @@ namespace Contestprogramm {
 // settings table (preferencesText()/applyPreferencesText()).
 //
 // Sits in a PanelContainerWidget in header mode: the container's
-// PanelHeaderBar carries title, lock and the ⚙ that opens optionsMenu()
+// PanelHeaderBar carries title, lock and the ⚙ whose menu
+// populateOptionsMenu() fills
 // -- top right with its own symbol, like every other panel (operator,
 // 2026-09-20: "optionen sollen immer rechts oben mit eigenem symbol
 // erreichbar sein"). Projection is azimuthal equidistant around the own
@@ -143,9 +144,10 @@ public:
     void zoomIn();
     void zoomOut();
 
-    // The layer/beamwidth menu, for the panel header's ⚙ (MainWindow
-    // pops it up on PanelHeaderBar::optionsRequested).
-    QMenu* optionsMenu() const { return m_optionsMenu; }
+    // Fills `menu` (a fresh QMenu the caller owns and pops up -- MainWindow
+    // on PanelHeaderBar::optionsRequested) with the layer toggles, the
+    // second-antenna switches and the beamwidth submenus.
+    void populateOptionsMenu(QMenu* menu);
 
     // "view=radar;grid=1;..." -- what MainWindow persists.
     QString preferencesText() const;
@@ -281,7 +283,6 @@ private:
     QWidget* m_controlsRow = nullptr;
     QPushButton* m_radarButton = nullptr;
     QPushButton* m_mapButton = nullptr;
-    QMenu* m_optionsMenu = nullptr;
     QAction* m_gridAction = nullptr;
     QAction* m_ringsAction = nullptr;
     QAction* m_spokesAction = nullptr;
@@ -295,8 +296,6 @@ private:
     QAction* m_horizonAction = nullptr;
     QAction* m_rotor1SecondAction = nullptr;
     QAction* m_rotor2SecondAction = nullptr;
-    QMenu* m_beamwidth1Menu = nullptr;
-    QMenu* m_beamwidth2Menu = nullptr;
     QPushButton* m_zoomOutButton = nullptr;
     QPushButton* m_zoomInButton = nullptr;
     QLabel* m_zoomRangeLabel = nullptr;
