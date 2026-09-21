@@ -144,7 +144,10 @@ void TestOnlineScoreboard::postsWithBasicAuthAndReportsSuccess()
 
     QVERIFY2(server.request.startsWith("POST /post/ HTTP/1.1"), server.request.constData());
     // "oe5sos:geheim" in Base64.
-    QVERIFY2(server.request.contains("Authorization: Basic b2U1c29zOmdlaGVpbQ=="), server.request.constData());
+    // Header names are case-insensitive on the wire and Qt 6.8 sends
+    // them lower-case (CI), Qt 6.11 capitalised (the bench) -- compare
+    // the way HTTP does. Found 2026-09-21 by the first CI run.
+    QVERIFY2(server.request.toLower().contains("authorization: basic b2u1c29zomdlagvpbq=="), server.request.constData());
     QVERIFY2(server.request.toLower().contains("content-type: text/xml"), server.request.constData());
     QVERIFY2(server.body.contains("<score>188</score>"), server.body.constData());
 }
