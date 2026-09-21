@@ -43,6 +43,7 @@
 #include "ui/LayoutProfileManager.h"
 #include "ui/LogCheckWindow.h"
 #include "ui/ReadinessWindow.h"
+#include "ui/ShortcutsWindow.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
 #include "ui/PanelContainerWidget.h"
@@ -1239,6 +1240,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         m_panelLayoutManager->resetToDefaultLayout();
         syncPanelMenuChecks();
     });
+
+    // Hilfe: the keys and gestures, for the operator at three in the
+    // morning.
+    auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Hilfe"));
+    QAction* shortcutsAction = helpMenu->addAction(QStringLiteral("&Tastenkürzel..."));
+    connect(shortcutsAction, &QAction::triggered, this, &MainWindow::openShortcutsWindow);
 
     applyActiveContestDefinition();
     applyRotorWidgetSettings();
@@ -3443,6 +3450,17 @@ void MainWindow::openReadinessWindow()
     m_readinessWindow->show();
     m_readinessWindow->raise();
     m_readinessWindow->activateWindow();
+}
+
+void MainWindow::openShortcutsWindow()
+{
+    if (!m_shortcutsWindow) {
+        m_shortcutsWindow = new ShortcutsWindow(this);
+        m_shortcutsWindow->setWindowFlag(Qt::Window, true);
+    }
+    m_shortcutsWindow->show();
+    m_shortcutsWindow->raise();
+    m_shortcutsWindow->activateWindow();
 }
 
 void MainWindow::refreshReadiness()

@@ -37,6 +37,7 @@ class ProfileRail;
 class RateMeterWidget;
 class LogCheckWindow;
 class ReadinessWindow;
+class ShortcutsWindow;
 class ClockCheck;
 class StatisticsWindow;
 class RotctldClient;
@@ -109,6 +110,8 @@ private slots:
     // window and the snapshot it is refreshed from.
     void openReadinessWindow();
     void refreshReadiness();
+    // Hilfe > Tastenkürzel... (ui/ShortcutsWindow.h)
+    void openShortcutsWindow();
     void jumpToQso(int qsoId);
     // After a history-row correction: re-derive every dupe flag of the
     // active contest (data/DupeRescore.h), write the ones that changed,
@@ -432,6 +435,7 @@ private:
     StatisticsWindow* m_statisticsWindow = nullptr;
     LogCheckWindow* m_logCheckWindow = nullptr;
     ReadinessWindow* m_readinessWindow = nullptr;
+    ShortcutsWindow* m_shortcutsWindow = nullptr;
     ClockCheck* m_clockCheck = nullptr; // the Startcheck's clock round, created with the window
     // The last failure of a rotctld this program started, per slot --
     // shown by the Startcheck until the rotor connects.

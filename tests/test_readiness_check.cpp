@@ -13,6 +13,7 @@
 #include "data/ReadinessCheck.h"
 #include "ui/MainWindow.h"
 #include "ui/ReadinessWindow.h"
+#include "ui/ShortcutsWindow.h"
 
 #include <memory>
 
@@ -90,6 +91,7 @@ private slots:
     void spansReadNaturally();
     void windowShowsTheLiveSnapshot();
     void secondBackupFolderIsWiredThrough();
+    void shortcutsWindowListsTheKeys();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -356,6 +358,37 @@ void TestReadinessCheck::secondBackupFolderIsWiredThrough()
     QMetaObject::invokeMethod(&window, "clearBackupMirror");
     QVERIFY(controller->logBackup()->mirrorDirectory().isEmpty());
     QVERIFY(controller->database().settingValue(QStringLiteral("backup_mirror_dir")).isEmpty());
+}
+
+void TestReadinessCheck::shortcutsWindowListsTheKeys()
+{
+    // Hilfe > Tastenkürzel: every key the program binds is in the list,
+    // and the window opens from MainWindow.
+    QStringList keys;
+    for (const ShortcutsWindow::Entry& entry : ShortcutsWindow::entries()) {
+        keys << entry.keys;
+    }
+    for (const char* bound : {"Enter", "Leertaste", "Tab", "Alt+W", "F1 … F6", "Esc", "Bild ↑ / Bild ↓"}) {
+        QVERIFY2(keys.contains(QString::fromUtf8(bound)), bound);
+    }
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("keys.sqlite"))));
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+    MainWindow window(*controller);
+    QMetaObject::invokeMethod(&window, "openShortcutsWindow");
+    auto* shortcuts = window.findChild<ShortcutsWindow*>();
+    QVERIFY(shortcuts);
+    QCOMPARE(shortcuts->rowCount(), ShortcutsWindow::entries().size());
+    QCOMPARE(shortcuts->rowText(0, 0), QStringLiteral("Enter"));
 }
 
 int main(int argc, char* argv[])

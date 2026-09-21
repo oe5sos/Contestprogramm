@@ -170,6 +170,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/LogCheckWindow.h
     src/ui/LogCheckWindow.cpp
     src/ui/ReadinessWindow.cpp
+    src/ui/ShortcutsWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/UnifiedLogWidget.h
