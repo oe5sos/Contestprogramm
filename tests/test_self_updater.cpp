@@ -7,6 +7,9 @@
 #include <QTemporaryFile>
 
 #include "app/SelfUpdater.h"
+#include "ui/UpdateDialog.h"
+#include <QLabel>
+#include <QPushButton>
 
 using namespace Contestprogramm;
 
@@ -88,6 +91,9 @@ private slots:
     void checkAndDownloadAgainstALocalServer();
     void aWrongChecksumDiscardsTheDownload();
     void anOlderOrEqualReleaseIsUpToDate();
+    void dialogReportsAnUpToDateCopy();
+    void dialogOffersANewerRelease();
+    void installSwapsABundleFromARealDmg();
 };
 
 void TestSelfUpdater::parseLatestPicksTheAssetForThisMachineAndItsChecksum()
@@ -326,5 +332,86 @@ void TestSelfUpdater::anOlderOrEqualReleaseIsUpToDate()
     qunsetenv("CONTESTPROGRAMM_UPDATE_FEED");
 }
 
-QTEST_GUILESS_MAIN(TestSelfUpdater)
+// The window itself: it starts looking as soon as it is shown and
+// puts the answer into its status label.
+void TestSelfUpdater::dialogReportsAnUpToDateCopy()
+{
+    FakeReleaseServer server;
+    server.put(QStringLiteral("/latest"), releaseJson(QStringLiteral("v0.0.1"), {QStringLiteral("Contestprogramm-0.0.1-macOS-intel.dmg")}));
+    qputenv("CONTESTPROGRAMM_UPDATE_FEED", server.url(QStringLiteral("/latest")).toUtf8());
+    UpdateDialog dialog;
+    dialog.show();
+    auto* status = dialog.findChild<QLabel*>(QStringLiteral("updateStatus"));
+    QVERIFY(status);
+    QTRY_VERIFY(status->text().contains(QStringLiteral("ist aktuell")));
+    QVERIFY(!dialog.findChild<QPushButton*>(QStringLiteral("updatePrimary"))->isVisible());
+    qunsetenv("CONTESTPROGRAMM_UPDATE_FEED");
+}
+
+void TestSelfUpdater::dialogOffersANewerRelease()
+{
+    FakeReleaseServer server;
+    const QString suffix = UpdateTarget::detect().assetSuffix;
+    server.put(QStringLiteral("/latest"),
+               releaseJson(QStringLiteral("v99.0.0"),
+                           {QStringLiteral("Contestprogramm-99.0.0") + (suffix.isEmpty() ? QStringLiteral("-macOS-intel.dmg") : suffix)}));
+    qputenv("CONTESTPROGRAMM_UPDATE_FEED", server.url(QStringLiteral("/latest")).toUtf8());
+    UpdateDialog dialog;
+    dialog.show();
+    auto* status = dialog.findChild<QLabel*>(QStringLiteral("updateStatus"));
+    QVERIFY(status);
+    QTRY_VERIFY(status->text().contains(QStringLiteral("99.0.0")));
+    // A copy that can replace itself gets the button; a development
+    // build (this test binary on macOS/Linux) gets the reason instead.
+    auto* primary = dialog.findChild<QPushButton*>(QStringLiteral("updatePrimary"));
+    QVERIFY(primary);
+    QCOMPARE(primary->isVisible(), UpdateTarget::detect().usable());
+    if (!UpdateTarget::detect().usable()) {
+        QVERIFY(status->text().contains(UpdateTarget::detect().reason.toHtmlEscaped()) || status->text().contains(UpdateTarget::detect().reason));
+    }
+    qunsetenv("CONTESTPROGRAMM_UPDATE_FEED");
+}
+
+// The macOS swap against a real disk image -- hdiutil, ditto, the two
+// renames -- needs a DMG and a bundle it may replace, so it runs only
+// when CONTESTPROGRAMM_UPDATER_LIVE="<dmg>:<bundle>" names them (a scratch copy of the
+// build, never the real installation).
+void TestSelfUpdater::installSwapsABundleFromARealDmg()
+{
+#if !defined(Q_OS_MACOS)
+    QSKIP("macOS only");
+#else
+    const QStringList spec = qEnvironmentVariable("CONTESTPROGRAMM_UPDATER_LIVE").split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    if (spec.size() != 2) {
+        QSKIP("set CONTESTPROGRAMM_UPDATER_LIVE=<dmg>:<bundle> to run the live swap");
+    }
+    const QString dmg = spec.at(0);
+    const QString bundle = spec.at(1);
+    QVERIFY(QFileInfo::exists(dmg));
+    QVERIFY(QFileInfo(bundle).isDir() && bundle.endsWith(QStringLiteral(".app")));
+    const QString marker = bundle + QStringLiteral("/Contents/Resources/live-swap-marker.txt");
+    QFile markerFile(marker);
+    QVERIFY(markerFile.open(QIODevice::WriteOnly));
+    markerFile.write("old");
+    markerFile.close();
+
+    SelfUpdater updater;
+    UpdateTarget target;
+    target.kind = UpdateTarget::Kind::MacBundle;
+    target.installPath = bundle;
+    updater.setTarget(target);
+    QString error;
+    QVERIFY2(updater.install(dmg, &error), qPrintable(error));
+    // The bundle at the same path is now the one from the image: the
+    // marker written into the old copy is gone, nothing is left behind.
+    QVERIFY(QFileInfo(bundle).isDir());
+    QVERIFY(!QFileInfo::exists(marker));
+    QVERIFY(QFileInfo::exists(bundle + QStringLiteral("/Contents/Info.plist")));
+    const QDir parent = QFileInfo(bundle).dir();
+    QVERIFY(parent.entryList({QStringLiteral(".*.app.*")}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+    QVERIFY(!QFileInfo::exists(dmg)); // consumed
+#endif
+}
+
+QTEST_MAIN(TestSelfUpdater)
 #include "test_self_updater.moc"

@@ -500,7 +500,9 @@ bool SelfUpdater::installWindows(const QString& packagePath, QString* error)
     lines << QStringLiteral("chcp 1252 >nul");
     lines << QStringLiteral(":warten");
     lines << QStringLiteral("tasklist /FI \"PID eq %1\" 2>nul | find \"%1\" >nul").arg(stamp);
-    lines << QStringLiteral("if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto warten)");
+    // ping as the one-second sleep: "timeout" refuses to run without a
+    // console of its own.
+    lines << QStringLiteral("if not errorlevel 1 (ping -n 2 127.0.0.1 >nul & goto warten)");
     if (m_target.kind == UpdateTarget::Kind::WindowsInstalled) {
         lines << QStringLiteral("start \"\" /wait \"%1\" /S").arg(QDir::toNativeSeparators(packagePath));
         lines << QStringLiteral("del \"%1\"").arg(QDir::toNativeSeparators(packagePath));

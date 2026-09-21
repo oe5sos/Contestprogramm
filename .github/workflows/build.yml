@@ -140,6 +140,11 @@ jobs:
           # von einem gescheiterten Prüfstand nur den Exit-Code
           # (qplaintestlogger.cpp: stream == stdout && !shouldLogToStderr()).
           QT_FORCE_STDERR_LOGGING: 1
+          # Die Offscreen-Plattform nimmt unter Windows die FreeType-
+          # Schriftdatenbank, und die kennt nur Schriften aus diesem Ordner
+          # (Qt liefert keine mit) -- ohne ihn zeichnet Qt Kästchen in
+          # Schriftgröße, und jede Breitenmessung (Rotor-Anzeige) lügt.
+          QT_QPA_FONTDIR: C:\Windows\Fonts
         run: ctest --test-dir build --output-on-failure --timeout 300
       - name: Portables ZIP
         shell: pwsh
@@ -203,6 +208,13 @@ jobs:
           TAG: ${{ needs.meta.outputs.ref }}
         run: |
           set -euo pipefail
+          # Jedes Paket bekommt seine .sha256 daneben (das macOS-Skript
+          # bringt seine mit) -- Hilfe › Auf neueste Version aktualisieren
+          # prüft dagegen, bevor es einsetzt.
+          for f in pakete/*; do
+            [[ "$f" == *.sha256 ]] && continue
+            [[ -f "$f.sha256" ]] || (cd pakete && sha256sum "$(basename "$f")" > "$(basename "$f").sha256")
+          done
           ls -la pakete
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Contestprogramm ${TAG#v}" --notes "Pakete aus der CI."

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Contestprogramm VERSION 0.1.0 LANGUAGES CXX)
+project(Contestprogramm VERSION 0.1.1 LANGUAGES CXX)
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
 if(APPLE)
