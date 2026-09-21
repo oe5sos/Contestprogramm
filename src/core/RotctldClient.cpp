@@ -95,6 +95,18 @@ RotctldClient::RotctldClient(QObject* parent) : QObject(parent)
     connect(&m_socket, &QTcpSocket::errorOccurred, this,
             [this](QAbstractSocket::SocketError) {
         fail(m_socket.errorString());
+        // A refused or timed-out connect never produces disconnected()
+        // -- the socket drops straight back to Unconnected -- so the
+        // retry has to be armed here too, or a rotctld that is not up yet
+        // when this client first dials leaves it in Connecting for good
+        // (observed 2026-09-21: the client never found a server that
+        // appeared seconds later).
+        if (m_socket.state() == QAbstractSocket::UnconnectedState) {
+            m_poll->stop();
+            m_deadline->stop();
+            setState(State::Disconnected);
+            if (!m_host.isEmpty()) { m_retry->start(); }
+        }
     });
 }
 
