@@ -320,8 +320,8 @@ void TestSelfUpdater::anOlderOrEqualReleaseIsUpToDate()
     SelfUpdater updater;
     updater.setCurrentVersion(QVersionNumber(0, 1, 0));
     UpdateTarget target;
-    target.kind = UpdateTarget::Kind::MacBundle;
-    target.assetSuffix = QStringLiteral("-macOS-intel.dmg");
+    target.kind = UpdateTarget::Kind::LinuxAppImage;
+    target.assetSuffix = QStringLiteral("-x86_64.AppImage"); // not in that release -- irrelevant when nothing is newer
     updater.setTarget(target);
     QSignalSpy upToDate(&updater, &SelfUpdater::upToDate);
     QSignalSpy available(&updater, &SelfUpdater::updateAvailable);
@@ -337,6 +337,8 @@ void TestSelfUpdater::anOlderOrEqualReleaseIsUpToDate()
 void TestSelfUpdater::dialogReportsAnUpToDateCopy()
 {
     FakeReleaseServer server;
+    // Deliberately a package for another machine: an older release is
+    // "up to date" whatever it ships.
     server.put(QStringLiteral("/latest"), releaseJson(QStringLiteral("v0.0.1"), {QStringLiteral("Contestprogramm-0.0.1-macOS-intel.dmg")}));
     qputenv("CONTESTPROGRAMM_UPDATE_FEED", server.url(QStringLiteral("/latest")).toUtf8());
     UpdateDialog dialog;

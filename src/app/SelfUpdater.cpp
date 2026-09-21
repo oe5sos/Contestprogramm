@@ -169,18 +169,28 @@ void SelfUpdater::check()
             emit failed(QStringLiteral("GitHub ist nicht erreichbar: %1").arg(reply->errorString()));
             return;
         }
+        // The version first, without asking for a package: an older or
+        // equal release is "up to date" even when it has nothing for
+        // this machine (Windows CI, 2026-09-21: the feed offered only a
+        // DMG and the dialog reported a failure instead).
+        const QByteArray json = reply->readAll();
         QString error;
-        const auto info = parseLatest(reply->readAll(), m_target.assetSuffix, &error);
+        const auto latest = parseLatest(json, QString(), &error);
+        if (!latest) {
+            emit failed(error);
+            return;
+        }
+        if (!isNewer(latest->version, m_currentVersion)) {
+            emit upToDate(m_currentVersion);
+            return;
+        }
+        const auto info = parseLatest(json, m_target.assetSuffix, &error);
         if (!info) {
             emit failed(error);
             return;
         }
-        if (isNewer(info->version, m_currentVersion)) {
-            m_pending = *info;
-            emit updateAvailable(*info);
-        } else {
-            emit upToDate(m_currentVersion);
-        }
+        m_pending = *info;
+        emit updateAvailable(*info);
     });
 }
 
