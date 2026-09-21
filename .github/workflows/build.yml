@@ -33,19 +33,25 @@ jobs:
       - id: meta
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           TAG="${{ github.event.inputs.tag }}"
           if [[ -z "$TAG" && "${GITHUB_REF}" == refs/tags/v* ]]; then TAG="${GITHUB_REF#refs/tags/}"; fi
           if [[ -n "$TAG" ]]; then
-            git fetch --tags --quiet
-            git checkout --quiet "$TAG"
+            # Ein Tag-Push steht schon auf dem Tag; für workflow_dispatch den
+            # genannten Tag holen. Die Versionszeile kommt aus dem Tag-Objekt,
+            # nicht aus dem Arbeitsbaum. (Der erste v0.1.1-Lauf am 21.09. brach
+            # hier wortlos ab -- git fetch --tags/checkout --quiet unter set -e.)
+            git fetch --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
+            CMAKE=$(git show "refs/tags/$TAG:CMakeLists.txt")
             echo "ref=$TAG" >> "$GITHUB_OUTPUT"
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
+            CMAKE=$(cat CMakeLists.txt)
             echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
-          VERSION=$(grep -oE 'project\(Contestprogramm VERSION [0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | awk '{print $3}')
+          VERSION=$(grep -oE 'project\(Contestprogramm VERSION [0-9]+\.[0-9]+\.[0-9]+' <<<"$CMAKE" | awk '{print $3}' || true)
+          if [[ -z "$VERSION" ]]; then echo "::error::keine Versionszeile in CMakeLists.txt"; exit 1; fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [[ -n "$TAG" && "v$VERSION" != "$TAG" ]]; then
             echo "::error::CMakeLists.txt sagt $VERSION, der Tag $TAG"; exit 1
