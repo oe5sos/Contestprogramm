@@ -116,6 +116,33 @@ wählt die Anordnung nach der Fensterfläche: die große für Flächen ab
 Nächstes Ziel und Rate darunter, Log über die Breite, Bandmap daneben;
 Check und Skeds ausgeblendet), auf größeren Flächen gestreckt.
 
+## Ablauf am Contest-Wochenende
+
+Vorher, zu Hause:
+
+1. *Datei › Einstellungen*: Rufzeichen, **Locator des Contest-Standorts**
+   (nicht der Heim-Locator — der Startcheck warnt, wenn der exakte
+   Standort in einem anderen Feld liegt), Höhe, Antennenhöhe, aktiver
+   Contest (`IARU_R1_UHF` für den UHF/Mikrowellen-Contest im Oktober).
+2. Rotoren: Gerät/Modell/Baud je Slot, dann startet das Programm `rotctld`
+   selbst; oder `rotctld` von Hand. Band-Zuordnung (welcher Rotor für
+   welches Band).
+3. *Datei › Transverter…*, falls ein Band über einen Transverter läuft;
+   der Schalter oben bleibt aus, bis er wirklich dranhängt.
+4. *Datei › Log abschließen und archivieren*, damit die Nummern bei 001
+   beginnen; *Datei › Locator aus alten Logs übernehmen* für die
+   Locator-Vorschläge.
+5. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.
+6. Einmal mit Internet starten, damit die Geländedaten um den Standort
+   im Cache liegen (Startcheck: „Geländedaten“).
+
+Am Standort, vor dem ersten CQ: *Datei › Startcheck (bereit?)…* — alles
+grün oder bewusst gelb (CAT, Rotoren, ON4KST, Uhrzeit, Sicherung).
+
+Danach: *Datei › Log prüfen…*, dann *Datei › EDI exportieren…* (eine Datei
+je Band); der ÖVSV-Roboter nimmt die Logs etwa vier Tage nach Contestende
+an.
+
 ## Abgleich mit N1MM Logger+ und DXLog.net
 
 Beide sind Closed Source; übernommen wurden Verhalten und Dateiformate
