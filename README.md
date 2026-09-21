@@ -107,7 +107,11 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 
 Neue Panele (Check, Bandmap, Skeds) sind in bereits gespeicherten Layout-Profilen
 zunächst ausgeblendet – *Fenster › Panels* schaltet sie ein; die Position
-bleibt dann im Profil.
+bleibt dann im Profil. Ein frischer Start (und *Fenster › Fenster zurücksetzen*)
+wählt die Anordnung nach der Fensterfläche: die große für Flächen ab
+1440×982, sonst die kompakte für ein 13"-Notebook (Rotoren und Karte oben,
+Nächstes Ziel und Rate darunter, Log über die Breite, Bandmap daneben;
+Check und Skeds ausgeblendet), auf größeren Flächen gestreckt.
 
 ## Abgleich mit N1MM Logger+ und DXLog.net
 

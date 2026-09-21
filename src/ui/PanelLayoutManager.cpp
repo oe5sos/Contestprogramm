@@ -62,6 +62,17 @@ int PanelLayoutManager::designWidth() const
     return canvasFitsLargeDesign(m_canvas->size()) ? kLargeDesignCanvas.width() : kCompactDesignCanvas.width();
 }
 
+QRect PanelLayoutManager::scaledCompactRect(const QRect& rect, const QSize& canvasSize)
+{
+    // The compact design is drawn for kCompactDesignCanvas; a canvas
+    // that is bigger (but still too small for the large design -- a
+    // 1080p monitor) gets it stretched to fill, positions and sizes
+    // alike, never shrunk (a smaller canvas is the clamp's business).
+    const double fx = std::max(1.0, canvasSize.width() / double(kCompactDesignCanvas.width()));
+    const double fy = std::max(1.0, canvasSize.height() / double(kCompactDesignCanvas.height()));
+    return QRect(qRound(rect.x() * fx), qRound(rect.y() * fy), qRound(rect.width() * fx), qRound(rect.height() * fy));
+}
+
 void PanelLayoutManager::applyDesignDefaults()
 {
     const bool large = canvasFitsLargeDesign(m_canvas->size());
@@ -74,7 +85,7 @@ void PanelLayoutManager::applyDesignDefaults()
         if (large || it.value().compactGeometry.isNull()) {
             container->trySetGeometry(it.value().defaultGeometry);
         } else {
-            container->trySetGeometry(it.value().compactGeometry);
+            container->trySetGeometry(scaledCompactRect(it.value().compactGeometry, m_canvas->size()));
         }
         if (!large && it.value().compactGeometry.isNull() && it.key() != QStringLiteral("cwMacroRow")) {
             // No place in the compact design: Fenster > Panels brings it

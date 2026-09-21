@@ -72,6 +72,9 @@ public:
     static constexpr QSize kLargeDesignCanvas{1440, 982};
     static constexpr QSize kCompactDesignCanvas{1372, 692};
     static bool canvasFitsLargeDesign(const QSize& canvasSize);
+    // A compact-design rect for a canvas larger than kCompactDesignCanvas
+    // (stretched to fill, never shrunk).
+    static QRect scaledCompactRect(const QRect& rect, const QSize& canvasSize);
     // The width the design in force is laid out for -- the large one's
     // when the canvas holds it, else the compact one's.
     int designWidth() const;

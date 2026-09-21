@@ -456,6 +456,15 @@ void TestPanelLayoutManager::compactDesignFitsASmallCanvas()
     QVERIFY(!rotors->isLocked());
     QVERIFY(skeds->isHidden()); // no place in the compact design
 
+    // A canvas between the two designs (a 1080p monitor): the compact
+    // design stretched to fill it.
+    QCOMPARE(PanelLayoutManager::scaledCompactRect(QRect(0, 0, 620, 250), QSize(1372, 692)), QRect(0, 0, 620, 250));
+    QCOMPARE(PanelLayoutManager::scaledCompactRect(QRect(630, 0, 742, 442), QSize(2744, 1384)), QRect(1260, 0, 1484, 884));
+    QCOMPARE(PanelLayoutManager::scaledCompactRect(QRect(0, 258, 310, 184), QSize(1000, 500)), QRect(0, 258, 310, 184)); // never shrunk
+    manager.canvas()->resize(1852, 900);
+    manager.resetToDefaultLayout();
+    QCOMPARE(rotors->geometry(), QRect(0, 0, qRound(620 * 1852 / 1372.0), qRound(250 * 900 / 692.0)));
+
     // A big canvas: the large design, and the panel is not hidden by it.
     manager.canvas()->resize(1600, 1100);
     QCOMPARE(manager.designWidth(), PanelLayoutManager::kLargeDesignCanvas.width());
@@ -487,7 +496,7 @@ void TestPanelLayoutManager::freshInstallPlacesPanelsByTheFittingDesignOnce()
     // Declared fresh: the first real canvas size places the compact
     // design, once; a later resize does not redo it.
     manager.setFreshInstall(true);
-    resizeCanvas(manager, QSize(1372, 700));
+    resizeCanvas(manager, QSize(1372, 692));
     QCOMPARE(applied.count(), 1);
     QCOMPARE(rotors->geometry(), QRect(0, 0, 620, 250));
     rotors->trySetGeometry(QRect(40, 40, 620, 250));
