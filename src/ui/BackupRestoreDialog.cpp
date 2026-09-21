@@ -30,7 +30,7 @@ BackupRestoreDialog::BackupRestoreDialog(const QVector<LogBackup::Entry>& backup
     setWindowTitle(QStringLiteral("Sicherung wiederherstellen"));
     setModal(true);
 
-    auto* intro = new QLabel(QStringLiteral("Alle fünf Minuten wird eine Kopie des Logs geschrieben. Eine Wiederherstellung "
+    auto* intro = new QLabel(QStringLiteral("Jede Minute, in der ein QSO dazukam, wird eine Kopie des Logs geschrieben. Eine Wiederherstellung "
                                             "setzt das Log auf diesen Stand zurück; der jetzige Stand wird vorher selbst "
                                             "gesichert. Das Programm startet danach neu."),
                              this);

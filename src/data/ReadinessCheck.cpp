@@ -299,7 +299,7 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             QStringLiteral("backup"));
     } else if (!ctx.lastBackupUtc.isValid()) {
         add(Level::Hint, kGroupData, QStringLiteral("Sicherung"),
-            QStringLiteral("Noch keine Sicherung geschrieben (kommt alle 5 min nach %1).").arg(ctx.backupDirectory),
+            QStringLiteral("Noch keine Sicherung geschrieben (kommt jede Minute nach %1, sobald ein QSO im Log ist).").arg(ctx.backupDirectory),
             QStringLiteral("backup"));
     } else {
         add(Level::Ok, kGroupData, QStringLiteral("Sicherung"),

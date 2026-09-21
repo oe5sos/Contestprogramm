@@ -32,10 +32,11 @@ Alles liegt in einer SQLite-Datei im Anwendungsdatenordner
 (macOS: `~/Library/Application Support/Contestprogramm/Contestprogramm/contestprogramm.sqlite`):
 Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 
-- **Sicherung:** alle fünf Minuten eine konsistente Kopie nach
+- **Sicherung:** jede Minute eine konsistente Kopie nach
   `…/backups/contestprogramm-YYYYMMDD-HHMM.sqlite` (nur wenn seit der
-  letzten Kopie ein QSO geschrieben wurde; die ältesten fliegen ab 300
-  Dateien). Manuell: *Datei › Log jetzt sichern*. Zurück auf einen Stand:
+  letzten Kopie ein QSO geschrieben wurde). Die letzten zwei Stunden
+  bleiben minutenweise, ältere Kopien eine je zehn Minuten, höchstens
+  400 Dateien. Manuell: *Datei › Log jetzt sichern*. Zurück auf einen Stand:
   *Datei › Sicherung wiederherstellen…* (der jetzige Stand wird vorher
   gesichert, das Programm startet neu). *Datei › Zweiter Sicherungsordner…*
   kopiert jede Sicherung zusätzlich auf einen USB-Stick oder in einen
@@ -105,6 +106,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Transverter | ZF-Band des Funkgeräts → Band auf der Antenne mit Offset (aus den Bändern vorgeschlagen: 1296 − 144 = 1152 MHz, überschreibbar); der Schalter in der Kopfzeile sagt, ob er dran ist. Band im Log, Rotor-Zuordnung, Bandmap und QSY rechnen dann mit der Antennenfrequenz; ein Band außerhalb des Contests (Funkgerät auf KW geparkt) verstellt das Log-Band nicht mehr | *Datei › Transverter…*, Schalter „Transverter" oben |
 | Tastenkürzel | Alle Tasten und Griffe auf einer Seite (Eingabezeile, CW, Korrekturen, Klicks auf Station/Spot/Radar, Rotor-Ziel, Panels) | *Hilfe › Tastenkürzel…* |
 | Über | Version, Commit und Baudatum (bei jedem Bauen erzeugt), Qt, Datenbank- und Sicherungspfade, „Datenordner zeigen" | *Hilfe › Über Contestprogramm…* |
+| Contest wählen | Liste der Definitionen; der eigene Locator wird jedes Mal mit abgefragt (vorbelegt, OK nur mit gültigem Locator, „Exakter Standort: JN67UT übernehmen" wenn die Einstellungen woanders liegen) | *Datei › Contest wählen…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 
@@ -120,10 +122,12 @@ Check und Skeds ausgeblendet), auf größeren Flächen gestreckt.
 
 Vorher, zu Hause:
 
-1. *Datei › Einstellungen*: Rufzeichen, **Locator des Contest-Standorts**
-   (nicht der Heim-Locator — der Startcheck warnt, wenn der exakte
-   Standort in einem anderen Feld liegt), Höhe, Antennenhöhe, aktiver
-   Contest (`IARU_R1_UHF` für den UHF/Mikrowellen-Contest im Oktober).
+1. *Datei › Contest wählen…*: den Contest (`IARU_R1_UHF` für den
+   UHF/Mikrowellen-Contest im Oktober) — und den **Locator des
+   Contest-Standorts**, der dort jedes Mal abgefragt wird (nicht der
+   Heim-Locator; liegt der exakte Standort aus den Einstellungen in einem
+   anderen Feld, bietet ein Knopf ihn an). Höhe und Antennenhöhe unter
+   *Datei › Einstellungen*.
 2. Rotoren: Gerät/Modell/Baud je Slot, dann startet das Programm `rotctld`
    selbst; oder `rotctld` von Hand. Band-Zuordnung (welcher Rotor für
    welches Band).

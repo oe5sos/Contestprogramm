@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 #include <QTimeZone>
 #include <QTimer>
 
@@ -131,11 +132,34 @@ void LogBackup::prune()
 
 void LogBackup::pruneDirectory(const QString& directory)
 {
+    // A copy a minute would be 1440 files a day: keep every one of the
+    // last two hours (a mistake noticed soon is undone to the minute),
+    // then the newest per ten minutes, and never more than kKeepFiles.
     QDir dir(directory);
-    // Name order is time order (yyyyMMdd-HHmm), oldest first.
-    const QStringList files = dir.entryList({kPrefix + QLatin1Char('*') + kSuffix}, QDir::Files, QDir::Name);
-    for (int i = 0; i < files.size() - kKeepFiles; ++i) {
-        dir.remove(files.at(i));
+    const QVector<Entry> entries = listBackups(directory); // newest first
+    if (entries.isEmpty()) {
+        return;
+    }
+    const QDateTime newest = entries.first().utc;
+    QSet<qint64> bucketsKept;
+    int kept = 0;
+    for (const Entry& entry : entries) {
+        const qint64 age = entry.utc.secsTo(newest);
+        bool keep = false;
+        if (age <= kKeepEveryCopySecs) {
+            keep = true;
+        } else {
+            const qint64 bucket = entry.utc.toSecsSinceEpoch() / kThinnedBucketSecs;
+            if (!bucketsKept.contains(bucket)) {
+                bucketsKept.insert(bucket);
+                keep = true;
+            }
+        }
+        if (keep && kept < kKeepFiles) {
+            ++kept;
+            continue;
+        }
+        dir.remove(entry.path);
     }
 }
 

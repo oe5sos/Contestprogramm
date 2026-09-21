@@ -12,10 +12,13 @@ namespace Contestprogramm {
 class ContestDatabase;
 
 // Periodic copies of the contest database, the way N1MM+ and DXLog.net
-// keep a backup folder beside the log: every few minutes, only when a
-// QSO was written since the last copy (ContestDatabase::
-// qsoWriteCounter()), one timestamped file in `directory`, the oldest
-// pruned once there are more than kKeepFiles. Written with SQLite's
+// keep a backup folder beside the log: every minute (operator,
+// 2026-09-21: "speichern sollte jede minute automatisch gehen"), only
+// when a QSO was written since the last copy (ContestDatabase::
+// qsoWriteCounter()), one timestamped file in `directory`. Thinned
+// with age (see pruneDirectory()): every copy of the last two hours
+// stays, older ones one per ten minutes, and never more than
+// kKeepFiles. Written with SQLite's
 // VACUUM INTO (see ContestDatabase::backupTo()), so a copy is complete
 // and consistent even mid-WAL -- the one thing a plain file copy of
 // the .sqlite cannot promise during a contest.
@@ -28,8 +31,10 @@ class LogBackup : public QObject {
     Q_OBJECT
 
 public:
-    static constexpr int kDefaultIntervalMs = 5 * 60 * 1000;
-    static constexpr int kKeepFiles = 300; // 25 h of five-minute copies
+    static constexpr int kDefaultIntervalMs = 60 * 1000;
+    static constexpr int kKeepFiles = 400; // two hours by the minute plus ~40 h by ten minutes
+    static constexpr int kKeepEveryCopySecs = 2 * 3600;
+    static constexpr int kThinnedBucketSecs = 10 * 60;
 
     LogBackup(ContestDatabase& database, const QString& directory, QObject* parent = nullptr);
 
@@ -60,6 +65,9 @@ public:
         qint64 bytes = 0;
     };
     static QVector<Entry> listBackups(const QString& directory);
+    // Thins `directory` with age and caps it at kKeepFiles -- the rule
+    // both folders (and the tests) share.
+    static void pruneDirectory(const QString& directory);
 
 signals:
     void backupWritten(const QString& path);
@@ -68,7 +76,6 @@ signals:
 
 private:
     void prune();
-    static void pruneDirectory(const QString& directory);
     void mirror(const QString& path);
 
     ContestDatabase* m_database;

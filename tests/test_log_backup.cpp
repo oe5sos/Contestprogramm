@@ -93,31 +93,63 @@ void TestLogBackup::copiesOnlyWhenTheLogChangedAndTheCopyIsComplete()
 
 void TestLogBackup::prunesToTheNewestFiles()
 {
+    // Copies come every minute now: every one of the last two hours
+    // stays, older ones thin to the newest per ten minutes, and the
+    // folder never holds more than kKeepFiles.
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     ContestDatabase db;
     QVERIFY(db.open(dir.filePath(QStringLiteral("log.sqlite")), QStringLiteral("backup_prune")));
-
     const QString backupDir = dir.filePath(QStringLiteral("backups"));
     QVERIFY(QDir().mkpath(backupDir));
-    // Older copies than kKeepFiles allows, all dated before anything
-    // backupNow() will write today.
-    for (int i = 0; i < LogBackup::kKeepFiles + 5; ++i) {
-        QFile old(QDir(backupDir).filePath(QStringLiteral("contestprogramm-2020%1-%2.sqlite")
-                                                .arg(1 + i / 1440, 4, 10, QLatin1Char('0'))
-                                                .arg(i % 1440, 4, 10, QLatin1Char('0'))));
-        QVERIFY(old.open(QIODevice::WriteOnly));
-        old.close();
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const auto touch = [&](const QDateTime& utc) {
+        QFile file(QDir(backupDir).filePath(LogBackup::fileNameFor(utc)));
+        if (!file.open(QIODevice::WriteOnly)) {
+            return false;
+        }
+        file.close();
+        return true;
+    };
+    // 100 copies by the minute inside the last two hours, 300 older
+    // ones by the minute (three to eight hours ago).
+    for (int m = 1; m <= 100; ++m) {
+        QVERIFY(touch(now.addSecs(-60 * m)));
+    }
+    for (int m = 0; m < 300; ++m) {
+        QVERIFY(touch(now.addSecs(-3 * 3600 - 60 * m)));
     }
 
     LogBackup backup(db, backupDir);
     QString error;
     QVERIFY2(!backup.backupNow(true, &error).isEmpty(), qPrintable(error));
-    const QStringList remaining = QDir(backupDir).entryList({QStringLiteral("contestprogramm-*.sqlite")}, QDir::Files, QDir::Name);
-    QCOMPARE(remaining.size(), LogBackup::kKeepFiles);
-    // The newest (today's real copy) survived, the oldest dummies went.
-    QVERIFY(remaining.last().startsWith(QStringLiteral("contestprogramm-20")));
-    QVERIFY(!remaining.contains(QStringLiteral("contestprogramm-20200001-0000.sqlite")));
+    const QVector<LogBackup::Entry> remaining = LogBackup::listBackups(backupDir);
+    // Today's real copy + the 100 recent + one per ten minutes of the
+    // 300 older (30, give or take the bucket edges).
+    QVERIFY2(remaining.size() >= 128 && remaining.size() <= 133, qPrintable(QString::number(remaining.size())));
+    int recent = 0;
+    for (const LogBackup::Entry& entry : remaining) {
+        if (entry.utc.secsTo(now) <= 2 * 3600) {
+            ++recent;
+        }
+    }
+    QCOMPARE(recent, 101);
+
+    // The cap: 450 copies ten minutes apart (75 hours) all survive the
+    // thinning but not the cap -- the oldest go.
+    QTemporaryDir dir2;
+    const QString capDir = dir2.filePath(QStringLiteral("backups"));
+    QVERIFY(QDir().mkpath(capDir));
+    for (int i = 0; i < 450; ++i) {
+        QFile file(QDir(capDir).filePath(LogBackup::fileNameFor(now.addSecs(-600 * i))));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+    }
+    LogBackup::pruneDirectory(capDir);
+    const QVector<LogBackup::Entry> capped = LogBackup::listBackups(capDir);
+    QCOMPARE(capped.size(), LogBackup::kKeepFiles);
+    QCOMPARE(capped.first().utc.toString(QStringLiteral("yyyyMMdd-HHmm")), now.toString(QStringLiteral("yyyyMMdd-HHmm")));
+    QVERIFY(capped.last().utc.secsTo(now) < 450 * 600);
 }
 
 void TestLogBackup::mirrorsEveryCopyAndSurvivesAMissingMirror()
