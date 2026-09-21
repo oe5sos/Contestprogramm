@@ -30,6 +30,9 @@ public:
     // True when this process holds the instance; false when another
     // instance is running and has been asked to come to the front.
     bool tryAcquire();
+    // Gives the instance up early (before a planned restart), so the
+    // next start is not treated as a second instance.
+    void release();
 
     static QString serverNameFor(const QString& dataDir);
 

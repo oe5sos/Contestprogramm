@@ -7,6 +7,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QMessageBox>
+#include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
 
@@ -64,6 +65,16 @@ int main(int argc, char* argv[])
 
     Contestprogramm::MainWindow window(appController);
     window.show();
+    // Sicherung wiederherstellen: the database file was replaced under
+    // a closed connection; the cleanest way onto it is a fresh process.
+    // The instance lock goes first, or the new start would hand over to
+    // this dying one and quit.
+    QObject::connect(&window, &Contestprogramm::MainWindow::restartRequested, &app, [&app, &instanceGuard] {
+        instanceGuard.release();
+        QProcess::startDetached(QCoreApplication::applicationFilePath(), QCoreApplication::arguments().mid(1),
+                                QDir::currentPath());
+        app.quit();
+    });
     QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::activateRequested, &window, [&window] {
         window.setWindowState((window.windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
         window.show();

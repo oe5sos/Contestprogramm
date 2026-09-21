@@ -43,6 +43,8 @@ public:
     bool open(const QString& path, const QString& connectionName = QStringLiteral("qt_sql_default_connection"));
     void close();
     bool isOpen() const;
+    // The file behind the open connection (empty when closed).
+    QString filePath() const;
     QString lastError() const;
 
     // Inserts `record`; on success sets record.id to the new row id and

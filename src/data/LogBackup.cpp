@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QTimeZone>
 #include <QTimer>
 
 namespace Contestprogramm {
@@ -74,6 +75,27 @@ QString LogBackup::backupNow(bool force, QString* errorOut)
     prune();
     emit backupWritten(path);
     return path;
+}
+
+QVector<LogBackup::Entry> LogBackup::listBackups(const QString& directory)
+{
+    QVector<Entry> entries;
+    const QDir dir(directory);
+    const QFileInfoList files = dir.entryInfoList({kPrefix + QLatin1Char('*') + kSuffix}, QDir::Files, QDir::Name | QDir::Reversed);
+    for (const QFileInfo& info : files) {
+        Entry entry;
+        entry.path = info.absoluteFilePath();
+        entry.bytes = info.size();
+        const QString stamp = info.fileName().mid(kPrefix.size(), info.fileName().size() - kPrefix.size() - kSuffix.size());
+        entry.utc = QDateTime::fromString(stamp, QStringLiteral("yyyyMMdd-HHmm"));
+        if (entry.utc.isValid()) {
+            entry.utc.setTimeZone(QTimeZone::UTC);
+        } else {
+            entry.utc = info.lastModified().toUTC();
+        }
+        entries.append(entry);
+    }
+    return entries;
 }
 
 void LogBackup::prune()

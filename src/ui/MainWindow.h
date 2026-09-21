@@ -71,6 +71,19 @@ public:
     explicit MainWindow(AppController& appController, QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // The restore itself, without the dialogs (public for the tests):
+    // safety backup, close, replace the file, restartRequested().
+    // False = nothing replaced (the safety backup failed) or the copy
+    // failed; restartRequested() is emitted whenever the connection was
+    // closed.
+    bool performRestore(const QString& backupPath, QString* errorOut = nullptr);
+
+signals:
+    // Datei > Sicherung wiederherstellen has put a backup in place of
+    // the database: main() releases the instance lock, starts a fresh
+    // process on it and quits this one.
+    void restartRequested();
+
 private slots:
     void handleLogRequested();
     void recheckDupeIndicator();
@@ -127,6 +140,7 @@ private slots:
     void handleHistoryInvalidToggleRequested(int qsoId);
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
+    void restoreBackup();
     void adjustCwSpeed(int deltaWpm);
     void openEsmTemplatesDialog();
     void openScoreboardDialog();

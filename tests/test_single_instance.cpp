@@ -57,6 +57,11 @@ void TestSingleInstance::aFinishedInstanceFreesTheDirectory()
     }
     SingleInstanceGuard next(dir.path());
     QVERIFY(next.tryAcquire());
+    // release() before a planned restart: the successor is not a
+    // second instance, and the released guard no longer answers.
+    next.release();
+    SingleInstanceGuard successor(dir.path());
+    QVERIFY(successor.tryAcquire());
 }
 
 QTEST_GUILESS_MAIN(TestSingleInstance)

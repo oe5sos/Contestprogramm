@@ -19,6 +19,7 @@
 #include "core/terrain/SrtmTileLoader.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/AdifExporter.h"
+#include "data/BackupRestore.h"
 #include "data/CabrilloExporter.h"
 #include "data/ContestScoring.h"
 #include "data/ContestDatabase.h"
@@ -29,6 +30,7 @@
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 #include "models/LogTableModel.h"
+#include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
@@ -1091,6 +1093,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     fileMenu->addSeparator();
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
+    QAction* restoreAction = fileMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
+    connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
     QAction* archiveAction = fileMenu->addAction(QStringLiteral("Log &abschließen und archivieren..."));
     connect(archiveAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     fileMenu->addSeparator();
@@ -2969,6 +2973,60 @@ void MainWindow::backupLogNow()
         return;
     }
     statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(path), 8000);
+}
+
+void MainWindow::restoreBackup()
+{
+    LogBackup* backup = m_appController.logBackup();
+    if (!backup) {
+        return;
+    }
+    BackupRestoreDialog dialog(LogBackup::listBackups(backup->directory()), this);
+    if (dialog.exec() != QDialog::Accepted || dialog.selectedPath().isEmpty()) {
+        return;
+    }
+    const QString chosen = dialog.selectedPath();
+    const auto answer = QMessageBox::question(
+        this, QStringLiteral("Contestprogramm"),
+        QStringLiteral("Das Log wird auf den Stand dieser Sicherung zurückgesetzt:\n%1\n\nDer jetzige Stand wird "
+                       "vorher gesichert, das Programm startet danach neu. Fortfahren?")
+            .arg(QFileInfo(chosen).fileName()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+    QString error;
+    if (!performRestore(chosen, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Wiederherstellen fehlgeschlagen, nichts geändert:\n%1").arg(error));
+    }
+}
+
+bool MainWindow::performRestore(const QString& backupPath, QString* errorOut)
+{
+    LogBackup* backup = m_appController.logBackup();
+    if (!backup) {
+        return false;
+    }
+    // The state being replaced becomes the newest backup, so a wrong
+    // pick can be undone the same way.
+    QString error;
+    if (backup->backupNow(true, &error).isEmpty()) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("Der jetzige Stand konnte nicht gesichert werden: %1").arg(error);
+        }
+        return false;
+    }
+    const QString live = m_appController.database().filePath();
+    m_appController.database().close();
+    const bool ok = restoreDatabaseFile(backupPath, live, &error);
+    if (!ok && errorOut) {
+        *errorOut = error;
+    }
+    // Restart either way: the connection is closed, a fresh process on
+    // whatever file is there now is the only sane state.
+    emit restartRequested();
+    return ok;
 }
 
 void MainWindow::openEsmTemplatesDialog()

@@ -28,7 +28,9 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 - **Sicherung:** alle fünf Minuten eine konsistente Kopie nach
   `…/backups/contestprogramm-YYYYMMDD-HHMM.sqlite` (nur wenn seit der
   letzten Kopie ein QSO geschrieben wurde; die ältesten fliegen ab 300
-  Dateien). Manuell: *Datei › Log jetzt sichern*.
+  Dateien). Manuell: *Datei › Log jetzt sichern*. Zurück auf einen Stand:
+  *Datei › Sicherung wiederherstellen…* (der jetzige Stand wird vorher
+  gesichert, das Programm startet neu).
 - **Isolierter Testlauf:** `CONTESTPROGRAMM_DATA_DIR=/pfad ./Contestprogramm`
   öffnet eine andere Datenbank statt der echten.
 - **Nur eine Instanz je Datenordner:** ein zweiter Start holt das laufende

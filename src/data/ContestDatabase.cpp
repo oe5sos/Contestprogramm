@@ -50,6 +50,11 @@ bool ContestDatabase::open(const QString& path, const QString& connectionName)
     return true;
 }
 
+QString ContestDatabase::filePath() const
+{
+    return m_open ? m_db.databaseName() : QString();
+}
+
 void ContestDatabase::close()
 {
     if (!m_open) {

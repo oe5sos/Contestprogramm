@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QDateTime>
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 class QTimer;
 
@@ -42,6 +44,16 @@ public:
 
     // "contestprogramm-20261003-1405.sqlite" for the given UTC time.
     static QString fileNameFor(const QDateTime& utc);
+
+    // The copies in `directory`, newest first -- what Datei > Sicherung
+    // wiederherstellen offers. The time is read back from the file name
+    // (fileNameFor's own format), the size from the file.
+    struct Entry {
+        QString path;
+        QDateTime utc;
+        qint64 bytes = 0;
+    };
+    static QVector<Entry> listBackups(const QString& directory);
 
 signals:
     void backupWritten(const QString& path);

@@ -138,6 +138,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/DupeRescore.cpp
     src/data/LogBackup.h
     src/data/LogBackup.cpp
+    src/data/BackupRestore.h
+    src/data/BackupRestore.cpp
     src/data/ContestStatistics.h
     src/data/ContestStatistics.cpp
     src/data/LogFileReader.h
@@ -189,6 +191,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/CheckPartialWidget.cpp
     src/ui/EsmTemplatesDialog.h
     src/ui/EsmTemplatesDialog.cpp
+    src/ui/BackupRestoreDialog.h
+    src/ui/BackupRestoreDialog.cpp
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
     src/ui/SkedPanel.h

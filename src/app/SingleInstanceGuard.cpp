@@ -19,12 +19,19 @@ SingleInstanceGuard::SingleInstanceGuard(const QString& dataDir, QObject* parent
 
 SingleInstanceGuard::~SingleInstanceGuard()
 {
+    release();
+}
+
+void SingleInstanceGuard::release()
+{
     if (m_server) {
         m_server->close();
         QLocalServer::removeServer(m_server->serverName());
+        m_server.reset();
     }
     if (m_lock) {
         m_lock->unlock();
+        m_lock.reset();
     }
 }
 
