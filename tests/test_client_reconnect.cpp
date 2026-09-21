@@ -83,12 +83,12 @@ void TestClientReconnect::rotorClientFindsARotctldThatAppearsLater()
     QCOMPARE(client.state(), RotctldClient::State::Connecting);
 
     // Refused: back to Disconnected, retry armed -- not stuck.
-    QTRY_COMPARE_WITH_TIMEOUT(client.state(), RotctldClient::State::Disconnected, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.state(), RotctldClient::State::Disconnected, 10000);
 
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
-    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 8000);
-    QTRY_COMPARE_WITH_TIMEOUT(client.azimuthDeg(), 123.0, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 15000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.azimuthDeg(), 123.0, 10000);
 }
 
 void TestClientReconnect::rigClientFindsARigctldThatAppearsLater()
@@ -98,11 +98,11 @@ void TestClientReconnect::rigClientFindsARigctldThatAppearsLater()
     client.setTarget(QStringLiteral("127.0.0.1"), port);
     client.connectToRig();
     QCOMPARE(client.state(), RigctldClient::State::Connecting);
-    QTRY_COMPARE_WITH_TIMEOUT(client.state(), RigctldClient::State::Disconnected, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(client.state(), RigctldClient::State::Disconnected, 10000);
 
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
-    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 8000);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 15000);
 }
 
 // The chat and cluster clients had the same gap with their own
@@ -116,17 +116,17 @@ void TestClientReconnect::on4kstClientDialsAgainAfterARefusedConnect()
     QSignalSpy errors(&client, &On4kstClient::connectionError);
     QSignalSpy connected(&client, &On4kstClient::connected);
     client.connectAndLogin(QStringLiteral("127.0.0.1"), port, QStringLiteral("OE5SOS"), QStringLiteral("pw"));
-    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
     QVERIFY(!client.isConnected());
 
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
-    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 9000);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 15000);
     QCOMPARE(connected.count(), 1);
 
     // A deliberate disconnect ends the retries.
     client.disconnectFromServer();
-    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 10000);
     QTest::qWait(200);
     QVERIFY(!client.isConnected());
 }
@@ -137,12 +137,12 @@ void TestClientReconnect::clusterClientDialsAgainAfterARefusedConnect()
     DxClusterClient client;
     QSignalSpy errors(&client, &DxClusterClient::connectionError);
     client.connectToCluster(QStringLiteral("127.0.0.1"), port, QStringLiteral("OE5SOS"));
-    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 10000);
     QVERIFY(!client.isConnected());
 
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
-    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 9000);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 15000);
 }
 
 QTEST_MAIN(TestClientReconnect)

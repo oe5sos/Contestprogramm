@@ -72,6 +72,11 @@ bool SingleInstanceGuard::tryAcquire()
         if (socket.waitForConnected(kConnectTimeoutMs)) {
             socket.write(kRaiseVerb + ' ' + m_buildStamp.toUtf8() + '\n');
             socket.waitForBytesWritten(kConnectTimeoutMs);
+            // Wait for the running instance's "ok" before hanging up:
+            // on Windows a named pipe closed right after the write can
+            // reach the server without the line (2026-09-21, CI), on
+            // macOS it merely never mattered.
+            socket.waitForReadyRead(kConnectTimeoutMs);
             socket.disconnectFromServer();
             m_lock.reset();
             return false;
@@ -89,19 +94,27 @@ bool SingleInstanceGuard::tryAcquire()
     m_server->listen(serverName);
     connect(m_server.get(), &QLocalServer::newConnection, this, [this] {
         while (QLocalSocket* client = m_server->nextPendingConnection()) {
-            connect(client, &QLocalSocket::readyRead, this, [this, client] {
+            const auto handle = [this, client] {
                 const QByteArray line = client->readAll().trimmed();
                 if (!line.startsWith(kRaiseVerb)) {
                     return;
                 }
+                client->write("ok\n");
+                client->flush();
                 const QString theirStamp = QString::fromUtf8(line.mid(kRaiseVerb.size()).trimmed());
                 if (!theirStamp.isEmpty() && !m_buildStamp.isEmpty() && theirStamp != m_buildStamp) {
                     emit newerBuildStarted();
                     return;
                 }
                 emit activateRequested();
-            });
+            };
+            connect(client, &QLocalSocket::readyRead, this, handle);
             connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
+            // The line may already be in the buffer when the connection
+            // is handed to us (Windows) -- readyRead then never fires.
+            if (client->bytesAvailable() > 0) {
+                handle();
+            }
         }
     });
     return true;

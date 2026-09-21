@@ -111,6 +111,9 @@ void TestRotctldSupervision::launchOnlyForAnEnabledLoopbackSlotWithADevice()
 
 void TestRotctldSupervision::startsAfterTheClientFailsAndFollowsTheSettings()
 {
+#ifdef Q_OS_WIN
+    QSKIP("Der Stellvertreter-rotctld ist ein Shell-Skript; unter Windows startet QProcess es nicht (2026-09-21).");
+#endif
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString argsFile = dir.filePath(QStringLiteral("rotctld.args"));

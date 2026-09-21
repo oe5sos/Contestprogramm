@@ -149,9 +149,10 @@ jobs:
             Write-Host "===== $t ====="
             $log = "$env:RUNNER_TEMP\$t.txt"
             Remove-Item $log -ErrorAction SilentlyContinue
-            & "build/tests/$t.exe" -v2 -o "$log,txt" 2>&1 | Out-String -Width 400 | Write-Host
+            # Über cmd umgeleitet: pwsh verliert die stdout-Ausgabe von QtTest.
+            cmd /c "build\tests\$t.exe > `"$log`" 2>&1"
             Write-Host "exit code: $LASTEXITCODE"
-            if (Test-Path $log) { Get-Content $log | Select-Object -Last 80 | Write-Host } else { Write-Host "(keine Logdatei -- Prozess kam nicht bis QTest)" }
+            if (Test-Path $log) { Get-Content $log | Select-String -Pattern 'FAIL!|Actual|Expected|Loc:|Totals|Start testing|returned FALSE|QSKIP|SKIP' | ForEach-Object { $_.Line } | Write-Host } else { Write-Host "(keine Logdatei)" }
           }
       - name: Portables ZIP
         shell: pwsh
