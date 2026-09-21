@@ -172,6 +172,7 @@ public:
     // the own station. Tests click there.
     QRectF canvasRectForTest() const { return scopeRect(); }
     QRectF horizonStripRectForTest() const { return horizonStripRect(); }
+    QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
 
     QSize minimumSizeHint() const override;
     QSize sizeHint() const override;
@@ -190,6 +191,7 @@ signals:
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    bool event(QEvent* event) override;
 
 private:
     struct GridCell {
@@ -216,6 +218,10 @@ private:
     QRectF canvasRect() const;       // everything below the controls
     QRectF scopeRect() const;        // the (possibly elliptical) map/scope area
     QRectF numbersRect() const;      // Radar: the column to the right, empty when too narrow
+    // The open (spotted, not worked) stations inside rotor 1's cone(s),
+    // farthest first -- the "Offen in Richtung" reading, and what a
+    // click on it walks through.
+    QVector<const Station*> openStationsInBeam() const;
     QRectF horizonStripRect() const; // MapHorizon: the strip below the map, empty when off
     double horizonAngleAt(int bearingDeg) const; // profile, else from sectors, 0 = flat
     bool hasHorizon() const;
@@ -251,6 +257,10 @@ private:
     QString m_ownGrid;
     QString m_ownLabel;
     QVector<Station> m_stations;
+    // Where the "Offen in Richtung" reading was last painted (the
+    // click target), and which of its stations the next click takes.
+    mutable QRectF m_openInBeamRect;
+    int m_openInBeamCursor = 0;
     View m_view = View::Radar;
     struct ViewLayers {
         bool grid = true;

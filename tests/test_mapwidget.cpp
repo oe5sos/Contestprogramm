@@ -285,6 +285,7 @@ private slots:
     void preferencesTextRoundTrips();
     void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
     void clickingASkylineTickActivatesTheStation();
+    void clickingOpenInBeamWalksThroughTheOpenStations();
     void secondAntennaMenuEntryReportsTheStationSetting();
 };
 
@@ -611,6 +612,56 @@ void TestMapWidgetLive::clickingASkylineTickActivatesTheStation()
     // Far from any tick: nothing.
     QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, QPoint(at.x() + 60, at.y()));
     QCOMPARE(spy.count(), 0);
+}
+
+void TestMapWidgetLive::clickingOpenInBeamWalksThroughTheOpenStations()
+{
+    MapWidget widget;
+    widget.resize(774, 510);
+    widget.setOwnGrid(QStringLiteral("JN67VV"));
+    widget.setView(MapWidget::View::Radar);
+    widget.setVisibleRangeKm(500.0);
+    // Rotor 1 points north-west, 30° wide: two open stations and one
+    // worked inside the cone, one open station well outside it.
+    const auto station = [](const char* call, const char* grid, bool worked) {
+        MapWidget::Station s;
+        s.callsign = QString::fromLatin1(call);
+        s.grid = QString::fromLatin1(grid);
+        s.worked = worked;
+        s.freqHz = 432200000;
+        return s;
+    };
+    widget.setStations({station("DL0GTH", "JO50JP", false), station("DB6NT", "JO50VJ", false),
+                        station("DK0NA", "JO50TI", true), station("HA5KDQ", "JN97LN", false)});
+    const double bearing = calculateBearingInDegrees(QStringLiteral("JN67VV"), QStringLiteral("JO50JP"));
+    widget.setRotor1Heading(true, bearing, QStringLiteral("70cm"));
+    widget.setRotor1BeamwidthDeg(30.0);
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    const QRectF target = widget.openInBeamRectForTest();
+    QVERIFY(!target.isEmpty());
+
+    // Farthest first, then the nearer, then around again; the worked
+    // one and the one outside the beam never.
+    QSignalSpy spy(&widget, &MapWidget::candidateActivated);
+    const QPoint at = target.center().toPoint();
+    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, at);
+    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, at);
+    QTest::mouseClick(&widget, Qt::LeftButton, Qt::NoModifier, at);
+    QCOMPARE(spy.count(), 3);
+    const bool gthFarther = calculateDistanceKm(QStringLiteral("JN67VV"), QStringLiteral("JO50JP"))
+                            > calculateDistanceKm(QStringLiteral("JN67VV"), QStringLiteral("JO50VJ"));
+    const QString first = gthFarther ? QStringLiteral("DL0GTH") : QStringLiteral("DB6NT");
+    const QString second = gthFarther ? QStringLiteral("DB6NT") : QStringLiteral("DL0GTH");
+    QCOMPARE(spy.at(0).at(0).toString(), first);
+    QCOMPARE(spy.at(1).at(0).toString(), second);
+    QCOMPARE(spy.at(2).at(0).toString(), first);
+    QCOMPARE(spy.at(0).at(2).toLongLong(), 432200000LL);
+
+    // Rotor gone: nothing to click.
+    widget.setRotor1Heading(false, 0.0, QStringLiteral("70cm"));
+    widget.repaint();
+    QVERIFY(widget.openInBeamRectForTest().isEmpty());
 }
 
 void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()

@@ -18,6 +18,8 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QHelpEvent>
+#include <QToolTip>
 #include <QPen>
 #include <QPolygonF>
 #include <QPushButton>
@@ -1292,38 +1294,24 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
         value(text, QColor(Style::kTextSecondary()), Style::kFontBody);
     }
 
-    // Open stations inside any of rotor 1's cones
+    // Open stations inside any of rotor 1's cones -- blue, because a
+    // click on it works them: each click hands the next one (farthest
+    // first) to the log as a candidate, like a click on its marker.
     caption(QStringLiteral("Offen in Richtung"));
     QString openText = Style::unknownDash();
+    m_openInBeamRect = QRectF();
     if (m_rotor1Connected) {
-        int count = 0;
-        const Station* farthest = nullptr;
-        double farthestKm = -1.0;
-        QVector<double> directions{m_rotor1AzimuthDeg};
-        if (m_rotor1SecondEnabled) {
-            directions.append(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg);
+        const QVector<const Station*> open = openStationsInBeam();
+        if (open.isEmpty()) {
+            openText = QStringLiteral("0");
+        } else {
+            const Station* farthest = open.first();
+            openText = QStringLiteral("%1 · %2 %3 km")
+                           .arg(open.size())
+                           .arg(farthest->callsign)
+                           .arg(calculateDistanceKm(m_ownGrid, farthest->grid), 0, 'f', 0);
+            m_openInBeamRect = QRectF(x - 4.0, y - 2.0, column.width() + 4.0, Style::kFontBody + 12.0);
         }
-        for (const Station& station : m_stations) {
-            if (station.worked || !isValidGridSquare(station.grid) || !isValidGridSquare(m_ownGrid)) {
-                continue;
-            }
-            const double bearing = calculateBearingInDegrees(m_ownGrid, station.grid);
-            bool inside = false;
-            for (double direction : directions) {
-                inside = inside || angularDistance(bearing, direction) <= m_beamwidth1Deg / 2.0;
-            }
-            if (!inside) {
-                continue;
-            }
-            ++count;
-            const double km = calculateDistanceKm(m_ownGrid, station.grid);
-            if (km > farthestKm) {
-                farthestKm = km;
-                farthest = &station;
-            }
-        }
-        openText = count == 0 ? QStringLiteral("0")
-                              : QStringLiteral("%1 · %2 %3 km").arg(count).arg(farthest->callsign).arg(farthestKm, 0, 'f', 0);
     }
     value(openText, QColor(Style::kBlueBg()), Style::kFontBody);
 
@@ -1594,6 +1582,51 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     }
 }
 
+QVector<const MapWidget::Station*> MapWidget::openStationsInBeam() const
+{
+    QVector<const Station*> open;
+    if (!m_rotor1Connected || !isValidGridSquare(m_ownGrid)) {
+        return open;
+    }
+    QVector<double> directions{m_rotor1AzimuthDeg};
+    if (m_rotor1SecondEnabled) {
+        directions.append(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg);
+    }
+    for (const Station& station : m_stations) {
+        if (station.worked || !isValidGridSquare(station.grid)) {
+            continue;
+        }
+        const double bearing = calculateBearingInDegrees(m_ownGrid, station.grid);
+        bool inside = false;
+        for (double direction : directions) {
+            inside = inside || angularDistance(bearing, direction) <= m_beamwidth1Deg / 2.0;
+        }
+        if (inside) {
+            open.append(&station);
+        }
+    }
+    std::stable_sort(open.begin(), open.end(), [this](const Station* a, const Station* b) {
+        return calculateDistanceKm(m_ownGrid, a->grid) > calculateDistanceKm(m_ownGrid, b->grid);
+    });
+    return open;
+}
+
+bool MapWidget::event(QEvent* event)
+{
+    if (event->type() == QEvent::ToolTip) {
+        auto* help = static_cast<QHelpEvent*>(event);
+        if (!m_openInBeamRect.isEmpty() && m_openInBeamRect.contains(help->pos())) {
+            QToolTip::showText(help->globalPos(),
+                               QStringLiteral("Klick: die nächste offene Station in Beamrichtung anfunken (weiteste zuerst)"),
+                               this, m_openInBeamRect.toRect());
+        } else {
+            QToolTip::hideText();
+        }
+        return true;
+    }
+    return QWidget::event(event);
+}
+
 void MapWidget::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() != Qt::LeftButton || !isValidGridSquare(m_ownGrid)) {
@@ -1601,6 +1634,16 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
     const QPointF clickPos = event->position();
+    // "Offen in Richtung": the next open station in the beam.
+    if (!m_openInBeamRect.isEmpty() && m_openInBeamRect.contains(clickPos)) {
+        const QVector<const Station*> open = openStationsInBeam();
+        if (!open.isEmpty()) {
+            const Station* next = open.at(m_openInBeamCursor % open.size());
+            m_openInBeamCursor = (m_openInBeamCursor + 1) % open.size();
+            emit candidateActivated(next->callsign, next->grid, next->freqHz);
+        }
+        return;
+    }
     const Station* hit = nullptr;
     double bestDistSq = kStationClickTolerancePx * kStationClickTolerancePx;
     const QRectF area = scopeRect();
