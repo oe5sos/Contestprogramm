@@ -17,6 +17,7 @@
 #      ersten Start Rechtsklick › Öffnen.
 #   5. DMG mit Applications-Verknüpfung, SHA256 daneben.
 set -euo pipefail
+setopt null_glob   # ein Bundle aus aqt-Qt hat keine losen .dylib -- leere Globs sind dann kein Fehler
 BUILD_DIR=${1:?build-dir}
 OUT_DIR=${2:?ausgabe-dir}
 MACDEPLOYQT=${3:-/opt/homebrew/opt/qt/bin/macdeployqt}
