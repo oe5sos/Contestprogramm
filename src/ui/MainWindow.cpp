@@ -4,6 +4,7 @@
 #include "core/BandUtils.h"
 #include "core/BandmapModel.h"
 #include "core/BeamHeading.h"
+#include "core/ColorTheme.h"
 #include "core/Transverter.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
@@ -2676,8 +2677,26 @@ void MainWindow::openSettingsDialog()
     // Simpler and safer for now: tell the operator plainly, rather than
     // risk some corner of the UI staying stuck in the old palette.
     if (m_appController.settings().colorTheme != previousColorTheme) {
-        QMessageBox::information(this, QStringLiteral("Contestprogramm"),
-                                  QStringLiteral("Das neue Farbthema wird beim nächsten Start von Contestprogramm wirksam."));
+        // Operator, 2026-09-21 ("hat sich nichts geändert"): the plain
+        // "wirksam beim nächsten Start" notice read as nothing having
+        // happened. The choice IS saved (setSettings above); a fresh
+        // process is the one reliable way onto it, and the restore path
+        // (performRestore) already restarts the program that way -- so
+        // offer that restart right here instead of leaving it to him.
+        QMessageBox box(QMessageBox::Question, QStringLiteral("Contestprogramm"),
+                        QStringLiteral("Das Farbthema „%1“ ist gespeichert und wird beim Neustart wirksam.\n\n"
+                                       "Jetzt neu starten?")
+                            .arg(colorThemeDisplayName(m_appController.settings().colorTheme)),
+                        QMessageBox::NoButton, this);
+        QPushButton* restartButton = box.addButton(QStringLiteral("Neu starten"), QMessageBox::AcceptRole);
+        box.addButton(QStringLiteral("Später"), QMessageBox::RejectRole);
+        box.setDefaultButton(restartButton);
+        box.exec();
+        if (box.clickedButton() == restartButton) {
+            saveWindowGeometry();
+            emit restartRequested();
+            return;
+        }
     }
     applyActiveContestDefinition();
     applyRotorWidgetSettings();
