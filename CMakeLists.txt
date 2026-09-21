@@ -80,6 +80,7 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/ClockCheck.cpp
     src/core/BandUtils.h
     src/core/BandUtils.cpp
+    src/core/Transverter.cpp
     src/core/BroadcastPublisher.h
     src/core/BroadcastPublisher.cpp
     src/core/ChatImportanceScorer.h
@@ -172,6 +173,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/ReadinessWindow.cpp
     src/ui/ShortcutsWindow.cpp
     src/ui/AboutDialog.cpp
+    src/ui/TransverterDialog.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/UnifiedLogWidget.h

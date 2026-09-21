@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/BandmapModel.h"
+#include "core/Transverter.h"
 #include "core/SkedList.h"
 #include "core/CheckPartialIndex.h"
 
@@ -13,6 +14,7 @@ class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMoveEvent;
+class QCheckBox;
 class QPushButton;
 class QResizeEvent;
 class QTimer;
@@ -159,6 +161,8 @@ private slots:
     void clearBackupMirror();
     void adjustCwSpeed(int deltaWpm);
     void openEsmTemplatesDialog();
+    // Datei > Transverter... (core/Transverter.h, ui/TransverterDialog.h)
+    void openTransverterDialog();
     void openScoreboardDialog();
     void postScoreNow();
     void toggleOperatingMode();
@@ -397,6 +401,18 @@ private:
     // same way m_currentBand defaults to the active contest's first
     // band -- a sensible starting value before CAT ever reports a mode.
     QString m_currentMode;
+    // The transverter between rig and antenna (core/Transverter.h):
+    // every rig frequency goes through rfFrequencyHz() before it names
+    // a band, and every QSY through rigFrequencyHz(). Loaded from the
+    // settings table with the window, switched by m_transverterCheck.
+    TransverterSetup m_transverter;
+    QCheckBox* m_transverterCheck = nullptr;
+    // The rig's frequency as it is on the air (0 without CAT), and the
+    // one place a rig frequency becomes m_currentBand: the transverter
+    // applied, bands outside the contest ignored.
+    qint64 currentRfFrequencyHz() const;
+    void applyRigFrequency(qint64 rigHz);
+    void syncTransverterCheck();
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not

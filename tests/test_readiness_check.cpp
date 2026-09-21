@@ -70,6 +70,9 @@ ReadinessContext readyContext()
     ctx.importedLocators = 1234;
     ctx.mirrorDirectory = QStringLiteral("/Volumes/STICK/Contestprogramm");
     ctx.mirrorWritable = true;
+    ctx.transverterConfigured = true;
+    ctx.transverterActive = true;
+    ctx.transverterText = QStringLiteral("144 → 1296 (+1152 MHz)");
     return ctx;
 }
 
@@ -110,6 +113,18 @@ void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
     QCOMPARE(itemWithCode(result, QStringLiteral("contest"))->detail,
              QStringLiteral("IARU Region 1 UHF/Microwave Contest — 432 / 1296"));
     QCOMPARE(itemWithCode(result, QStringLiteral("own_elevation"))->detail, QStringLiteral("1587 m, Antenne 10 m darüber"));
+    QCOMPARE(itemWithCode(result, QStringLiteral("transverter"))->detail,
+             QStringLiteral("144 → 1296 (+1152 MHz) — an, das Funkgerät zeigt die ZF"));
+
+    // The transverter switched off, then none at all on a contest with
+    // a band above 1 GHz: a hint each; none on a VHF-only contest.
+    ReadinessContext off = readyContext();
+    off.transverterActive = false;
+    QCOMPARE(itemWithCode(checkReadiness(off), QStringLiteral("transverter"))->level, ReadinessItem::Level::Hint);
+    off.transverterConfigured = false;
+    QCOMPARE(itemWithCode(checkReadiness(off), QStringLiteral("transverter"))->level, ReadinessItem::Level::Hint);
+    off.contestBands = {QStringLiteral("144")};
+    QVERIFY(!itemWithCode(checkReadiness(off), QStringLiteral("transverter")));
 }
 
 void TestReadinessCheck::missingStationDataIsAnError()

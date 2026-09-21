@@ -70,6 +70,11 @@ struct ReadinessContext {
     // empty band.
     QVector<QPair<QString, int>> nextSerials;
     bool esmEnabled = false;
+    // The transverter (core/Transverter.h): set up at all, switched on,
+    // and its "144 → 1296 (+1152 MHz)".
+    bool transverterConfigured = false;
+    bool transverterActive = false;
+    QString transverterText;
 
     // Links
     QString catTarget; // "127.0.0.1:4532", empty when not configured

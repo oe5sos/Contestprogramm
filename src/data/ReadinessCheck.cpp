@@ -210,6 +210,29 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
         }
     }
 
+    // The transverter: a contest band above 1 GHz is reached through
+    // one on most stations, and the switch decides what the rig's IF
+    // means.
+    {
+        bool microwaveBand = false;
+        for (const QString& band : ctx.contestBands) {
+            microwaveBand = microwaveBand || band.toLongLong() >= 1000;
+        }
+        if (ctx.transverterConfigured && ctx.transverterActive) {
+            add(Level::Ok, kGroupContest, QStringLiteral("Transverter"),
+                QStringLiteral("%1 — an, das Funkgerät zeigt die ZF").arg(ctx.transverterText), QStringLiteral("transverter"));
+        } else if (ctx.transverterConfigured) {
+            add(Level::Hint, kGroupContest, QStringLiteral("Transverter"),
+                QStringLiteral("%1 eingerichtet, aber aus — Schalter in der Kopfzeile, sobald er dran ist.")
+                    .arg(ctx.transverterText),
+                QStringLiteral("transverter"));
+        } else if (microwaveBand) {
+            add(Level::Hint, kGroupContest, QStringLiteral("Transverter"),
+                QStringLiteral("Keiner eingerichtet — ein Band über 1 GHz landet sonst unter der ZF des Funkgeräts (Datei › Transverter…)."),
+                QStringLiteral("transverter"));
+        }
+    }
+
     // ---- Links ---------------------------------------------------------
     if (ctx.catTarget.isEmpty()) {
         add(Level::Hint, kGroupLinks, QStringLiteral("CAT"),

@@ -4,6 +4,7 @@
 #include "core/BandUtils.h"
 #include "core/BandmapModel.h"
 #include "core/BeamHeading.h"
+#include "core/Transverter.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
 #include "core/DxClusterClient.h"
@@ -45,6 +46,7 @@
 #include "ui/ReadinessWindow.h"
 #include "ui/AboutDialog.h"
 #include "ui/ShortcutsWindow.h"
+#include "ui/TransverterDialog.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
 #include "ui/PanelContainerWidget.h"
@@ -320,6 +322,27 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* esmCheck = new QCheckBox(QStringLiteral("ESM (Enter sendet, CW)"), filterRow);
     esmCheck->setChecked(m_appController.settings().esmEnabled);
     filterLayout->addWidget(esmCheck);
+    // The transverter switch (core/Transverter.h): shown once a
+    // transverter is set up (Datei > Transverter...), on = the rig's
+    // IF is the band on the antenna.
+    m_transverter = TransverterSetup::load(m_appController.database());
+    m_transverterCheck = new QCheckBox(filterRow);
+    m_transverterCheck->setObjectName(QStringLiteral("transverterCheck"));
+    filterLayout->addWidget(m_transverterCheck);
+    syncTransverterCheck();
+    connect(m_transverterCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_transverter.enabled == on) {
+            return;
+        }
+        m_transverter.enabled = on;
+        m_transverter.save(m_appController.database());
+        // The rig has not moved, but what its frequency means has.
+        if (m_appController.rigctldClient().isConnected()) {
+            applyRigFrequency(m_appController.rigctldClient().frequencyHz());
+        }
+        refreshBandmap();
+        updateStatusBar();
+    });
     filterLayout->addStretch();
     layout->addWidget(filterRow);
 
@@ -703,7 +726,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         // A bandmap click is a QSY: tune first, then fill the entry row
         // the way a feed-row click does (rotor included).
         if (m_appController.rigctldClient().isConnected() && freqHz > 0) {
-            m_appController.rigctldClient().setFrequency(freqHz);
+            // Through the transverter: 1296.300 on the antenna is
+            // 144.300 on the rig.
+            m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(freqHz));
         }
         handleCandidateActivated(callsign, grid, freqHz);
     });
@@ -885,27 +910,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         // Run-mode guard, per ContestSettings::OperatingMode: a
         // background VFO tick must not stomp on an in-progress
         // exchange mid-pileup while running. SearchAndPounce keeps
-        // today's always-autofill behavior. Band itself has no visible
-        // UI control any more (see the class comment in MainWindow.h) --
-        // this is the one and only place m_currentBand is set from a
-        // live radio.
+        // today's always-autofill behavior.
         if (m_appController.settings().operatingMode == ContestSettings::OperatingMode::Run
             && m_unifiedLog->hasUnsentContent()) {
             return;
         }
-        const QString bandLabel = bandLabelForFrequencyHz(hz);
-        if (!bandLabel.isEmpty()) {
-            const bool bandChanged = bandLabel != m_currentBand;
-            m_currentBand = bandLabel;
-            syncOn4kstRoomForCurrentBand();
-            updateStatusBar();
-            // The next serial is per band -- a band change shows the
-            // other band's next number at once.
-            if (bandChanged) {
-                refreshSentExchangePreview();
-                recheckDupeIndicator();
-            }
-        }
+        applyRigFrequency(hz);
     });
     connect(&m_appController.rigctldClient(), &RigctldClient::modeChanged, this,
             [this](const QString& mode, int /*passbandHz*/) {
@@ -1133,6 +1143,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
     QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
     connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
+    QAction* transverterAction = fileMenu->addAction(QStringLiteral("Trans&verter..."));
+    connect(transverterAction, &QAction::triggered, this, &MainWindow::openTransverterDialog);
     QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
     connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
     QAction* scoreboardAction = fileMenu->addAction(QStringLiteral("&Online-Scoreboard..."));
@@ -2234,9 +2246,8 @@ void MainWindow::handleLogRequested()
         record.distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
         record.bearingDeg = calculateBearingInDegrees(settings.ownGrid, gridRcvd);
     }
-    const RigctldClient& rig = m_appController.rigctldClient();
-    if (rig.isConnected() && rig.frequencyHz() > 0) {
-        record.freqHz = rig.frequencyHz();
+    if (const qint64 rfHz = currentRfFrequencyHz(); rfHz > 0) {
+        record.freqHz = rfHz; // on the air, not the rig's IF
     }
     record.serialSent = serialSent;
     if (serialRcvd > 0) {
@@ -3223,9 +3234,8 @@ void MainWindow::refreshBandmap()
         spot.worked = m_appController.dupeChecker().isDupe(spot.callsign, m_currentBand, m_currentMode,
                                                           settings.activeContestId, dupeScope);
     }
-    const RigctldClient& rig = m_appController.rigctldClient();
     m_bandmapWidget->setBand(m_currentBand);
-    m_bandmapWidget->setOwnFrequencyHz(rig.isConnected() ? rig.frequencyHz() : 0);
+    m_bandmapWidget->setOwnFrequencyHz(currentRfFrequencyHz());
     m_bandmapWidget->setSpots(spots);
 }
 
@@ -3349,7 +3359,7 @@ void MainWindow::addSkedFromEntry(const QString& callsign, const QString& grid, 
     if (const auto hz = SkedRules::parseFrequencyHz(qrgText)) {
         sked.freqHz = *hz;
     } else if (qrgText.trimmed().isEmpty() && m_appController.rigctldClient().isConnected()) {
-        sked.freqHz = m_appController.rigctldClient().frequencyHz();
+        sked.freqHz = currentRfFrequencyHz();
     } else if (!qrgText.trimmed().isEmpty()) {
         statusBar()->showMessage(QStringLiteral("Sked-Frequenz nicht verstanden: \"%1\" (MHz, z.B. 144.317)").arg(qrgText), 6000);
         return;
@@ -3375,7 +3385,7 @@ void MainWindow::activateSked(int skedId)
         }
         // The sked's whole point: tune, turn, fill -- the QSO can start.
         if (sked.freqHz > 0 && m_appController.rigctldClient().isConnected()) {
-            m_appController.rigctldClient().setFrequency(sked.freqHz);
+            m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(sked.freqHz));
         }
         handleCandidateActivated(sked.callsign, sked.grid, sked.freqHz);
         statusBar()->showMessage(QStringLiteral("Sked %1: %2 MHz, Rotor %3")
@@ -3475,6 +3485,75 @@ void MainWindow::openShortcutsWindow()
     m_shortcutsWindow->activateWindow();
 }
 
+qint64 MainWindow::currentRfFrequencyHz() const
+{
+    const RigctldClient& rig = m_appController.rigctldClient();
+    if (!rig.isConnected() || rig.frequencyHz() <= 0) {
+        return 0;
+    }
+    return m_transverter.rfFrequencyHz(rig.frequencyHz());
+}
+
+void MainWindow::applyRigFrequency(qint64 rigHz)
+{
+    // Band has no visible UI control (see the class comment in
+    // MainWindow.h) -- this is the one and only place m_currentBand is
+    // set from a live radio: the transverter's offset applied first, so
+    // a rig showing 144.300 with the 23 cm transverter switched on names
+    // 1296; and a band the contest does not have (the rig parked on
+    // HF, a spot tuned in on 2 m during the UHF contest) leaves the
+    // band as it was rather than dragging the log there.
+    const QString bandLabel = bandLabelForFrequencyHz(m_transverter.rfFrequencyHz(rigHz));
+    if (bandLabel.isEmpty()) {
+        return;
+    }
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+    if (def && !def->bands().isEmpty() && !def->bands().contains(bandLabel)) {
+        return;
+    }
+    const bool bandChanged = bandLabel != m_currentBand;
+    m_currentBand = bandLabel;
+    syncOn4kstRoomForCurrentBand();
+    updateStatusBar();
+    // The next serial is per band -- a band change shows the other
+    // band's next number at once.
+    if (bandChanged) {
+        refreshSentExchangePreview();
+        recheckDupeIndicator();
+        refreshBandmap();
+    }
+}
+
+void MainWindow::syncTransverterCheck()
+{
+    if (!m_transverterCheck) {
+        return;
+    }
+    const QSignalBlocker blocker(m_transverterCheck);
+    m_transverterCheck->setVisible(m_transverter.configured());
+    m_transverterCheck->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
+    m_transverterCheck->setChecked(m_transverter.active());
+    m_transverterCheck->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
+                                                  "(Datei › Transverter…)"));
+}
+
+void MainWindow::openTransverterDialog()
+{
+    TransverterDialog dialog(m_transverter, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    m_transverter = dialog.setup();
+    m_transverter.save(m_appController.database());
+    syncTransverterCheck();
+    if (m_appController.rigctldClient().isConnected()) {
+        applyRigFrequency(m_appController.rigctldClient().frequencyHz());
+    }
+    refreshBandmap();
+    updateStatusBar();
+    refreshReadiness();
+}
+
 void MainWindow::openAboutDialog()
 {
     AboutDialog::Facts facts;
@@ -3544,6 +3623,9 @@ void MainWindow::refreshReadiness()
         }
     }
     ctx.esmEnabled = settings.esmEnabled;
+    ctx.transverterConfigured = m_transverter.configured();
+    ctx.transverterActive = m_transverter.active();
+    ctx.transverterText = m_transverter.describe();
 
     const auto rigLink = [](RigctldClient::State state) {
         switch (state) {
