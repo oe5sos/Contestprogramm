@@ -535,10 +535,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // RotorWidget uses one level down inside the rotor row above.
     m_mapWidget = new MapWidget(this);
     // View and layer toggles live in the settings table; a fresh
-    // install starts on the radar without map ballast (the design
-    // sheet the operator chose, 2026-09-20).
+    // install starts on the radar (the design sheet the operator chose,
+    // 2026-09-20) -- each view's own layer defaults are the widget's.
     m_mapWidget->applyPreferencesText(m_appController.database().settingValue(
-        QStringLiteral("map_preferences"), QStringLiteral("view=radar;grid=0;borders=0;cities=0")));
+        QStringLiteral("map_preferences"), QStringLiteral("view=radar")));
     connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
         m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
     });

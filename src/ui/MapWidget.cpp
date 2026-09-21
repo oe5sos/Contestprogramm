@@ -273,12 +273,12 @@ void MapWidget::syncControls()
             action->setChecked(on);
         }
     };
-    sync(m_gridAction, m_showGrid);
+    sync(m_gridAction, layers().grid);
     sync(m_ringsAction, m_showRings);
     sync(m_spokesAction, m_showSpokes);
-    sync(m_workedCellsAction, m_showWorkedCells);
-    sync(m_bordersAction, m_showBorders);
-    sync(m_citiesAction, m_showCities);
+    sync(m_workedCellsAction, layers().cells);
+    sync(m_bordersAction, layers().borders);
+    sync(m_citiesAction, layers().cities);
     sync(m_agingAction, m_showAging);
     sync(m_fitAction, m_fitToWindow);
     sync(m_rotor1Action, m_showRotor1Heading);
@@ -334,9 +334,8 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     menu->addAction(m_agingAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
-    // Map ballast stays off the radar by definition -- these four are
-    // the map view's own.
-    section(QStringLiteral("Nur Karte"));
+    // Remembered per view: the radar and the map each keep their own.
+    section(m_view == View::Radar ? QStringLiteral("Radar") : QStringLiteral("Karte"));
     menu->addAction(m_bordersAction);
     menu->addAction(m_citiesAction);
     menu->addAction(m_gridAction);
@@ -404,12 +403,12 @@ void MapWidget::setView(View view)
         notePreferenceChange();                                                                                     \
     }
 
-MAPWIDGET_TOGGLE(setGridLayerVisible, m_showGrid)
+MAPWIDGET_TOGGLE(setGridLayerVisible, layers().grid)
 MAPWIDGET_TOGGLE(setRingsLayerVisible, m_showRings)
 MAPWIDGET_TOGGLE(setSpokesLayerVisible, m_showSpokes)
-MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, m_showWorkedCells)
-MAPWIDGET_TOGGLE(setBordersLayerVisible, m_showBorders)
-MAPWIDGET_TOGGLE(setCitiesLayerVisible, m_showCities)
+MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, layers().cells)
+MAPWIDGET_TOGGLE(setBordersLayerVisible, layers().borders)
+MAPWIDGET_TOGGLE(setCitiesLayerVisible, layers().cities)
 MAPWIDGET_TOGGLE(setFitToWindowEnabled, m_fitToWindow)
 MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
@@ -531,13 +530,15 @@ void MapWidget::zoomOut()
 QString MapWidget::preferencesText() const
 {
     const auto flag = [](bool on) { return on ? QStringLiteral("1") : QStringLiteral("0"); };
+    // grid/cells/borders/cities are the map view's, rgrid/... the radar's.
     return QStringLiteral("view=%1;grid=%2;rings=%3;spokes=%4;cells=%5;borders=%6;cities=%7;aging=%8;fit=%9;"
-                          "rotor1=%10;rotor2=%11;horizon=%12;bw1=%13;bw2=%14")
-        .arg(m_view == View::Radar ? QStringLiteral("radar") : QStringLiteral("map"), flag(m_showGrid),
-             flag(m_showRings), flag(m_showSpokes), flag(m_showWorkedCells), flag(m_showBorders), flag(m_showCities),
-             flag(m_showAging), flag(m_fitToWindow))
+                          "rotor1=%10;rotor2=%11;horizon=%12;bw1=%13;bw2=%14;rgrid=%15;rcells=%16;rborders=%17;rcities=%18")
+        .arg(m_view == View::Radar ? QStringLiteral("radar") : QStringLiteral("map"), flag(m_mapLayers.grid),
+             flag(m_showRings), flag(m_showSpokes), flag(m_mapLayers.cells), flag(m_mapLayers.borders),
+             flag(m_mapLayers.cities), flag(m_showAging), flag(m_fitToWindow))
         .arg(flag(m_showRotor1Heading), flag(m_showRotor2Heading), flag(m_showHorizon))
-        .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0);
+        .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
+        .arg(flag(m_radarLayers.grid), flag(m_radarLayers.cells), flag(m_radarLayers.borders), flag(m_radarLayers.cities));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -565,17 +566,25 @@ void MapWidget::applyPreferencesText(const QString& text)
                 changed = true;
             }
         } else if (key == QStringLiteral("grid")) {
-            apply(m_showGrid);
+            apply(m_mapLayers.grid);
         } else if (key == QStringLiteral("rings")) {
             apply(m_showRings);
         } else if (key == QStringLiteral("spokes")) {
             apply(m_showSpokes);
         } else if (key == QStringLiteral("cells")) {
-            apply(m_showWorkedCells);
+            apply(m_mapLayers.cells);
         } else if (key == QStringLiteral("borders")) {
-            apply(m_showBorders);
+            apply(m_mapLayers.borders);
         } else if (key == QStringLiteral("cities")) {
-            apply(m_showCities);
+            apply(m_mapLayers.cities);
+        } else if (key == QStringLiteral("rgrid")) {
+            apply(m_radarLayers.grid);
+        } else if (key == QStringLiteral("rcells")) {
+            apply(m_radarLayers.cells);
+        } else if (key == QStringLiteral("rborders")) {
+            apply(m_radarLayers.borders);
+        } else if (key == QStringLiteral("rcities")) {
+            apply(m_radarLayers.cities);
         } else if (key == QStringLiteral("aging")) {
             if (m_showAging != on) {
                 changed = true;
@@ -875,8 +884,9 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
     // Quiet lines, no land fill, no country names: orientation, not a
     // school atlas. The radar dims them further.
+    // Quieter still on the radar, where the scope is the point.
     QColor line{Style::kTextInactive()};
-    line.setAlpha(150);
+    line.setAlpha(m_view == View::Radar ? 90 : 150);
     painter.setPen(QPen(line, 1.0));
     painter.setBrush(Qt::NoBrush);
     const QRectF keep = area.adjusted(-2000, -2000, 2000, 2000);
@@ -942,7 +952,7 @@ void MapWidget::drawGridLayer(QPainter& painter, const QRectF& area) const
         qreal strokeWidth = 0.6;
         // Tints, not blocks: the squares are a background hint, the
         // dots on top are the information.
-        if (m_showWorkedCells && cell.hasWorked) {
+        if (layers().cells && cell.hasWorked) {
             fill = QColor(Style::kGreenText());
             fill.setAlpha(34);
             stroke = QColor(Style::kGreenBorder());
@@ -952,7 +962,7 @@ void MapWidget::drawGridLayer(QPainter& painter, const QRectF& area) const
                 fill = agedMarkerColor(fill, secs);
                 stroke = agedMarkerColor(stroke, secs);
             }
-        } else if (m_showWorkedCells && cell.hasSpotted) {
+        } else if (layers().cells && cell.hasSpotted) {
             fill = QColor(Style::kBlueBg());
             fill.setAlpha(28);
             stroke = QColor(Style::kBlueBorder());
@@ -1516,17 +1526,16 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     QPainterPath clip;
     clip.addEllipse(area);
     painter.setClipPath(clip, Qt::IntersectClip);
-    const bool mapLayers = m_view == View::MapHorizon;
-    if (mapLayers && m_showBorders) {
+    if (layers().borders) {
         drawBordersLayer(painter, area);
     }
-    if (mapLayers && m_showGrid) {
+    if (layers().grid) {
         drawGridLayer(painter, area);
     }
     if (m_showRings) {
         drawRingsLayer(painter, area);
     }
-    if (mapLayers && m_showCities) {
+    if (layers().cities) {
         drawCitiesLayer(painter, area);
     }
     if (m_view == View::Radar && m_showHorizon) {

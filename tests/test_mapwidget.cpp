@@ -306,6 +306,16 @@ void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
 void TestMapWidgetLive::layerTogglesRoundTrip()
 {
     MapWidget widget;
+    // The radar (the default view) starts without map ballast; the map
+    // view with all of it -- and each view keeps its own four.
+    QCOMPARE(widget.view(), MapWidget::View::Radar);
+    QVERIFY(!widget.gridLayerVisible());
+    QVERIFY(widget.workedCellsLayerVisible());
+    QVERIFY(!widget.bordersLayerVisible());
+    QVERIFY(!widget.citiesLayerVisible());
+    widget.setBordersLayerVisible(true);
+    QVERIFY(widget.bordersLayerVisible());
+    widget.setView(MapWidget::View::MapHorizon);
     QVERIFY(widget.gridLayerVisible());
     QVERIFY(widget.ringsLayerVisible());
     QVERIFY(widget.spokesLayerVisible());
@@ -332,6 +342,12 @@ void TestMapWidgetLive::layerTogglesRoundTrip()
     QVERIFY(!widget.rotor2HeadingLayerVisible());
     QVERIFY(!widget.bordersLayerVisible());
     QVERIFY(!widget.citiesLayerVisible());
+    // Back on the radar its own choice is still there, untouched by the map's.
+    widget.setView(MapWidget::View::Radar);
+    QVERIFY(widget.bordersLayerVisible());
+    QVERIFY(!widget.gridLayerVisible());
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("rborders=1")));
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("borders=0")));
 }
 
 void TestMapWidgetLive::zoomInHalvesVisibleRange()

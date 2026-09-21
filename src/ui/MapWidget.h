@@ -85,7 +85,11 @@ public:
     void setView(View view);
     View view() const { return m_view; }
 
-    // Layer toggles. Each also drives the ⚙ menu's checkmark.
+    // Layer toggles. Each also drives the ⚙ menu's checkmark. Grid,
+    // cells, borders and cities are kept per view -- the radar starts
+    // without map ballast, the map with it, and each remembers its own
+    // choice (operator, 2026-09-21: "bei RADAR ein- und ausblenden").
+    // The getters/setters below address the current view's set.
     void setGridLayerVisible(bool visible);
     void setRingsLayerVisible(bool visible);
     void setSpokesLayerVisible(bool visible);
@@ -97,12 +101,12 @@ public:
     void setRotor1HeadingLayerVisible(bool visible);
     void setRotor2HeadingLayerVisible(bool visible);
     void setHorizonLayerVisible(bool visible);
-    bool gridLayerVisible() const { return m_showGrid; }
+    bool gridLayerVisible() const { return layers().grid; }
     bool ringsLayerVisible() const { return m_showRings; }
     bool spokesLayerVisible() const { return m_showSpokes; }
-    bool workedCellsLayerVisible() const { return m_showWorkedCells; }
-    bool bordersLayerVisible() const { return m_showBorders; }
-    bool citiesLayerVisible() const { return m_showCities; }
+    bool workedCellsLayerVisible() const { return layers().cells; }
+    bool bordersLayerVisible() const { return layers().borders; }
+    bool citiesLayerVisible() const { return layers().cities; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
@@ -248,12 +252,18 @@ private:
     QString m_ownLabel;
     QVector<Station> m_stations;
     View m_view = View::Radar;
-    bool m_showGrid = true;
+    struct ViewLayers {
+        bool grid = true;
+        bool cells = true;
+        bool borders = true;
+        bool cities = true;
+    };
+    ViewLayers& layers() { return m_view == View::Radar ? m_radarLayers : m_mapLayers; }
+    const ViewLayers& layers() const { return m_view == View::Radar ? m_radarLayers : m_mapLayers; }
+    ViewLayers m_radarLayers{false, true, false, false};
+    ViewLayers m_mapLayers;
     bool m_showRings = true;
     bool m_showSpokes = true;
-    bool m_showWorkedCells = true;
-    bool m_showBorders = true;
-    bool m_showCities = true;
     bool m_showAging = true;
     bool m_fitToWindow = true;
     bool m_showRotor1Heading = true;
