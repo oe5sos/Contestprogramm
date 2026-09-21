@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QDialogButtonBox>
 
 #include <QApplication>
 #include <QFile>
@@ -39,6 +42,7 @@ private slots:
     void dialogPreselectsInitialContest();
     void dialogSelectedContestIdFollowsRowSelection();
     void pickingDifferentContestRebuildsUnifiedLogExchangeFields();
+    void dialogAsksForTheOwnLocatorAndOffersTheExactSquare();
 };
 
 namespace {
@@ -160,6 +164,50 @@ void TestContestPicker::pickingDifferentContestRebuildsUnifiedLogExchangeFields(
     // per-test, so leaving this behind could leak into a test that runs
     // later in the same process.
     QFile::remove(overridePath);
+}
+
+void TestContestPicker::dialogAsksForTheOwnLocatorAndOffersTheExactSquare()
+{
+    // The locator is asked every time a contest is picked (operator,
+    // 2026-09-21): prefilled, OK only with a valid one, the exact
+    // position's square offered when it differs.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeReadyController(dir, QStringLiteral("picker_grid.sqlite"));
+    QVERIFY(controller);
+    ContestPickerDialog dialog(controller->availableContestDefinitions(), QStringLiteral("IARU_R1_UHF"));
+    auto* edit = dialog.findChild<QLineEdit*>(QStringLiteral("contestPickerGridEdit"));
+    auto* exactButton = dialog.findChild<QPushButton*>(QStringLiteral("contestPickerExactGridButton"));
+    QVERIFY(edit);
+    QVERIFY(exactButton);
+    auto* buttons = dialog.findChild<QDialogButtonBox*>();
+    QVERIFY(buttons);
+    QPushButton* ok = buttons->button(QDialogButtonBox::Ok);
+    QVERIFY(ok);
+
+    // Nothing set yet: no valid locator, no OK.
+    QVERIFY(!ok->isEnabled());
+
+    // The home locator prefilled; the exact position (Feuerkogel) in
+    // another square: offered.
+    dialog.setOwnGrid(QStringLiteral("jn67vv"), QStringLiteral("JN67UT"));
+    QCOMPARE(dialog.ownGrid(), QStringLiteral("JN67VV"));
+    QVERIFY(ok->isEnabled());
+    QVERIFY(!exactButton->isHidden());
+    QVERIFY(exactButton->text().contains(QStringLiteral("JN67UT")));
+    exactButton->click();
+    QCOMPARE(dialog.ownGrid(), QStringLiteral("JN67UT"));
+    QVERIFY(exactButton->isHidden()); // now the same square
+
+    // A typo disables OK until it is a locator again.
+    edit->setText(QStringLiteral("JN6"));
+    QVERIFY(!ok->isEnabled());
+    edit->setText(QStringLiteral("JN67UT"));
+    QVERIFY(ok->isEnabled());
+
+    // No exact position known: nothing offered.
+    dialog.setOwnGrid(QStringLiteral("JN67VV"));
+    QVERIFY(exactButton->isHidden());
 }
 
 int main(int argc, char* argv[])

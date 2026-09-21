@@ -5,6 +5,8 @@
 #include <QDialog>
 #include <QVector>
 
+class QLineEdit;
+class QPushButton;
 class QTableWidget;
 
 namespace Contestprogramm {
@@ -25,12 +27,21 @@ namespace Contestprogramm {
 // for this pass.
 //
 // This dialog only reports back which contest id was picked
-// (selectedContestId()); it does not itself flip ContestSettings::
-// activeContestId or rebuild anything. MainWindow::openContestPicker()
-// applies the result through the exact same AppController::setSettings()
-// + applyActiveContestDefinition() (+ the same follow-up refreshes)
-// SettingsDialog's own contest combo already triggers on accept -- one
-// propagation path, not two.
+// (selectedContestId()) and which own locator the operator confirmed
+// (ownGrid()); it does not itself flip ContestSettings or rebuild
+// anything. MainWindow::openContestPicker() applies the result through
+// the exact same AppController::setSettings() + applyActiveContest-
+// Definition() (+ the same follow-up refreshes) SettingsDialog's own
+// contest combo already triggers on accept -- one propagation path,
+// not two.
+//
+// The locator is asked every time (operator, 2026-09-21: "der locator
+// sollte immer mit eingabe ... nachgefragt werden"): a contest is
+// picked shortly before it starts, often at a portable site, and the
+// home locator left in the settings would go out with every exchange.
+// The field comes prefilled with the current one; when the exact
+// position from the settings lies in another square, a button offers
+// that square.
 class ContestPickerDialog : public QDialog {
     Q_OBJECT
 
@@ -38,6 +49,13 @@ public:
     ContestPickerDialog(const QVector<ContestDefinition>& availableContests,
                          const QString& initialContestId,
                          QWidget* parent = nullptr);
+    // The own locator the dialog asks for: prefilled with `currentGrid`;
+    // `exactLocationGrid` (may be empty) is the square the settings'
+    // exact position lies in, offered when it differs.
+    void setOwnGrid(const QString& currentGrid, const QString& exactLocationGrid = QString());
+    // What the operator confirmed, upper-cased; valid whenever exec()
+    // returned Accepted (OK stays disabled on an invalid locator).
+    QString ownGrid() const;
 
     // The chosen contest's id, or an empty string if nothing was
     // selectable (m_availableContests was empty). Only meaningful after
@@ -46,8 +64,14 @@ public:
     QString selectedContestId() const;
 
 private:
+    void refreshGridState();
+
     QVector<ContestDefinition> m_availableContests;
     QTableWidget* m_table;
+    QLineEdit* m_gridEdit = nullptr;
+    QPushButton* m_exactGridButton = nullptr;
+    QPushButton* m_okButton = nullptr;
+    QString m_exactLocationGrid;
 };
 
 } // namespace Contestprogramm

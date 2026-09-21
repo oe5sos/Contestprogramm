@@ -2707,19 +2707,45 @@ void MainWindow::openContestRulesEditor()
 void MainWindow::openContestPicker()
 {
     ContestPickerDialog dialog(m_appController.availableContestDefinitions(), m_appController.settings().activeContestId, this);
+    // The locator is asked every time (see the dialog's class comment):
+    // prefilled with the current one; the square the settings' exact
+    // position lies in is offered when it differs (raw keys, like
+    // horizonProfileForOwnStation()).
+    QString exactGrid;
+    {
+        const ContestDatabase& db = m_appController.database();
+        if (db.settingValue(QStringLiteral("use_exact_own_location")) == QStringLiteral("1")) {
+            bool okLat = false;
+            bool okLon = false;
+            const double lat = db.settingValue(QStringLiteral("own_exact_latitude")).toDouble(&okLat);
+            const double lon = db.settingValue(QStringLiteral("own_exact_longitude")).toDouble(&okLon);
+            if (okLat && okLon && (lat != 0.0 || lon != 0.0) && std::fabs(lat) <= 90.0 && std::fabs(lon) <= 180.0) {
+                exactGrid = gridSquareFromLatLon(lat, lon).toUpper();
+            }
+        }
+    }
+    dialog.setOwnGrid(m_appController.settings().ownGrid, exactGrid);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
     const QString selectedId = dialog.selectedContestId();
-    if (selectedId.isEmpty() || selectedId == m_appController.settings().activeContestId) {
+    const QString grid = dialog.ownGrid();
+    const bool contestChanged = !selectedId.isEmpty() && selectedId != m_appController.settings().activeContestId;
+    const bool gridChanged = isValidGridSquare(grid) && grid != m_appController.settings().ownGrid.trimmed().toUpper();
+    if (!contestChanged && !gridChanged) {
         return;
     }
     // Same propagation path SettingsDialog's own contest combo already
     // triggers on accept (see openSettingsDialog() above) -- one way for
-    // activeContestId to change to actually reach the running UI, not
-    // two independently-maintained copies of it.
+    // activeContestId (and the own locator) to change to actually reach
+    // the running UI, not two independently-maintained copies of it.
     ContestSettings settings = m_appController.settings();
-    settings.activeContestId = selectedId;
+    if (contestChanged) {
+        settings.activeContestId = selectedId;
+    }
+    if (gridChanged) {
+        settings.ownGrid = grid;
+    }
     m_appController.setSettings(settings);
     applyActiveContestDefinition();
     // The countdown follows the definition's schedule now, so a contest
@@ -2731,6 +2757,11 @@ void MainWindow::openContestPicker()
     refreshSuggestionPanel();
     m_mapWidget->setVisibleRangeKm(m_appController.settings().radiusKm);
     m_rateMeterWidget->setSource(&m_appController.database(), m_appController.settings().activeContestId);
+    if (gridChanged) {
+        // The terrain and horizon follow the own position too.
+        refreshTerrainSectors();
+        statusBar()->showMessage(QStringLiteral("Eigener Locator jetzt %1.").arg(grid), 8000);
+    }
     updateStatusBar();
 }
 
