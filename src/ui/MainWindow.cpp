@@ -46,6 +46,7 @@
 #include "ui/LogCheckWindow.h"
 #include "ui/ReadinessWindow.h"
 #include "ui/AboutDialog.h"
+#include "ui/UpdateDialog.h"
 #include "ui/ShortcutsWindow.h"
 #include "ui/TransverterDialog.h"
 #include "ui/MapWidget.h"
@@ -1329,6 +1330,17 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Hilfe"));
     QAction* shortcutsAction = helpMenu->addAction(QStringLiteral("&Tastenkürzel..."));
     connect(shortcutsAction, &QAction::triggered, this, &MainWindow::openShortcutsWindow);
+    // "bei HELP oben ein Button ... neuerste Version aktualisieren"
+    // (operator, 2026-09-21): GitHub release -> download -> swap ->
+    // restart, see ui/UpdateDialog.h.
+    QAction* updateAction = helpMenu->addAction(QStringLiteral("Auf neueste Version &aktualisieren..."));
+    updateAction->setObjectName(QStringLiteral("updateAction"));
+    connect(updateAction, &QAction::triggered, this, [this] {
+        auto* dialog = new UpdateDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
+    helpMenu->addSeparator();
     QAction* aboutAction = helpMenu->addAction(QStringLiteral("Über &Contestprogramm..."));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::openAboutDialog);
 

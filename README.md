@@ -171,6 +171,13 @@ macOS (Apple Silicon) als DMG. Das Programm ist nicht bei Apple beglaubigt --
 beim ersten Start Rechtsklick › Öffnen. Windows- und Linux-Pakete folgen
 über die CI. Die Seite dazu: <https://www.longpath.at/contest/>.
 
+Ein laufendes Programm holt sich die nächste Version selbst: **Hilfe ›
+Auf neueste Version aktualisieren…** fragt die GitHub-Releases ab, lädt das
+Paket für den eigenen Rechner (DMG, portables ZIP oder AppImage), prüft die
+SHA-256-Summe, setzt es an die Stelle der laufenden Kopie und startet neu.
+Ein Entwicklungsbau (nicht als App-Paket/AppImage gestartet) meldet nur,
+dass es eine neuere Version gibt.
+
 ## Lizenz und Herkunft
 
 GNU General Public License v3.0 oder später, siehe `LICENSE`. Attribution

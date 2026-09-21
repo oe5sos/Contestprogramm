@@ -117,6 +117,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/AppActivation.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
+    src/app/SelfUpdater.h
+    src/app/SelfUpdater.cpp
     src/data/QsoRecord.h
     src/data/ContestDatabase.h
     src/data/ContestDatabase.cpp
@@ -173,6 +175,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/ReadinessWindow.cpp
     src/ui/ShortcutsWindow.cpp
     src/ui/AboutDialog.cpp
+    src/ui/UpdateDialog.h
+    src/ui/UpdateDialog.cpp
     src/ui/TransverterDialog.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp

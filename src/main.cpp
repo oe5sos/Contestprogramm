@@ -4,6 +4,8 @@
 #include "ui/MainWindow.h"
 #include "ui/StyleKit.h"
 
+#include "BuildInfo.h"
+
 #include <QApplication>
 #include <QDir>
 #include <QMessageBox>
@@ -16,6 +18,7 @@ int main(int argc, char* argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Contestprogramm"));
     QApplication::setOrganizationName(QStringLiteral("Contestprogramm"));
+    QApplication::setApplicationVersion(QStringLiteral(CONTESTPROGRAMM_VERSION));
 
     // Override hook for isolated test runs -- bench-found 2026-09-14: a
     // launch with HOME repointed at a scratch directory still opened the
