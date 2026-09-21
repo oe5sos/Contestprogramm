@@ -35,6 +35,12 @@ public:
 
     const QString& directory() const { return m_directory; }
 
+    // A second place every copy also goes -- a USB stick or a cloud
+    // folder, so the log survives the laptop. Empty = none. Failures
+    // there never fail the backup itself; they come as mirrorFailed().
+    void setMirrorDirectory(const QString& directory);
+    const QString& mirrorDirectory() const { return m_mirrorDirectory; }
+
     void start(int intervalMs = kDefaultIntervalMs);
 
     // Writes a copy now. Without `force`, does nothing (and returns an
@@ -58,12 +64,16 @@ public:
 signals:
     void backupWritten(const QString& path);
     void backupFailed(const QString& error);
+    void mirrorFailed(const QString& error);
 
 private:
     void prune();
+    static void pruneDirectory(const QString& directory);
+    void mirror(const QString& path);
 
     ContestDatabase* m_database;
     QString m_directory;
+    QString m_mirrorDirectory;
     QTimer* m_timer;
     int m_counterAtLastBackup = -1;
 };

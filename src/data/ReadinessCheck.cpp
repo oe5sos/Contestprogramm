@@ -276,6 +276,23 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             QStringLiteral("Zuletzt %1, nach %2").arg(stamp(ctx.lastBackupUtc), ctx.backupDirectory), QStringLiteral("backup"));
     }
 
+    // The second copy -- a stick that is unplugged is the one case
+    // worth a warning before the start.
+    if (!ctx.mirrorDirectory.isEmpty()) {
+        if (ctx.mirrorWritable) {
+            add(Level::Ok, kGroupData, QStringLiteral("Zweite Sicherung"), QStringLiteral("Auch nach %1").arg(ctx.mirrorDirectory),
+                QStringLiteral("mirror"));
+        } else {
+            add(Level::Warning, kGroupData, QStringLiteral("Zweite Sicherung"),
+                QStringLiteral("%1 nicht erreichbar — Stick eingesteckt? (Datei › Zweiter Sicherungsordner…)").arg(ctx.mirrorDirectory),
+                QStringLiteral("mirror"));
+        }
+    } else {
+        add(Level::Hint, kGroupData, QStringLiteral("Zweite Sicherung"),
+            QStringLiteral("Keine — ein USB-Stick oder Cloud-Ordner unter Datei › Zweiter Sicherungsordner… überlebt den Laptop."),
+            QStringLiteral("mirror"));
+    }
+
     if (ctx.terrainLoadedForOwnLocation) {
         add(Level::Ok, kGroupData, QStringLiteral("Geländedaten"), QStringLiteral("Für den Standort geladen."),
             QStringLiteral("terrain"));

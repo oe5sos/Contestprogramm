@@ -212,6 +212,10 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     // .sqlite), where a rescue after a crash looks first.
     if (m_logBackup == nullptr) {
         m_logBackup = new LogBackup(m_database, QFileInfo(path).dir().filePath(QStringLiteral("backups")), this);
+        // The second copy's folder (a stick, a cloud folder) is a
+        // settings-table key of its own, set from Datei > Zweiter
+        // Sicherungsordner.
+        m_logBackup->setMirrorDirectory(m_database.settingValue(QStringLiteral("backup_mirror_dir")));
         m_logBackup->start();
     }
     loadAvailableContestDefinitions();

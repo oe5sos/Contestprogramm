@@ -45,6 +45,7 @@ private slots:
     void copiesOnlyWhenTheLogChangedAndTheCopyIsComplete();
     void prunesToTheNewestFiles();
     void fileNamesAreTimeOrdered();
+    void mirrorsEveryCopyAndSurvivesAMissingMirror();
 };
 
 void TestLogBackup::copiesOnlyWhenTheLogChangedAndTheCopyIsComplete()
@@ -117,6 +118,49 @@ void TestLogBackup::prunesToTheNewestFiles()
     // The newest (today's real copy) survived, the oldest dummies went.
     QVERIFY(remaining.last().startsWith(QStringLiteral("contestprogramm-20")));
     QVERIFY(!remaining.contains(QStringLiteral("contestprogramm-20200001-0000.sqlite")));
+}
+
+void TestLogBackup::mirrorsEveryCopyAndSurvivesAMissingMirror()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("log.sqlite")), QStringLiteral("backup_mirror")));
+    QsoRecord qso1 = makeQso(QStringLiteral("DL1ABC"));
+    QVERIFY(db.insertQso(qso1));
+
+    LogBackup backup(db, dir.filePath(QStringLiteral("backups")));
+    const QString stick = dir.filePath(QStringLiteral("stick/Contestprogramm"));
+    backup.setMirrorDirectory(stick);
+    QSignalSpy failed(&backup, &LogBackup::mirrorFailed);
+    QString error;
+    const QString path = backup.backupNow(true, &error);
+    QVERIFY2(!path.isEmpty(), qPrintable(error));
+    // The same file, same name, on the "stick" (its folder created).
+    const QString mirrored = QDir(stick).filePath(QFileInfo(path).fileName());
+    QVERIFY(QFileInfo::exists(mirrored));
+    QCOMPARE(QFileInfo(mirrored).size(), QFileInfo(path).size());
+    QCOMPARE(failed.count(), 0);
+
+    // The stick gone (a file where the folder should be): the backup
+    // beside the database is still written, the mirror reports.
+    QVERIFY(QDir(dir.path()).rename(QStringLiteral("stick"), QStringLiteral("stick-gone")));
+    QFile blocker(dir.filePath(QStringLiteral("stick")));
+    QVERIFY(blocker.open(QIODevice::WriteOnly));
+    blocker.close();
+    QsoRecord qso2 = makeQso(QStringLiteral("DL2ABC"));
+    QVERIFY(db.insertQso(qso2));
+    const QString second = backup.backupNow(true, &error);
+    QVERIFY2(!second.isEmpty(), qPrintable(error));
+    QCOMPARE(failed.count(), 1);
+    QVERIFY(failed.first().at(0).toString().contains(QStringLiteral("nicht erreichbar")));
+
+    // No mirror: nothing else happens.
+    backup.setMirrorDirectory(QString());
+    QsoRecord qso3 = makeQso(QStringLiteral("DL3ABC"));
+    QVERIFY(db.insertQso(qso3));
+    QVERIFY(!backup.backupNow(true, &error).isEmpty());
+    QCOMPARE(failed.count(), 1);
 }
 
 void TestLogBackup::fileNamesAreTimeOrdered()

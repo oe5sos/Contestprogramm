@@ -1114,6 +1114,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     QAction* restoreAction = fileMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
     connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
+    // A second copy of every backup on a stick or in a cloud folder --
+    // the log survives the laptop (see LogBackup::setMirrorDirectory).
+    QAction* mirrorAction = fileMenu->addAction(QStringLiteral("Zweiter Sicherungsordner..."));
+    mirrorAction->setObjectName(QStringLiteral("backupMirrorAction"));
+    connect(mirrorAction, &QAction::triggered, this, &MainWindow::chooseBackupMirror);
+    QAction* clearMirrorAction = fileMenu->addAction(QStringLiteral("Zweiten Sicherungsordner entfernen"));
+    clearMirrorAction->setObjectName(QStringLiteral("backupMirrorClearAction"));
+    connect(clearMirrorAction, &QAction::triggered, this, &MainWindow::clearBackupMirror);
+    connect(fileMenu, &QMenu::aboutToShow, this, [this, clearMirrorAction] {
+        const LogBackup* backup = m_appController.logBackup();
+        clearMirrorAction->setEnabled(backup && !backup->mirrorDirectory().isEmpty());
+    });
+    if (LogBackup* backup = m_appController.logBackup()) {
+        connect(backup, &LogBackup::mirrorFailed, this, [this](const QString& error) {
+            qWarning().noquote() << error;
+            statusBar()->showMessage(error, 15000);
+        });
+    }
     QAction* archiveAction = fileMenu->addAction(QStringLiteral("Log &abschließen und archivieren..."));
     connect(archiveAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     fileMenu->addSeparator();
@@ -3011,6 +3029,41 @@ void MainWindow::backupLogNow()
     statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(path), 8000);
 }
 
+void MainWindow::chooseBackupMirror()
+{
+    LogBackup* backup = m_appController.logBackup();
+    if (!backup) {
+        return;
+    }
+    const QString chosen = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Zweiter Sicherungsordner (USB-Stick, Cloud-Ordner)"),
+        backup->mirrorDirectory().isEmpty() ? QDir::homePath() : backup->mirrorDirectory());
+    if (chosen.isEmpty()) {
+        return;
+    }
+    backup->setMirrorDirectory(chosen);
+    m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), chosen);
+    // A first copy right away, so the stick is never empty.
+    QString error;
+    const QString path = backup->backupNow(true, &error);
+    if (path.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("Zweiter Sicherungsordner: %1 — Sicherung fehlgeschlagen: %2").arg(chosen, error), 15000);
+        return;
+    }
+    statusBar()->showMessage(QStringLiteral("Zweiter Sicherungsordner: %1 — Log gesichert.").arg(chosen), 8000);
+}
+
+void MainWindow::clearBackupMirror()
+{
+    LogBackup* backup = m_appController.logBackup();
+    if (!backup) {
+        return;
+    }
+    backup->setMirrorDirectory(QString());
+    m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), QString());
+    statusBar()->showMessage(QStringLiteral("Zweiter Sicherungsordner entfernt — Sicherungen nur noch neben der Datenbank."), 8000);
+}
+
 void MainWindow::restoreBackup()
 {
     LogBackup* backup = m_appController.logBackup();
@@ -3446,6 +3499,13 @@ void MainWindow::refreshReadiness()
         if (!backups.isEmpty()) {
             ctx.lastBackupUtc = backups.first().utc;
         }
+        ctx.mirrorDirectory = backup->mirrorDirectory();
+        // Reachable = its folder exists (a stick) or can be made
+        // (a cloud folder's subfolder); an unplugged stick has neither.
+        ctx.mirrorWritable = !ctx.mirrorDirectory.isEmpty()
+            && (QFileInfo(ctx.mirrorDirectory).isWritable()
+                || (!QFileInfo::exists(ctx.mirrorDirectory)
+                    && QFileInfo(QFileInfo(ctx.mirrorDirectory).path()).isWritable()));
     }
     {
         double lat = 0.0;

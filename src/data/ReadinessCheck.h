@@ -87,6 +87,8 @@ struct ReadinessContext {
     QString backupDirectory;
     bool backupDirectoryWritable = false;
     QDateTime lastBackupUtc;
+    QString mirrorDirectory; // the second copy's folder, empty when none
+    bool mirrorWritable = false;
     bool terrainLoadedForOwnLocation = false;
     int importedLocators = 0;
 };

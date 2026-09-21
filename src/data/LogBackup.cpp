@@ -30,6 +30,11 @@ LogBackup::LogBackup(ContestDatabase& database, const QString& directory, QObjec
     });
 }
 
+void LogBackup::setMirrorDirectory(const QString& directory)
+{
+    m_mirrorDirectory = directory.trimmed();
+}
+
 void LogBackup::start(int intervalMs)
 {
     m_timer->setInterval(intervalMs);
@@ -74,7 +79,28 @@ QString LogBackup::backupNow(bool force, QString* errorOut)
     m_counterAtLastBackup = counter;
     prune();
     emit backupWritten(path);
+    mirror(path);
     return path;
+}
+
+void LogBackup::mirror(const QString& path)
+{
+    if (m_mirrorDirectory.isEmpty()) {
+        return;
+    }
+    // An unplugged stick must not take the backup with it: the copy
+    // beside the database is already written when this runs.
+    if (!QDir().mkpath(m_mirrorDirectory)) {
+        emit mirrorFailed(QStringLiteral("Zweiter Sicherungsordner nicht erreichbar: %1").arg(m_mirrorDirectory));
+        return;
+    }
+    const QString target = QDir(m_mirrorDirectory).filePath(QFileInfo(path).fileName());
+    QFile::remove(target);
+    if (!QFile::copy(path, target)) {
+        emit mirrorFailed(QStringLiteral("Kopie nach %1 fehlgeschlagen").arg(m_mirrorDirectory));
+        return;
+    }
+    pruneDirectory(m_mirrorDirectory);
 }
 
 QVector<LogBackup::Entry> LogBackup::listBackups(const QString& directory)
@@ -100,7 +126,12 @@ QVector<LogBackup::Entry> LogBackup::listBackups(const QString& directory)
 
 void LogBackup::prune()
 {
-    QDir dir(m_directory);
+    pruneDirectory(m_directory);
+}
+
+void LogBackup::pruneDirectory(const QString& directory)
+{
+    QDir dir(directory);
     // Name order is time order (yyyyMMdd-HHmm), oldest first.
     const QStringList files = dir.entryList({kPrefix + QLatin1Char('*') + kSuffix}, QDir::Files, QDir::Name);
     for (int i = 0; i < files.size() - kKeepFiles; ++i) {

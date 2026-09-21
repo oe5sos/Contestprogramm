@@ -66,6 +66,8 @@ ReadinessContext readyContext()
     ctx.lastBackupUtc = ctx.nowUtc.addSecs(-120);
     ctx.terrainLoadedForOwnLocation = true;
     ctx.importedLocators = 1234;
+    ctx.mirrorDirectory = QStringLiteral("/Volumes/STICK/Contestprogramm");
+    ctx.mirrorWritable = true;
     return ctx;
 }
 
@@ -87,6 +89,7 @@ private slots:
     void dataOnDisk();
     void spansReadNaturally();
     void windowShowsTheLiveSnapshot();
+    void secondBackupFolderIsWiredThrough();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -240,6 +243,16 @@ void TestReadinessCheck::dataOnDisk()
     ctx.lastBackupUtc = QDateTime();
     result = checkReadiness(ctx);
     QCOMPARE(itemWithCode(result, QStringLiteral("backup"))->level, ReadinessItem::Level::Hint);
+
+    // The second copy: fine, unplugged, none.
+    QCOMPARE(itemWithCode(result, QStringLiteral("mirror"))->level, ReadinessItem::Level::Ok);
+    ctx.mirrorWritable = false;
+    result = checkReadiness(ctx);
+    QCOMPARE(itemWithCode(result, QStringLiteral("mirror"))->level, ReadinessItem::Level::Warning);
+    QVERIFY(itemWithCode(result, QStringLiteral("mirror"))->detail.contains(QStringLiteral("Stick eingesteckt?")));
+    ctx.mirrorDirectory.clear();
+    result = checkReadiness(ctx);
+    QCOMPARE(itemWithCode(result, QStringLiteral("mirror"))->level, ReadinessItem::Level::Hint);
     ctx.lastBackupUtc = ctx.nowUtc.addSecs(-60);
     result = checkReadiness(ctx);
     QCOMPARE(itemWithCode(result, QStringLiteral("backup"))->detail,
@@ -295,6 +308,50 @@ void TestReadinessCheck::windowShowsTheLiveSnapshot()
     }
     QVERIFY(contestSeen);
     QVERIFY(check->summaryText().contains(QStringLiteral("ereit")));
+}
+
+void TestReadinessCheck::secondBackupFolderIsWiredThrough()
+{
+    // The settings-table key reaches LogBackup on the next start, the
+    // Startcheck reads it back, and "entfernen" clears both.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString stick = dir.filePath(QStringLiteral("stick"));
+    {
+        AppController first;
+        QVERIFY(first.openDatabase(dir.filePath(QStringLiteral("mirror.sqlite"))));
+        QVERIFY(first.logBackup());
+        QVERIFY(first.logBackup()->mirrorDirectory().isEmpty());
+        first.database().setSettingValue(QStringLiteral("backup_mirror_dir"), stick);
+    }
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("mirror.sqlite"))));
+    QCOMPARE(controller->logBackup()->mirrorDirectory(), stick);
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+
+    MainWindow window(*controller);
+    QMetaObject::invokeMethod(&window, "openReadinessWindow");
+    auto* check = window.findChild<ReadinessWindow*>();
+    QVERIFY(check);
+    bool seen = false;
+    for (int row = 0; row < check->rowCount(); ++row) {
+        if (check->rowText(row, 2) == QStringLiteral("Zweite Sicherung")) {
+            seen = true;
+            QCOMPARE(check->rowText(row, 0), QStringLiteral("OK"));
+            QVERIFY(check->rowText(row, 3).contains(stick));
+        }
+    }
+    QVERIFY(seen);
+
+    QMetaObject::invokeMethod(&window, "clearBackupMirror");
+    QVERIFY(controller->logBackup()->mirrorDirectory().isEmpty());
+    QVERIFY(controller->database().settingValue(QStringLiteral("backup_mirror_dir")).isEmpty());
 }
 
 int main(int argc, char* argv[])

@@ -147,6 +147,11 @@ private slots:
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void restoreBackup();
+    // Datei > Zweiter Sicherungsordner... / ...entfernen: where every
+    // backup is also copied (LogBackup::setMirrorDirectory), kept in
+    // the settings table as backup_mirror_dir.
+    void chooseBackupMirror();
+    void clearBackupMirror();
     void adjustCwSpeed(int deltaWpm);
     void openEsmTemplatesDialog();
     void openScoreboardDialog();
