@@ -11,6 +11,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
+#include "core/DxClusterClient.h"
+#include "core/On4kstClient.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
 
@@ -68,6 +70,8 @@ class TestClientReconnect : public QObject
 private slots:
     void rotorClientFindsARotctldThatAppearsLater();
     void rigClientFindsARigctldThatAppearsLater();
+    void on4kstClientDialsAgainAfterARefusedConnect();
+    void clusterClientDialsAgainAfterARefusedConnect();
 };
 
 void TestClientReconnect::rotorClientFindsARotctldThatAppearsLater()
@@ -99,6 +103,46 @@ void TestClientReconnect::rigClientFindsARigctldThatAppearsLater()
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
     QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 8000);
+}
+
+// The chat and cluster clients had the same gap with their own
+// exponential backoff: armed only from disconnected(), which a refused
+// connect never produces. The first retry comes after the initial
+// 5 s delay.
+void TestClientReconnect::on4kstClientDialsAgainAfterARefusedConnect()
+{
+    const quint16 port = freePort();
+    On4kstClient client;
+    QSignalSpy errors(&client, &On4kstClient::connectionError);
+    QSignalSpy connected(&client, &On4kstClient::connected);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), port, QStringLiteral("OE5SOS"), QStringLiteral("pw"));
+    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 3000);
+    QVERIFY(!client.isConnected());
+
+    FakeDaemon daemon;
+    QVERIFY(daemon.listen(port));
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 9000);
+    QCOMPARE(connected.count(), 1);
+
+    // A deliberate disconnect ends the retries.
+    client.disconnectFromServer();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 3000);
+    QTest::qWait(200);
+    QVERIFY(!client.isConnected());
+}
+
+void TestClientReconnect::clusterClientDialsAgainAfterARefusedConnect()
+{
+    const quint16 port = freePort();
+    DxClusterClient client;
+    QSignalSpy errors(&client, &DxClusterClient::connectionError);
+    client.connectToCluster(QStringLiteral("127.0.0.1"), port, QStringLiteral("OE5SOS"));
+    QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 3000);
+    QVERIFY(!client.isConnected());
+
+    FakeDaemon daemon;
+    QVERIFY(daemon.listen(port));
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 9000);
 }
 
 QTEST_MAIN(TestClientReconnect)

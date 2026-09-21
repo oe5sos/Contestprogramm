@@ -28,6 +28,7 @@ On4kstClient::On4kstClient(QObject* parent)
     : QObject(parent)
     , m_socket(new QTcpSocket(this))
     , m_reconnectTimer(new QTimer(this))
+    , m_connectTimer(new QTimer(this))
 {
     connect(m_socket, &QTcpSocket::connected, this, &On4kstClient::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &On4kstClient::onDisconnected);
@@ -36,6 +37,21 @@ On4kstClient::On4kstClient(QObject* parent)
 
     m_reconnectTimer->setSingleShot(true);
     connect(m_reconnectTimer, &QTimer::timeout, this, &On4kstClient::onReconnectTimer);
+
+    // A connect attempt that neither succeeds nor fails within
+    // kConnectTimeoutMs is aborted and retried with the usual backoff.
+    // A member timer, restarted per attempt: the earlier fire-and-forget
+    // QTimer::singleShot could outlive its attempt and abort the next
+    // one mid-connect.
+    m_connectTimer->setSingleShot(true);
+    m_connectTimer->setInterval(kConnectTimeoutMs);
+    connect(m_connectTimer, &QTimer::timeout, this, [this] {
+        if (!m_connected && m_socket->state() != QAbstractSocket::ConnectedState) {
+            m_socket->abort();
+            emit connectionError(QStringLiteral("Connection timeout"));
+            scheduleReconnect();
+        }
+    });
 }
 
 On4kstClient::~On4kstClient()
@@ -65,19 +81,14 @@ void On4kstClient::connectAndLogin(const QString& host, quint16 port,
     m_readBuffer.clear();
 
     m_socket->connectToHost(host, port);
-
-    QTimer::singleShot(kConnectTimeoutMs, this, [this] {
-        if (!m_connected && m_socket->state() != QAbstractSocket::ConnectedState) {
-            m_socket->abort();
-            emit connectionError(QStringLiteral("Connection timeout"));
-        }
-    });
+    m_connectTimer->start();
 }
 
 void On4kstClient::disconnectFromServer()
 {
     m_intentionalDisconnect = true;
     m_reconnectTimer->stop();
+    m_connectTimer->stop();
     if (m_connected) {
         sendRaw(QStringLiteral("/QUIT"));
     }
@@ -121,6 +132,7 @@ void On4kstClient::sendBack()
 
 void On4kstClient::onConnected()
 {
+    m_connectTimer->stop();
     m_connected = true;
     m_reconnectAttempts = 0;
     emit connected();
@@ -151,20 +163,33 @@ void On4kstClient::onDisconnected()
         emit disconnected();
     }
 
-    if (!m_intentionalDisconnect) {
-        // Same exponential-backoff shape as DxClusterClient::onDisconnected
-        // (shift count clamped to avoid signed-int UB; saturates at
-        // kMaxReconnectDelayMs well before the clamp matters).
-        const int shiftBits = std::min(m_reconnectAttempts, 30);
-        const int delay = std::min(kInitialReconnectDelayMs * (1 << shiftBits), kMaxReconnectDelayMs);
-        m_reconnectTimer->start(delay);
-        m_reconnectAttempts++;
-    }
+    scheduleReconnect();
 }
 
 void On4kstClient::onSocketError(QAbstractSocket::SocketError /*err*/)
 {
     emit connectionError(m_socket->errorString());
+    // A refused or failed connect never produces disconnected() -- the
+    // socket drops straight back to Unconnected -- so the retry has to
+    // be armed here too, or a server that is not reachable when this
+    // client first dials (no internet yet at the contest site) is never
+    // dialed again (found 2026-09-21, the same gap as in RotctldClient).
+    if (!m_connected && m_socket->state() == QAbstractSocket::UnconnectedState) {
+        scheduleReconnect();
+    }
+}
+
+void On4kstClient::scheduleReconnect()
+{
+    if (m_intentionalDisconnect || m_reconnectTimer->isActive()) {
+        return;
+    }
+    // Exponential backoff, shift count clamped to avoid signed-int UB;
+    // saturates at kMaxReconnectDelayMs well before the clamp matters.
+    const int shiftBits = std::min(m_reconnectAttempts, 30);
+    const int delay = std::min(kInitialReconnectDelayMs * (1 << shiftBits), kMaxReconnectDelayMs);
+    m_reconnectTimer->start(delay);
+    m_reconnectAttempts++;
 }
 
 void On4kstClient::onReconnectTimer()

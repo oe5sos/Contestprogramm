@@ -97,6 +97,10 @@ private slots:
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError err);
     void onReconnectTimer();
+    // Arms the exponential-backoff reconnect (once; never after a
+    // deliberate disconnect) -- shared by a lost connection and a
+    // connect attempt that never got through.
+    void scheduleReconnect();
 
 private:
     void sendRaw(const QString& line); // appends "\r\n"
@@ -107,6 +111,7 @@ private:
     QTcpSocket* m_socket;
     QByteArray  m_readBuffer;
     QTimer*     m_reconnectTimer;
+    QTimer*     m_connectTimer; // one connect attempt's deadline; restarted per attempt, never stale
 
     QString m_host;
     quint16 m_port{23001};

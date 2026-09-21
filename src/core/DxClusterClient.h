@@ -95,6 +95,10 @@ private slots:
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError err);
     void onReconnectTimer();
+    // Arms the exponential-backoff reconnect (once; never after a
+    // deliberate disconnect) -- shared by a lost connection and a
+    // connect attempt that never got through.
+    void scheduleReconnect();
 
 private:
     static bool parseDxSpotLine(const QString& line, SpotCandidate& candidateOut);
@@ -106,6 +110,7 @@ private:
     QTcpSocket* m_socket;
     QByteArray  m_readBuffer;
     QTimer*     m_reconnectTimer;
+    QTimer*     m_connectTimer; // one connect attempt's deadline; restarted per attempt, never stale
 
     QString m_host;
     quint16 m_port{7300}; // a common DXSpider default; operator-set via ContestSettings::clusterPort in practice
