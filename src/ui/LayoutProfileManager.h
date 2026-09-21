@@ -38,6 +38,15 @@ public:
 
     QStringList profileNames() const { return m_order; }
     QString activeProfile() const { return m_active; }
+    // No profile existed when this was constructed: profile "1" was
+    // just made from what was on screen.
+    bool isFirstLaunch() const { return m_firstLaunch; }
+    // Snapshots the active profile from the panels as they are now --
+    // MainWindow calls it once the fresh install's design has been
+    // placed for the canvas's real size (PanelLayoutManager::
+    // initialDesignApplied), replacing the constructor's snapshot of
+    // the not-yet-shown window.
+    void saveActiveProfileState();
 
     // No-op if `name` is already active or unknown. Snapshots the
     // outgoing profile's current on-screen state first, so switching
@@ -64,7 +73,6 @@ signals:
 private:
     QString serializeCurrentState() const;
     void applyState(const QString& serialized);
-    void saveActiveProfileState();
     void persistOrderAndActive();
     QString generateProfileName() const;
 
@@ -73,6 +81,7 @@ private:
     QStringList m_panelIds;
     QStringList m_order;
     QString m_active;
+    bool m_firstLaunch = false;
 };
 
 } // namespace Contestprogramm

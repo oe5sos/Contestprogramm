@@ -391,7 +391,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's own y-coordinate below is actually measured against.
     m_cwMacroPanelContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("cwMacroRow"), QStringLiteral("CW-Makros"), cwContent,
-        /*contentHasOwnChrome=*/false, QRect(0, 0, 1440, 72));
+        /*contentHasOwnChrome=*/false, QRect(0, 0, 1440, 72), QRect(0, 0, 1372, 72));
     m_cwMacroPanelContainer->setVisible(m_appController.settings().cwMacroPanelVisible);
 
     // The merged Log panel: EntryBarWidget + LogTableView + both
@@ -432,7 +432,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_unifiedLog->setChatModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
-        /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95));
+        /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
+        // Compact design (PanelLayoutManager::kCompactDesignCanvas,
+        // 1372×692): rotors and map on top, the log across the bottom
+        // with room for a few history rows, the bandmap beside it.
+        QRect(0, 450, 1010, 242));
     // A live clock fixed to the Log panel's own header -- operator,
     // 2026-09-11: "uhrzeit fehlt, muss fix beim logfenster sein",
     // matching DXLog.net's own "Contest recorder" window, which shows
@@ -529,7 +533,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's own comment below for why they run taller.
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
-        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365));
+        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -604,7 +608,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // (operator, 2026-09-20) -- which opens the map's own layer menu.
     PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
-        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501));
+        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501), QRect(630, 0, 742, 442));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
@@ -648,7 +652,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // this class's original comment above), just less of it, freeing 30px
     // for the map's settings row instead.
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
-                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(630, 78, 270, 365));
+                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(630, 78, 270, 365),
+                                         QRect(0, 258, 310, 184));
     connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
@@ -677,7 +682,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Width 270, matching suggestion's own column above (see that
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130));
+                                         /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130),
+                                         QRect(318, 258, 302, 184));
     // Check Partial, under the rate panel in the same 270px column --
     // hidden in every already-saved profile (LayoutProfileManager's
     // "a panel the profile never saved starts hidden"), switched on
@@ -700,7 +706,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         handleCandidateActivated(callsign, grid, freqHz);
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260));
+                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260),
+                                         QRect(1018, 450, 354, 242));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -736,6 +743,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
          QStringLiteral("bandmap"), QStringLiteral("skeds")},
         this);
+    // A fresh database only: the panels get the design that fits the
+    // canvas once it has its real size, and profile "1" is snapshotted
+    // again from that (its constructor's snapshot saw the unshown
+    // window) -- see PanelLayoutManager::kCompactDesignCanvas.
+    m_panelLayoutManager->setFreshInstall(!m_panelLayoutManager->hadSavedLayout()
+                                          && m_layoutProfileManager->isFirstLaunch());
+    connect(m_panelLayoutManager, &PanelLayoutManager::initialDesignApplied, this,
+            [this] { m_layoutProfileManager->saveActiveProfileState(); });
     m_profileRail = new ProfileRail(this);
     m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
     connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this, [this]() {
@@ -1217,8 +1232,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     updateStatusBar();
 
     // First run: no callsign known yet, so nothing useful can be logged.
+    // Opened from the event loop, after main() has shown the window at
+    // its real size -- not from inside this constructor, where the modal
+    // dialog's own event processing laid the canvas out at Qt's tiny
+    // pre-show default and clampPanelsToCanvas() crammed every panel
+    // into that (a fresh install's first screen was a heap of overlapping
+    // panels in the wrong corner, 2026-09-21), and where the dialog
+    // centred itself on a window that had no on-screen position yet
+    // (half of it off the left screen edge).
     if (m_appController.settings().ownCallsign.isEmpty()) {
-        openSettingsDialog();
+        QTimer::singleShot(0, this, [this] {
+            if (m_appController.settings().ownCallsign.isEmpty()) {
+                openSettingsDialog();
+            }
+        });
     }
 
     // Restore the window size/position the operator last actually used
@@ -1301,7 +1328,11 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     // 1440-wide window still recentered rotorrow to ~x=400 on top of
     // the map/suggestion columns instead of leaving it at its default
     // x=0).
-    constexpr int kFullLayoutWidth = 1440 - 24;
+    // Since 2026-09-21 the width of the design in force (PanelLayout-
+    // Manager::designWidth(): 1440 for the large design, 1372 for the
+    // compact one a 13" screen gets) -- the old literal 1416 was above
+    // the 1372 px the default window actually leaves the canvas, so the
+    // rotor row was recentred onto the map column at the default size.
     constexpr int kRotorRowDefaultWidth = 620;
     constexpr int kMargin = 10;
 
@@ -1313,7 +1344,7 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
         return;
     }
     const int canvasWidth = canvas->width();
-    if (canvasWidth <= 0 || canvasWidth >= kFullLayoutWidth) {
+    if (canvasWidth <= 0 || canvasWidth >= m_panelLayoutManager->designWidth()) {
         return;
     }
 

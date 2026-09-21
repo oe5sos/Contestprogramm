@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QSignalSpy>
 
 #include <QApplication>
 #include <QLabel>
@@ -7,6 +8,7 @@
 
 #include "data/ContestDatabase.h"
 #include "ui/PanelContainerWidget.h"
+#include "ui/LayoutProfileManager.h"
 #include "ui/PanelLayoutManager.h"
 
 using namespace Contestprogramm;
@@ -71,6 +73,9 @@ private slots:
     void canvasResizeLeavesLockedPanelAloneEvenIfOffCanvas();
     void canvasResizeLeavesOnCanvasPanelUntouched();
     void editingOnePanelDoesNotPersistAnotherPanelsClampedGeometry();
+    void compactDesignFitsASmallCanvas();
+    void freshInstallPlacesPanelsByTheFittingDesignOnce();
+    void profileSnapshotCountsUnshownPanelsAsVisible();
 };
 
 namespace {
@@ -418,6 +423,121 @@ void TestPanelLayoutManager::editingOnePanelDoesNotPersistAnotherPanelsClampedGe
     // scoping the save, not about breaking the one save that should
     // still happen.
     QCOMPARE(b2->geometry(), QRect(10, 10, 250, 150));
+}
+
+// Two designs: the large one for a canvas of at least 1440×982, the
+// compact one for anything smaller (a 13" MacBook's 1372×692), where a
+// panel without a compact rect stays hidden. "Fenster zurücksetzen"
+// picks by the canvas as it is.
+void TestPanelLayoutManager::compactDesignFitsASmallCanvas()
+{
+    QVERIFY(PanelLayoutManager::canvasFitsLargeDesign(QSize(1440, 982)));
+    QVERIFY(PanelLayoutManager::canvasFitsLargeDesign(QSize(1900, 1100)));
+    QVERIFY(!PanelLayoutManager::canvasFitsLargeDesign(QSize(1372, 692)));
+    QVERIFY(!PanelLayoutManager::canvasFitsLargeDesign(QSize(1440, 981)));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_compact.sqlite")), QStringLiteral("plm_compact")));
+    QWidget canvasParent;
+    PanelLayoutManager manager(db, &canvasParent);
+    manager.canvas()->resize(1372, 692);
+    PanelContainerWidget* rotors = manager.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(),
+                                                           false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+    PanelContainerWidget* skeds = manager.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
+                                                          false, QRect(0, 720, 620, 262));
+    QCOMPARE(rotors->geometry(), QRect(0, 78, 620, 365)); // registration alone: the large default
+    QCOMPARE(manager.designWidth(), PanelLayoutManager::kCompactDesignCanvas.width());
+
+    rotors->setLocked(true);
+    manager.resetToDefaultLayout();
+    QCOMPARE(rotors->geometry(), QRect(0, 0, 620, 250));
+    QVERIFY(!rotors->isLocked());
+    QVERIFY(skeds->isHidden()); // no place in the compact design
+
+    // A big canvas: the large design, and the panel is not hidden by it.
+    manager.canvas()->resize(1600, 1100);
+    QCOMPARE(manager.designWidth(), PanelLayoutManager::kLargeDesignCanvas.width());
+    skeds->setVisible(true);
+    manager.resetToDefaultLayout();
+    QCOMPARE(rotors->geometry(), QRect(0, 78, 620, 365));
+    QCOMPARE(skeds->geometry(), QRect(0, 720, 620, 262));
+    QVERIFY(!skeds->isHidden());
+}
+
+void TestPanelLayoutManager::freshInstallPlacesPanelsByTheFittingDesignOnce()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_fresh.sqlite")), QStringLiteral("plm_fresh")));
+    QWidget canvasParent;
+    PanelLayoutManager manager(db, &canvasParent);
+    PanelContainerWidget* rotors = manager.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(),
+                                                           false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+    QVERIFY(!manager.hadSavedLayout());
+    QSignalSpy applied(&manager, &PanelLayoutManager::initialDesignApplied);
+
+    // Not declared fresh: a resize only clamps, as before.
+    resizeCanvas(manager, QSize(1372, 692));
+    QCOMPARE(applied.count(), 0);
+    QCOMPARE(rotors->geometry(), QRect(0, 78, 620, 365));
+
+    // Declared fresh: the first real canvas size places the compact
+    // design, once; a later resize does not redo it.
+    manager.setFreshInstall(true);
+    resizeCanvas(manager, QSize(1372, 700));
+    QCOMPARE(applied.count(), 1);
+    QCOMPARE(rotors->geometry(), QRect(0, 0, 620, 250));
+    rotors->trySetGeometry(QRect(40, 40, 620, 250));
+    resizeCanvas(manager, QSize(1380, 700));
+    QCOMPARE(applied.count(), 1);
+    QCOMPARE(rotors->geometry(), QRect(40, 40, 620, 250));
+
+    // A database with a saved panel is never fresh.
+    db.setSettingValue(QStringLiteral("PanelLayout_rotorrow"), QStringLiteral("5|5|620|250|false"));
+    QWidget canvasParent2;
+    PanelLayoutManager manager2(db, &canvasParent2);
+    manager2.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(), false, QRect(0, 78, 620, 365),
+                           QRect(0, 0, 620, 250));
+    QVERIFY(manager2.hadSavedLayout());
+}
+
+void TestPanelLayoutManager::profileSnapshotCountsUnshownPanelsAsVisible()
+{
+    // The first profile is snapshotted in MainWindow's constructor,
+    // before anything is shown: a panel that was never hidden on
+    // purpose must be recorded as visible, or the next start opens an
+    // empty canvas.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_profile.sqlite")), QStringLiteral("plm_profile")));
+    QWidget canvasParent;
+    PanelLayoutManager manager(db, &canvasParent);
+    manager.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(), false, QRect(0, 78, 620, 365));
+    PanelContainerWidget* skeds = manager.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
+                                                          false, QRect(0, 720, 620, 262));
+    skeds->setVisible(false);
+    LayoutProfileManager profiles(db, manager, {QStringLiteral("rotorrow"), QStringLiteral("skeds")});
+    QVERIFY(profiles.isFirstLaunch());
+    const QString stored = db.settingValue(QStringLiteral("LayoutProfile_1"));
+    QVERIFY2(stored.contains(QStringLiteral("rotorrow:1:0:78:620:365")), qPrintable(stored));
+    QVERIFY2(stored.contains(QStringLiteral("skeds:0:0:720:620:262")), qPrintable(stored));
+
+    // The same database again: not a first launch, the state restored.
+    QWidget canvasParent2;
+    PanelLayoutManager manager2(db, &canvasParent2);
+    PanelContainerWidget* rotors2 = manager2.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(),
+                                                             false, QRect(0, 0, 100, 100));
+    PanelContainerWidget* skeds2 = manager2.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
+                                                            false, QRect(0, 0, 100, 100));
+    LayoutProfileManager profiles2(db, manager2, {QStringLiteral("rotorrow"), QStringLiteral("skeds")});
+    QVERIFY(!profiles2.isFirstLaunch());
+    QCOMPARE(rotors2->geometry(), QRect(0, 78, 620, 365));
+    QVERIFY(!rotors2->isHidden());
+    QVERIFY(skeds2->isHidden());
 }
 
 int main(int argc, char* argv[])

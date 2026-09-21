@@ -37,6 +37,7 @@ LayoutProfileManager::LayoutProfileManager(ContestDatabase& database, PanelLayou
         // changes for an operator who already had a working layout.
         m_order = {QStringLiteral("1")};
         m_active = QStringLiteral("1");
+        m_firstLaunch = true;
         m_database.setSettingValue(profileKey(m_active), serializeCurrentState());
         persistOrderAndActive();
         return;
@@ -66,8 +67,15 @@ QString LayoutProfileManager::serializeCurrentState() const
             continue;
         }
         const QRect g = container->geometry();
+        // isHidden(), not isVisible(): a panel is part of the layout
+        // unless it was hidden on purpose. isVisible() is false for
+        // every panel before the window is shown -- and this snapshot
+        // is taken in MainWindow's constructor on a first launch, so
+        // the first profile recorded every panel as hidden and a
+        // second start after a crash or kill opened an empty canvas
+        // (found 2026-09-21).
         parts << QStringLiteral("%1:%2:%3:%4:%5:%6")
-                     .arg(id, container->isVisible() ? QStringLiteral("1") : QStringLiteral("0"))
+                     .arg(id, container->isHidden() ? QStringLiteral("0") : QStringLiteral("1"))
                      .arg(g.x())
                      .arg(g.y())
                      .arg(g.width())

@@ -38,13 +38,55 @@ PanelLayoutManager::PanelLayoutManager(ContestDatabase& database, QWidget* canva
 bool PanelLayoutManager::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == m_canvas && event->type() == QEvent::Resize) {
+        // A fresh install: the first time the canvas has a real size,
+        // place the panels by the design that fits it -- before the
+        // clamp below, which would otherwise cram the large design
+        // into a smaller canvas (see kCompactDesignCanvas).
+        if (m_freshInstall && !m_initialDesignApplied && m_canvas->width() >= 300 && m_canvas->height() >= 200) {
+            m_initialDesignApplied = true;
+            applyDesignDefaults();
+            emit initialDesignApplied();
+        }
         clampPanelsToCanvas();
     }
     return QObject::eventFilter(watched, event);
 }
 
+bool PanelLayoutManager::canvasFitsLargeDesign(const QSize& canvasSize)
+{
+    return canvasSize.width() >= kLargeDesignCanvas.width() && canvasSize.height() >= kLargeDesignCanvas.height();
+}
+
+int PanelLayoutManager::designWidth() const
+{
+    return canvasFitsLargeDesign(m_canvas->size()) ? kLargeDesignCanvas.width() : kCompactDesignCanvas.width();
+}
+
+void PanelLayoutManager::applyDesignDefaults()
+{
+    const bool large = canvasFitsLargeDesign(m_canvas->size());
+    for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
+        PanelContainerWidget* container = it.value().container;
+        // Unlock first -- trySetGeometry() is a no-op while locked, and
+        // "reset" means the operator wants their panels back where they
+        // started, not to stay stuck wherever they were locked.
+        container->setLocked(false);
+        if (large || it.value().compactGeometry.isNull()) {
+            container->trySetGeometry(it.value().defaultGeometry);
+        } else {
+            container->trySetGeometry(it.value().compactGeometry);
+        }
+        if (!large && it.value().compactGeometry.isNull() && it.key() != QStringLiteral("cwMacroRow")) {
+            // No place in the compact design: Fenster > Panels brings it
+            // back, at its large-design spot.
+            container->setVisible(false);
+        }
+    }
+}
+
 PanelContainerWidget* PanelLayoutManager::registerPanel(const QString& id, const QString& title, QWidget* content,
-                                                         bool contentHasOwnChrome, const QRect& defaultGeometry)
+                                                         bool contentHasOwnChrome, const QRect& defaultGeometry,
+                                                         const QRect& compactGeometry)
 {
     auto* container = new PanelContainerWidget(id, title, content, contentHasOwnChrome, m_canvas);
 
@@ -58,6 +100,7 @@ PanelContainerWidget* PanelLayoutManager::registerPanel(const QString& id, const
 
     PanelEntry entry;
     entry.container = container;
+    entry.compactGeometry = compactGeometry;
     entry.defaultGeometry = defaultGeometry;
     m_panels.insert(id, entry);
 
@@ -85,6 +128,7 @@ void PanelLayoutManager::loadLayoutForPanel(const QString& id, PanelContainerWid
         container->trySetGeometry(defaultGeometry);
         return;
     }
+    m_sawSavedLayout = true;
 
     // x|y|w|h|locked -- same pipe-joined-fields shape ContainerWidget::
     // serialize() uses, scoped down to the fields this simpler system
@@ -168,14 +212,9 @@ void PanelLayoutManager::bumpZOrder(const QString& id)
 
 void PanelLayoutManager::resetToDefaultLayout()
 {
-    for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
-        PanelContainerWidget* container = it.value().container;
-        // Unlock first -- trySetGeometry() is a no-op while locked, and
-        // "reset" means the operator wants their panels back where they
-        // started, not to stay stuck wherever they were locked.
-        container->setLocked(false);
-        container->trySetGeometry(it.value().defaultGeometry);
-    }
+    // The design that fits the canvas as it is right now -- on a small
+    // screen the compact one, not the large one clamped into it.
+    applyDesignDefaults();
     saveLayout();
 }
 

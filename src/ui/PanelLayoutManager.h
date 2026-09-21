@@ -58,8 +58,43 @@ public:
     // or force-quit losing the last edit). `contentHasOwnChrome` is
     // forwarded to PanelContainerWidget -- see its class comment.
     PanelContainerWidget* registerPanel(const QString& id, const QString& title, QWidget* content,
-                                         bool contentHasOwnChrome, const QRect& defaultGeometry);
+                                         bool contentHasOwnChrome, const QRect& defaultGeometry,
+                                         const QRect& compactGeometry = QRect());
 
+    // Two default designs. `defaultGeometry` (registerPanel) is the
+    // large one, laid out for a canvas of kLargeDesignCanvas; a canvas
+    // that cannot hold it -- a 13" MacBook's is 1372×692 -- gets the
+    // compact one (`compactGeometry`), and a panel registered without
+    // a compact rect stays hidden there. Found 2026-09-21: a fresh
+    // install on the operator's own MacBook Air showed the large design
+    // clamped into a canvas 290 px too low, a heap of overlapping
+    // panels, which the first profile then saved as its layout.
+    static constexpr QSize kLargeDesignCanvas{1440, 982};
+    static constexpr QSize kCompactDesignCanvas{1372, 692};
+    static bool canvasFitsLargeDesign(const QSize& canvasSize);
+    // The width the design in force is laid out for -- the large one's
+    // when the canvas holds it, else the compact one's.
+    int designWidth() const;
+
+    // Whether any panel had a saved geometry when it was registered.
+    // MainWindow declares the install fresh (setFreshInstall(true)) when
+    // neither that nor a layout profile existed; only then does the
+    // first real canvas size place the panels by the fitting design.
+    bool hadSavedLayout() const { return m_sawSavedLayout; }
+    void setFreshInstall(bool fresh) { m_freshInstall = fresh; }
+
+    // Puts every panel where the design for the canvas's current size
+    // says (and unlocks it); the compact design also hides the panels
+    // it has no place for.
+    void applyDesignDefaults();
+
+signals:
+    // A fresh install's panels were just placed by the design fitting
+    // the canvas's real size (the first time it had one) -- the moment
+    // to snapshot the first profile.
+    void initialDesignApplied();
+
+public:
     PanelContainerWidget* panel(const QString& id) const;
 
     // Call once, after every registerPanel() call for this session has
@@ -104,6 +139,7 @@ private:
     struct PanelEntry {
         PanelContainerWidget* container = nullptr;
         QRect defaultGeometry;
+        QRect compactGeometry; // null: not part of the compact design
     };
 
     void loadLayoutForPanel(const QString& id, PanelContainerWidget* container, const QRect& defaultGeometry);
@@ -131,6 +167,9 @@ private:
 
     ContestDatabase& m_database;
     QWidget* m_canvas = nullptr;
+    bool m_sawSavedLayout = false;
+    bool m_freshInstall = false;
+    bool m_initialDesignApplied = false;
     QMap<QString, PanelEntry> m_panels;
     QStringList m_zOrder; // bottom to top; persisted as the id list itself, mirrors ContainerIdList.
 };
