@@ -367,6 +367,12 @@ public:
     // MainWindow composes the actual CQ text and hands it back here.
     void setChatInputDraft(const QString& text);
 
+    // Keyboard focus into the Callsign field -- MainWindow calls this
+    // once the window is on screen (2026-09-21: a fresh start left the
+    // focus in the top bar's grid filter, so the first callsign typed
+    // filtered the log instead of starting a QSO).
+    void focusCallsign();
+
 signals:
     void logRequested();
     void formChanged();
@@ -475,6 +481,24 @@ private:
     // (rebuildEntryRowLayout()) identically, so the entry row keeps
     // lining up with the table's own columns underneath it.
     int rcvdGroupWidth() const;
+    // The column widths actually in use: kColumnWidths (the design
+    // grid) after fitColumnsToViewport() has shrunk them for a panel
+    // narrower than the grid (see UnifiedLogWidget.cpp's
+    // kMinColumnWidths comment). Both the table and the entry row read
+    // these, so they keep lining up in every panel width.
+    int columnWidthFor(int col) const;
+    // Recomputes m_columnWidths for the current viewport width and
+    // visible column set; returns true when any width changed.
+    bool fitColumnsToViewport();
+    // The view mode's own column set (setViewMode()), before any
+    // give-way hiding by fitColumnsToViewport().
+    bool columnWantedByViewMode(int col) const;
+    // Re-pins every entry-row cell to columnWidthFor() in place (no
+    // widget is recreated -- typing/focus survive a resize).
+    void applyEntryRowWidths();
+    // Per-sub-field widths of the received-exchange group, summing to
+    // rcvdGroupWidth() (see the .cpp for the weighting).
+    QVector<int> exchangeFieldWidths() const;
     void setFieldAutoFilled(QLineEdit* field, bool autoFilled);
     static bool isFieldAutoFilled(const QLineEdit* field);
     void rebuildExchangeCell(const QMap<QString, QString>& previousValues);
@@ -608,6 +632,17 @@ private:
     // setViewMode() -- see that method's own comment on why this must
     // NOT rebuild on every call (MainWindow calls it on every CAT tick).
     bool m_entryRowLayoutBuilt = false;
+    QVector<int> m_columnWidths;
+    // Columns fitColumnsToViewport() hid on top of the view mode's own
+    // set because even the floors did not fit (kGiveWayOrder).
+    QVector<int> m_columnsHiddenByFit;
+    // The blank QSO#/Band placeholder cells rebuildEntryRowLayout()
+    // adds in DXLog-Vollspalten mode, kept so applyEntryRowWidths() can
+    // resize them in place.
+    QVector<QLabel*> m_entryRowBlanks;
+    // History row count at the last rebuildFeedRows(), to scroll a
+    // newly logged QSO into view exactly once.
+    int m_lastHistoryRowCount = -1;
     // Owns m_entryRow/m_statusLine/m_feedTable's vertical order --
     // stored (not a constructor-local) so setEntryRowPosition() can
     // reorder them later without rebuilding the layout from scratch.

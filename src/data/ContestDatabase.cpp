@@ -340,7 +340,10 @@ QVector<QsoRecord> ContestDatabase::qsosWithGrid(const QString& contestId) const
 int ContestDatabase::qsoCountForContest(const QString& contestId) const
 {
     QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT COUNT(*) FROM qsos WHERE contest_id = :contest_id"));
+    // Invalid QSOs are "deleted" for every purpose (see setQsoInvalid) -- they
+    // do not count here either (2026-09-21: the status bar said "3 QSOs" with one
+    // struck through).
+    query.prepare(QStringLiteral("SELECT COUNT(*) FROM qsos WHERE contest_id = :contest_id AND is_invalid = 0"));
     query.bindValue(QStringLiteral(":contest_id"), contestId);
     if (!query.exec() || !query.next()) {
         return 0;
@@ -351,7 +354,8 @@ int ContestDatabase::qsoCountForContest(const QString& contestId) const
 int ContestDatabase::qsoCountSince(const QString& contestId, const QDateTime& sinceUtc) const
 {
     QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("SELECT COUNT(*) FROM qsos WHERE contest_id = :contest_id AND timestamp_utc >= :since"));
+    query.prepare(QStringLiteral(
+        "SELECT COUNT(*) FROM qsos WHERE contest_id = :contest_id AND is_invalid = 0 AND timestamp_utc >= :since"));
     query.bindValue(QStringLiteral(":contest_id"), contestId);
     query.bindValue(QStringLiteral(":since"), sinceUtc.toUTC().toString(Qt::ISODate));
     if (!query.exec() || !query.next()) {

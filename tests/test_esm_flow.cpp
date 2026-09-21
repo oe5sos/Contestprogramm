@@ -100,9 +100,13 @@ void TestEsmFlow::ssbAndEsmOffKeepPlainLogging()
     QVERIFY(log);
     const QString contestId = controller->settings().activeContestId;
 
-    // SSB (the default mode, no rig report): Enter with a call logs at
-    // once, exchange or not -- ESM does not apply without a keyer.
+    // SSB (the default mode, no rig report): Enter with a call and a
+    // complete exchange logs at once -- ESM does not apply without a
+    // keyer. (An incomplete exchange asks once first, see
+    // TestLogCorrections::enterOnAnIncompleteExchangeAsksOnceThenLogs.)
     log->setCallsign(QStringLiteral("DL1ABC"));
+    log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("1"));
+    log->setExchangeFieldValue(QStringLiteral("grid"), QStringLiteral("JN58SD"));
     emit log->logRequested();
     QCOMPARE(controller->database().qsoCountForContest(contestId), 1);
 
@@ -112,6 +116,8 @@ void TestEsmFlow::ssbAndEsmOffKeepPlainLogging()
     controller->setSettings(settings);
     emit controller->rigctldClient().modeChanged(QStringLiteral("CW"), 500);
     log->setCallsign(QStringLiteral("OE3XYZ"));
+    log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("2"));
+    log->setExchangeFieldValue(QStringLiteral("grid"), QStringLiteral("JN77QT"));
     emit log->logRequested();
     QCOMPARE(controller->database().qsoCountForContest(contestId), 2);
 }

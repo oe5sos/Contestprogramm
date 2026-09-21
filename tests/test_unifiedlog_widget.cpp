@@ -64,6 +64,9 @@ private slots:
     void dxLogFullColumnsShowsSplitColumnsInDxLogOrder();
     void entryRowPositionBottomPlacesEntryRowAfterFeedTable();
     void logEntryRowPositionSettingRoundTripsThroughDatabase();
+    void dupeHistoryRowRendersAsDupePill();
+    void narrowPanelFitsTheColumnsAndTheEntryRowFollows();
+    void aNewlyLoggedQsoScrollsIntoView();
 };
 
 namespace {
@@ -900,6 +903,100 @@ void TestUnifiedLogWidget::logEntryRowPositionSettingRoundTripsThroughDatabase()
     ContestSettings reloaded;
     reloaded.loadFrom(db);
     QCOMPARE(reloaded.logEntryRowPosition, ContestSettings::LogEntryRowPosition::Top);
+}
+
+// A logged duplicate (0 points, "D" in the EDI) carries a DUPE pill in
+// its Status cell -- found 2026-09-21 checking the log end to end: a
+// logged dupe looked exactly like a valid QSO, only the entry row ever
+// said DUPE. Amber, not the red UNGÜLTIG uses.
+void TestUnifiedLogWidget::dupeHistoryRowRendersAsDupePill()
+{
+    UnifiedLogWidget widget;
+    LogTableModel logModel;
+    QsoRecord record = makeLoggedRecord(11, QStringLiteral("OE3AAA"));
+    record.isDupe = true;
+    logModel.setRecords({record});
+    widget.setLogModel(&logModel);
+
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    const QModelIndex statusIndex = feedTable->model()->index(0, UnifiedLogWidget::ColumnStatus);
+    QCOMPARE(feedTable->model()->data(statusIndex, UnifiedLogWidget::PillTextRole).toString(), QStringLiteral("DUPE"));
+    // Not struck through -- it is a real contact, just worth 0.
+    const QModelIndex callIndex = feedTable->model()->index(0, UnifiedLogWidget::ColumnCall);
+    QVERIFY(!feedTable->model()->data(callIndex, Qt::FontRole).value<QFont>().strikeOut());
+}
+
+// The operator's own layout (2026-09-21) had a 620px-wide Log panel:
+// the fixed column grid overflowed into a horizontal scrollbar with
+// km/°/Status (the DUPE/UNGÜLTIG pills, the invalid-toggle click) off
+// the right edge. Now the visible columns shrink to the viewport (see
+// UnifiedLogWidget.cpp's kMinColumnWidths) and the entry row's cells
+// follow the same widths, so the two keep lining up.
+void TestUnifiedLogWidget::narrowPanelFitsTheColumnsAndTheEntryRowFollows()
+{
+    UnifiedLogWidget widget;
+    widget.setExchangeFields(rstSerialGridFields());
+    widget.resize(620, 400);
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QCoreApplication::processEvents();
+
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    int visibleWidth = 0;
+    for (int col = 0; col < UnifiedLogWidget::ColumnCount; ++col) {
+        if (!feedTable->isColumnHidden(col)) {
+            visibleWidth += feedTable->columnWidth(col);
+        }
+    }
+    QVERIFY2(visibleWidth <= feedTable->viewport()->width(),
+             qPrintable(QStringLiteral("columns %1 > viewport %2").arg(visibleWidth).arg(feedTable->viewport()->width())));
+    // Shrunk, but never below what the text needs.
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnCall) < 115);
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnExchangeSent) >= 126);
+
+    QLineEdit* callsign = findEditByPlaceholder(widget, QStringLiteral("Callsign"));
+    QVERIFY(callsign);
+    QCOMPARE(callsign->width(), feedTable->columnWidth(UnifiedLogWidget::ColumnCall));
+
+    // Wide again: back to the design grid.
+    widget.resize(1300, 400);
+    QCoreApplication::processEvents();
+    QCOMPARE(feedTable->columnWidth(UnifiedLogWidget::ColumnCall), 115);
+    QCOMPARE(callsign->width(), 115);
+}
+
+// The newest QSO must be on screen after logging -- the operator's own
+// 7-QSO log (2026-09-21) sat scrolled to the top with the last row
+// hidden below the fold.
+void TestUnifiedLogWidget::aNewlyLoggedQsoScrollsIntoView()
+{
+    UnifiedLogWidget widget;
+    widget.setEntryRowPosition(ContestSettings::LogEntryRowPosition::Bottom);
+    LogTableModel logModel;
+    widget.setLogModel(&logModel);
+    widget.resize(900, 220);
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+    QVector<QsoRecord> records;
+    for (int i = 0; i < 30; ++i) {
+        records.append(makeLoggedRecord(100 + i, QStringLiteral("DL%1AAA").arg(i)));
+    }
+    logModel.setRecords(records);
+    QCoreApplication::processEvents();
+
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    const QModelIndex last = feedTable->model()->index(29, UnifiedLogWidget::ColumnCall);
+    // The scroll is queued behind the layout pass that shrinks the table
+    // to the panel (see UnifiedLogWidget::rebuildFeedRows()).
+    QTRY_VERIFY2(feedTable->viewport()->rect().contains(feedTable->visualRect(last).center()),
+                 qPrintable(QStringLiteral("last row at %1, viewport %2x%3")
+                                .arg(feedTable->visualRect(last).y())
+                                .arg(feedTable->viewport()->width())
+                                .arg(feedTable->viewport()->height())));
 }
 
 // Not QTEST_APPLESS_MAIN: UnifiedLogWidget is a QWidget subclass, which

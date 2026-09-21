@@ -21,6 +21,7 @@
 #include <QPainter>
 #include <QPen>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -156,6 +157,28 @@ constexpr int kColumnWidths[ColCount] = {55, 70, 115, 130, 175, 75, 60, 90, 60, 
 // most of the "too-wide last column" complaint, not just the 160px
 // floor.
 constexpr int kStatusColumnMaxWidth = 110;
+
+// Narrow-panel fit (operator's own layout, 2026-09-21: a 620px-wide
+// "Log" panel showed a horizontal scrollbar with km/°/Status pushed
+// off the right edge -- the DUPE/UNGÜLTIG pills and the invalid-toggle
+// click target were simply not on screen). When the visible columns'
+// natural widths (kColumnWidths) do not fit the viewport, every
+// visible column except Status shrinks by ONE common factor, never
+// below kMinColumnScale and never below its own floor here, so the
+// text still fits ("59 001 JN67VV" needs ~120px in the body mono font,
+// the entry row's own cells carry 10px of padding each side) and the
+// entry row keeps lining up with the table (both read the fitted
+// widths, see UnifiedLogWidget::columnWidthFor()). Narrower than that,
+// the scrollbar comes back rather than clipping text.
+constexpr int kMinColumnWidths[ColCount] = {44, 62, 90, 126, 140, 60, 44, 90, 48, 42, 44, 42, 128};
+constexpr double kMinColumnScale = 0.8;
+// When even the floors do not fit, these columns give way, in this
+// order, before the scrollbar comes back: the bearing (the rotor
+// panel shows it, and the operator has just turned there) and then
+// the own sent exchange (predictable: RST, the QSO number, own
+// locator -- the entry row shows the next one anyway). Zeit, Call,
+// received RST/Nr./Grid, km and Status always stay.
+constexpr int kGiveWayOrder[] = {ColDeg, ColExchSent};
 
 // DXLog.net's own rule (dxlog.net/docs, verified for this task): "RST
 // sent and RST rcvd items are set to 59 (if the mode is SSB or FM) or
@@ -344,6 +367,34 @@ public:
 // -- matching this codebase's general "fixed grid, not organic" column
 // philosophy (kColumnWidths) -- so the divider doesn't jump around as
 // the serial number grows from "1" to "999".
+// The Nr./Grid column's two halves. "12 JN58SD" splits at the space;
+// a grid-only value ("JN58SD", a QSO logged without a received serial
+// -- seen in the operator's own log 2026-09-21) still belongs in the
+// GRID half with a dash in the serial half, not left-aligned into the
+// serial half as if it were a number. Serial-only ("12") and the
+// unknown dash stay unsplit (drawn plainly in the serial half).
+bool looksLikeGrid(const QString& text)
+{
+    static const QRegularExpression grid(QStringLiteral("^[A-Ra-r]{2}[0-9]{2}([A-Xa-x]{2})?$"));
+    return grid.match(text).hasMatch();
+}
+
+bool splitSerialGrid(const QString& text, QString* serialPart, QString* gridPart)
+{
+    const int splitPos = text.indexOf(QLatin1Char(' '));
+    if (splitPos > 0) {
+        *serialPart = text.left(splitPos);
+        *gridPart = text.mid(splitPos + 1);
+        return true;
+    }
+    if (looksLikeGrid(text)) {
+        *serialPart = Style::unknownDash();
+        *gridPart = text;
+        return true;
+    }
+    return false;
+}
+
 class SerialGridDelegate : public QStyledItemDelegate {
 public:
     explicit SerialGridDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
@@ -351,10 +402,11 @@ public:
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override
     {
         const QString fullText = index.data(Qt::DisplayRole).toString();
-        const int splitPos = fullText.indexOf(QLatin1Char(' '));
-        if (splitPos <= 0) {
+        QString serialPart;
+        QString gridPart;
+        if (!splitSerialGrid(fullText, &serialPart, &gridPart)) {
             // Nothing to split (empty, the unknown-dash placeholder, or
-            // a serial-only/grid-only value) -- plain default paint.
+            // a serial-only value) -- plain default paint.
             QStyledItemDelegate::paint(painter, option, index);
             return;
         }
@@ -385,8 +437,6 @@ public:
             textColor = opt.palette.color(QPalette::HighlightedText);
         }
 
-        const QString serialPart = fullText.left(splitPos);
-        const QString gridPart = fullText.mid(splitPos + 1);
         const int leftWidth = qMax(18, qMin(46, textRect.width() - 20));
         const int dividerX = textRect.left() + leftWidth + kEntryRowHPadding / 2;
 
@@ -411,9 +461,11 @@ protected:
     {
         QStyledItemDelegate::initStyleOption(option, index);
         // Only for the splittable case (see paint() above) -- a plain
-        // dash/serial-only/grid-only value goes through the ordinary,
-        // unmodified base-class draw untouched.
-        if (option->text.indexOf(QLatin1Char(' ')) > 0) {
+        // dash/serial-only value goes through the ordinary, unmodified
+        // base-class draw untouched.
+        QString serialPart;
+        QString gridPart;
+        if (splitSerialGrid(option->text, &serialPart, &gridPart)) {
             option->text.clear();
         }
     }
@@ -564,6 +616,11 @@ public:
 
     // -1 when no chat models are set yet (no divider row at all).
     int dividerRow() const { return m_dividerRow; }
+
+    // Logged-QSO rows only (everything above the divider) -- what
+    // UnifiedLogWidget::rebuildFeedRows() watches to scroll a newly
+    // logged QSO into view.
+    int historyRowCount() const { return m_dividerRow >= 0 ? m_dividerRow : m_rows.size(); }
 
     bool candidateInfoForRow(int row, QString* callsign, QString* grid, qint64* freqHz) const
     {
@@ -814,6 +871,18 @@ private:
                 if (role == kPillFgRole) { return Style::kRedText(); }
                 if (role == kPillBorderRole) { return Style::kRedBorder(); }
             }
+            if (column == ColStatus && record.isDupe) {
+                // DUPE pill for an already-logged duplicate (0 points,
+                // "D" in the EDI) -- found 2026-09-21 checking the log
+                // end to end: a logged dupe looked exactly like a valid
+                // QSO, only the entry row ever showed DUPE. Amber, not
+                // red: it is a fact about the log, not a mistake to
+                // undo the way UNGÜLTIG is.
+                if (role == kPillTextRole) { return QStringLiteral("DUPE"); }
+                if (role == kPillBgRole) { return Style::kAmberBg(); }
+                if (role == kPillFgRole) { return Style::kAmberWarn(); }
+                if (role == kPillBorderRole) { return Style::kAmberBorder(); }
+            }
             return QVariant();
         }
         switch (column) {
@@ -1004,7 +1073,8 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // exchange sub-field gets in rebuildExchangeCell() below. Getting
     // from Call to the exchange sub-fields is [Space]/[Tab] (see
     // eventFilter()/nextFieldForTab()), never Enter.
-    connect(m_callsignEdit, &QLineEdit::returnPressed, this, &UnifiedLogWidget::logRequested);
+    // Enter -> logRequested() is handled in eventFilter() for every
+    // entry-row field (not via QLineEdit::returnPressed -- see there).
     connect(m_callsignEdit, &QLineEdit::textChanged, this, &UnifiedLogWidget::formChanged);
     connect(m_callsignEdit, &QLineEdit::textChanged, this, &UnifiedLogWidget::onCallsignTextChanged);
     m_callsignEdit->installEventFilter(this);
@@ -1165,6 +1235,11 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // visible column set changes.
     m_feedTable->setItemDelegateForColumn(ColStatus, new PillDelegate(m_feedTable));
     m_feedTable->setItemDelegateForColumn(ColSerialGridRcvd, new SerialGridDelegate(m_feedTable));
+    // The table's viewport gets its real width only when the layout
+    // runs AFTER this widget's own resizeEvent() -- so the column fit
+    // (fitColumnsToViewport()) listens to the viewport's own resize,
+    // see eventFilter().
+    m_feedTable->viewport()->installEventFilter(this);
     connect(m_feedTable, &QTableView::clicked, this, &UnifiedLogWidget::handleFeedRowClicked);
     connect(m_feedModel, &UnifiedFeedModel::rebuilt, this, &UnifiedLogWidget::rebuildFeedRows);
     connect(m_feedModel, &UnifiedFeedModel::historyCallsignEditRequested, this, &UnifiedLogWidget::historyCallsignEditRequested);
@@ -1309,10 +1384,214 @@ QWidget* UnifiedLogWidget::buildFieldCell(QWidget* parent, QWidget* valueWidget,
 
 void UnifiedLogWidget::configureFeedColumns()
 {
+    m_columnWidths.resize(ColCount);
     for (int col = 0; col < ColCount; ++col) {
+        m_columnWidths[col] = kColumnWidths[col];
         m_feedTable->setColumnWidth(col, kColumnWidths[col]);
         m_feedTable->horizontalHeader()->setSectionResizeMode(col, QHeaderView::Fixed);
     }
+}
+
+int UnifiedLogWidget::columnWidthFor(int col) const
+{
+    return m_columnWidths.value(col, kColumnWidths[col]);
+}
+
+bool UnifiedLogWidget::fitColumnsToViewport()
+{
+    // See kMinColumnWidths' own comment. The viewport is a placeholder
+    // (a few px) until the widget has been laid out for real -- keep
+    // the natural widths then, the first real resize refits.
+    const int viewportWidth = m_feedTable->viewport()->width();
+    if (viewportWidth < 200) {
+        return false;
+    }
+    const int available = viewportWidth - kColumnWidths[ColStatus];
+
+    // Which columns give way (see kGiveWayOrder): none while the floors
+    // fit, then one more at a time. Recomputed from scratch on every
+    // fit, so a panel dragged wide again gets them back.
+    QVector<int> hiddenByFit;
+    const auto shown = [&](int col) { return columnWantedByViewMode(col) && !hiddenByFit.contains(col); };
+    const auto floorSum = [&] {
+        int sum = 0;
+        for (int col = 0; col < ColCount; ++col) {
+            if (col != ColStatus && shown(col)) {
+                sum += kMinColumnWidths[col];
+            }
+        }
+        return sum;
+    };
+    for (int giveWay : kGiveWayOrder) {
+        if (floorSum() <= available) {
+            break;
+        }
+        if (columnWantedByViewMode(giveWay)) {
+            hiddenByFit.append(giveWay);
+        }
+    }
+    bool changed = false;
+    if (hiddenByFit != m_columnsHiddenByFit) {
+        m_columnsHiddenByFit = hiddenByFit;
+        changed = true;
+    }
+    for (int col = 0; col < ColCount; ++col) {
+        m_feedTable->setColumnHidden(col, !shown(col));
+    }
+
+    int naturalWidth = 0;
+    for (int col = 0; col < ColCount; ++col) {
+        if (col != ColStatus && shown(col)) {
+            naturalWidth += kColumnWidths[col];
+        }
+    }
+    double factor = 1.0;
+    if (naturalWidth > 0 && available > 0 && naturalWidth > available) {
+        factor = qMax(kMinColumnScale, static_cast<double>(available) / static_cast<double>(naturalWidth));
+    }
+    QVector<int> widths(ColCount);
+    int fitted = 0;
+    for (int col = 0; col < ColCount; ++col) {
+        widths[col] = kColumnWidths[col];
+        if (col != ColStatus && shown(col)) {
+            widths[col] = qMax(kMinColumnWidths[col], qRound(kColumnWidths[col] * factor));
+            fitted += widths[col];
+        }
+    }
+    // The per-column floors can leave a few px of overhang -- take them
+    // off the columns with the most room above their floor, one px at
+    // a time, so the grid really ends inside the viewport (a 2px
+    // overhang would still bring the scrollbar back).
+    while (factor < 1.0 && fitted > available) {
+        int best = -1;
+        int bestSlack = 0;
+        for (int col = 0; col < ColCount; ++col) {
+            if (col == ColStatus || m_feedTable->isColumnHidden(col)) {
+                continue;
+            }
+            const int slack = widths[col] - kMinColumnWidths[col];
+            if (slack > bestSlack) {
+                bestSlack = slack;
+                best = col;
+            }
+        }
+        if (best < 0) {
+            break;
+        }
+        --widths[best];
+        --fitted;
+    }
+    for (int col = 0; col < ColCount; ++col) {
+        if (m_columnWidths.value(col) != widths[col]) {
+            m_columnWidths[col] = widths[col];
+            m_feedTable->setColumnWidth(col, widths[col]);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+bool UnifiedLogWidget::columnWantedByViewMode(int col) const
+{
+    // The view mode's own column set (see setViewMode()): the split
+    // QSO#/Band/Sent/Nr. columns only in DXLog-Vollspalten, the
+    // composed sent exchange only in Compact, the composed received
+    // exchange never (it is always shown split).
+    const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
+    switch (col) {
+    case ColSerial:
+    case ColBand:
+    case ColRstSent:
+    case ColSerialSent:
+        return dxLog;
+    case ColExchSent:
+        return !dxLog;
+    case ColExchRcvd:
+        return false;
+    default:
+        return true;
+    }
+}
+
+QVector<int> UnifiedLogWidget::exchangeFieldWidths() const
+{
+    // Weighted split of the received-exchange column group's own pixel
+    // width, instead of a naive equal division across however many
+    // sub-fields this contest declares (see rcvdGroupWidth()'s own
+    // comment) -- a 6-character grid6 field genuinely needs more room
+    // than a 2-3 digit RST/serial field, and dividing evenly left grid6
+    // cramped right up against its own border regardless of how much
+    // spare width rcvdGroupWidth() actually had. Operator, 2026-09-11,
+    // on exactly that: "der raster schneidet fast die buchstaben ab".
+    // Each type gets a sane minimum (grid6 widest, matching its own
+    // 6-character max length -- see setMaxLength(6) in
+    // rebuildExchangeCell()), scaled up together if rcvdGroupWidth()
+    // leaves room to spare, with the LAST field absorbing whatever
+    // rounding remainder is left so the per-field widths still sum to
+    // exactly rcvdGroupWidth() (the fixed width m_exchangeFieldsHost
+    // itself is set to).
+    const auto minFieldWidth = [](const QString& type) {
+        if (type == QStringLiteral("grid6")) { return 74; }
+        if (type == QStringLiteral("rst")) { return 46; }
+        return 50; // "int" (serial) and any other/future type
+    };
+    QVector<int> fieldWidths;
+    if (m_exchangeFields.isEmpty()) {
+        return fieldWidths;
+    }
+    int totalMinWidth = 0;
+    for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
+        totalMinWidth += minFieldWidth(field.type);
+    }
+    const double scale = totalMinWidth > 0
+        ? qMax(1.0, static_cast<double>(rcvdGroupWidth()) / static_cast<double>(totalMinWidth))
+        : 1.0;
+    int runningWidth = 0;
+    for (int i = 0; i < m_exchangeFields.size(); ++i) {
+        const bool isLastField = (i == m_exchangeFields.size() - 1);
+        const int width = isLastField
+            ? qMax(36, rcvdGroupWidth() - runningWidth)
+            : qMax(36, qRound(minFieldWidth(m_exchangeFields.at(i).type) * scale));
+        fieldWidths.append(width);
+        runningWidth += width;
+    }
+    return fieldWidths;
+}
+
+void UnifiedLogWidget::applyEntryRowWidths()
+{
+    // Re-pin every entry-row cell to the CURRENT (possibly fitted, see
+    // fitColumnsToViewport()) column widths in place -- no widget is
+    // recreated, so a resize mid-entry never loses the operator's
+    // typing, focus or caret.
+    if (!m_entryRowLayoutBuilt) {
+        return;
+    }
+    const int rowHeight = m_feedTable->verticalHeader()->defaultSectionSize();
+    const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
+    if (dxLog && m_entryRowBlanks.size() == 2) {
+        m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
+        m_entryRowBlanks.at(1)->setFixedSize(columnWidthFor(ColBand), rowHeight);
+    }
+    m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
+    m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
+    const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
+                                : columnWidthFor(ColExchSent);
+    m_sentExchangeLabel->setFixedSize(sentWidth, rowHeight);
+    // The cells of columns that gave way (see kGiveWayOrder) go with
+    // them, so the row keeps lining up with the table.
+    m_sentExchangeLabel->setVisible(dxLog || !m_feedTable->isColumnHidden(ColExchSent));
+    m_entryDegLabel->setVisible(!m_feedTable->isColumnHidden(ColDeg));
+    m_exchangeFieldsHost->setFixedSize(rcvdGroupWidth(), rowHeight);
+    const QVector<int> fieldWidths = exchangeFieldWidths();
+    for (int i = 0; i < m_exchangeEdits.size() && i < fieldWidths.size(); ++i) {
+        if (QWidget* cell = m_exchangeEdits.at(i)->parentWidget()) {
+            cell->setFixedSize(fieldWidths.at(i), rowHeight);
+        }
+    }
+    m_entryKmLabel->setFixedSize(columnWidthFor(ColKm), rowHeight);
+    m_entryDegLabel->setFixedSize(columnWidthFor(ColDeg), rowHeight);
+    syncEntryRowWidth();
 }
 
 void UnifiedLogWidget::syncStatusColumnWidth()
@@ -1388,45 +1667,7 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     // sizeHint().
     const int rowHeight = m_feedTable->verticalHeader()->defaultSectionSize();
 
-    // Weighted split of the received-exchange column group's own pixel
-    // width, instead of a naive equal division across however many
-    // sub-fields this contest declares (see rcvdGroupWidth()'s own
-    // comment) -- a 6-character grid6 field genuinely needs more room
-    // than a 2-3 digit RST/serial field, and dividing evenly left grid6
-    // cramped right up against its own border regardless of how much
-    // spare width rcvdGroupWidth() actually had. Operator, 2026-09-11,
-    // on exactly that: "der raster schneidet fast die buchstaben ab".
-    // Each type gets a sane minimum (grid6 widest, matching its own
-    // 6-character max length -- see setMaxLength(6) below), scaled up
-    // together if rcvdGroupWidth() leaves room to spare, with the LAST
-    // field absorbing whatever rounding remainder is left so the
-    // per-field widths still sum to exactly rcvdGroupWidth() (the fixed
-    // width m_exchangeFieldsHost itself is set to in
-    // rebuildEntryRowLayout()).
-    const auto minFieldWidth = [](const QString& type) {
-        if (type == QStringLiteral("grid6")) { return 74; }
-        if (type == QStringLiteral("rst")) { return 46; }
-        return 50; // "int" (serial) and any other/future type
-    };
-    QVector<int> fieldWidths;
-    if (!m_exchangeFields.isEmpty()) {
-        int totalMinWidth = 0;
-        for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
-            totalMinWidth += minFieldWidth(field.type);
-        }
-        const double scale = totalMinWidth > 0
-            ? qMax(1.0, static_cast<double>(rcvdGroupWidth()) / static_cast<double>(totalMinWidth))
-            : 1.0;
-        int runningWidth = 0;
-        for (int i = 0; i < m_exchangeFields.size(); ++i) {
-            const bool isLastField = (i == m_exchangeFields.size() - 1);
-            const int width = isLastField
-                ? qMax(36, rcvdGroupWidth() - runningWidth)
-                : qMax(36, qRound(minFieldWidth(m_exchangeFields.at(i).type) * scale));
-            fieldWidths.append(width);
-            runningWidth += width;
-        }
-    }
+    const QVector<int> fieldWidths = exchangeFieldWidths();
 
     int fieldIndex = 0;
     for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
@@ -1455,7 +1696,7 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
         // to log a contact" from ANY entry-row field, not only the last
         // one in sequence -- replaces the old progressive-Enter scheme
         // (advance to the next sub-field, log only from the last one).
-        connect(edit, &QLineEdit::returnPressed, this, &UnifiedLogWidget::logRequested);
+        // Enter -> logRequested(): see eventFilter(), not returnPressed.
         // textEdited (not textChanged) fires only for user interaction,
         // never for applyKnownExchange()'s/applyRstDefaults()'s own
         // setText() calls, so this cannot immediately undo its own fill.
@@ -1778,6 +2019,8 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
     m_feedTable->setColumnHidden(ColSerialGridRcvd, false);
     m_feedTable->setColumnHidden(ColExchSent, dxLog);
     m_feedTable->setColumnHidden(ColExchRcvd, true);
+    // (The same set, as columnWantedByViewMode() -- fitColumnsToViewport()
+    // below may still hide a give-way column on top of it.)
 
     if (dxLog) {
         // DXLog.net's own literal order: QSO# / Band / Zeit / Call /
@@ -1802,18 +2045,23 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
     // re-running the exchange sub-fields at their new group width
     // (preserving whatever the operator already typed) if any are
     // already built.
+    // The visible column set just (potentially) changed -- refit the
+    // widths to the viewport (see fitColumnsToViewport()) BEFORE the
+    // entry row is (re)built off them.
+    fitColumnsToViewport();
     if (needsEntryRowRebuild) {
         rebuildEntryRowLayout();
         if (!m_exchangeFields.isEmpty()) {
             rebuildExchangeCell(exchangeReceived());
         }
         m_entryRowLayoutBuilt = true;
+    } else {
+        applyEntryRowWidths();
     }
 
-    // The visible column set just (potentially) changed -- "other
-    // visible width" for Status's own fill (syncStatusColumnWidth())
-    // depends on it, so resync now rather than waiting for the next
-    // panel resize.
+    // "Other visible width" for Status's own fill
+    // (syncStatusColumnWidth()) depends on the visible set too, so
+    // resync now rather than waiting for the next panel resize.
     syncStatusColumnWidth();
 }
 
@@ -1825,7 +2073,7 @@ int UnifiedLogWidget::rcvdGroupWidth() const
     // Nr./Grid) -- no more DxLogFullColumns-only branch here. The entry
     // row's own RST/Serial/Grid sub-fields size off this same total, or
     // the two stop lining up.
-    return kColumnWidths[ColRstRcvd] + kColumnWidths[ColSerialGridRcvd];
+    return columnWidthFor(ColRstRcvd) + columnWidthFor(ColSerialGridRcvd);
 }
 
 void UnifiedLogWidget::rebuildEntryRowLayout()
@@ -1844,6 +2092,7 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
 
     // Delete every blank placeholder cell this method built last time --
     // the only kind of item still left in the layout at this point.
+    m_entryRowBlanks.clear();
     QLayoutItem* item;
     while ((item = m_entryRowLayout->takeAt(0)) != nullptr) {
         delete item->widget();
@@ -1878,31 +2127,33 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
                 .arg(kEntryRowHPadding));
         label->setFixedSize(width, rowHeight);
         m_entryRowLayout->addWidget(label);
+        m_entryRowBlanks.append(label);
     };
 
     if (dxLog) {
         // QSO#/Band: not yet assigned/tracked for an in-progress entry
         // either -- blank (Time and Km/° below are different -- see
         // m_entryTimeLabel's/m_entryKmLabel's own doc comments).
-        addBlank(kColumnWidths[ColSerial]);
-        addBlank(kColumnWidths[ColBand]);
+        addBlank(columnWidthFor(ColSerial));
+        addBlank(columnWidthFor(ColBand));
     }
-    m_entryTimeLabel->setFixedSize(kColumnWidths[ColTime], rowHeight);
+    m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
     m_entryRowLayout->addWidget(m_entryTimeLabel);
 
-    m_callsignEdit->setFixedSize(kColumnWidths[ColCall], rowHeight);
+    m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
     m_entryRowLayout->addWidget(m_callsignEdit);
 
-    const int sentWidth = dxLog ? (kColumnWidths[ColRstSent] + kColumnWidths[ColSerialSent]) : kColumnWidths[ColExchSent];
+    const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
+                                : columnWidthFor(ColExchSent);
     m_sentExchangeLabel->setFixedSize(sentWidth, rowHeight);
     m_entryRowLayout->addWidget(m_sentExchangeLabel);
 
     m_exchangeFieldsHost->setFixedSize(rcvdGroupWidth(), rowHeight);
     m_entryRowLayout->addWidget(m_exchangeFieldsHost);
 
-    m_entryKmLabel->setFixedSize(kColumnWidths[ColKm], rowHeight);
+    m_entryKmLabel->setFixedSize(columnWidthFor(ColKm), rowHeight);
     m_entryRowLayout->addWidget(m_entryKmLabel);
-    m_entryDegLabel->setFixedSize(kColumnWidths[ColDeg], rowHeight);
+    m_entryDegLabel->setFixedSize(columnWidthFor(ColDeg), rowHeight);
     m_entryRowLayout->addWidget(m_entryDegLabel);
 
     m_entryRowLayout->addStretch(1);
@@ -2019,6 +2270,31 @@ void UnifiedLogWidget::rebuildFeedRows()
 {
     applyDividerSpan();
     syncFeedTableHeight();
+    // A newly logged QSO must be on screen -- the operator's own 7-QSO
+    // log (2026-09-21) sat scrolled to the top, the newest row hidden
+    // below the fold. Only when the history row count changes (a log
+    // or a filter), never on the spot/chat churn that also rebuilds
+    // this model several times a minute, so manual scrolling is never
+    // fought.
+    // Queued: the layout pass that sizes the table to the panel runs
+    // after this rebuild, and scrollTo() must see the final viewport.
+    const int historyRows = m_feedModel->historyRowCount();
+    if (historyRows != m_lastHistoryRowCount) {
+        m_lastHistoryRowCount = historyRows;
+        if (historyRows > 0) {
+            QTimer::singleShot(0, this, [this] {
+                const int rows = m_feedModel->historyRowCount();
+                if (rows > 0) {
+                    m_feedTable->scrollTo(m_feedModel->index(rows - 1, ColCall), QAbstractItemView::EnsureVisible);
+                }
+            });
+        }
+    }
+}
+
+void UnifiedLogWidget::focusCallsign()
+{
+    m_callsignEdit->setFocus();
 }
 
 void UnifiedLogWidget::syncFeedTableHeight()
@@ -2140,8 +2416,31 @@ QLineEdit* UnifiedLogWidget::nextFieldForTab(QLineEdit* current) const
 
 bool UnifiedLogWidget::eventFilter(QObject* watched, QEvent* event)
 {
+    if (watched == m_feedTable->viewport() && event->type() == QEvent::Resize && m_entryRowLayoutBuilt) {
+        if (fitColumnsToViewport()) {
+            applyEntryRowWidths();
+        } else {
+            syncEntryRowWidth();
+        }
+        syncStatusColumnWidth();
+        return false;
+    }
     if (event->type() == QEvent::KeyPress) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if ((keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            && (keyEvent->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            if (qobject_cast<QLineEdit*>(watched)) {
+                // Straight to logRequested(), not via QLineEdit::
+                // returnPressed: that signal stays silent while a
+                // validator reports Intermediate -- an EMPTY Nr. field
+                // under its QIntValidator -- which made Enter dead in
+                // exactly the field the incomplete-exchange check moves
+                // the focus to (2026-09-21, seen live: the second Enter
+                // that is meant to log anyway did nothing).
+                emit logRequested();
+                return true;
+            }
+        }
         if (keyEvent->key() == Qt::Key_Space && keyEvent->modifiers() == Qt::NoModifier) {
             if (auto* current = qobject_cast<QLineEdit*>(watched)) {
                 if (QLineEdit* next = nextRelevantField(current)) {
@@ -2180,7 +2479,11 @@ void UnifiedLogWidget::resizeEvent(QResizeEvent* event)
     // widget's own children are still being constructed (before
     // setViewMode()'s first call has built the entry row at all).
     if (m_entryRowLayoutBuilt) {
-        syncEntryRowWidth();
+        if (fitColumnsToViewport()) {
+            applyEntryRowWidths();
+        } else {
+            syncEntryRowWidth();
+        }
         syncStatusColumnWidth();
     }
 }

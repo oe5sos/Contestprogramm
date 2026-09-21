@@ -63,6 +63,11 @@ private slots:
     void singleModeContestStartsInThatMode();
     void loggingOutsideThePeriodLeavesANote();
     void mapOptionsMenuOpensFromThePanelHeader();
+    void editingNrGridIsTypeAwareNotPositional();
+    void aKnownCallsignPrefillsTheGridButNeverTheSerial();
+    void enterOnAnIncompleteExchangeAsksOnceThenLogs();
+    void aQsoInTheOwnSquareHasNoBearing();
+    void invalidQsosLeaveTheCounts();
 };
 
 void TestLogCorrections::correctedCallsignRescoresTheDupeFlags()
@@ -226,6 +231,170 @@ void TestLogCorrections::mapOptionsMenuOpensFromThePanelHeader()
         }
     }
     QTRY_COMPARE(visibleMenus(), 0);
+}
+
+// The Nr./Grid cell of a logged row is one text ("12 JN58SD"); a hand
+// edit must be read by what each token IS, not by its position -- found
+// 2026-09-21 in the operator's own log: "JN67UT" typed alone was taken
+// as a failed serial and the locator vanished, "59003" on a row without
+// RST became the RST. The RST itself is the record's own (that column is
+// not editable), and the stored exchange text is recomposed the way a
+// fresh log composes it (zero-padded serial).
+void TestLogCorrections::editingNrGridIsTypeAwareNotPositional()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    const QString contestId = controller->settings().activeContestId;
+
+    logQso(log, QStringLiteral("OE5XYZ"), QStringLiteral("3"), QStringLiteral("JN78CD"));
+    QVector<QsoRecord> qsos = controller->database().qsosForContest(contestId);
+    QCOMPARE(qsos.size(), 1);
+    const int id = qsos.at(0).id;
+    QCOMPARE(qsos.at(0).rstRcvd, QStringLiteral("59"));
+
+    // Grid only (as UnifiedFeedModel::setData composes it: RST first).
+    emit log->historyExchangeRcvdEditRequested(id, QStringLiteral("59 JN67UT"));
+    auto q = controller->database().qsoById(id);
+    QVERIFY(q);
+    QCOMPARE(q->gridSquare, QStringLiteral("JN67UT"));
+    QVERIFY(!q->serialRcvd.has_value());
+    QCOMPARE(q->rstRcvd, QStringLiteral("59"));
+    QCOMPARE(q->exchangeRcvd, QStringLiteral("59 JN67UT"));
+    QVERIFY(q->distanceKm.has_value());
+
+    // Serial only: the grid the operator removed is gone, nothing else.
+    emit log->historyExchangeRcvdEditRequested(id, QStringLiteral("59 7"));
+    q = controller->database().qsoById(id);
+    QCOMPARE(*q->serialRcvd, 7);
+    QVERIFY(q->gridSquare.isEmpty());
+    QCOMPARE(q->exchangeRcvd, QStringLiteral("59 007"));
+    QVERIFY(!q->distanceKm.has_value());
+
+    // Both, in either order.
+    emit log->historyExchangeRcvdEditRequested(id, QStringLiteral("59 jn58sd 12"));
+    q = controller->database().qsoById(id);
+    QCOMPARE(*q->serialRcvd, 12);
+    QCOMPARE(q->gridSquare, QStringLiteral("JN58SD"));
+    QCOMPARE(q->rstRcvd, QStringLiteral("59"));
+    QCOMPARE(q->exchangeRcvd, QStringLiteral("59 012 JN58SD"));
+
+    // A row logged without RST: the first token is NOT an RST.
+    QsoRecord noRst;
+    noRst.callsign = QStringLiteral("DL9ZZZ");
+    noRst.band = QStringLiteral("144");
+    noRst.mode = QStringLiteral("SSB");
+    noRst.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    noRst.contestId = contestId;
+    QVERIFY(controller->database().insertQso(noRst));
+    emit log->historyExchangeRcvdEditRequested(noRst.id, QStringLiteral("45 JN47AB"));
+    q = controller->database().qsoById(noRst.id);
+    QVERIFY(q->rstRcvd.isEmpty());
+    QCOMPARE(*q->serialRcvd, 45);
+    QCOMPARE(q->gridSquare, QStringLiteral("JN47AB"));
+}
+
+// Typing a callsign already in the log prefills the locator (the station
+// has not moved) but never the received serial: on the other band it
+// sends a fresh number, on the same band it is a dupe -- and a prefilled
+// wrong number gets logged with one Enter (2026-09-21, seen live).
+void TestLogCorrections::aKnownCallsignPrefillsTheGridButNeverTheSerial()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    logQso(log, QStringLiteral("DL1ABC"), QStringLiteral("12"), QStringLiteral("JN58SD"));
+    QCOMPARE(controller->database().qsosForContest(controller->settings().activeContestId).size(), 1);
+
+    log->setCallsign(QStringLiteral("DL1ABC"));
+    QTRY_COMPARE_WITH_TIMEOUT(log->exchangeReceived().value(QStringLiteral("grid")), QStringLiteral("JN58SD"), 2000);
+    QVERIFY(log->exchangeReceived().value(QStringLiteral("serial")).isEmpty());
+}
+
+// Enter with the received number/locator still missing: the first Enter
+// jumps to the missing field and does not log (the operator's own log
+// had such rows, 2026-09-21); a second Enter with nothing typed in
+// between logs anyway -- a station that faded before the locator came
+// must not block the serial sequence.
+void TestLogCorrections::enterOnAnIncompleteExchangeAsksOnceThenLogs()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    const QString contestId = controller->settings().activeContestId;
+
+    log->setCallsign(QStringLiteral("OE1XYZ"));
+    emit log->logRequested();
+    QCOMPARE(controller->database().qsosForContest(contestId).size(), 0);
+    QVERIFY2(window.statusBar()->currentMessage().contains(QStringLiteral("unvollständig")),
+             qPrintable(window.statusBar()->currentMessage()));
+
+    emit log->logRequested();
+    QCOMPARE(controller->database().qsosForContest(contestId).size(), 1);
+
+    // Typing in between re-arms the check.
+    log->setCallsign(QStringLiteral("OE1ABC"));
+    emit log->logRequested();
+    QCOMPARE(controller->database().qsosForContest(contestId).size(), 1);
+    log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("4"));
+    log->setExchangeFieldValue(QStringLiteral("grid"), QStringLiteral("JN77QT"));
+    emit log->logRequested();
+    QCOMPARE(controller->database().qsosForContest(contestId).size(), 2);
+}
+
+// Two stations in the same locator square: 0 km centre to centre and no
+// bearing at all (the maths returned "180" for the operator's own-square
+// test QSO, 2026-09-21) -- unknown is a dash, not a fabricated heading.
+void TestLogCorrections::aQsoInTheOwnSquareHasNoBearing()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    logQso(log, QStringLiteral("OE5ASD"), QStringLiteral("2"), controller->settings().ownGrid);
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(controller->settings().activeContestId);
+    QCOMPARE(qsos.size(), 1);
+    QVERIFY(qsos.at(0).distanceKm.has_value());
+    QVERIFY(*qsos.at(0).distanceKm < 0.5);
+    QVERIFY(!qsos.at(0).bearingDeg.has_value());
+}
+
+// An invalidated QSO is out of the log for every count -- status bar,
+// Rate panel -- not just out of the score (2026-09-21: "3 QSOs" with one
+// struck through).
+void TestLogCorrections::invalidQsosLeaveTheCounts()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    const QString contestId = controller->settings().activeContestId;
+
+    logQso(log, QStringLiteral("DL1ABC"), QStringLiteral("1"), QStringLiteral("JN58SD"));
+    logQso(log, QStringLiteral("DL1ABD"), QStringLiteral("2"), QStringLiteral("JN58SD"));
+    QCOMPARE(controller->database().qsoCountForContest(contestId), 2);
+    QVERIFY2(window.statusBar()->currentMessage().contains(QStringLiteral("2 QSOs")),
+             qPrintable(window.statusBar()->currentMessage()));
+
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(contestId);
+    emit log->historyInvalidToggleRequested(qsos.at(1).id);
+    QCOMPARE(controller->database().qsoCountForContest(contestId), 1);
+    QCOMPARE(controller->database().qsoCountSince(contestId, QDateTime::currentDateTimeUtc().addSecs(-600)), 1);
 }
 
 int main(int argc, char* argv[])

@@ -152,7 +152,6 @@ struct Ink {
 RateBreakdown computeRateBreakdown(const QVector<QsoRecord>& records, const QDateTime& nowUtc)
 {
     RateBreakdown result;
-    result.total = records.size();
     result.perTenMinutes = QVector<int>(RateBreakdown::kSparkBuckets, 0);
 
     const QDateTime tenMinAgo = nowUtc.addSecs(-600);
@@ -167,6 +166,14 @@ RateBreakdown computeRateBreakdown(const QVector<QsoRecord>& records, const QDat
     QMap<QDateTime, int> hourCounts;
 
     for (const QsoRecord& record : records) {
+        // An invalidated QSO is out of the log for every purpose (see
+        // ContestDatabase::setQsoInvalid) -- it neither counts nor rates
+        // (2026-09-21: "QSOs 3" with one struck through). Dupes stay: a
+        // real contact, in the EDI with its "D", just 0 points.
+        if (record.isInvalid) {
+            continue;
+        }
+        ++result.total;
         const QDateTime ts = QDateTime::fromString(record.timestampUtc, Qt::ISODate);
         if (!ts.isValid()) {
             continue;

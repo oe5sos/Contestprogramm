@@ -90,9 +90,9 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 
 | Bereich | Was | Wo |
 |---|---|---|
-| Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests), Locator-Liste, QRZ/HamQTH | Panel „Log" |
+| Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests; die empfangene Nummer wird nie vorbelegt), Locator-Liste, QRZ/HamQTH. Enter loggt aus jedem Feld; fehlt Nummer oder Locator, springt das erste Enter ins leere Feld, ein zweites Enter loggt trotzdem. Geloggte Dupes tragen „DUPE“, ungültige „UNGÜLTIG“; der Fokus liegt beim Start im Rufzeichenfeld, das neueste QSO bleibt sichtbar | Panel „Log" |
 | Vor/nach dem Contest | Log abschließen und archivieren (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
-| Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter); statt Löschen „ungültig" markieren. Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
+| Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter; in Nr./Grid zählt, was ein Wert ist -- „JN58SD“ allein bleibt der Locator, „12“ allein die Nummer); statt Löschen „ungültig" markieren (zählt dann nirgends mehr mit). Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
 | Wertung | QSOs, Punkte (km je Band, Σ), 10 min/Stunde mit Trend und bester Stunde, ODX, Großfelder -- als Instrument, das der Panelgröße folgt: niedrig und breit die Zählerleiste mit Balken je Band und Sechs-Stunden-Sparkline, sonst Kacheln (bei 270×130 die vier wichtigsten, größer alle sechs mit Unterzeile) | Panel „Rate"; *Fenster › Statistik…* (je Band, je Stunde, längste QSOs) |
 | Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
 | Check Partial | Rufzeichen-Vorschläge beim Tippen aus Log, Locator-Liste, gehörten Stationen, SCP-Liste; N+1 ab vier Zeichen; Klick übernimmt Call+Locator | Panel „Check"; *Datei › SCP-Liste laden…* |
@@ -118,6 +118,9 @@ wählt die Anordnung nach der Fensterfläche: die große für Flächen ab
 1440×982, sonst die kompakte für ein 13"-Notebook (Rotoren und Karte oben,
 Nächstes Ziel und Rate darunter, Log über die Breite, Bandmap daneben;
 Check und Skeds ausgeblendet), auf größeren Flächen gestreckt.
+In einem schmalen Log-Panel rücken die Spalten zusammen; reicht das nicht,
+weichen zuerst die Peilung und dann der eigene Exchange, bevor ein
+Rollbalken kommt -- Zeit, Call, empfangener Exchange, km und Status bleiben.
 
 ## Ablauf am Contest-Wochenende
 

@@ -27,6 +27,7 @@ private slots:
     void updateQsoCallsignPersists();
     void updateQsoExchangeRcvdPersists();
     void setQsoInvalidTogglesFlag();
+    void qsoCountsExcludeInvalidQsos();
     void updateQsoTimestampPersistsAndCountsWrites();
     void archiveContestMovesQsosAndKeepsTheirLocators();
     void nextSerialCountsPerBandWhenAsked();
@@ -441,6 +442,35 @@ void TestContestDatabase::setQsoInvalidTogglesFlag()
 
     QVERIFY(db.setQsoInvalid(record.id, false));
     QVERIFY(!db.qsoById(record.id)->isInvalid);
+}
+
+// qsoCountForContest()/qsoCountSince() feed the status bar's "N QSOs",
+// the Startcheck and the Rate panel -- an invalidated QSO is "deleted"
+// for all of them (2026-09-21: "3 QSOs" with one struck through).
+void TestContestDatabase::qsoCountsExcludeInvalidQsos()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("counts.sqlite")), QStringLiteral("test_counts")));
+
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    QsoRecord a;
+    a.callsign = QStringLiteral("OE1ABC");
+    a.band = QStringLiteral("144");
+    a.mode = QStringLiteral("SSB");
+    a.timestampUtc = now.addSecs(-60).toString(Qt::ISODate);
+    a.contestId = QStringLiteral("OE_VHF_UHF");
+    QsoRecord b = a;
+    b.callsign = QStringLiteral("OE1DEF");
+    QVERIFY(db.insertQso(a));
+    QVERIFY(db.insertQso(b));
+    QCOMPARE(db.qsoCountForContest(a.contestId), 2);
+    QCOMPARE(db.qsoCountSince(a.contestId, now.addSecs(-600)), 2);
+
+    QVERIFY(db.setQsoInvalid(b.id, true));
+    QCOMPARE(db.qsoCountForContest(a.contestId), 1);
+    QCOMPARE(db.qsoCountSince(a.contestId, now.addSecs(-600)), 1);
 }
 
 // Martin's real, already-running database predates rst_sent/rst_rcvd/

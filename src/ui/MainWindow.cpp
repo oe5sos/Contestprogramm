@@ -218,6 +218,57 @@ QMap<QString, QString> buildReceivedExchangeValues(const ContestDefinition& def,
     return values;
 }
 
+// A bearing is meaningless between two stations in the same locator
+// square (centre to centre is 0 km; the maths returned "180" for the
+// operator's own-square test QSO, 2026-09-21) -- unknown is a dash,
+// HAUSSTIL rule 7, not a fabricated heading.
+std::optional<double> bearingIfApart(double distanceKm, double bearingDeg)
+{
+    if (distanceKm < 0.5) {
+        return std::nullopt;
+    }
+    return bearingDeg;
+}
+
+// Type-aware split of a hand-edited received exchange ("Nr./Grid" cell,
+// see UnifiedLogWidget's setData): the RST is the record's own (that
+// column is not editable, and setData prepends it verbatim when it is
+// set), everything after it goes to the field it LOOKS like -- a
+// locator to grid6, an integer to the serial. Positional parsing lost
+// data in the operator's own log (2026-09-21): "JN67UT" typed alone
+// was taken as a failed serial and the locator vanished; "59003" on a
+// row without RST became the RST.
+struct EditedExchange {
+    QString rst;
+    std::optional<int> serial;
+    QString grid;
+};
+
+EditedExchange parseEditedExchange(const ContestDefinition& def, const QString& knownRst, const QString& text)
+{
+    EditedExchange out;
+    QStringList tokens = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    if (findFieldByType(def, QStringLiteral("rst")) && !knownRst.isEmpty() && !tokens.isEmpty()
+        && tokens.first().compare(knownRst, Qt::CaseInsensitive) == 0) {
+        out.rst = knownRst;
+        tokens.removeFirst();
+    }
+    const bool hasSerial = findAutoIncrementField(def) != nullptr;
+    const bool hasGrid = findFieldByType(def, QStringLiteral("grid6")) != nullptr;
+    for (const QString& token : tokens) {
+        if (hasGrid && out.grid.isEmpty() && isValidGridSquare(token.toUpper())) {
+            out.grid = token.toUpper();
+            continue;
+        }
+        bool isNumber = false;
+        const int number = token.toInt(&isNumber);
+        if (hasSerial && !out.serial && isNumber && number > 0) {
+            out.serial = number;
+        }
+    }
+    return out;
+}
+
 QString rigctldStateText(RigctldClient::State state)
 {
     switch (state) {
@@ -843,6 +894,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::logRequested, this, &MainWindow::handleLogRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::formChanged, this, &MainWindow::recheckDupeIndicator);
     connect(m_unifiedLog, &UnifiedLogWidget::formChanged, this, &MainWindow::refreshCheckPartial);
+    connect(m_unifiedLog, &UnifiedLogWidget::formChanged, this, [this] { m_incompleteExchangeEnterArmed = false; });
     // Calls heard on ON4KST/cluster feed the Check panel's "Seen" source
     // -- the people actually around tonight, ahead of any static list.
     const auto noteSeenCall = [this](const SpotCandidate& candidate) {
@@ -1295,6 +1347,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             }
         });
     }
+
+    // Keyboard focus belongs in the Callsign field from the first
+    // moment (2026-09-21, fresh start: it sat in the top bar's grid
+    // filter, so the first callsign typed filtered the log instead of
+    // starting a QSO). From the event loop, once the window is on
+    // screen -- and after the first-run dialog above has closed.
+    QTimer::singleShot(0, this, [this] { m_unifiedLog->focusCallsign(); });
 
     // Restore the window size/position the operator last actually used
     // (see the closeEvent()/resizeEvent()/moveEvent() overrides below)
@@ -2198,6 +2257,24 @@ void MainWindow::handleLogRequested()
     const QMap<QString, QString> exchangeReceived = m_unifiedLog->exchangeReceived();
 
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+
+    // Enter on an incomplete exchange (no received number/locator --
+    // the operator's own log had such rows, 2026-09-21): the first
+    // Enter jumps to the missing field and says so, the way N1MM+'s
+    // ESM does; a second Enter with nothing typed in between logs
+    // anyway (the station faded before the locator came, the serial
+    // sequence must go on). m_incompleteExchangeEnterArmed is cleared
+    // by any edit to the entry row (formChanged).
+    if (def && !exchangeComplete(*def, exchangeReceived)) {
+        if (!m_incompleteExchangeEnterArmed) {
+            m_incompleteExchangeEnterArmed = true;
+            m_unifiedLog->focusFirstEmptyExchangeField();
+            statusBar()->showMessage(
+                QStringLiteral("Exchange unvollständig (Nummer/Locator fehlt) — Enter nochmals loggt trotzdem"), 6000);
+            return;
+        }
+    }
+    m_incompleteExchangeEnterArmed = false;
     const QStringList dupeScope = def ? def->dupeScope() : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
 
     const bool dupe = m_appController.dupeChecker().isDupe(callsign, band, mode, settings.activeContestId, dupeScope);
@@ -2247,7 +2324,7 @@ void MainWindow::handleLogRequested()
     record.gridSquare = gridRcvd;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
         record.distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
-        record.bearingDeg = calculateBearingInDegrees(settings.ownGrid, gridRcvd);
+        record.bearingDeg = bearingIfApart(*record.distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
     if (const qint64 rfHz = currentRfFrequencyHz(); rfHz > 0) {
         record.freqHz = rfHz; // on the air, not the rig's IF
@@ -2378,7 +2455,12 @@ void MainWindow::handleCallsignLookupRequested(const QString& callsign)
         // live km/bearing preview, same as a manual keystroke. No
         // separate call here (and no correct value to push if the field
         // was already non-empty and the fill was skipped).
-        m_unifiedLog->applyKnownExchange(known->gridSquare, known->serialRcvd);
+        // Grid only. The received SERIAL of an earlier QSO with this
+        // station is never the right prefill: on the other band the
+        // station sends a fresh number, on the same band this is a
+        // dupe -- and a prefilled wrong number gets logged with one
+        // Enter (2026-09-21, seen live). N1MM+/DXLog never prefill it.
+        m_unifiedLog->applyKnownExchange(known->gridSquare, std::nullopt);
         return;
     }
 
@@ -2439,8 +2521,9 @@ void MainWindow::handleReceivedGridChanged(const QString& grid)
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);
         return;
     }
-    m_unifiedLog->setEntryDistanceBearing(calculateDistanceKm(settings.ownGrid, grid),
-                                           calculateBearingInDegrees(settings.ownGrid, grid));
+    const double distanceKm = calculateDistanceKm(settings.ownGrid, grid);
+    m_unifiedLog->setEntryDistanceBearing(distanceKm,
+                                           bearingIfApart(distanceKm, calculateBearingInDegrees(settings.ownGrid, grid)));
 }
 
 void MainWindow::handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign)
@@ -2493,27 +2576,28 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     QString rstRcvd;
     QString gridRcvd;
     std::optional<int> serialRcvd;
+    QString composedText = newText.trimmed();
     if (def) {
-        const QStringList tokens = newText.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-        int tokenIndex = 0;
-        for (const ContestDefinition::ExchangeField& field : def->exchangeFields()) {
-            if (tokenIndex >= tokens.size()) {
-                break;
-            }
-            const QString token = tokens.at(tokenIndex);
-            if (field.type == QStringLiteral("rst")) {
-                rstRcvd = token;
-            } else if (field.autoIncrement) {
-                bool ok = false;
-                const int number = token.toInt(&ok);
-                if (ok) {
-                    serialRcvd = number;
-                }
-            } else if (field.type == QStringLiteral("grid6")) {
-                gridRcvd = token.toUpper();
-            }
-            ++tokenIndex;
+        // Type-aware, not positional -- see parseEditedExchange(). The
+        // stored exchange text is then recomposed the same way a fresh
+        // log composes it (zero-padded serial, field order), so the
+        // Cabrillo export and the EDI's extra-exchange column see one
+        // consistent form, not the raw cell text.
+        const EditedExchange edited = parseEditedExchange(*def, current->rstRcvd, newText);
+        rstRcvd = edited.rst;
+        gridRcvd = edited.grid;
+        serialRcvd = edited.serial;
+        QMap<QString, QString> values;
+        if (const ContestDefinition::ExchangeField* rstField = findFieldByType(*def, QStringLiteral("rst"))) {
+            values.insert(rstField->key, rstRcvd);
         }
+        if (const ContestDefinition::ExchangeField* serialField = findAutoIncrementField(*def)) {
+            values.insert(serialField->key, serialRcvd ? QString::number(*serialRcvd) : QString());
+        }
+        if (const ContestDefinition::ExchangeField* gridField = findFieldByType(*def, QStringLiteral("grid6"))) {
+            values.insert(gridField->key, gridRcvd);
+        }
+        composedText = composeExchange(*def, buildReceivedExchangeValues(*def, values));
     }
 
     // Distance/bearing are recomputed, same as at initial log time
@@ -2523,19 +2607,19 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     std::optional<double> bearingDeg;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
         distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
-        bearingDeg = calculateBearingInDegrees(settings.ownGrid, gridRcvd);
+        bearingDeg = bearingIfApart(*distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
 
     QString error;
-    if (!m_appController.database().updateQsoExchangeRcvd(qsoId, newText, gridRcvd, serialRcvd, rstRcvd, distanceKm,
-                                                            bearingDeg, &error)) {
+    if (!m_appController.database().updateQsoExchangeRcvd(qsoId, composedText, gridRcvd, serialRcvd, rstRcvd,
+                                                            distanceKm, bearingDeg, &error)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                               QStringLiteral("QSO konnte nicht aktualisiert werden:\n%1").arg(error));
         return;
     }
 
     QsoRecord updated = *current;
-    updated.exchangeRcvd = newText;
+    updated.exchangeRcvd = composedText;
     updated.gridSquare = gridRcvd;
     updated.serialRcvd = serialRcvd;
     updated.rstRcvd = rstRcvd;

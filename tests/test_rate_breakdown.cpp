@@ -36,6 +36,7 @@ private slots:
     void bandAndModeTalliesSortedByCountDescendingThenNameAscending();
     void tenMinuteBucketsCoverTheLastSixHours();
     void bestHourIsTheBusiestClockHourEarliestOnTies();
+    void invalidQsosNeitherCountNorRate();
 };
 
 // A fresh contest with zero logged QSOs is a real, measured zero --
@@ -183,6 +184,25 @@ void TestRateBreakdown::bestHourIsTheBusiestClockHourEarliestOnTies()
     const RateBreakdown breakdown = computeRateBreakdown(records, now);
     QCOMPARE(breakdown.bestHourQsos, 3);
     QCOMPARE(breakdown.bestHourStartUtc, QDateTime(QDate(2026, 9, 12), QTime(16, 0), QTimeZone::utc()));
+}
+
+// An invalidated QSO is out of the log for every purpose -- it neither
+// counts nor rates (2026-09-21: the Rate panel said "QSOs 3" with one
+// struck through). A dupe stays: a real contact, just 0 points.
+void TestRateBreakdown::invalidQsosNeitherCountNorRate()
+{
+    const QDateTime now = QDateTime(QDate(2026, 9, 21), QTime(12, 0, 0), QTimeZone::utc());
+    QsoRecord invalid = makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-120));
+    invalid.isInvalid = true;
+    QsoRecord dupe = makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-180));
+    dupe.isDupe = true;
+    const RateBreakdown breakdown = computeRateBreakdown(
+        {makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-60)), invalid, dupe}, now);
+    QCOMPARE(breakdown.total, 2);
+    QCOMPARE(breakdown.last10Min, 2);
+    QCOMPARE(breakdown.lastHour, 2);
+    QCOMPARE(breakdown.byBand.size(), 1);
+    QCOMPARE(breakdown.byBand.first().second, 2);
 }
 
 QTEST_MAIN(TestRateBreakdown)

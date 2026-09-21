@@ -407,6 +407,10 @@ private:
     // settings table with the window, switched by m_transverterCheck.
     TransverterSetup m_transverter;
     QCheckBox* m_transverterCheck = nullptr;
+    // Set by handleLogRequested() when Enter met an incomplete exchange
+    // (first Enter: focus the missing field); cleared by any entry-row
+    // edit. A second Enter in that state logs anyway.
+    bool m_incompleteExchangeEnterArmed = false;
     // The rig's frequency as it is on the air (0 without CAT), and the
     // one place a rig frequency becomes m_currentBand: the transverter
     // applied, bands outside the contest ignored.
