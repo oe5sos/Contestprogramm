@@ -7,6 +7,7 @@
 #include <QStringList>
 
 class QEvent;
+class QTimer;
 class QWidget;
 
 namespace Contestprogramm {
@@ -85,6 +86,12 @@ public:
     // first real canvas size place the panels by the fitting design.
     bool hadSavedLayout() const { return m_sawSavedLayout; }
     void setFreshInstall(bool fresh) { m_freshInstall = fresh; }
+    // How long after the first placement further canvas resizes still
+    // re-place the fresh install's panels (macOS shrinks a window that
+    // does not fit the screen in a second step after show(); the
+    // design has to follow that, not the first, larger size). Tests
+    // shorten it.
+    void setDesignSettleMs(int ms);
 
     // Puts every panel where the design for the canvas's current size
     // says (and unlocks it); the compact design also hides the panels
@@ -188,6 +195,7 @@ private:
     bool m_sawSavedLayout = false;
     bool m_freshInstall = false;
     bool m_initialDesignApplied = false;
+    QTimer* m_designSettleTimer = nullptr;
     QMap<QString, PanelEntry> m_panels;
     QStringList m_zOrder; // bottom to top; persisted as the id list itself, mirrors ContainerIdList.
 };

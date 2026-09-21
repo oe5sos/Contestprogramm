@@ -4,6 +4,7 @@
 #include "ui/PanelContainerWidget.h"
 
 #include <QEvent>
+#include <QTimer>
 #include <QWidget>
 
 #include <algorithm>
@@ -33,17 +34,32 @@ PanelLayoutManager::PanelLayoutManager(ContestDatabase& database, QWidget* canva
     // later live resize), the one moment a canvas-bounds clamp can be
     // applied correctly.
     m_canvas->installEventFilter(this);
+
+    m_designSettleTimer = new QTimer(this);
+    m_designSettleTimer->setSingleShot(true);
+    m_designSettleTimer->setInterval(1500);
+}
+
+void PanelLayoutManager::setDesignSettleMs(int ms)
+{
+    m_designSettleTimer->setInterval(ms);
 }
 
 bool PanelLayoutManager::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == m_canvas && event->type() == QEvent::Resize) {
-        // A fresh install: the first time the canvas has a real size,
-        // place the panels by the design that fits it -- before the
-        // clamp below, which would otherwise cram the large design
-        // into a smaller canvas (see kCompactDesignCanvas).
-        if (m_freshInstall && !m_initialDesignApplied && canvasHasRealSize()) {
+        // A fresh install: once the canvas has a real size, place the
+        // panels by the design that fits it -- before the clamp below,
+        // which would otherwise cram the large design into a smaller
+        // canvas (see kCompactDesignCanvas). Placed again for every
+        // resize within the settle time: the window is first shown at
+        // its requested size and only then cut down to the screen by
+        // macOS, and the design has to follow the final size (found
+        // 2026-09-21: the first profile held the design stretched to
+        // the larger, never-seen canvas).
+        if (m_freshInstall && canvasHasRealSize() && (!m_initialDesignApplied || m_designSettleTimer->isActive())) {
             m_initialDesignApplied = true;
+            m_designSettleTimer->start();
             applyDesignDefaults();
             emit initialDesignApplied();
         }

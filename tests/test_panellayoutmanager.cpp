@@ -497,14 +497,21 @@ void TestPanelLayoutManager::freshInstallPlacesPanelsByTheFittingDesignOnce()
     QCOMPARE(rotors->geometry(), QRect(0, 78, 620, 365));
 
     // Declared fresh: the first real canvas size places the compact
-    // design, once; a later resize does not redo it.
+    // design; a resize within the settle time places it again (the
+    // window shown large, then cut down to the screen), one after the
+    // settle time does not.
     manager.setFreshInstall(true);
-    resizeCanvas(manager, QSize(1372, 692));
+    manager.setDesignSettleMs(300);
+    resizeCanvas(manager, QSize(1372, 821));
     QCOMPARE(applied.count(), 1);
+    QCOMPARE(rotors->geometry(), QRect(0, 0, 620, qRound(250 * 821 / 692.0)));
+    resizeCanvas(manager, QSize(1372, 692));
+    QCOMPARE(applied.count(), 2);
     QCOMPARE(rotors->geometry(), QRect(0, 0, 620, 250));
+    QTest::qWait(400);
     rotors->trySetGeometry(QRect(40, 40, 620, 250));
     resizeCanvas(manager, QSize(1380, 700));
-    QCOMPARE(applied.count(), 1);
+    QCOMPARE(applied.count(), 2);
     QCOMPARE(rotors->geometry(), QRect(40, 40, 620, 250));
 
     // A database with a saved panel is never fresh.
