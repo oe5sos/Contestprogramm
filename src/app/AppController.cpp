@@ -208,6 +208,7 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     }
 
     m_settings.loadFrom(m_database);
+    m_transverter = TransverterSetup::load(m_database);
     // Backups live beside the database itself ("backups/" next to the
     // .sqlite), where a rescue after a crash looks first.
     if (m_logBackup == nullptr) {
@@ -414,7 +415,8 @@ void AppController::publishQso(const QsoRecord& record)
 
 void AppController::publishRadioInfoNow()
 {
-    m_broadcastPublisher.publishRadioInfo(m_settings.ownCallsign, m_rigctldClient.frequencyHz(),
+    // On the air, not the rig's IF -- see transverter().
+    m_broadcastPublisher.publishRadioInfo(m_settings.ownCallsign, m_transverter.rfFrequencyHz(m_rigctldClient.frequencyHz()),
                                            m_rigctldClient.mode(), m_rigctldClient.pttActive());
 }
 

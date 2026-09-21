@@ -176,6 +176,10 @@ void TestTransverter::rigFrequencyNamesTheBandThroughTheTransverter()
     MainWindow window(*controller);
     auto* log = window.findChild<UnifiedLogWidget*>();
     QVERIFY(log);
+    // The window hands the setup to the controller (the <RadioInfo>
+    // broadcast side) too.
+    QVERIFY(controller->transverter().configured());
+    QVERIFY(!controller->transverter().active());
     auto* toggle = window.findChild<QCheckBox*>(QStringLiteral("transverterCheck"));
     QVERIFY(toggle);
     QVERIFY(!toggle->isHidden()); // configured: the switch is offered
@@ -199,6 +203,7 @@ void TestTransverter::rigFrequencyNamesTheBandThroughTheTransverter()
     // Switch on: the same rig frequency is 1296.300 on the air.
     toggle->setChecked(true);
     QVERIFY(TransverterSetup::load(controller->database()).enabled); // persisted
+    QVERIFY(controller->transverter().active()); // and the broadcast side knows
     emit controller->rigctldClient().frequencyChanged(144300000);
     QCOMPARE(logQso(QStringLiteral("DL2ABC"), QStringLiteral("1")), QStringLiteral("1296"));
 
@@ -210,6 +215,7 @@ void TestTransverter::rigFrequencyNamesTheBandThroughTheTransverter()
     // Switch off again while the rig still shows 144.300: back to the
     // rule for bands outside the contest -- the band stays where it is.
     toggle->setChecked(false);
+    QVERIFY(!controller->transverter().active());
     emit controller->rigctldClient().frequencyChanged(144300000);
     QCOMPARE(logQso(QStringLiteral("DL4ABC"), QStringLiteral("3")), QStringLiteral("432"));
 }

@@ -10,6 +10,7 @@
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
 #include "core/RotctldProcess.h"
+#include "core/Transverter.h"
 #include "core/WeatherClient.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/ContestDatabase.h"
@@ -168,6 +169,13 @@ public:
     static std::optional<RotctldLaunch> rotctldLaunchFor(const ContestSettings& settings, int slot);
     bool rotctldRunning(int slot) const;
 
+    // The transverter between rig and antenna (core/Transverter.h),
+    // loaded with the database and kept current by MainWindow (its
+    // dialog and switch): the <RadioInfo> broadcast carries the
+    // frequency on the air, the way N1MM reports through a transverter.
+    const TransverterSetup& transverter() const { return m_transverter; }
+    void setTransverter(const TransverterSetup& setup) { m_transverter = setup; }
+
 signals:
     // A rotctld this program started for `slot` (1 or 2) could not be
     // started or has exited -- `message` is Hamlib's own stderr (a
@@ -226,6 +234,7 @@ private:
     QDateTime m_rotctldFailedAt1; // last failure, for the restart cool-down
     QDateTime m_rotctldFailedAt2;
     int m_rotctldStoppingSlot = 0; // the slot whose rotctld stopRotctld() is ending right now
+    TransverterSetup m_transverter;
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address
     GeoFilter m_geoFilter;

@@ -326,6 +326,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // transverter is set up (Datei > Transverter...), on = the rig's
     // IF is the band on the antenna.
     m_transverter = TransverterSetup::load(m_appController.database());
+    m_appController.setTransverter(m_transverter);
     m_transverterCheck = new QCheckBox(filterRow);
     m_transverterCheck->setObjectName(QStringLiteral("transverterCheck"));
     filterLayout->addWidget(m_transverterCheck);
@@ -336,6 +337,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         }
         m_transverter.enabled = on;
         m_transverter.save(m_appController.database());
+        m_appController.setTransverter(m_transverter);
         // The rig has not moved, but what its frequency means has.
         if (m_appController.rigctldClient().isConnected()) {
             applyRigFrequency(m_appController.rigctldClient().frequencyHz());
@@ -3545,6 +3547,7 @@ void MainWindow::openTransverterDialog()
     }
     m_transverter = dialog.setup();
     m_transverter.save(m_appController.database());
+    m_appController.setTransverter(m_transverter);
     syncTransverterCheck();
     if (m_appController.rigctldClient().isConnected()) {
         applyRigFrequency(m_appController.rigctldClient().frequencyHz());
