@@ -1510,6 +1510,11 @@ void MainWindow::applyActiveContestDefinition()
     }
     reloadSkeds();
     refreshSentExchangePreview();
+    // The bandmap's axis follows m_currentBand, which this function may
+    // just have set to the contest's first band: without this it kept
+    // its 144 MHz default all night on a UHF contest whenever CAT
+    // never reported a frequency (found 2026-09-21 on a fresh start).
+    refreshBandmap();
     updateStatusBar();
 }
 

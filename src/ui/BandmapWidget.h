@@ -29,6 +29,7 @@ public:
     explicit BandmapWidget(QWidget* parent = nullptr);
 
     void setBand(const QString& band);
+    QString band() const { return m_band; }
     void setSpots(const QVector<BandmapSpot>& spots);
     void setOwnFrequencyHz(qint64 hz); // 0 = unknown
 

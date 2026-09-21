@@ -11,6 +11,7 @@
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "data/ReadinessCheck.h"
+#include "ui/BandmapWidget.h"
 #include "ui/MainWindow.h"
 #include "ui/ReadinessWindow.h"
 #include "ui/ShortcutsWindow.h"
@@ -92,6 +93,7 @@ private slots:
     void windowShowsTheLiveSnapshot();
     void secondBackupFolderIsWiredThrough();
     void shortcutsWindowListsTheKeys();
+    void bandmapStartsOnTheContestsFirstBand();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -389,6 +391,29 @@ void TestReadinessCheck::shortcutsWindowListsTheKeys()
     QVERIFY(shortcuts);
     QCOMPARE(shortcuts->rowCount(), ShortcutsWindow::entries().size());
     QCOMPARE(shortcuts->rowText(0, 0), QStringLiteral("Enter"));
+}
+
+void TestReadinessCheck::bandmapStartsOnTheContestsFirstBand()
+{
+    // A UHF contest without CAT: the bandmap's axis is 432, not the
+    // widget's 144 default (its band follows the contest's first band
+    // as soon as the definition is applied).
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("bandmap.sqlite"))));
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("IARU_R1_UHF");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+    MainWindow window(*controller);
+    auto* bandmap = window.findChild<BandmapWidget*>();
+    QVERIFY(bandmap);
+    QCOMPARE(bandmap->band(), QStringLiteral("432"));
 }
 
 int main(int argc, char* argv[])
