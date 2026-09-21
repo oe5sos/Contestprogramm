@@ -3,8 +3,10 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QLocalSocket>
+#include <QTimer>
 
 namespace Contestprogramm {
 
@@ -71,12 +73,20 @@ bool SingleInstanceGuard::tryAcquire()
         socket.connectToServer(serverName);
         if (socket.waitForConnected(kConnectTimeoutMs)) {
             socket.write(kRaiseVerb + ' ' + m_buildStamp.toUtf8() + '\n');
-            socket.waitForBytesWritten(kConnectTimeoutMs);
-            // Wait for the running instance's "ok" before hanging up:
-            // on Windows a named pipe closed right after the write can
-            // reach the server without the line (2026-09-21, CI), on
-            // macOS it merely never mattered.
-            socket.waitForReadyRead(kConnectTimeoutMs);
+            socket.flush();
+            // Wait for the running instance's "ok" before hanging up --
+            // with the event loop running, not waitForReadyRead(): that
+            // one blocks the thread, and when the running instance is
+            // the same process (the tests) it can never answer, so the
+            // line was hung up on unacknowledged. On Windows a named
+            // pipe closed that way reached the server without the line
+            // (2026-09-21, CI); a two-process hand-over is unchanged.
+            QEventLoop wait;
+            connect(&socket, &QLocalSocket::readyRead, &wait, &QEventLoop::quit);
+            connect(&socket, &QLocalSocket::disconnected, &wait, &QEventLoop::quit);
+            connect(&socket, &QLocalSocket::errorOccurred, &wait, &QEventLoop::quit);
+            QTimer::singleShot(kConnectTimeoutMs, &wait, &QEventLoop::quit);
+            wait.exec();
             socket.disconnectFromServer();
             m_lock.reset();
             return false;

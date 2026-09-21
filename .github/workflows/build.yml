@@ -135,25 +135,12 @@ jobs:
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+          # Ohne Konsolenfenster (Runner-Dienst) schreibt QtTest unter
+          # Windows nach OutputDebugString statt stdout -- ctest sähe
+          # von einem gescheiterten Prüfstand nur den Exit-Code
+          # (qplaintestlogger.cpp: stream == stdout && !shouldLogToStderr()).
+          QT_FORCE_STDERR_LOGGING: 1
         run: ctest --test-dir build --output-on-failure --timeout 300
-      - name: Fehlerausgabe der gescheiterten Tests
-        if: failure()
-        shell: pwsh
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: |
-          # ctest bekommt unter Windows keine Testausgabe zu fassen -- die
-          # gescheiterten Prüfstände noch einmal direkt, mit Ausgabe auf stdout.
-          $failed = ctest --test-dir build --rerun-failed -N 2>$null | Select-String -Pattern 'Test\s+#\d+:\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }
-          foreach ($t in $failed) {
-            Write-Host "===== $t ====="
-            $log = "$env:RUNNER_TEMP\$t.txt"
-            Remove-Item $log -ErrorAction SilentlyContinue
-            # Über cmd umgeleitet: pwsh verliert die stdout-Ausgabe von QtTest.
-            cmd /c "build\tests\$t.exe > `"$log`" 2>&1"
-            Write-Host "exit code: $LASTEXITCODE"
-            if (Test-Path $log) { Get-Content $log | Select-String -Pattern 'FAIL!|Actual|Expected|Loc:|Totals|Start testing|returned FALSE|QSKIP|SKIP' | ForEach-Object { $_.Line } | Write-Host } else { Write-Host "(keine Logdatei)" }
-          }
       - name: Portables ZIP
         shell: pwsh
         env:
