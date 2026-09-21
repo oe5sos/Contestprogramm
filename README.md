@@ -31,6 +31,8 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
   Dateien). Manuell: *Datei › Log jetzt sichern*.
 - **Isolierter Testlauf:** `CONTESTPROGRAMM_DATA_DIR=/pfad ./Contestprogramm`
   öffnet eine andere Datenbank statt der echten.
+- **Nur eine Instanz je Datenordner:** ein zweiter Start holt das laufende
+  Programm nach vorn und beendet sich (Sperrdatei `contestprogramm.lock`).
 
 ## Contest-Definitionen
 

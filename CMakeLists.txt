@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(Contestprogramm VERSION 0.1.0 LANGUAGES CXX)
+# macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
+# bring the running instance to the front; see if(APPLE) below.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -106,6 +111,10 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/ContestSettings.cpp
     src/app/AppController.h
     src/app/AppController.cpp
+    src/app/AppActivation.h
+    src/app/AppActivation.cpp
+    src/app/SingleInstanceGuard.h
+    src/app/SingleInstanceGuard.cpp
     src/data/QsoRecord.h
     src/data/ContestDatabase.h
     src/data/ContestDatabase.cpp
@@ -197,6 +206,10 @@ set(CONTESTPROGRAMM_UI_SOURCES
 )
 
 add_library(ContestprogrammCore STATIC ${CONTESTPROGRAMM_CORE_SOURCES} ${CONTESTPROGRAMM_UI_SOURCES})
+if(APPLE)
+    target_sources(ContestprogrammCore PRIVATE src/app/AppActivation.mm)
+    target_link_libraries(ContestprogrammCore PUBLIC "-framework AppKit")
+endif()
 target_include_directories(ContestprogrammCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network ZLIB::ZLIB)
 

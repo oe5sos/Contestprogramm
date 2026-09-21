@@ -1,4 +1,6 @@
+#include "app/AppActivation.h"
 #include "app/AppController.h"
+#include "app/SingleInstanceGuard.h"
 #include "ui/MainWindow.h"
 #include "ui/StyleKit.h"
 
@@ -35,6 +37,13 @@ int main(int argc, char* argv[])
     }
     const QString dbPath = dataDir + QStringLiteral("/contestprogramm.sqlite");
 
+    // One instance per data directory: a second start hands over to
+    // the running one (see app/SingleInstanceGuard.h).
+    Contestprogramm::SingleInstanceGuard instanceGuard(dataDir);
+    if (!instanceGuard.tryAcquire()) {
+        return 0;
+    }
+
     Contestprogramm::AppController appController;
     QString openError;
     if (!appController.openDatabase(dbPath, &openError)) {
@@ -55,6 +64,13 @@ int main(int argc, char* argv[])
 
     Contestprogramm::MainWindow window(appController);
     window.show();
+    QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::activateRequested, &window, [&window] {
+        window.setWindowState((window.windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
+        window.show();
+        window.raise();
+        Contestprogramm::activateThisApplication();
+        window.activateWindow();
+    });
 
     return app.exec();
 }
