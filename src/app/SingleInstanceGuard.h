@@ -36,12 +36,28 @@ public:
 
     static QString serverNameFor(const QString& dataDir);
 
+    // The build this process runs: its own executable's modification
+    // time, taken at startup (a later rebuild replaces the file on disk,
+    // this stays the old value). Sent along with the hand-over so the
+    // running instance can tell a mere second start from "the operator
+    // rebuilt and started, expecting the new program". Tests set it.
+    void setBuildStamp(const QString& stamp);
+    QString buildStamp() const { return m_buildStamp; }
+
 signals:
     // Another start asked this instance to show itself.
     void activateRequested();
+    // A second start handed over to this instance, but from a DIFFERENT
+    // build than this one (see setBuildStamp()) -- operator, 2026-09-21,
+    // three times in a row: built, started, and looked at the old
+    // program, because the start had only raised the running window.
+    // main.cpp restarts this instance on it (the restarted process is
+    // the new binary), the same way a restored backup restarts.
+    void newerBuildStarted();
 
 private:
     QString m_dataDir;
+    QString m_buildStamp;
     std::unique_ptr<QLockFile> m_lock;
     std::unique_ptr<QLocalServer> m_server;
 };

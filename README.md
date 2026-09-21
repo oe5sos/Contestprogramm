@@ -26,6 +26,11 @@ das erst nach dem Programm hochkommt, wird alle drei Sekunden neu
 gewählt; ON4KST und Cluster wählen nach einem Fehlschlag mit
 wachsendem Abstand (5 s … 60 s) neu.
 
+Läuft das Programm schon, übergibt ein zweiter Start an die laufende
+Instanz -- außer die Instanz ist ein älterer Bau als das gestartete Programm:
+dann startet sie sich selbst neu, mit dem neuen Bau. Bauen und starten reicht
+also, ⌘Q ist nicht nötig.
+
 ## Daten
 
 Alles liegt in einer SQLite-Datei im Anwendungsdatenordner

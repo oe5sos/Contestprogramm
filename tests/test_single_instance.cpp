@@ -15,6 +15,7 @@ class TestSingleInstance : public QObject
 
 private slots:
     void secondStartOnTheSameDirectoryHandsOverAndIsRefused();
+    void aStartFromANewerBuildAsksForARestart();
     void differentDirectoriesDoNotInterfere();
     void aFinishedInstanceFreesTheDirectory();
 };
@@ -35,6 +36,31 @@ void TestSingleInstance::secondStartOnTheSameDirectoryHandsOverAndIsRefused()
     SingleInstanceGuard third(dir.path());
     QVERIFY(!third.tryAcquire());
     QTRY_COMPARE(activated.count(), 2);
+}
+
+// Built and started again: the hand-over carries the build stamp; a
+// different one makes the running instance ask for its own restart
+// (main.cpp), the same one leaves it at a plain raise.
+void TestSingleInstance::aStartFromANewerBuildAsksForARestart()
+{
+    QTemporaryDir dir;
+    SingleInstanceGuard first(dir.path());
+    first.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(first.tryAcquire());
+    QSignalSpy activated(&first, &SingleInstanceGuard::activateRequested);
+    QSignalSpy newer(&first, &SingleInstanceGuard::newerBuildStarted);
+
+    SingleInstanceGuard sameBuild(dir.path());
+    sameBuild.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(!sameBuild.tryAcquire());
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(newer.count(), 0);
+
+    SingleInstanceGuard rebuilt(dir.path());
+    rebuilt.setBuildStamp(QStringLiteral("2000"));
+    QVERIFY(!rebuilt.tryAcquire());
+    QTRY_COMPARE(newer.count(), 1);
+    QCOMPARE(activated.count(), 1);
 }
 
 void TestSingleInstance::differentDirectoriesDoNotInterfere()

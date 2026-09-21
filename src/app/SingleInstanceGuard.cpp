@@ -1,20 +1,36 @@
 #include "app/SingleInstanceGuard.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFileInfo>
 #include <QLocalSocket>
 
 namespace Contestprogramm {
 
 namespace {
 constexpr int kConnectTimeoutMs = 1500;
-const QByteArray kRaiseMessage = QByteArrayLiteral("raise\n");
+// "raise <build stamp>\n" -- the stamp is optional on the wire (an
+// older build sends none), see SingleInstanceGuard::setBuildStamp().
+const QByteArray kRaiseVerb = QByteArrayLiteral("raise");
+
+QString executableStamp()
+{
+    const QFileInfo exe(QCoreApplication::applicationFilePath());
+    return exe.exists() ? QString::number(exe.lastModified().toMSecsSinceEpoch()) : QString();
+}
 } // namespace
 
 SingleInstanceGuard::SingleInstanceGuard(const QString& dataDir, QObject* parent)
     : QObject(parent)
     , m_dataDir(dataDir)
+    , m_buildStamp(executableStamp())
 {
+}
+
+void SingleInstanceGuard::setBuildStamp(const QString& stamp)
+{
+    m_buildStamp = stamp;
 }
 
 SingleInstanceGuard::~SingleInstanceGuard()
@@ -54,7 +70,7 @@ bool SingleInstanceGuard::tryAcquire()
         QLocalSocket socket;
         socket.connectToServer(serverName);
         if (socket.waitForConnected(kConnectTimeoutMs)) {
-            socket.write(kRaiseMessage);
+            socket.write(kRaiseVerb + ' ' + m_buildStamp.toUtf8() + '\n');
             socket.waitForBytesWritten(kConnectTimeoutMs);
             socket.disconnectFromServer();
             m_lock.reset();
@@ -74,9 +90,16 @@ bool SingleInstanceGuard::tryAcquire()
     connect(m_server.get(), &QLocalServer::newConnection, this, [this] {
         while (QLocalSocket* client = m_server->nextPendingConnection()) {
             connect(client, &QLocalSocket::readyRead, this, [this, client] {
-                if (client->readAll().contains("raise")) {
-                    emit activateRequested();
+                const QByteArray line = client->readAll().trimmed();
+                if (!line.startsWith(kRaiseVerb)) {
+                    return;
                 }
+                const QString theirStamp = QString::fromUtf8(line.mid(kRaiseVerb.size()).trimmed());
+                if (!theirStamp.isEmpty() && !m_buildStamp.isEmpty() && theirStamp != m_buildStamp) {
+                    emit newerBuildStarted();
+                    return;
+                }
+                emit activateRequested();
             });
             connect(client, &QLocalSocket::disconnected, client, &QObject::deleteLater);
         }

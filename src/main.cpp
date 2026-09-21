@@ -69,12 +69,18 @@ int main(int argc, char* argv[])
     // a closed connection; the cleanest way onto it is a fresh process.
     // The instance lock goes first, or the new start would hand over to
     // this dying one and quit.
-    QObject::connect(&window, &Contestprogramm::MainWindow::restartRequested, &app, [&app, &instanceGuard] {
+    const auto restart = [&app, &instanceGuard] {
         instanceGuard.release();
         QProcess::startDetached(QCoreApplication::applicationFilePath(), QCoreApplication::arguments().mid(1),
                                 QDir::currentPath());
         app.quit();
-    });
+    };
+    QObject::connect(&window, &Contestprogramm::MainWindow::restartRequested, &app, restart);
+    // Built and started while this one is running: the start handed
+    // over here (single instance), but with a different build stamp --
+    // the operator wants the NEW program, not the old window raised
+    // (2026-09-21). Restart into the rebuilt binary.
+    QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::newerBuildStarted, &app, restart);
     QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::activateRequested, &window, [&window] {
         window.setWindowState((window.windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
         window.show();
