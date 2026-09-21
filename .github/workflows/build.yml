@@ -147,7 +147,11 @@ jobs:
           $failed = ctest --test-dir build --rerun-failed -N 2>$null | Select-String -Pattern 'Test\s+#\d+:\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }
           foreach ($t in $failed) {
             Write-Host "===== $t ====="
-            & "build/tests/$t.exe" -o -,txt 2>&1 | Out-String -Width 400 | Write-Host
+            $log = "$env:RUNNER_TEMP\$t.txt"
+            Remove-Item $log -ErrorAction SilentlyContinue
+            & "build/tests/$t.exe" -v2 -o "$log,txt" 2>&1 | Out-String -Width 400 | Write-Host
+            Write-Host "exit code: $LASTEXITCODE"
+            if (Test-Path $log) { Get-Content $log | Select-Object -Last 80 | Write-Host } else { Write-Host "(keine Logdatei -- Prozess kam nicht bis QTest)" }
           }
       - name: Portables ZIP
         shell: pwsh
