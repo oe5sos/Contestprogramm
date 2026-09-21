@@ -195,7 +195,18 @@ QFont monoFont(const QFont& base, int px, QFont::Weight weight)
     // 6-character grid-square field: "der raster schneidet fast die
     // buchstaben ab ... vielleicht auch eine andere font". Menlo stays
     // as the fallback for the rare system without SF Mono available.
-    f.setFamilies({QStringLiteral("SF Mono"), QStringLiteral("Menlo")});
+    //
+    // Windows and Linux have neither (CI, 2026-09-21: the rotor readout's
+    // three columns no longer fit at any width there, Qt had fallen back
+    // to a wide proportional face): Consolas/Cascadia on Windows, the
+    // DejaVu/Liberation pair on Linux, all of them 0.55-0.6 em wide like
+    // Menlo, so the readout's measured column budgets (RotorWidget.cpp,
+    // kReadoutMinWidth) hold on every platform.
+    f.setFamilies({QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("Consolas"),
+                   QStringLiteral("Cascadia Mono"), QStringLiteral("DejaVu Sans Mono"),
+                   QStringLiteral("Liberation Mono"), QStringLiteral("Courier New")});
+    f.setStyleHint(QFont::Monospace);
+    f.setFixedPitch(true);
     return f;
 }
 
