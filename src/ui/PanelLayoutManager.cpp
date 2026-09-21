@@ -42,7 +42,7 @@ bool PanelLayoutManager::eventFilter(QObject* watched, QEvent* event)
         // place the panels by the design that fits it -- before the
         // clamp below, which would otherwise cram the large design
         // into a smaller canvas (see kCompactDesignCanvas).
-        if (m_freshInstall && !m_initialDesignApplied && m_canvas->width() >= 300 && m_canvas->height() >= 200) {
+        if (m_freshInstall && !m_initialDesignApplied && canvasHasRealSize()) {
             m_initialDesignApplied = true;
             applyDesignDefaults();
             emit initialDesignApplied();
@@ -239,13 +239,23 @@ void PanelLayoutManager::revealPanel(const QString& id)
     clampPanelToCanvas(container);
 }
 
+bool PanelLayoutManager::canvasHasRealSize() const
+{
+    // A QWidget that was never laid out reports a placeholder (100×30);
+    // clamping panels into that shrinks every one of them to its
+    // minimum in the top-left corner, for good -- the clamp never grows
+    // anything back. Seen on a fresh install's first run (the first-run
+    // dialog's event loop laid the canvas out early) and again, worse,
+    // when applying a profile in the constructor started clamping
+    // (2026-09-21): every start opened a heap of minimal panels.
+    return m_canvas && m_canvas->width() >= 300 && m_canvas->height() >= 200;
+}
+
 void PanelLayoutManager::clampPanelsToCanvas()
 {
-    // A locked panel is frozen exactly where the operator put it --
-    // trySetGeometry() already refuses to move a locked panel for any
-    // other caller (see PanelContainerWidget::trySetGeometry()), so this
-    // leaves locked panels alone too rather than silently unsticking
-    // them out from under a lock.
+    if (!canvasHasRealSize()) {
+        return;
+    }
     for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
         clampPanelToCanvas(it.value().container);
     }
@@ -253,7 +263,12 @@ void PanelLayoutManager::clampPanelsToCanvas()
 
 void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
 {
-    if (!container || container->isLocked()) {
+    // A locked panel is frozen exactly where the operator put it --
+    // trySetGeometry() already refuses to move a locked panel for any
+    // other caller (see PanelContainerWidget::trySetGeometry()), so this
+    // leaves locked panels alone too rather than silently unsticking
+    // them out from under a lock.
+    if (!container || container->isLocked() || !canvasHasRealSize()) {
         return;
     }
     const QRect current = container->geometry();
@@ -323,6 +338,7 @@ void PanelLayoutManager::saveLayout(const QString& onlyId)
     // The z-order is one global value, not per-panel -- always correct
     // to write in full regardless of which single panel triggered this.
     m_database.setSettingValue(kOrderKey, m_zOrder.join(QLatin1Char(',')));
+    emit layoutSaved();
 }
 
 } // namespace Contestprogramm

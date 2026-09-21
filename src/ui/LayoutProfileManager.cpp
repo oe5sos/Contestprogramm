@@ -27,6 +27,10 @@ LayoutProfileManager::LayoutProfileManager(ContestDatabase& database, PanelLayou
     , m_panels(panels)
     , m_panelIds(std::move(panelIds))
 {
+    // Every persisted panel edit also goes into the active profile --
+    // the profile is what the next start applies (see applyState), so
+    // a profile left at its last snapshot undid every drag since.
+    connect(&m_panels, &PanelLayoutManager::layoutSaved, this, &LayoutProfileManager::saveActiveProfileState);
     const QString orderRaw = m_database.settingValue(kOrderKey);
     if (orderRaw.isEmpty()) {
         // First launch on this database, or an upgrade from before

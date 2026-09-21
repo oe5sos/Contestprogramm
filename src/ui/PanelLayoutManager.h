@@ -96,6 +96,11 @@ signals:
     // the canvas's real size (the first time it had one) -- the moment
     // to snapshot the first profile.
     void initialDesignApplied();
+    // saveLayout() just persisted a panel edit (drag, resize, lock) or
+    // a reset -- LayoutProfileManager keeps the active profile in step
+    // with it (found 2026-09-21: the profile, applied on every start,
+    // otherwise undid every drag at the next launch).
+    void layoutSaved();
 
 public:
     PanelContainerWidget* panel(const QString& id) const;
@@ -156,6 +161,8 @@ private:
     void loadLayoutForPanel(const QString& id, PanelContainerWidget* container, const QRect& defaultGeometry);
     void bumpZOrder(const QString& id);
     void clampPanelToCanvas(PanelContainerWidget* container);
+    // False while the canvas still has Qt's pre-layout placeholder size.
+    bool canvasHasRealSize() const;
     // clampPanelsToCanvas() re-clamps every registered, unlocked panel
     // to stay fully within canvas()'s current bounds -- called whenever
     // the canvas actually changes size (see eventFilter() above). PanelContainerWidget's own

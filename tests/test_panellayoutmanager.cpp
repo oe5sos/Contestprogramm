@@ -77,6 +77,8 @@ private slots:
     void freshInstallPlacesPanelsByTheFittingDesignOnce();
     void profileSnapshotCountsUnshownPanelsAsVisible();
     void revealedPanelIsPulledOntoTheCanvas();
+    void clampLeavesPanelsAloneWhileTheCanvasHasNoRealSize();
+    void panelEditsSurviveARestartWithProfiles();
 };
 
 namespace {
@@ -584,6 +586,66 @@ void TestPanelLayoutManager::revealedPanelIsPulledOntoTheCanvas()
     LayoutProfileManager profiles(db, manager2, {QStringLiteral("skeds")});
     QVERIFY(!profiles.isFirstLaunch());
     QCOMPARE(skeds2->geometry(), QRect(1372 - 620, 692 - 262, 620, 262));
+}
+
+void TestPanelLayoutManager::clampLeavesPanelsAloneWhileTheCanvasHasNoRealSize()
+{
+    // Before the window is laid out the canvas reports Qt's placeholder
+    // size; a clamp into that would shrink every panel to its minimum
+    // in the corner for good. Applying a profile in the constructor
+    // must therefore not clamp yet (2026-09-21).
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_placeholder.sqlite")), QStringLiteral("plm_placeholder")));
+    db.setSettingValue(QStringLiteral("LayoutProfileOrder"), QStringLiteral("1"));
+    db.setSettingValue(QStringLiteral("LayoutProfileActive"), QStringLiteral("1"));
+    db.setSettingValue(QStringLiteral("LayoutProfile_1"), QStringLiteral("map:1:630:0:742:442"));
+    QWidget canvasParent;
+    PanelLayoutManager manager(db, &canvasParent);
+    QVERIFY(manager.canvas()->width() < 300); // never laid out
+    PanelContainerWidget* map = manager.registerPanel(QStringLiteral("map"), QStringLiteral("M"), makeContent(), false,
+                                                        QRect(910, 78, 530, 501), QRect(630, 0, 742, 442));
+    LayoutProfileManager profiles(db, manager, {QStringLiteral("map")});
+    QCOMPARE(map->geometry(), QRect(630, 0, 742, 442));
+    manager.clampPanelsToCanvas();
+    manager.revealPanel(QStringLiteral("map"));
+    QCOMPARE(map->geometry(), QRect(630, 0, 742, 442));
+
+    // With a real size the clamp works as before.
+    resizeCanvas(manager, QSize(1000, 400));
+    QCOMPARE(map->geometry(), QRect(1000 - 742, 0, 742, 400));
+}
+
+void TestPanelLayoutManager::panelEditsSurviveARestartWithProfiles()
+{
+    // A dragged panel is persisted per panel (saveLayout) -- but the
+    // next start applies the active profile on top, so the profile has
+    // to follow every edit or the drag is undone at the next launch
+    // (the case until 2026-09-21).
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_persist.sqlite")), QStringLiteral("plm_persist")));
+    {
+        QWidget canvasParent;
+        PanelLayoutManager manager(db, &canvasParent);
+        manager.canvas()->resize(1440, 982);
+        PanelContainerWidget* map = manager.registerPanel(QStringLiteral("map"), QStringLiteral("M"), makeContent(),
+                                                            false, QRect(910, 78, 530, 501));
+        LayoutProfileManager profiles(db, manager, {QStringLiteral("map")});
+        map->trySetGeometry(QRect(100, 100, 530, 501));
+        manager.saveLayout(QStringLiteral("map")); // what a drag's geometryEdited() does
+        QVERIFY2(db.settingValue(QStringLiteral("LayoutProfile_1")).contains(QStringLiteral("map:1:100:100:530:501")),
+                 qPrintable(db.settingValue(QStringLiteral("LayoutProfile_1"))));
+    }
+    QWidget canvasParent2;
+    PanelLayoutManager manager2(db, &canvasParent2);
+    manager2.canvas()->resize(1440, 982);
+    PanelContainerWidget* map2 = manager2.registerPanel(QStringLiteral("map"), QStringLiteral("M"), makeContent(), false,
+                                                          QRect(910, 78, 530, 501));
+    LayoutProfileManager profiles2(db, manager2, {QStringLiteral("map")});
+    QCOMPARE(map2->geometry(), QRect(100, 100, 530, 501));
 }
 
 int main(int argc, char* argv[])

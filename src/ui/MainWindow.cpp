@@ -1219,6 +1219,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                 if (visible) {
                     m_panelLayoutManager->revealPanel(id);
                 }
+                // Visibility lives in the profile alone: keep it.
+                m_layoutProfileManager->saveActiveProfileState();
             }
         });
         panelActions->append({entry.id, action});
