@@ -34,14 +34,9 @@ using Palette = std::array<const char*, IdxColorCount>;
 // Bernstein: the original, still-default palette -- every value here is
 // byte-for-byte the same literal this file shipped with before themes
 // existed (see StyleKit.h's own class comment for where these came
-// from). GelbHell/GelbDunkel/BlauHell/BlauDunkel: operator-approved
-// 2026-09-12 ("DIE 4 BITTE") after a live side-by-side mockup review --
-// each derived from a small set of hand-picked seed colors (background,
-// panel, text, the three semantic accents) with the remaining
-// structural roles (button/badge/inset/glow shades) computed from those
-// seeds using the same lightness-shift relationships Bernstein's own
-// values already exhibit, so every theme stays internally consistent
-// the way Bernstein already was, not just individually pretty.
+// from). Gruen (below) is the one alternative; the 2026-09-12/13
+// Gelb/Blau/Graphit palettes were removed 2026-09-21 at the operator's
+// request ("nur 2 varianten anbieten"), see core/ColorTheme.h.
 constexpr Palette kPaletteBernstein = {
     // PanelHeadTop/Mid/Bot/TitleBorder corrected 2026-09-14 to Longpath's
     // exact StyleConstants.h kTitleGradTop/Mid/Bot/kTitleBorder literals
@@ -61,97 +56,41 @@ constexpr Palette kPaletteBernstein = {
     "#f2f2ec", "#817b5c", "#47463b",
 };
 
-constexpr Palette kPaletteGelbHell = {
-    // Mid/TitleBorder added 2026-09-14 -- interpolated between this
-    // theme's existing (operator-approved) Top/Bot rather than reusing
-    // Bernstein's Longpath literals, which would be the wrong hue here.
-    "#e8d24a", "#f4ecac", "#ecdd7c", "#e4d26e", "#e0cc5c", "#dac13a", "#b89a2e", "#cdb64a", "#eae2a2", "#e0d898",
-    "#171408", "#3a3214", "#483f19", "#5c5220", "#8a7c40",
-    "#2a5fc4", "#1a4a9c", "#f4f0e4",
-    "#8a4a10", "#c48a34", "#6b3a0c", "#f0c888", "#c48a34",
-    "#cfe0b0", "#2a5c34", "#7ba05c",
-    "#e8ac98", "#4c1810", "#8a2418",
-    "#cbe2bf", "#eae2a2", "#f1c78e",
-    "#f0da52", "#d1ba4e", "#cdb64a",
-    "#d8c030", "#cdb64a",
-    "#171408", "#756a26", "#a99936",
-};
-
-constexpr Palette kPaletteGelbDunkel = {
-    "#080704", "#0e0c08", "#181408", "#141107", "#100e06", "#0b0906", "#3a3212", "#221e0c", "#181612", "#22201c",
-    "#ede0b0", "#b8ac78", "#a69a68", "#8a8050", "#5c5432",
-    "#3576e0", "#2a5fbe", "#f8f4e0",
-    "#f0d040", "#6b5a18", "#c0a428", "#332a08", "#6b5a18",
-    "#2a3a1c", "#8fae5a", "#4c5c2c",
-    "#7a2c22", "#f0d8ce", "#d66a54",
-    "#1e2814", "#13110d", "#282107",
-    "#050401", "#262210", "#221e0c",
-    "#060502", "#221e0c",
-    "#f4ecc0", "#8a856b", "#4f4c3c",
-};
-
-constexpr Palette kPaletteBlauHell = {
-    "#c8dcf0", "#e8f0fa", "#d4e4f4", "#cbdfef", "#c0d8ec", "#afcee7", "#7ca4cc", "#a8c4e0", "#dee6f0", "#d4dce6",
-    "#101820", "#30404c", "#3e505e", "#546878", "#8098a8",
-    "#1a4a9c", "#123a7c", "#e8f0fa",
-    "#a05a10", "#c89848", "#7c440c", "#f0d4a0", "#c89848",
-    "#c0e0cc", "#245c40", "#6ca884",
-    "#f0b8b0", "#4c1410", "#a02824",
-    "#bfe1c7", "#dee6f0", "#f4d398",
-    "#d0e4f8", "#acc8e4", "#a8c4e0",
-    "#a8c8e8", "#a8c4e0",
-    "#101820", "#63707e", "#91a1b2",
-};
-
-constexpr Palette kPaletteBlauDunkel = {
-    "#050a10", "#081018", "#101c28", "#0e1924", "#0c1620", "#0d1823", "#243c50", "#182a38", "#121a22", "#1c242c",
-    "#d8e6f2", "#9cb4c8", "#89a1b5", "#6c8598", "#465c6c",
-    "#4a8fe8", "#3a76c4", "#eef6fc",
-    "#5fc4e0", "#245868", "#3f96ac", "#0c2a33", "#245868",
-    "#1c3a2f", "#6fa384", "#2c5c4c",
-    "#7a2c2e", "#f0dcda", "#d6746b",
-    "#142924", "#0d151d", "#0a222a",
-    "#02070d", "#1c2e3c", "#182a38",
-    "#030608", "#182a38",
-    "#e8f2f7", "#828a8f", "#495055",
-};
-
-// Graphit -- operator, 2026-09-13: "mache c", the Design-C ("Fokus-
-// Karte") mockup direction made real. Unlike Gelb/Blau (Bernstein's own
-// hue with a different background lightness), Graphit reassigns what
-// the "blue" and "amber" slots MEAN: blue -> cyan (still the
-// interactive/touchable family HAUSSTIL describes, just this theme's
-// hue for it), amber -> coral (still the warm/measured-highlight
-// family, again a different hue). Green/red keep their usual role,
-// re-tuned for contrast against this darker graphite background, the
-// same way every other theme here already re-tunes them rather than
-// reusing Bernstein's literal values.
-constexpr Palette kPaletteGraphit = {
-    "#0a0e12", "#10151a", "#171e24", "#151a20", "#12171c", "#13181d", "#232b32", "#1a2026", "#161c22", "#1f272e",
-    "#e4eef2", "#9fb0b8", "#7d8f98", "#63747c", "#4a5960",
-    "#082226", "#0f4a52", "#e8fbff",
-    "#ef6b8e", "#5c2c3a", "#a84a63", "#2c1620", "#8a4358",
-    "#16261e", "#7fd9a8", "#2f6b4a",
-    "#3a1620", "#ffd6de", "#b25468",
-    "#182620", "#14181c", "#2e1a22",
-    "#050708", "#1e262c", "#1a2026",
-    "#0d1216", "#1a2026",
-    "#eef5f7", "#6fd7e8", "#2c3a40",
+// Gruen -- operator, 2026-09-21: "dieses farbeschema bitte zusätzlich
+// einbauen", from a screenshot of a dark web page he sent as the
+// example (charcoal page, lighter chips, near-white text, ONE green
+// accent for the day bar/route line/legend, amber only for the small
+// pass markers and the "ZUGABE" callout). Values sampled from that
+// screenshot, not invented: page #1c2024, chips #272f35, rule
+// #343a3f, text #e6ebe9 / #a6acae / #757b7d, green #309a68, green
+// area fill #243c34, amber #c0881c. Role mapping: the "amber"
+// (measured/highlight) slots carry the green -- that is what makes
+// the header accent bar, the readings and the rate tiles look like
+// his page -- while kAmberWarn keeps a real amber so a warning still
+// reads as a warning; blue stays blue for the interactive/commanded
+// family so a commanded rotor target and a worked station never share
+// a hue; kGreenText (OK/worked) is a lighter mint than the accent
+// green for the same reason. Insets are LIGHTER than the panel here
+// (his chips are raised cards), the opposite of Bernstein's recessed
+// #050507 -- deliberate, it is the page's own layering.
+constexpr Palette kPaletteGruen = {
+    "#16191c", "#1c2024", "#2a3238", "#222a2f", "#1c2327", "#121618", "#343a3f", "#2b3237", "#262e33", "#313a40",
+    "#e6ebe9", "#a8aeb0", "#8b9295", "#757b7d", "#555c60",
+    "#3f86e0", "#2f6cc0", "#ffffff",
+    "#38ac74", "#256a4a", "#c9901f", "#243c34", "#2f6b4f",
+    "#1e4a38", "#86cfa6", "#2f7a58",
+    "#6e2a2c", "#f2dcdc", "#a8666a",
+    "#1f3a30", "#1e2428", "#3a2e14",
+    "#262e33", "#2f373c", "#262d32",
+    "#16191c", "#2b3237",
+    "#eef3f0", "#6f8a7c", "#3a4a42",
 };
 
 const Palette& paletteFor(ColorTheme theme)
 {
     switch (theme) {
-    case ColorTheme::GelbHell:
-        return kPaletteGelbHell;
-    case ColorTheme::GelbDunkel:
-        return kPaletteGelbDunkel;
-    case ColorTheme::BlauHell:
-        return kPaletteBlauHell;
-    case ColorTheme::BlauDunkel:
-        return kPaletteBlauDunkel;
-    case ColorTheme::Graphit:
-        return kPaletteGraphit;
+    case ColorTheme::Gruen:
+        return kPaletteGruen;
     case ColorTheme::Bernstein:
         break;
     }

@@ -4,8 +4,7 @@ namespace Contestprogramm {
 
 QVector<ColorTheme> allColorThemes()
 {
-    return {ColorTheme::Bernstein, ColorTheme::GelbHell, ColorTheme::GelbDunkel, ColorTheme::BlauHell,
-            ColorTheme::BlauDunkel, ColorTheme::Graphit};
+    return {ColorTheme::Bernstein, ColorTheme::Gruen};
 }
 
 QString colorThemeDisplayName(ColorTheme theme)
@@ -13,16 +12,8 @@ QString colorThemeDisplayName(ColorTheme theme)
     switch (theme) {
     case ColorTheme::Bernstein:
         return QStringLiteral("Bernstein (Standard)");
-    case ColorTheme::GelbHell:
-        return QStringLiteral("Gelb Hell");
-    case ColorTheme::GelbDunkel:
-        return QStringLiteral("Gelb Dunkel");
-    case ColorTheme::BlauHell:
-        return QStringLiteral("Blau Hell");
-    case ColorTheme::BlauDunkel:
-        return QStringLiteral("Blau Dunkel");
-    case ColorTheme::Graphit:
-        return QStringLiteral("Graphit (Cyan/Koralle)");
+    case ColorTheme::Gruen:
+        return QStringLiteral("Grün");
     }
     return QStringLiteral("Bernstein (Standard)");
 }
@@ -32,16 +23,8 @@ QString colorThemeStorageKey(ColorTheme theme)
     switch (theme) {
     case ColorTheme::Bernstein:
         return QStringLiteral("bernstein");
-    case ColorTheme::GelbHell:
-        return QStringLiteral("gelb_hell");
-    case ColorTheme::GelbDunkel:
-        return QStringLiteral("gelb_dunkel");
-    case ColorTheme::BlauHell:
-        return QStringLiteral("blau_hell");
-    case ColorTheme::BlauDunkel:
-        return QStringLiteral("blau_dunkel");
-    case ColorTheme::Graphit:
-        return QStringLiteral("graphit");
+    case ColorTheme::Gruen:
+        return QStringLiteral("gruen");
     }
     return QStringLiteral("bernstein");
 }
@@ -53,7 +36,7 @@ ColorTheme colorThemeFromStorageKey(const QString& key)
             return theme;
         }
     }
-    return ColorTheme::Bernstein; // unrecognized/empty -- the original default, not an error
+    return ColorTheme::Bernstein; // unrecognized/empty/removed theme -- the original default, not an error
 }
 
 } // namespace Contestprogramm

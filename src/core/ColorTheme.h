@@ -5,10 +5,15 @@
 
 namespace Contestprogramm {
 
-// Selectable UI colour theme -- operator, 2026-09-12: "gelber
-// Hintergrund, schwarze Schrift, ev auch was in blau, hell und
-// dunkel... DIE 4 BITTE", after a live side-by-side mockup review.
-// Bernstein (the original amber-on-near-black look) stays the default.
+// Selectable UI colour theme. Two, deliberately: operator, 2026-09-21
+// ("alles bisheriger zusätzlich löschen und nur 2 varianten anbieten.
+// die jetziger und als option siehe fotos") -- the original Bernstein
+// look stays the default, and the one alternative is Gruen, modelled
+// on a screenshot he sent (charcoal surfaces, near-white text, one
+// green accent, amber kept for markers/warnings). The earlier
+// GelbHell/GelbDunkel/BlauHell/BlauDunkel/Graphit themes (2026-09-12/13)
+// were removed at his request; their stored keys fall back to
+// Bernstein via colorThemeFromStorageKey().
 //
 // Lives in its own core/ header, not nested inside app/ContestSettings.h
 // or declared in ui/StyleKit.h, so both can use the same unqualified
@@ -19,16 +24,7 @@ namespace Contestprogramm {
 // header rather than the other way around.
 enum class ColorTheme {
     Bernstein,
-    GelbHell,
-    GelbDunkel,
-    BlauHell,
-    BlauDunkel,
-    // Graphit -- operator, 2026-09-13: "mache c", following a live
-    // 3-direction mockup review (Design C, "Fokus-Karte": Karte
-    // dominant, Cyan/Koralle statt Amber auf Graphit). Dark-only, no
-    // Hell/Dunkel pair -- the design itself is a single committed
-    // direction, not a light/dark family the way Gelb/Blau are.
-    Graphit,
+    Gruen,
 };
 
 // In display order (SettingsDialog's theme combo iterates this) --
@@ -37,9 +33,10 @@ QVector<ColorTheme> allColorThemes();
 QString colorThemeDisplayName(ColorTheme theme);
 
 // Round-trips through ContestSettings' persisted string field --
-// unrecognized text falls back to Bernstein rather than erroring, the
-// same "unknown value degrades to the original default" rule
-// rotorDialStyleFromString() already applies in ContestSettings.cpp.
+// unrecognized text (including the keys of the removed themes) falls
+// back to Bernstein rather than erroring, the same "unknown value
+// degrades to the original default" rule rotorDialStyleFromString()
+// already applies in ContestSettings.cpp.
 QString colorThemeStorageKey(ColorTheme theme);
 ColorTheme colorThemeFromStorageKey(const QString& key);
 

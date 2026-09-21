@@ -103,10 +103,11 @@ private slots:
     // 1500 km verteilt (bis nach London/Warschau/Athen/Kiew) -- prueft
     // Dichte UND wie Grenzen/Staedte bei starkem Herauszoomen wirken.
     void drawBusyWideScenario();
-    // Gleicher Stationssatz wie der Standardfall, aber im Blau-Dunkel-
-    // Thema -- direkter Vergleich zur Bernstein-Fassung, gleiche Daten,
-    // nur die Farbe wechselt.
-    void drawBlauDunkelScenario();
+    // Gleicher Stationssatz wie der Standardfall, aber im Gruen-Thema
+    // (2026-09-21, die einzige Alternative zu Bernstein) -- direkter
+    // Vergleich zur Bernstein-Fassung, gleiche Daten, nur die Farbe
+    // wechselt.
+    void drawGruenScenario();
 };
 
 void TestMapMockup::drawStandardScenario()
@@ -157,7 +158,7 @@ void TestMapMockup::drawBusyWideScenario()
                     seeds);
 }
 
-void TestMapMockup::drawBlauDunkelScenario()
+void TestMapMockup::drawGruenScenario()
 {
     const QVector<StationSeed> seeds = {
         {"OE5DEMO", "JN78CD", true},
@@ -170,7 +171,7 @@ void TestMapMockup::drawBlauDunkelScenario()
         {"I2PQR", "JN45UV", false},
         {"HA5STU", "JN86EF", true},
     };
-    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup-blaudunkel.png"), ColorTheme::BlauDunkel, 500.0,
+    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup-gruen.png"), ColorTheme::Gruen, 500.0,
                     seeds);
 }
 

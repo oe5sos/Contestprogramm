@@ -109,6 +109,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Contest wählen | Liste der Definitionen; der eigene Locator wird jedes Mal mit abgefragt (vorbelegt, OK nur mit gültigem Locator, „Exakter Standort: JN67UT übernehmen" wenn die Einstellungen woanders liegen) | *Datei › Contest wählen…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
+| Farbthema | Zwei Varianten: **Bernstein** (Standard, die Longpath-Farben) und **Grün** (dunkles Anthrazit, helle Schrift, grüner Akzent für Messwerte und Kopfzeilen, Bernstein nur noch für Warnungen); wird beim nächsten Start wirksam | *Datei › Einstellungen › Farbthema* |
 
 Neue Panele (Check, Bandmap, Skeds) sind in bereits gespeicherten Layout-Profilen
 zunächst ausgeblendet – *Fenster › Panels* schaltet sie ein; die Position

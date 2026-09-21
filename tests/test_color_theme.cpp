@@ -17,6 +17,7 @@ private slots:
     void unrecognizedKeyFallsBackToBernstein();
     void emptyKeyFallsBackToBernstein();
     void storageKeyLookupIsCaseInsensitive();
+    void removedThemesFallBackToBernstein();
     void bernsteinIsFirstInDisplayOrder();
     void everyThemeHasANonEmptyDisplayName();
 };
@@ -45,7 +46,18 @@ void TestColorTheme::emptyKeyFallsBackToBernstein()
 
 void TestColorTheme::storageKeyLookupIsCaseInsensitive()
 {
-    QVERIFY(colorThemeFromStorageKey(QStringLiteral("GELB_HELL")) == ColorTheme::GelbHell);
+    QVERIFY(colorThemeFromStorageKey(QStringLiteral("GRUEN")) == ColorTheme::Gruen);
+}
+
+void TestColorTheme::removedThemesFallBackToBernstein()
+{
+    // The keys the 2026-09-12/13 themes wrote into existing settings
+    // tables -- an operator who had one of them selected must come up
+    // in Bernstein after the 2026-09-21 reduction to two themes, not
+    // crash or land on Gruen by accident.
+    for (const char* removed : {"gelb_hell", "gelb_dunkel", "blau_hell", "blau_dunkel", "graphit"}) {
+        QVERIFY2(colorThemeFromStorageKey(QString::fromLatin1(removed)) == ColorTheme::Bernstein, removed);
+    }
 }
 
 void TestColorTheme::bernsteinIsFirstInDisplayOrder()
@@ -53,8 +65,9 @@ void TestColorTheme::bernsteinIsFirstInDisplayOrder()
     const QVector<ColorTheme> themes = allColorThemes();
     QVERIFY(!themes.isEmpty());
     QCOMPARE(themes.first(), ColorTheme::Bernstein);
-    // And every theme appears exactly once.
-    QCOMPARE(themes.size(), 6);
+    // Exactly the two the operator asked for (2026-09-21), each once.
+    QCOMPARE(themes.size(), 2);
+    QCOMPARE(themes.last(), ColorTheme::Gruen);
 }
 
 void TestColorTheme::everyThemeHasANonEmptyDisplayName()
