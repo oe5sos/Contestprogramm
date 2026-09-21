@@ -188,6 +188,14 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
         }
 
         const bool beforeStart = ctx.window.isValid() && ctx.nowUtc < ctx.window.startUtc;
+        // "nächste Nummer 001" / "nächste Nummer 432: 012 · 1296: 003"
+        QStringList serials;
+        for (const auto& entry : ctx.nextSerials) {
+            const QString number = QStringLiteral("%1").arg(entry.second, 3, 10, QLatin1Char('0'));
+            serials << (entry.first.isEmpty() ? number : QStringLiteral("%1: %2").arg(entry.first, number));
+        }
+        const QString nextNumber = serials.isEmpty() ? QStringLiteral("%1").arg(ctx.qsoCount + 1, 3, 10, QLatin1Char('0'))
+                                                     : serials.join(QStringLiteral(" · "));
         if (ctx.qsoCount > 0 && beforeStart) {
             add(Level::Warning, kGroupContest, QStringLiteral("Log"),
                 QStringLiteral("%1 QSOs im Log vor dem Start — Testeinträge? Datei › Log abschließen und archivieren, dann beginnt die Nummer bei 001.")
@@ -198,8 +206,7 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
                 QStringLiteral("log"));
         } else {
             add(Level::Ok, kGroupContest, QStringLiteral("Log"),
-                QStringLiteral("%1 QSOs, nächste Nummer %2").arg(ctx.qsoCount).arg(ctx.qsoCount + 1, 3, 10, QLatin1Char('0')),
-                QStringLiteral("log"));
+                QStringLiteral("%1 QSOs, nächste Nummer %2").arg(ctx.qsoCount).arg(nextNumber), QStringLiteral("log"));
         }
     }
 

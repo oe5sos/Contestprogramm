@@ -3,6 +3,7 @@
 #include "data/ContestSchedule.h"
 
 #include <QDateTime>
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -64,6 +65,10 @@ struct ReadinessContext {
     QStringList contestBands;
     ContestWindow window; // invalid when the definition has no schedule
     int qsoCount = 0; // this contest's log
+    // The next serial to send: one entry per band when the definition
+    // numbers per band (IARU Region 1), else a single entry with an
+    // empty band.
+    QVector<QPair<QString, int>> nextSerials;
     bool esmEnabled = false;
 
     // Links

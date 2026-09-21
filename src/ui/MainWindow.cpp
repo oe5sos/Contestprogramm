@@ -3485,6 +3485,15 @@ void MainWindow::refreshReadiness()
         ctx.contestBands = def->bands();
         ctx.window = effectiveContestWindow(def->schedule(), settings.contestEndUtc, ctx.nowUtc);
         ctx.qsoCount = m_appController.database().qsoCountForContest(settings.activeContestId);
+        // The next serial the way the definition numbers -- per band
+        // for IARU Region 1 (ContestDefinition::serialScope()).
+        if (def->serialScope() == QStringLiteral("band")) {
+            for (const QString& band : def->bands()) {
+                ctx.nextSerials.append({band, m_appController.database().nextSerialForContest(settings.activeContestId, band)});
+            }
+        } else {
+            ctx.nextSerials.append({QString(), m_appController.database().nextSerialForContest(settings.activeContestId)});
+        }
     }
     ctx.esmEnabled = settings.esmEnabled;
 

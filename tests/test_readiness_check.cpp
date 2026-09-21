@@ -183,11 +183,15 @@ void TestReadinessCheck::qsosBeforeTheStartAreAWarning()
     QCOMPARE(log->level, ReadinessItem::Level::Warning);
     QVERIFY2(log->detail.startsWith(QStringLiteral("7 QSOs im Log vor dem Start")), qPrintable(log->detail));
 
-    // The same seven while the contest runs: just the next number.
+    // The same seven while the contest runs: just the next number --
+    // per band when the definition numbers per band.
     ctx.nowUtc = ctx.window.startUtc.addSecs(3600);
     result = checkReadiness(ctx);
     QCOMPARE(itemWithCode(result, QStringLiteral("log"))->level, ReadinessItem::Level::Ok);
     QCOMPARE(itemWithCode(result, QStringLiteral("log"))->detail, QStringLiteral("7 QSOs, nächste Nummer 008"));
+    ctx.nextSerials = {{QStringLiteral("432"), 6}, {QStringLiteral("1296"), 3}};
+    result = checkReadiness(ctx);
+    QCOMPARE(itemWithCode(result, QStringLiteral("log"))->detail, QStringLiteral("7 QSOs, nächste Nummer 432: 006 · 1296: 003"));
 }
 
 void TestReadinessCheck::linksDownAreWarningsAFailedRotctldAnError()
