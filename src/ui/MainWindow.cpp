@@ -1223,12 +1223,18 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         for (const auto& [id, action] : *panelActions) {
             if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
                 const QSignalBlocker blocker(action);
-                action->setChecked(panel->isVisible());
+                // isHidden(), not isVisible(): before the window is
+                // shown every panel is "not visible", which left every
+                // entry unchecked at startup until a profile switch.
+                action->setChecked(!panel->isHidden());
             }
         }
     };
     syncPanelMenuChecks();
     connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this, syncPanelMenuChecks);
+    // And whenever the menu opens: the compact design of a fresh install
+    // hides two panels after this constructor has run.
+    connect(windowMenu, &QMenu::aboutToShow, this, syncPanelMenuChecks);
     connect(resetLayoutAction, &QAction::triggered, this, [this, syncPanelMenuChecks]() {
         m_panelLayoutManager->resetToDefaultLayout();
         syncPanelMenuChecks();
