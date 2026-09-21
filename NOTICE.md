@@ -1,9 +1,9 @@
 # NOTICE
 
-Contestprogramm is © 2026 Contestprogramm contributors, licensed as a
-whole under the terms in `LICENSE` (project-level; not yet finalized —
-this file documents third-party attribution independently of that
-choice).
+Contestprogramm is © 2026 Martin Fischer, OE5SOS, and contributors,
+licensed as a whole under the GNU General Public License v3.0 or later —
+see `LICENSE`. This file documents third-party attribution independently
+of that choice.
 
 ## Maidenhead locator geometry (`src/core/Maidenhead.h` / `.cpp`)
 

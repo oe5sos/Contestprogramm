@@ -164,7 +164,14 @@ Score-XML), kein Code. Für einen 2 m/70 cm-Einzelop-Contest bewusst nicht
 gebaut: hunderte KW-Regelwerke, SO2R, RTTY/PSK-Engines, WinKey/LPT,
 Skimmer/RBN, Netzwerk-Multi-Op, Voice-Keyer.
 
+## Download
+
+Fertige Pakete liegen bei den [GitHub-Releases](https://github.com/oe5sos/Contestprogramm/releases):
+macOS (Apple Silicon) als DMG. Das Programm ist nicht bei Apple beglaubigt --
+beim ersten Start Rechtsklick › Öffnen. Windows- und Linux-Pakete folgen
+über die CI. Die Seite dazu: <https://www.longpath.at/contest/>.
+
 ## Lizenz und Herkunft
 
-Siehe `NOTICE.md` (Attribution für portierten Locator-Code aus
-freedv-gui/Longpath); die Projektlizenz ist noch nicht festgelegt.
+GNU General Public License v3.0 oder später, siehe `LICENSE`. Attribution
+für portierten Locator-Code (freedv-gui, über Longpath) in `NOTICE.md`.
