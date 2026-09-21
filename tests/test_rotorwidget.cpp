@@ -703,6 +703,54 @@ void TestRotorWidgetReadout::minimumSizeHintAccountsForDigitalGlassPanels()
     QVERIFY(!widget.grab().isNull());
 }
 
+// The beam cones (design sheet "Rotoren: Kegel", 2026-09-21): one
+// beamwidth per rotor, clamped to the map's own 5..120 range, painted
+// under the needle in every dial style.
+class TestRotorWidgetBeamCone : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void defaultsToThirtyDegreesAndClamps();
+    void coneWidthChangesThePaintingInEveryStyle();
+};
+
+void TestRotorWidgetBeamCone::defaultsToThirtyDegreesAndClamps()
+{
+    RotorWidget widget(QStringLiteral("2m"));
+    QCOMPARE(widget.beamwidthDeg(), 30.0);
+    widget.setBeamwidthDeg(45.0);
+    QCOMPARE(widget.beamwidthDeg(), 45.0);
+    widget.setBeamwidthDeg(1.0);
+    QCOMPARE(widget.beamwidthDeg(), 5.0);
+    widget.setBeamwidthDeg(400.0);
+    QCOMPARE(widget.beamwidthDeg(), 120.0);
+}
+
+void TestRotorWidgetBeamCone::coneWidthChangesThePaintingInEveryStyle()
+{
+    // A narrow and a wide cone must render differently in each style --
+    // proof the wedge (or the linear track's band) is actually painted,
+    // with and without the second antenna.
+    for (RotorDialStyle style : {RotorDialStyle::FullCompass, RotorDialStyle::PartialArc, RotorDialStyle::LinearScale,
+                                 RotorDialStyle::Digital}) {
+        for (bool second : {false, true}) {
+            RotorWidget widget(QStringLiteral("2m"));
+            widget.setDialStyle(style);
+            widget.resize(320, 380);
+            widget.setConnected(true);
+            widget.setAzimuthDeg(322.0);
+            widget.setSecondAntenna(second, 48.0);
+            widget.setBeamwidthDeg(5.0);
+            const QImage narrow = widget.grab().toImage();
+            widget.setBeamwidthDeg(90.0);
+            const QImage wide = widget.grab().toImage();
+            QVERIFY2(!narrow.isNull() && narrow != wide,
+                     qPrintable(QStringLiteral("style %1, second antenna %2").arg(int(style)).arg(second)));
+        }
+    }
+}
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
@@ -725,6 +773,9 @@ int main(int argc, char* argv[])
 
     TestRotorWidgetReadout readoutTest;
     status |= QTest::qExec(&readoutTest, argc, argv);
+
+    TestRotorWidgetBeamCone beamConeTest;
+    status |= QTest::qExec(&beamConeTest, argc, argv);
 
     return status;
 }

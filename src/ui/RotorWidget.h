@@ -98,6 +98,16 @@ public:
     bool secondAntennaEnabled() const { return m_secondAntennaEnabled; }
     double secondAntennaOffsetDeg() const { return m_secondAntennaOffsetDeg; }
 
+    // Half-power beamwidth of the antenna(s) on this rotor, degrees
+    // (5..120, default 30) -- the translucent cone the dial draws
+    // around each needle (design sheet "Rotoren: Kegel", operator
+    // 2026-09-21: "4 bitte erledigen"). One value per rotor, shared by
+    // both antennas of a stacked pair, and the same number the map's
+    // own "Öffnungswinkel Rotor N" preference holds -- MainWindow feeds
+    // it from there so the two instruments always agree.
+    void setBeamwidthDeg(double degrees);
+    double beamwidthDeg() const { return m_beamwidthDeg; }
+
     // "+23cm" (or similar) badge shown next to the band label when this
     // rotor's slot is also the one ContestSettings::band1296RotorSlot
     // points at. Empty clears it.
@@ -265,6 +275,27 @@ private:
     void drawNeedle(QPainter& painter, const QPointF& center, double radius, double angleDeg,
                      Qt::PenStyle style = Qt::SolidLine, int alpha = 255, bool blocked = false) const;
     void drawTargetMarker(QPainter& painter, const QPointF& center, double radius, double angleDeg) const;
+    // The beamwidth wedge under a needle: `color` at the hub fading to
+    // nothing at the ring, `alpha` dimmed like the needle's own.
+    void drawBeamCone(QPainter& painter, const QPointF& center, double radius, double angleDeg,
+                      const QColor& color, int alpha) const;
+    // The same wedge on the linear track: a translucent band of the
+    // beamwidth around `x`, split in two when it wraps past 0/360.
+    void drawLinearBeamBand(QPainter& painter, double trackLeft, double trackWidth, double trackY,
+                            double angleDeg, const QColor& color, int alpha) const;
+    // The three readout cells' geometry (label + value block, its
+    // value row), shared by drawReadout() and updateTargetInputGeometry()
+    // so the editable ZIEL field sits exactly on its painted cell.
+    QRect readoutBlockRect() const;
+    QRect readoutValuesRow() const;
+    // The big readout number's size: kFontDisplay when a zero-padded
+    // "000°" fits a cell with air around it, else the Digital style's
+    // 28px -- a 300px-wide panel is one cell short of the big size.
+    int readoutValueFontPx() const;
+    // The sunken glass a readout cell sits in -- kInsetBg, subtle
+    // border, inset shadow along the top (the same treatment
+    // drawGlassPanel() gives the Digital style's panels).
+    void drawReadoutInset(QPainter& painter, const QRect& box) const;
     // Polar (ring-edge) numbered mark, used by FullCompass/PartialArc --
     // computes the point and delegates to drawNumberedMarkAt() below,
     // which LinearScale's own (non-polar) marks also share.
@@ -385,6 +416,7 @@ private:
 
     bool m_secondAntennaEnabled = false;
     double m_secondAntennaOffsetDeg = 0.0;
+    double m_beamwidthDeg = 30.0;
 
     RotorDialStyle m_dialStyle = RotorDialStyle::FullCompass;
 

@@ -7,6 +7,7 @@
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
+#include "ui/MapWidget.h"
 #include "ui/RotorWidget.h"
 
 #include <memory>
@@ -29,6 +30,7 @@ private slots:
     void bothRotorWidgetsExistByDefault();
     void disablingRotor2RemovesItsWidgetEntirely();
     void reEnablingRotor2RecreatesItsWidget();
+    void mapBeamwidthReachesTheRotorDials();
 };
 
 namespace {
@@ -130,6 +132,45 @@ void TestMainWindowRotorToggle::reEnablingRotor2RecreatesItsWidget()
     }
     QVERIFY(labels.contains(QStringLiteral("2m")));
     QVERIFY(labels.contains(QStringLiteral("70cm")));
+}
+
+void TestMainWindowRotorToggle::mapBeamwidthReachesTheRotorDials()
+{
+    // The "Öffnungswinkel Rotor N" preference of the map is the one
+    // beamwidth: the dials' cones start on it and follow every change.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeReadyController(dir, QStringLiteral("mw_beamwidth.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    auto* map = window.findChild<MapWidget*>();
+    QVERIFY(map);
+    const QList<RotorWidget*> widgets = window.findChildren<RotorWidget*>();
+    QCOMPARE(widgets.size(), 2);
+    QCOMPARE(widgets.at(0)->beamwidthDeg(), map->rotor1BeamwidthDeg());
+    QCOMPARE(widgets.at(1)->beamwidthDeg(), map->rotor2BeamwidthDeg());
+
+    map->setRotor1BeamwidthDeg(45.0);
+    map->setRotor2BeamwidthDeg(20.0);
+    QCOMPARE(widgets.at(0)->beamwidthDeg(), 45.0);
+    QCOMPARE(widgets.at(1)->beamwidthDeg(), 20.0);
+
+    // A rotor widget recreated later (slot toggled off and on) gets it
+    // too.
+    ContestSettings updated = controller->settings();
+    updated.rotor2Enabled = false;
+    controller->setSettings(updated);
+    QMetaObject::invokeMethod(&window, "applyRotorWidgetSettings");
+    updated.rotor2Enabled = true;
+    controller->setSettings(updated);
+    QMetaObject::invokeMethod(&window, "applyRotorWidgetSettings");
+    QCoreApplication::processEvents();
+    QTest::qWait(10);
+    QCoreApplication::processEvents();
+    const QList<RotorWidget*> recreated = window.findChildren<RotorWidget*>();
+    QCOMPARE(recreated.size(), 2);
+    QCOMPARE(recreated.at(1)->beamwidthDeg(), 20.0);
 }
 
 int main(int argc, char* argv[])

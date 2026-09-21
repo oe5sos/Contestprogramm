@@ -543,6 +543,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         QStringLiteral("map_preferences"), QStringLiteral("view=radar")));
     connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
         m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
+        // The beamwidth set in the map's ⚙ menu is also the cone the
+        // rotor dials draw -- one number, two instruments.
+        applyRotorBeamwidths();
     });
     // "Zweitantenne" from the map's ⚙ menu is the station setting the
     // settings dialog edits: stored once, then re-applied to the rotor
@@ -1456,6 +1459,7 @@ void MainWindow::applyRotorWidgetSettings()
             settings.band1296RotorSlot == ContestSettings::RotorSlot::Slot2 ? QStringLiteral("+23cm") : QString());
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
+    applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
 
@@ -1467,6 +1471,22 @@ void MainWindow::applyRotorWidgetSettings()
     }
 
     refreshTerrainSectors();
+}
+
+void MainWindow::applyRotorBeamwidths()
+{
+    // The map's "Öffnungswinkel Rotor N" preference (persisted with the
+    // rest of map_preferences) is the one place the beamwidth lives;
+    // the dials' cones follow it.
+    if (!m_mapWidget) {
+        return;
+    }
+    if (m_rotor1Widget) {
+        m_rotor1Widget->setBeamwidthDeg(m_mapWidget->rotor1BeamwidthDeg());
+    }
+    if (m_rotor2Widget) {
+        m_rotor2Widget->setBeamwidthDeg(m_mapWidget->rotor2BeamwidthDeg());
+    }
 }
 
 void MainWindow::refreshTerrainSectors()

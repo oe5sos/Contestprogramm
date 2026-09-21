@@ -312,6 +312,17 @@ void RotorWidget::setSecondAntenna(bool enabled, double offsetDeg)
     }
 }
 
+void RotorWidget::setBeamwidthDeg(double degrees)
+{
+    // The same 5..120 range the map's own "Öffnungswinkel" menu offers.
+    const double clamped = std::clamp(degrees, 5.0, 120.0);
+    if (qFuzzyCompare(clamped, m_beamwidthDeg)) {
+        return;
+    }
+    m_beamwidthDeg = clamped;
+    update();
+}
+
 void RotorWidget::setExtraBandBadge(const QString& badgeText)
 {
     if (m_extraBandBadge == badgeText) {
@@ -596,14 +607,10 @@ void RotorWidget::updateTargetInputGeometry()
         m_targetInput->hide();
         return;
     }
-    // Exactly drawReadout()'s own textArea/labelsRow/valuesRow/
-    // columnRect(..., 1) computation (that geometry lives inside a paint
-    // method, so it can't be called from here directly) -- keep these
-    // two in sync if drawReadout()'s own layout ever changes.
-    const QRect textArea(0, height() - kTextAreaHeight, width(), kTextAreaHeight);
-    const QRect valuesRow(textArea.left(), textArea.top() + kReadoutTopPad + kReadoutLabelHeight, textArea.width(),
-                           kReadoutValueHeight);
-    const QRect col1 = columnRect(valuesRow, 1);
+    // The ZIEL cell's own value row -- the same readoutValuesRow()/
+    // columnRect(..., 1) drawReadout() paints, so the two can never
+    // drift apart.
+    const QRect col1 = columnRect(readoutValuesRow(), 1);
     if (m_secondAntennaEnabled) {
         // Top half only -- the bottom half is drawReadout()'s own
         // read-only "2  <target+offset>" line (Antenna 2's target is
@@ -615,7 +622,7 @@ void RotorWidget::updateTargetInputGeometry()
         m_targetInput->setFont(Style::monoFont(font(), Style::kFontBody, QFont::Bold));
     } else {
         m_targetInput->setGeometry(col1);
-        m_targetInput->setFont(Style::monoFont(font(), Style::kFontDisplay, QFont::Bold));
+        m_targetInput->setFont(Style::monoFont(font(), readoutValueFontPx(), QFont::Bold));
     }
     m_targetInput->show();
 }
@@ -944,6 +951,108 @@ void RotorWidget::drawTargetMarker(QPainter& painter, const QPointF& center, dou
     painter.drawPolygon(marker);
 }
 
+void RotorWidget::drawBeamCone(QPainter& painter, const QPointF& center, double radius, double angleDeg,
+                               const QColor& color, int alpha) const
+{
+    // The half-power beamwidth as a wedge under the needle -- the
+    // colour at the hub, nothing at the ring, so the needle stays the
+    // reading and the wedge only says how wide the beam is (design
+    // sheet "Rotoren: Kegel"). QPainterPath::arcTo() counts degrees
+    // counter-clockwise from three o'clock; a bearing runs clockwise
+    // from twelve.
+    const double half = m_beamwidthDeg / 2.0;
+    QPainterPath wedge;
+    wedge.moveTo(center);
+    wedge.arcTo(QRectF(center.x() - radius, center.y() - radius, 2.0 * radius, 2.0 * radius),
+                90.0 - (angleDeg - half), -m_beamwidthDeg);
+    wedge.closeSubpath();
+
+    QRadialGradient fade(center, radius);
+    QColor hub = color;
+    hub.setAlpha(120 * alpha / 255);
+    QColor rim = color;
+    rim.setAlpha(14 * alpha / 255);
+    fade.setColorAt(0.0, hub);
+    fade.setColorAt(1.0, rim);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(fade);
+    painter.drawPath(wedge);
+
+    // Faint edges, so the width still reads where the fill has faded.
+    QColor edge = color;
+    edge.setAlpha(90 * alpha / 255);
+    painter.setPen(QPen(edge, 1.0));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawLine(center, pointOnCircle(center, radius, angleDeg - half));
+    painter.drawLine(center, pointOnCircle(center, radius, angleDeg + half));
+}
+
+void RotorWidget::drawLinearBeamBand(QPainter& painter, double trackLeft, double trackWidth, double trackY,
+                                     double angleDeg, const QColor& color, int alpha) const
+{
+    // The polar cone's linear-track equivalent: a translucent band a
+    // beamwidth wide around the handle, in two pieces when it wraps
+    // past the track's 0/360 ends.
+    QColor fill = color;
+    fill.setAlpha(55 * alpha / 255);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(fill);
+    const double half = m_beamwidthDeg / 2.0;
+    const double bandHeight = kLinearTrackHeightPx + 8.0;
+    const auto band = [&](double fromDeg, double toDeg) {
+        const double left = trackLeft + fromDeg / 360.0 * trackWidth;
+        const double right = trackLeft + toDeg / 360.0 * trackWidth;
+        painter.drawRoundedRect(QRectF(left, trackY - bandHeight / 2.0, right - left, bandHeight), 3.0, 3.0);
+    };
+    const double from = BeamHeading::wrap360(angleDeg - half);
+    const double to = BeamHeading::wrap360(angleDeg + half);
+    if (from <= to) {
+        band(from, to);
+    } else {
+        band(from, 360.0);
+        band(0.0, to);
+    }
+    painter.setBrush(Qt::NoBrush);
+}
+
+QRect RotorWidget::readoutBlockRect() const
+{
+    const QRect textArea(0, height() - kTextAreaHeight, width(), kTextAreaHeight);
+    return QRect(textArea.left() + 6, textArea.top() + kReadoutTopPad, textArea.width() - 12,
+                 kReadoutLabelHeight + kReadoutValueHeight);
+}
+
+QRect RotorWidget::readoutValuesRow() const
+{
+    // Below the cell's label, ending a little above the glass's bottom
+    // edge.
+    const QRect block = readoutBlockRect();
+    return QRect(block.left(), block.top() + 3 + kReadoutLabelHeight, block.width(), kReadoutValueHeight - 6);
+}
+
+int RotorWidget::readoutValueFontPx() const
+{
+    const int cellWidth = columnRect(readoutBlockRect(), 0).width() - 3;
+    const QFontMetrics big(Style::monoFont(font(), Style::kFontDisplay));
+    return big.horizontalAdvance(QStringLiteral("000°")) + 10 <= cellWidth ? Style::kFontDisplay
+                                                                             : kDigitalValueFontPx;
+}
+
+void RotorWidget::drawReadoutInset(QPainter& painter, const QRect& box) const
+{
+    painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
+    painter.setBrush(QColor(Style::kInsetBg()));
+    painter.drawRoundedRect(box, 6.0, 6.0);
+    painter.save();
+    painter.setClipRect(box);
+    QLinearGradient insetShadow(0, box.top(), 0, box.top() + 10.0);
+    insetShadow.setColorAt(0.0, QColor(0, 0, 0, 140));
+    insetShadow.setColorAt(1.0, QColor(0, 0, 0, 0));
+    painter.fillRect(box, insetShadow);
+    painter.restore();
+    painter.setBrush(Qt::NoBrush);
+}
+
 void RotorWidget::drawNumberedMark(QPainter& painter, const QPointF& center, double radius, double angleDeg,
                                     const QString& number) const
 {
@@ -985,7 +1094,7 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
     // HAUSSTIL rule 7 ("Unbekannt ist ein Strich, keine Null"): a dash,
     // never a fabricated 0/000.
     const QFont capLabelFont = Style::capsFont(painter.font());
-    const QFont valueFont = Style::monoFont(painter.font(), Style::kFontDisplay);
+    const QFont valueFont = Style::monoFont(painter.font(), readoutValueFontPx());
     const QFont unitFont = Style::monoFont(painter.font(), Style::kFontSmall);
 
     const QColor scaleColor{Style::kTextScale()};
@@ -1004,10 +1113,22 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
 
     int y = area.top() + kReadoutTopPad;
 
+    // The three cells first, as sunken glass with the label inside at
+    // the top and the number below it (design sheet "Rotoren: Kegel",
+    // 2026-09-21) -- replaces the earlier bare columns with divider
+    // lines. Geometry from readoutBlockRect()/readoutValuesRow(), which
+    // updateTargetInputGeometry() shares so the editable ZIEL field
+    // sits exactly on its cell.
+    const QRect block = readoutBlockRect();
+    for (int column = 0; column < 3; ++column) {
+        drawReadoutInset(painter,
+                         columnRect(block, column).adjusted(column == 0 ? 0 : 3, 0, column == 2 ? 0 : -3, 0));
+    }
+
     // Row 1: caps labels, one per column -- same "small caps label
     // above a value" convention UnifiedLogWidget::buildFieldCell() and
     // MapWidget::drawLegend() both already use.
-    const QRect labelsRow(area.left(), y, area.width(), kReadoutLabelHeight);
+    const QRect labelsRow(block.left(), block.top() + 3, block.width(), kReadoutLabelHeight);
     painter.setFont(capLabelFont);
     painter.setPen(scaleColor);
     painter.drawText(columnRect(labelsRow, 0), Qt::AlignCenter, QStringLiteral("Aktuell"));
@@ -1016,7 +1137,7 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
     y += kReadoutLabelHeight;
 
     // Row 2: the big numbers themselves.
-    const QRect valuesRow(area.left(), y, area.width(), kReadoutValueHeight);
+    const QRect valuesRow = readoutValuesRow();
 
     // Zero-padded to 3 digits (mockup: "072°", "060°") -- the old AZ
     // line never zero-padded, but a fixed-width column reads much
@@ -1111,17 +1232,6 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
         drawCenteredSegments(painter, columnRect(valuesRow, 2), segs);
     }
 
-    // Thin column dividers spanning the label+value block, matching the
-    // mockup's own 1px kBorderSubtle separators between the three
-    // readout cells.
-    {
-        QPen dividerPen{QColor(Style::kBorderSubtle())};
-        dividerPen.setWidthF(1.0);
-        painter.setPen(dividerPen);
-        const int colWidth = area.width() / 3;
-        painter.drawLine(area.left() + colWidth, labelsRow.top(), area.left() + colWidth, valuesRow.bottom());
-        painter.drawLine(area.left() + colWidth * 2, labelsRow.top(), area.left() + colWidth * 2, valuesRow.bottom());
-    }
     y += kReadoutValueHeight + kReadoutRowGap;
 
     // Row 3: target-station caption ("SP9XYZ · JO90 · 471 km") -- only
@@ -1432,6 +1542,19 @@ void RotorWidget::drawNeedlesAndTarget(QPainter& painter, const QPointF& center,
     // Shared by FullCompass and PartialArc -- identical to what used to
     // be paintEvent()'s tail end. Both styles draw from the same
     // center/radius; only the ring/ticks behind this differ.
+    //
+    // The beamwidth first, under everything else: a translucent wedge
+    // around each needle, the antenna's half-power beamwidth wide
+    // (design sheet "Rotoren: Kegel"); the second antenna's in the
+    // map's own kAmberWarn so a stacked pair never reads as one beam.
+    // Dimmed with the needles when the reading is stale.
+    const int coneAlpha = m_connected ? 255 : 110;
+    if (m_secondAntennaEnabled) {
+        drawBeamCone(painter, center, radius, secondAntennaBearing(m_azimuthDeg, m_secondAntennaOffsetDeg),
+                     QColor(Style::kAmberWarn()), coneAlpha);
+    }
+    drawBeamCone(painter, center, radius, m_azimuthDeg, QColor(Style::kAmberText()), coneAlpha);
+
     if (m_hasTarget) {
         drawTargetMarker(painter, center, radius, m_targetBearingDeg);
     }
@@ -1668,6 +1791,15 @@ void RotorWidget::paintLinearScaleDial(QPainter& painter, const QRect& area) con
             QRectF(trackLeft, trackY - kLinearTrackHeightPx / 2.0, std::max(0.0, fillRight - trackLeft), kLinearTrackHeightPx),
             kLinearTrackHeightPx / 2.0, kLinearTrackHeightPx / 2.0);
     }
+
+    // The beamwidth around each handle (the polar styles' cones), the
+    // second antenna's in kAmberWarn like theirs.
+    if (m_secondAntennaEnabled) {
+        drawLinearBeamBand(painter, trackLeft, trackWidth, trackY,
+                           secondAntennaBearing(m_azimuthDeg, m_secondAntennaOffsetDeg), QColor(Style::kAmberWarn()),
+                           handleAlpha);
+    }
+    drawLinearBeamBand(painter, trackLeft, trackWidth, trackY, m_azimuthDeg, QColor(Style::kAmberText()), handleAlpha);
 
     drawLinearTicks(painter, trackLeft, trackRight, trackY);
 

@@ -157,6 +157,8 @@ private slots:
     // SettingsDialog::exec() -- it is never itself connected to a
     // signal.
     void applyRotorWidgetSettings();
+    // The rotor dials' beam cones take the map's beamwidth preferences.
+    void applyRotorBeamwidths();
     // Rebuilds MapWidget's worked/spotted station set from the current
     // contest's logged QSOs (ContestDatabase::qsosWithGrid) plus both
     // ChatFeedModels' currently-visible, not-yet-worked rows -- called
