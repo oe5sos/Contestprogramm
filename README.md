@@ -23,7 +23,8 @@ ein Gerät (Modell, Port, Baud) genannt ist -- ein bereits laufendes
 `rotctld` hat Vorrang, ein selbst gestartetes endet mit dem Programm,
 seine Fehlermeldung landet in der Statuszeile. Ein `rigctld`/`rotctld`,
 das erst nach dem Programm hochkommt, wird alle drei Sekunden neu
-gewählt.
+gewählt; ON4KST und Cluster wählen nach einem Fehlschlag mit
+wachsendem Abstand (5 s … 60 s) neu.
 
 ## Daten
 
@@ -36,7 +37,10 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
   letzten Kopie ein QSO geschrieben wurde; die ältesten fliegen ab 300
   Dateien). Manuell: *Datei › Log jetzt sichern*. Zurück auf einen Stand:
   *Datei › Sicherung wiederherstellen…* (der jetzige Stand wird vorher
-  gesichert, das Programm startet neu).
+  gesichert, das Programm startet neu). *Datei › Zweiter Sicherungsordner…*
+  kopiert jede Sicherung zusätzlich auf einen USB-Stick oder in einen
+  Cloud-Ordner -- ein abgezogener Stick stört die Sicherung neben der
+  Datenbank nicht, er wird nur in der Statuszeile gemeldet.
 - **Isolierter Testlauf:** `CONTESTPROGRAMM_DATA_DIR=/pfad ./Contestprogramm`
   öffnet eine andere Datenbank statt der echten.
 - **Nur eine Instanz je Datenordner:** ein zweiter Start holt das laufende
@@ -95,9 +99,9 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Skeds | Verabredungen mit Zeitleiste der nächsten Stunde; Eingabe von Hand oder als Vorschlag aus einer KST-Nachricht an dich; Klick = QSY + Rotor + Eingabezeile; Alarm 2 min vorher; ein QSO schließt den Sked | Panel „Skeds" |
 | CW | Makro-Zeile, F1–F6 als Tasten (Tastung über `rigctld`), Esc stoppt, Alt+W leert die Eingabe; ESM: Enter sendet, was der QSO-Stand verlangt, und loggt erst am Ende | Checkbox „CW-Makros anzeigen" / „ESM"; *Datei › ESM-Texte…* |
 | Feeds | ON4KST-Chat und DX-Cluster, geografisch gefiltert (Radius, Terrain), Nächstes-Ziel-Vorschlag mit Nachrichtenentwurf | Panele „Log" (Kandidaten), „Nächstes Ziel" |
-| Karte / Rotoren | Panel „Karte / Verbindungen" in zwei Ansichten: **Radar** (Scheibe mit Ringen, Peilung, Stationen als Punkte, Rotor als Lichtkegel je Antenne, Horizont als dunkler Rand, Zahlen rechts) und **Karte + Horizont** (ruhige Landkarte, darunter die Skyline 0–360° mit jeder Station als Strich). Ebenen (Ringe, Peilung, Horizont, Rotoren, Zweitantenne je Rotor, Öffnungswinkel, Altern, Füllen; Grenzen, Städte, Raster) im ⚙-Menü rechts oben im Panelkopf, Ansicht und Ebenen bleiben gespeichert. Klick auf eine Station = QSY + Rotor; Klick auf „Offen in Richtung" funkt die nächste offene Station im Beam an (weiteste zuerst, reihum). Horizont aus den SRTM-Daten um den Standort (genaue Position aus den Einstellungen, sonst Locator-Mitte). Rotorskalen mit dem Öffnungswinkel als Kegel je Antenne (der Winkel aus dem ⚙-Menü der Karte) und der Ablesung Aktuell/Ziel/Entfernung in Glaszellen; Rotoren über `rotctld`, Standortvergleich per Horizont | Panele „Karte", „Rotoren"; *Datei › Standortvergleich…* |
+| Karte / Rotoren | Panel „Karte / Verbindungen" in zwei Ansichten: **Radar** (Scheibe mit Ringen, Peilung, Stationen als Punkte, Rotor als Lichtkegel je Antenne, Horizont als dunkler Rand, Zahlen rechts) und **Karte + Horizont** (ruhige Landkarte, darunter die Skyline 0–360° mit jeder Station als Strich). Ebenen (Ringe, Peilung, Horizont, Rotoren, Zweitantenne je Rotor, Öffnungswinkel, Altern, Füllen; Grenzen, Städte, Raster) im ⚙-Menü rechts oben im Panelkopf, Ansicht und Ebenen bleiben gespeichert. Klick auf eine Station = QSY + Rotor; Klick auf „Offen in Richtung" funkt die nächste offene Station im Beam an (weiteste zuerst, reihum). Horizont aus den SRTM-Daten um den Standort (genaue Position aus den Einstellungen, sonst Locator-Mitte). Rotorskalen mit dem Öffnungswinkel als Kegel je Antenne (der Winkel aus dem ⚙-Menü der Karte) und der Ablesung Aktuell/Ziel/Entfernung in Glaszellen -- in einem niedrigen Panel weicht die Ablesung zeilenweise, die Skala bleibt; Rotoren über `rotctld`, Standortvergleich per Horizont | Panele „Karte", „Rotoren"; *Datei › Standortvergleich…* |
 | Log prüfen | Was der Auswerter beanstanden würde, vorher: Fehler (kein/kurzer Locator, keine empfangene Nummer, Zeit außerhalb des Contests, verbotene Betriebsart, doppelt gesendete Nummer, eigenes Rufzeichen), Warnungen (RST-Form, seltsames Rufzeichen, ein Call mit zwei Locatoren, > 1500 km, Frequenz ≠ Band, unmarkiertes Dupe, Nummer außer der Reihe), Hinweise (Lücken, Dupes, ungültige). Doppelklick springt zum QSO; der EDI-Export zeigt das Ergebnis und fragt bei Fehlern | *Datei › Log prüfen…* |
-| Startcheck | Vor dem ersten CQ alles auf einen Blick: Station (Rufzeichen, Locator und ob der exakte Standort im selben Feld liegt, Höhen), Contest (Definition, Zeitfenster: Start in …/läuft/vorbei, Log leer oder QSOs vor dem Start), Verbindungen (CAT, Rotoren samt rotctld-Störung, ON4KST, Cluster), Daten (Sicherung, Geländedaten, Locator-Liste); „Bereit" ohne Fehler, alle 5 s neu geprüft | *Datei › Startcheck (bereit?)…* |
+| Startcheck | Vor dem ersten CQ alles auf einen Blick: Station (Rufzeichen, Locator und ob der exakte Standort im selben Feld liegt, Höhen), Contest (Definition, Zeitfenster: Start in …/läuft/vorbei, Log leer oder QSOs vor dem Start), Uhrzeit gegen einen Zeitserver (Warnung ab 5 s, Fehler ab 1 min Abweichung), Verbindungen (CAT, Rotoren samt rotctld-Störung, ON4KST, Cluster), Daten (Sicherung und zweiter Sicherungsordner, Geländedaten, Locator-Liste); „Bereit" ohne Fehler, alle 5 s neu geprüft | *Datei › Startcheck (bereit?)…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 
