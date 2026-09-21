@@ -207,11 +207,20 @@ QString defaultRstForMode(const QString& mode)
 // double-click editor pre-fills) and its DisplayRole (what the static
 // cell shows), so both stay byte-for-byte the same composition instead
 // of two copies of this drifting apart.
+// Serials read as three digits everywhere ("004", never "4") --
+// operator, 2026-09-21: "nummern bitte automatisch bei 001 und nicht
+// bei 1 anfangen". The value stays an int; only the text is padded, the
+// same way the composed exchange and the EDI already print it.
+QString paddedSerial(int serial)
+{
+    return QString::number(serial).rightJustified(3, QLatin1Char('0'));
+}
+
 QString serialGridRcvdText(const QsoRecord& record)
 {
     QStringList parts;
     if (record.serialRcvd) {
-        parts << QString::number(*record.serialRcvd);
+        parts << paddedSerial(*record.serialRcvd);
     }
     if (!record.gridSquare.isEmpty()) {
         parts << record.gridSquare;
@@ -894,7 +903,7 @@ private:
         // dash, not "0" -- HAUSSTIL rule 7 -- for the (today
         // unreachable, since every logged QSO gets a serial) case where
         // it was never set.
-        case ColSerial: return record.serialSent ? QString::number(*record.serialSent) : Style::unknownDash();
+        case ColSerial: return record.serialSent ? paddedSerial(*record.serialSent) : Style::unknownDash();
         case ColTime: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnTime));
         case ColCall: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnCallsign));
         // "Exch Ges." / "Exch Emp." == what we sent / what we received,
@@ -910,7 +919,7 @@ private:
         // unknown is a dash, not a fabricated value -- HAUSSTIL rule 7.
         case ColBand: return record.band.isEmpty() ? Style::unknownDash() : record.band;
         case ColRstSent: return record.rstSent.isEmpty() ? Style::unknownDash() : record.rstSent;
-        case ColSerialSent: return record.serialSent ? QString::number(*record.serialSent) : Style::unknownDash();
+        case ColSerialSent: return record.serialSent ? paddedSerial(*record.serialSent) : Style::unknownDash();
         case ColRstRcvd: return record.rstRcvd.isEmpty() ? Style::unknownDash() : record.rstRcvd;
         case ColSerialGridRcvd: {
             // DXLog.net combines Nr. and Grid into one trailing column
@@ -1773,9 +1782,17 @@ void UnifiedLogWidget::setEntryDistanceBearing(const std::optional<double>& dist
     m_entryDegLabel->setText(bearingDeg ? QString::number(*bearingDeg, 'f', 0) : Style::unknownDash());
 }
 
-void UnifiedLogWidget::setDupeIndicator(bool isDupe)
+void UnifiedLogWidget::setDupeIndicator(bool isDupe, const QString& detail)
 {
+    const bool wasDupe = m_dupe;
     updateStatusPill(isDupe);
+    m_dupeDetail = isDupe ? detail : QString();
+    if (wasDupe && !isDupe) {
+        // MainWindow highlighted the earlier QSO's row while the dupe
+        // stood (selectHistoryQso()); the highlight goes with the DUPE.
+        m_feedTable->clearSelection();
+    }
+    updateStatusLine();
 }
 
 void UnifiedLogWidget::updateStatusPill(bool dupe)
@@ -2212,14 +2229,26 @@ void UnifiedLogWidget::updateStatusLine()
     // QSO for ordinary live entry (a bulk historical import could in
     // principle insert out of chronological order, but there is no such
     // import path in this codebase today).
-    if (m_logModel && m_logModel->rowCount() > 0) {
+    if (!m_dupeDetail.isEmpty()) {
+        // While the entry row says DUPE, this strip says WHICH QSO --
+        // number, time (UTC), band -- operator, 2026-09-21: "sollte ein
+        // dupe kommen soll sofort die nummer stehen, mit der ich
+        // geloggt habe, inkl. uhrzeit".
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
+        m_lastQsoLabel->setText(m_dupeDetail);
+    } else if (m_logModel && m_logModel->rowCount() > 0) {
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
         const QsoRecord& last = m_logModel->recordAt(m_logModel->rowCount() - 1);
         const QDateTime loggedAt = QDateTime::fromString(last.timestampUtc, Qt::ISODate);
         const QString timeText = loggedAt.isValid()
-            ? loggedAt.time().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("Z")
+            ? loggedAt.toUTC().time().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("Z")
             : last.timestampUtc;
         m_lastQsoLabel->setText(QStringLiteral("Letzter QSO: %1  %2").arg(last.callsign, timeText));
     } else {
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
         // Unknown is a dash, not a blank/zero-QSO placeholder -- HAUSSTIL
         // rule 7. Genuinely true before the first QSO of a fresh contest
         // is logged.
@@ -2369,6 +2398,24 @@ void UnifiedLogWidget::applyRstDefaults()
     }
 }
 
+void UnifiedLogWidget::padSerialField(QLineEdit* field) const
+{
+    // The received-number field shows "004" the moment the operator
+    // leaves it (Space/Tab), not just once the QSO is in the table --
+    // see paddedSerial(). Only the auto-increment ("int") field, only a
+    // plain number.
+    for (int i = 0; i < m_exchangeEdits.size() && i < m_exchangeFields.size(); ++i) {
+        if (m_exchangeEdits.at(i) != field || !m_exchangeFields.at(i).autoIncrement) {
+            continue;
+        }
+        bool isNumber = false;
+        const int number = field->text().trimmed().toInt(&isNumber);
+        if (isNumber && number > 0) {
+            field->setText(paddedSerial(number));
+        }
+    }
+}
+
 QLineEdit* UnifiedLogWidget::nextRelevantField(QLineEdit* current) const
 {
     QVector<QLineEdit*> relevant;
@@ -2443,6 +2490,7 @@ bool UnifiedLogWidget::eventFilter(QObject* watched, QEvent* event)
         }
         if (keyEvent->key() == Qt::Key_Space && keyEvent->modifiers() == Qt::NoModifier) {
             if (auto* current = qobject_cast<QLineEdit*>(watched)) {
+                padSerialField(current);
                 if (QLineEdit* next = nextRelevantField(current)) {
                     next->setFocus();
                     next->selectAll();
@@ -2458,6 +2506,7 @@ bool UnifiedLogWidget::eventFilter(QObject* watched, QEvent* event)
         }
         if (keyEvent->key() == Qt::Key_Tab && keyEvent->modifiers() == Qt::NoModifier) {
             if (auto* current = qobject_cast<QLineEdit*>(watched)) {
+                padSerialField(current);
                 if (QLineEdit* next = nextFieldForTab(current)) {
                     next->setFocus();
                     next->selectAll();

@@ -3,6 +3,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <optional>
+
 namespace Contestprogramm {
 
 class ContestDatabase;
@@ -38,6 +40,19 @@ public:
                 const QString& mode,
                 const QString& contestId,
                 const QStringList& dupeScope) const;
+
+    // The id of the EARLIEST valid QSO the dupe rule matches -- the one
+    // the operator actually logged the station under (its number and
+    // time are what the entry row reports back, 2026-09-21: "sollte ein
+    // dupe kommen soll sofort die nummer stehen, mit der ich geloggt
+    // habe, inkl. uhrzeit"). std::nullopt when there is none, or when
+    // the query failed (lastError() then says so). isDupe() is this,
+    // reduced to has_value().
+    std::optional<int> firstMatchId(const QString& callsign,
+                                    const QString& band,
+                                    const QString& mode,
+                                    const QString& contestId,
+                                    const QStringList& dupeScope) const;
 
     // Empty after a successful isDupe() call (including a genuine
     // "not a dupe" result); the query's error text after a failed one.

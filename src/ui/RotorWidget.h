@@ -293,6 +293,9 @@ private:
     // so the editable ZIEL field sits exactly on its painted cell.
     QRect readoutBlockRect() const;
     int textAreaHeight() const;
+    // False when three readout columns no longer fit the width even in
+    // the smaller value font -- the readout then gives way (see .cpp).
+    bool readoutFitsWidth() const;
     QRect readoutValuesRow() const;
     // The big readout number's size: kFontDisplay when a zero-padded
     // "000°" fits a cell with air around it, else the Digital style's

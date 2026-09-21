@@ -67,6 +67,8 @@ private slots:
     void dupeHistoryRowRendersAsDupePill();
     void narrowPanelFitsTheColumnsAndTheEntryRowFollows();
     void aNewlyLoggedQsoScrollsIntoView();
+    void serialsReadAsThreeDigitsEverywhere();
+    void dupeDetailReplacesTheLastQsoLine();
 };
 
 namespace {
@@ -499,7 +501,7 @@ void TestUnifiedLogWidget::historyRowCallAndSerialGridRcvdAreEditableInPlace()
     // excluded (serialGridRcvdText()'s own comment).
     const QModelIndex serialGridIndex = model->index(0, UnifiedLogWidget::ColumnSerialGridRcvd);
     QVERIFY(model->flags(serialGridIndex) & Qt::ItemIsEditable);
-    QCOMPARE(model->data(serialGridIndex, Qt::EditRole).toString(), QStringLiteral("1 JN77QT"));
+    QCOMPARE(model->data(serialGridIndex, Qt::EditRole).toString(), QStringLiteral("001 JN77QT"));
 
     QSignalSpy exchSpy(&widget, &UnifiedLogWidget::historyExchangeRcvdEditRequested);
     QVERIFY(model->setData(serialGridIndex, QStringLiteral(" 002 JN88TC ")));
@@ -735,7 +737,7 @@ void TestUnifiedLogWidget::serialColumnShowsRealSerialSentOrDash()
     // oldest first (see its own rebuild() comment -- DXLog.net's real
     // order, confirmed 2026-09-11) -- feed row 0 is `withSerial`
     // (logged first), feed row 1 is `withoutSerial` (logged second).
-    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("12"));
+    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("012"));
     QVERIFY(model->data(model->index(1, UnifiedLogWidget::ColumnSerial)).toString().contains(QString::fromUtf8("——")));
 }
 
@@ -810,10 +812,10 @@ void TestUnifiedLogWidget::dxLogFullColumnsShowsSplitColumnsInDxLogOrder()
     // Real data, split correctly -- not fabricated.
     QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnBand)).toString(), QStringLiteral("144"));
     QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnRstSent)).toString(), QStringLiteral("59"));
-    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerialSent)).toString(), QStringLiteral("3"));
+    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerialSent)).toString(), QStringLiteral("003"));
     QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnRstRcvd)).toString(), QStringLiteral("59"));
     QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerialGridRcvd)).toString(),
-             QStringLiteral("2 JN59FF"));
+             QStringLiteral("002 JN59FF"));
 
     // Visual order matches DXLog.net's own: QSO# / Band / Zeit / Call /
     // Sent / Nr. / Rcvd / Nr./Grid, our own km/°/Status trailing.
@@ -997,6 +999,64 @@ void TestUnifiedLogWidget::aNewlyLoggedQsoScrollsIntoView()
                                 .arg(feedTable->visualRect(last).y())
                                 .arg(feedTable->viewport()->width())
                                 .arg(feedTable->viewport()->height())));
+}
+
+// "nummern bitte automatisch bei 001 und nicht bei 1 anfangen"
+// (operator, 2026-09-21): a serial reads as three digits in the QSO#
+// and Nr./Grid columns and in the entry row's own Nr. field the moment
+// the operator leaves it.
+void TestUnifiedLogWidget::serialsReadAsThreeDigitsEverywhere()
+{
+    UnifiedLogWidget widget;
+    widget.setExchangeFields(rstSerialGridFields());
+    LogTableModel logModel;
+    QsoRecord record = makeLoggedRecord(21, QStringLiteral("OE5OHO"));
+    record.serialSent = 8;
+    record.serialRcvd = 4;
+    record.gridSquare = QStringLiteral("JN78EG");
+    logModel.setRecords({record});
+    widget.setLogModel(&logModel);
+
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerial).data().toString(), QStringLiteral("008"));
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerialGridRcvd).data().toString(),
+             QStringLiteral("004 JN78EG"));
+
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QLineEdit* serial = findEditByPlaceholder(widget, QStringLiteral("Serial"));
+    QVERIFY(serial);
+    serial->setFocus();
+    QTest::keyClicks(serial, QStringLiteral("4"));
+    QTest::keyClick(serial, Qt::Key_Space);
+    QCOMPARE(serial->text(), QStringLiteral("004"));
+    QCOMPARE(widget.exchangeReceived().value(QStringLiteral("serial")), QStringLiteral("004"));
+}
+
+// "sollte ein dupe kommen soll sofort die nummer stehen, mit der ich
+// geloggt habe, inkl. uhrzeit" (operator, 2026-09-21): while the entry
+// row says DUPE, the status line carries MainWindow's sentence about the
+// earlier QSO; gone again with the DUPE.
+void TestUnifiedLogWidget::dupeDetailReplacesTheLastQsoLine()
+{
+    UnifiedLogWidget widget;
+    LogTableModel logModel;
+    logModel.setRecords({makeLoggedRecord(31, QStringLiteral("OE5AOO"))});
+    widget.setLogModel(&logModel);
+    auto* lastQso = widget.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kLastQsoLabelObjectName));
+    QVERIFY(lastQso);
+    QVERIFY(lastQso->text().startsWith(QStringLiteral("Letzter QSO: OE5AOO")));
+
+    widget.setDupeIndicator(true, QStringLiteral("DUPE: OE5AOO schon geloggt als Nr. 003 um 19:28 UTC auf 144"));
+    QCOMPARE(lastQso->text(), QStringLiteral("DUPE: OE5AOO schon geloggt als Nr. 003 um 19:28 UTC auf 144"));
+    auto* pill = widget.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kStatusPillObjectName));
+    QVERIFY(pill);
+    QCOMPARE(pill->text(), QStringLiteral("DUPE"));
+
+    widget.setDupeIndicator(false);
+    QVERIFY(lastQso->text().startsWith(QStringLiteral("Letzter QSO: OE5AOO")));
+    QVERIFY(pill->text().isEmpty());
 }
 
 // Not QTEST_APPLESS_MAIN: UnifiedLogWidget is a QWidget subclass, which

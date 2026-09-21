@@ -227,7 +227,10 @@ public:
     // upper-cased; other types are returned as typed.
     QMap<QString, QString> exchangeReceived() const;
 
-    void setDupeIndicator(bool isDupe);
+    // `detail` (only read while isDupe) is the sentence the status line
+    // shows instead of "Letzter QSO" -- which earlier QSO this duplicates
+    // (number, UTC time, band), composed by MainWindow.
+    void setDupeIndicator(bool isDupe, const QString& detail = QString());
 
     // The exchange this program would send right now (own grid + next
     // serial) -- shown read-only in the "Ges." field on the right of
@@ -555,6 +558,8 @@ private:
     // comment): callsign, then every exchange sub-field EXCEPT one
     // whose type is "rst" -- nullptr once `current` is the last
     // relevant field.
+    // Rewrites a plain number in the received-number field as "004".
+    void padSerialField(QLineEdit* field) const;
     QLineEdit* nextRelevantField(QLineEdit* current) const;
     // [Tab]'s own field chain -- since 2026-09-11 (see the class
     // comment) functionally identical to nextRelevantField() above
@@ -664,6 +669,7 @@ private:
     // The entry row's own DUPE/NEU pill -- see updateStatusPill().
     QLabel* m_statusPillLabel;
     bool m_dupe = false;
+    QString m_dupeDetail;
 
     // The entry row's Time cell -- a live-ticking clock (HH:mm UTC,
     // matching LogTableModel::ColumnTime's own format exactly) rather

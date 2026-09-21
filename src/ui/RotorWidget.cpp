@@ -69,6 +69,17 @@ constexpr int kMinDialAreaHeight = 150;
 // the widget's minimum width.
 constexpr int kReadoutMinWidth = 300;
 
+// The widget's real minimum width is the dial's, not the readout's --
+// operator, 2026-09-21, two rotors in a 540px panel clipped at the
+// right edge: "hier sollten die rotoren auch kleiner werden und nicht
+// abgeschnitten sein". Below kReadoutMinWidth the readout first drops
+// to its smaller value font (readoutValueFontPx()), and when even that
+// no longer fits three columns it gives way entirely
+// (readoutFitsWidth() -> textAreaHeight() 0), the same "give way, never
+// clip" rule the readout already follows vertically. The dial itself
+// only needs its minimum area plus its margins.
+constexpr int kDialMinWidth = kMinDialAreaHeight + kDialMargin * 2;
+
 // ⚙ options affordance, overlaid on the painted header -- sized to sit
 // comfortably inside kHeaderHeight, same right-margin logic as the
 // accent bar's own left-side 9px text inset.
@@ -361,9 +372,22 @@ QSize RotorWidget::minimumSizeHint() const
     // three, per the operator's 2026-09-11 correction -- see
     // paintDigitalDial()'s and drawDigitalReadout()'s own comments), so
     // one flat minimum for every style, same as before Digital existed.
-    // The readout is optional below that (textAreaHeight()): the
-    // smallest legible widget is the header and a small dial.
-    return QSize(kReadoutMinWidth, kHeaderHeight + kMinDialAreaHeight);
+    // The readout is optional below that (textAreaHeight()) and
+    // below kReadoutMinWidth (readoutFitsWidth()): the smallest legible
+    // widget is the header and a small dial.
+    return QSize(kDialMinWidth, kHeaderHeight + kMinDialAreaHeight);
+}
+
+bool RotorWidget::readoutFitsWidth() const
+{
+    // Three columns of the SMALLER value font (the one readoutValueFontPx()
+    // already falls back to) must fit side by side -- same inset/column
+    // arithmetic as readoutBlockRect()/columnRect(), spelled out here
+    // because textAreaHeight() (which readoutBlockRect() needs) asks
+    // this first.
+    const int cellWidth = (width() - 12) / 3 - 3;
+    const QFontMetrics small(Style::monoFont(font(), kDigitalValueFontPx));
+    return small.horizontalAdvance(QStringLiteral("000°")) + 10 <= cellWidth;
 }
 
 QSize RotorWidget::sizeHint() const
@@ -379,6 +403,9 @@ int RotorWidget::textAreaHeight() const
     // too low for all of it, the widget drops the connection row, then
     // the station caption, then the block itself, and never paints
     // past its own bottom edge.
+    if (!readoutFitsWidth()) {
+        return 0;
+    }
     const int available = height() - kHeaderHeight - kMinDialAreaHeight;
     const bool digital = m_dialStyle == RotorDialStyle::Digital;
     const int full = digital ? kDigitalTextAreaHeight : kTextAreaHeight;

@@ -18,6 +18,15 @@ bool DupeChecker::isDupe(const QString& callsign,
                           const QString& contestId,
                           const QStringList& dupeScope) const
 {
+    return firstMatchId(callsign, band, mode, contestId, dupeScope).has_value();
+}
+
+std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
+                                             const QString& band,
+                                             const QString& mode,
+                                             const QString& contestId,
+                                             const QStringList& dupeScope) const
+{
     m_lastError.clear();
 
     // Trim + case-fold the same way AdifLog::isSameQso does, so a
@@ -42,7 +51,8 @@ bool DupeChecker::isDupe(const QString& callsign,
         conditions << QStringLiteral("UPPER(TRIM(mode)) = UPPER(TRIM(:mode))");
     }
 
-    const QString sql = QStringLiteral("SELECT id FROM qsos WHERE %1 LIMIT 1").arg(conditions.join(QStringLiteral(" AND ")));
+    const QString sql = QStringLiteral("SELECT id FROM qsos WHERE %1 ORDER BY id ASC LIMIT 1")
+                            .arg(conditions.join(QStringLiteral(" AND ")));
 
     QSqlQuery query(m_database.db());
     query.prepare(sql);
@@ -65,9 +75,12 @@ bool DupeChecker::isDupe(const QString& callsign,
         // check it, so the operator sees a warning instead of an
         // invisible double QSO.
         m_lastError = query.lastError().text();
-        return false;
+        return std::nullopt;
     }
-    return query.next();
+    if (!query.next()) {
+        return std::nullopt;
+    }
+    return query.value(0).toInt();
 }
 
 } // namespace Contestprogramm

@@ -2411,8 +2411,28 @@ void MainWindow::recheckDupeIndicator()
     const ContestSettings settings = m_appController.settings();
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     const QStringList dupeScope = def ? def->dupeScope() : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
-    const bool dupe = m_appController.dupeChecker().isDupe(callsign, m_currentBand, m_currentMode, settings.activeContestId, dupeScope);
-    m_unifiedLog->setDupeIndicator(dupe);
+    const std::optional<int> earlierId =
+        m_appController.dupeChecker().firstMatchId(callsign, m_currentBand, m_currentMode, settings.activeContestId, dupeScope);
+    if (!earlierId) {
+        m_unifiedLog->setDupeIndicator(false);
+        return;
+    }
+    // Which QSO this duplicates -- its number, UTC time and band --
+    // right in the log panel's status line, and that row highlighted
+    // (operator, 2026-09-21: "sollte ein dupe kommen soll sofort die
+    // nummer stehen, mit der ich geloggt habe, inkl. uhrzeit").
+    QString detail = QStringLiteral("DUPE");
+    if (const auto earlier = m_appController.database().qsoById(*earlierId)) {
+        const QDateTime at = QDateTime::fromString(earlier->timestampUtc, Qt::ISODate);
+        detail = QStringLiteral("DUPE: %1 schon geloggt als Nr. %2 um %3 UTC auf %4")
+                     .arg(earlier->callsign,
+                          earlier->serialSent ? QString::number(*earlier->serialSent).rightJustified(3, QLatin1Char('0'))
+                                              : Style::unknownDash(),
+                          at.isValid() ? at.toUTC().time().toString(QStringLiteral("HH:mm")) : earlier->timestampUtc,
+                          earlier->band.isEmpty() ? Style::unknownDash() : earlier->band);
+        m_unifiedLog->selectHistoryQso(*earlierId);
+    }
+    m_unifiedLog->setDupeIndicator(true, detail);
 }
 
 void MainWindow::handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz)

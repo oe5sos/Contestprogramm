@@ -679,7 +679,25 @@ void TestRotorWidgetReadout::minimumSizeHintFitsTheThreeColumnReadoutBlock()
     // noticing.
     const QFontMetrics fmDisplay(Style::monoFont(widget.font(), Style::kFontDisplay));
     const int widestColumnContent = fmDisplay.horizontalAdvance(QStringLiteral("300°"));
-    QVERIFY(widget.minimumSizeHint().width() >= widestColumnContent * 3);
+    QVERIFY(widget.sizeHint().width() >= widestColumnContent * 3);
+
+    // 2026-09-21 ("hier sollten die rotoren auch kleiner werden und nicht
+    // abgeschnitten sein"): the widget's own minimum is the DIAL's, not
+    // the readout's -- two rotors must fit a 540px panel. At that
+    // minimum the readout gives way entirely (textAreaHeight() 0) rather
+    // than overlapping or clipping; at a middling width it is there in
+    // the smaller value font; at sizeHint() in full.
+    QVERIFY(widget.minimumSizeHint().width() < widestColumnContent * 3);
+    widget.resize(widget.minimumSizeHint().width(), 400);
+    QCOMPARE(widget.textAreaHeightForTest(), 0);
+    widget.resize(260, 400);
+    QVERIFY(widget.textAreaHeightForTest() > 0);
+    widget.resize(widget.sizeHint());
+    QVERIFY(widget.textAreaHeightForTest() > 0);
+    widget.setConnected(true);
+    widget.setAzimuthDeg(214.0);
+    widget.resize(widget.minimumSizeHint().width(), 400);
+    QVERIFY(!widget.grab().isNull());
 }
 
 void TestRotorWidgetReadout::minimumSizeHintAccountsForDigitalGlassPanels()

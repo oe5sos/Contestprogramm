@@ -1,10 +1,12 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QLabel>
 #include <QMenu>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QTableView>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -68,6 +70,7 @@ private slots:
     void enterOnAnIncompleteExchangeAsksOnceThenLogs();
     void aQsoInTheOwnSquareHasNoBearing();
     void invalidQsosLeaveTheCounts();
+    void typingADupeNamesTheEarlierQsoWithNumberAndUtcTime();
 };
 
 void TestLogCorrections::correctedCallsignRescoresTheDupeFlags()
@@ -395,6 +398,40 @@ void TestLogCorrections::invalidQsosLeaveTheCounts()
     emit log->historyInvalidToggleRequested(qsos.at(1).id);
     QCOMPARE(controller->database().qsoCountForContest(contestId), 1);
     QCOMPARE(controller->database().qsoCountSince(contestId, QDateTime::currentDateTimeUtc().addSecs(-600)), 1);
+}
+
+// The dupe reply (2026-09-21): the log panel's status line names the
+// earlier QSO -- number, UTC time, band -- and that row is selected.
+void TestLogCorrections::typingADupeNamesTheEarlierQsoWithNumberAndUtcTime()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    const QString contestId = controller->settings().activeContestId;
+
+    logQso(log, QStringLiteral("OE5AOO"), QStringLiteral("991"), QStringLiteral("JN78CG"));
+    logQso(log, QStringLiteral("OE5ASD"), QStringLiteral("2"), QStringLiteral("JN67VV"));
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(contestId);
+    QCOMPARE(qsos.size(), 2);
+    const QDateTime firstAt = QDateTime::fromString(qsos.at(0).timestampUtc, Qt::ISODate).toUTC();
+
+    log->setCallsign(QStringLiteral("OE5AOO"));
+    auto* lastQso = window.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kLastQsoLabelObjectName));
+    QVERIFY(lastQso);
+    const QString expected = QStringLiteral("DUPE: OE5AOO schon geloggt als Nr. 001 um %1 UTC auf 144")
+                                 .arg(firstAt.time().toString(QStringLiteral("HH:mm")));
+    QCOMPARE(lastQso->text(), expected);
+    auto* feedTable = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    QVERIFY(!feedTable->selectionModel()->selectedRows().isEmpty());
+    QCOMPARE(feedTable->selectionModel()->selectedRows().first().row(), 0);
+
+    log->setCallsign(QStringLiteral("OE5AOX"));
+    QVERIFY(lastQso->text().startsWith(QStringLiteral("Letzter QSO: OE5ASD")));
+    QVERIFY(feedTable->selectionModel()->selectedRows().isEmpty());
 }
 
 int main(int argc, char* argv[])

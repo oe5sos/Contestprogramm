@@ -38,6 +38,7 @@ private slots:
     void invalidQsoIsNotDupe();
     void lastErrorEmptyAfterGenuineResult();
     void lastErrorSetOnQueryFailure();
+    void firstMatchIdIsTheEarliestValidQso();
 };
 
 void TestDupeChecker::exactMatchIsDupe()
@@ -197,6 +198,43 @@ void TestDupeChecker::lastErrorSetOnQueryFailure()
     QVERIFY(!checker.isDupe(QStringLiteral("OE1ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
                              QStringLiteral("OE_VHF_UHF"), scope));
     QVERIFY(!checker.lastError().isEmpty());
+}
+
+// The dupe reply names the QSO the station was FIRST logged under
+// (number + time), not just "yes" -- see DupeChecker::firstMatchId().
+void TestDupeChecker::firstMatchIdIsTheEarliestValidQso()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("firstmatch.sqlite")), QStringLiteral("test_firstmatch")));
+    DupeChecker checker(db);
+    const QStringList scope{QStringLiteral("callsign"), QStringLiteral("band")};
+
+    QVERIFY(!checker.firstMatchId(QStringLiteral("OE5AOO"), QStringLiteral("144"), QStringLiteral("SSB"),
+                                  QStringLiteral("OE_VHF_UHF"), scope).has_value());
+
+    QsoRecord first = makeRecord(QStringLiteral("OE5AOO"), QStringLiteral("144"), QStringLiteral("SSB"),
+                                 QStringLiteral("OE_VHF_UHF"));
+    first.serialSent = 3;
+    QVERIFY(db.insertQso(first));
+    QsoRecord second = first;
+    second.timestampUtc = QStringLiteral("2026-06-13T13:10:00Z");
+    second.serialSent = 9;
+    second.isDupe = true;
+    QVERIFY(db.insertQso(second));
+
+    const auto id = checker.firstMatchId(QStringLiteral(" oe5aoo "), QStringLiteral("144"), QStringLiteral("CW"),
+                                         QStringLiteral("OE_VHF_UHF"), scope);
+    QVERIFY(id.has_value());
+    QCOMPARE(*id, first.id);
+
+    // The first one invalidated: the (still valid) second is what remains.
+    QVERIFY(db.setQsoInvalid(first.id, true));
+    const auto after = checker.firstMatchId(QStringLiteral("OE5AOO"), QStringLiteral("144"), QStringLiteral("SSB"),
+                                            QStringLiteral("OE_VHF_UHF"), scope);
+    QVERIFY(after.has_value());
+    QCOMPARE(*after, second.id);
 }
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication
