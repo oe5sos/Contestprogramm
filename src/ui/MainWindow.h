@@ -112,6 +112,8 @@ private slots:
     void refreshReadiness();
     // Hilfe > Tastenkürzel... (ui/ShortcutsWindow.h)
     void openShortcutsWindow();
+    // Hilfe > Über Contestprogramm... (ui/AboutDialog.h)
+    void openAboutDialog();
     void jumpToQso(int qsoId);
     // After a history-row correction: re-derive every dupe flag of the
     // active contest (data/DupeRescore.h), write the ones that changed,

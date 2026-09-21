@@ -171,6 +171,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/LogCheckWindow.cpp
     src/ui/ReadinessWindow.cpp
     src/ui/ShortcutsWindow.cpp
+    src/ui/AboutDialog.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/UnifiedLogWidget.h
@@ -219,6 +220,20 @@ if(APPLE)
     target_link_libraries(ContestprogrammCore PUBLIC "-framework AppKit")
 endif()
 target_include_directories(ContestprogrammCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# Version, commit and build date for Hilfe › Über -- generated on
+# every build, see cmake/BuildInfo.cmake.
+set(CONTESTPROGRAMM_BUILDINFO_DIR "${CMAKE_BINARY_DIR}/generated")
+add_custom_target(contestprogramm_buildinfo
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CONTESTPROGRAMM_BUILDINFO_DIR}"
+    COMMAND ${CMAKE_COMMAND}
+        -DOUTPUT="${CONTESTPROGRAMM_BUILDINFO_DIR}/BuildInfo.h"
+        -DSOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        -DVERSION="${PROJECT_VERSION}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildInfo.cmake"
+    BYPRODUCTS "${CONTESTPROGRAMM_BUILDINFO_DIR}/BuildInfo.h"
+    COMMENT "BuildInfo.h (Version, Commit, Datum)")
+add_dependencies(ContestprogrammCore contestprogramm_buildinfo)
+target_include_directories(ContestprogrammCore PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
 target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network ZLIB::ZLIB)
 
 # Dev-build fallback so the app finds resources/contest_definitions/*.json

@@ -43,6 +43,7 @@
 #include "ui/LayoutProfileManager.h"
 #include "ui/LogCheckWindow.h"
 #include "ui/ReadinessWindow.h"
+#include "ui/AboutDialog.h"
 #include "ui/ShortcutsWindow.h"
 #include "ui/MapWidget.h"
 #include "ui/MultiplierWindow.h"
@@ -1246,6 +1247,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Hilfe"));
     QAction* shortcutsAction = helpMenu->addAction(QStringLiteral("&Tastenkürzel..."));
     connect(shortcutsAction, &QAction::triggered, this, &MainWindow::openShortcutsWindow);
+    QAction* aboutAction = helpMenu->addAction(QStringLiteral("Über &Contestprogramm..."));
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::openAboutDialog);
 
     applyActiveContestDefinition();
     applyRotorWidgetSettings();
@@ -3466,6 +3469,18 @@ void MainWindow::openShortcutsWindow()
     m_shortcutsWindow->show();
     m_shortcutsWindow->raise();
     m_shortcutsWindow->activateWindow();
+}
+
+void MainWindow::openAboutDialog()
+{
+    AboutDialog::Facts facts;
+    facts.databasePath = m_appController.database().filePath();
+    if (const LogBackup* backup = m_appController.logBackup()) {
+        facts.backupDirectory = backup->directory();
+        facts.mirrorDirectory = backup->mirrorDirectory();
+    }
+    AboutDialog dialog(facts, this);
+    dialog.exec();
 }
 
 void MainWindow::refreshReadiness()
