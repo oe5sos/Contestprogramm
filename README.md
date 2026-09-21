@@ -36,7 +36,7 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
   `…/backups/contestprogramm-YYYYMMDD-HHMM.sqlite` (nur wenn seit der
   letzten Kopie ein QSO geschrieben wurde). Die letzten zwei Stunden
   bleiben minutenweise, ältere Kopien eine je zehn Minuten, höchstens
-  400 Dateien. Manuell: *Datei › Log jetzt sichern*. Zurück auf einen Stand:
+  400 Dateien. Manuell: *Datei › Log jetzt sichern (Kopie)* (⌘S). Zurück auf einen Stand:
   *Datei › Sicherung wiederherstellen…* (der jetzige Stand wird vorher
   gesichert, das Programm startet neu). *Datei › Zweiter Sicherungsordner…*
   kopiert jede Sicherung zusätzlich auf einen USB-Stick oder in einen
@@ -91,7 +91,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Bereich | Was | Wo |
 |---|---|---|
 | Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests; die empfangene Nummer wird nie vorbelegt), Locator-Liste, QRZ/HamQTH. Enter loggt aus jedem Feld; fehlt Nummer oder Locator, springt das erste Enter ins leere Feld, ein zweites Enter loggt trotzdem. Geloggte Dupes tragen „DUPE“, ungültige „UNGÜLTIG“; bei einem Dupe sagt die Statuszeile des Panels sofort, als welche Nummer und um wie viel Uhr (UTC) die Station schon im Log steht, und markiert die Zeile. Nummern stehen überall dreistellig (001); der Fokus liegt beim Start im Rufzeichenfeld, das neueste QSO bleibt sichtbar | Panel „Log" |
-| Vor/nach dem Contest | Log abschließen und archivieren (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
+| Vor/nach dem Contest | *Datei › Neues Log beginnen (altes archivieren)* (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
 | Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter; in Nr./Grid zählt, was ein Wert ist -- „JN58SD“ allein bleibt der Locator, „12“ allein die Nummer); statt Löschen „ungültig" markieren (zählt dann nirgends mehr mit). Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
 | Wertung | QSOs, Punkte (km je Band, Σ), 10 min/Stunde mit Trend und bester Stunde, ODX, Großfelder -- als Instrument, das der Panelgröße folgt: niedrig und breit die Zählerleiste mit Balken je Band und Sechs-Stunden-Sparkline, sonst Kacheln (bei 270×130 die vier wichtigsten, größer alle sechs mit Unterzeile) | Panel „Rate"; *Fenster › Statistik…* (je Band, je Stunde, längste QSOs) |
 | Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
@@ -137,7 +137,7 @@ Vorher, zu Hause:
    welches Band).
 3. *Datei › Transverter…*, falls ein Band über einen Transverter läuft;
    der Schalter oben bleibt aus, bis er wirklich dranhängt.
-4. *Datei › Log abschließen und archivieren*, damit die Nummern bei 001
+4. *Datei › Neues Log beginnen (altes archivieren)*, damit die Nummern bei 001
    beginnen; *Datei › Locator aus alten Logs übernehmen* für die
    Locator-Vorschläge.
 5. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.

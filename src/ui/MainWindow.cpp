@@ -1170,6 +1170,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     });
 
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&Datei"));
+    // Operator, 2026-09-21: "sehe im log jetzt nicht, datei neu oder
+    // datei speichern" -- the two things a file menu is expected to
+    // start with, in this program's terms: a new log (the old one is
+    // archived, nothing deleted) and a save (a backup copy -- the log
+    // itself is a database that writes every QSO at once and copies
+    // itself every minute). Same handlers the entries further down had;
+    // they moved up here.
+    QAction* newLogAction = fileMenu->addAction(QStringLiteral("&Neues Log beginnen (altes archivieren)..."));
+    newLogAction->setObjectName(QStringLiteral("newLogAction"));
+    connect(newLogAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
+    QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern (Kopie)"));
+    backupNowAction->setObjectName(QStringLiteral("backupNowAction"));
+    backupNowAction->setShortcut(QKeySequence::Save);
+    connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
+    fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
     // A proper contest-selection window, per the operator's explicit
@@ -1207,8 +1222,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     QAction* postScoreAction = fileMenu->addAction(QStringLiteral("Score &jetzt senden"));
     connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
     fileMenu->addSeparator();
-    QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern"));
-    connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     QAction* restoreAction = fileMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
     connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
     // A second copy of every backup on a stick or in a cloud folder --
@@ -1229,8 +1242,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             statusBar()->showMessage(error, 15000);
         });
     }
-    QAction* archiveAction = fileMenu->addAction(QStringLiteral("Log &abschließen und archivieren..."));
-    connect(archiveAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);

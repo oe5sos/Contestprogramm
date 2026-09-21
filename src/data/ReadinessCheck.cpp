@@ -198,7 +198,7 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
                                                      : serials.join(QStringLiteral(" · "));
         if (ctx.qsoCount > 0 && beforeStart) {
             add(Level::Warning, kGroupContest, QStringLiteral("Log"),
-                QStringLiteral("%1 QSOs im Log vor dem Start — Testeinträge? Datei › Log abschließen und archivieren, dann beginnt die Nummer bei 001.")
+                QStringLiteral("%1 QSOs im Log vor dem Start — Testeinträge? Datei › Neues Log beginnen (altes archivieren), dann beginnt die Nummer bei 001.")
                     .arg(ctx.qsoCount),
                 QStringLiteral("log"));
         } else if (ctx.qsoCount == 0) {

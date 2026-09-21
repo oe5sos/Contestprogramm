@@ -80,6 +80,21 @@ constexpr int kReadoutMinWidth = 300;
 // only needs its minimum area plus its margins.
 constexpr int kDialMinWidth = kMinDialAreaHeight + kDialMargin * 2;
 
+// The dial's margin shrinks with the dial ("sollte kleiner werden und
+// der rand dadurch auch schmäler", 2026-09-21): kDialMargin at the
+// default size, down to kDialMarginMin in a small widget, so a narrow
+// panel spends its few pixels on the scale, not on empty rim. The
+// numbered antenna marks (drawNumberedMark, radius + 22) sit outside
+// the ring in every case; a mark on the E/W axis was clipped by the
+// widget edge before this change just the same.
+constexpr int kDialMarginMin = 6;
+
+int dialMarginFor(int dialExtent)
+{
+    // 18 at the default 256px dial area, proportionally less below.
+    return std::clamp(dialExtent * kDialMargin / 256, kDialMarginMin, kDialMargin);
+}
+
 // ⚙ options affordance, overlaid on the painted header -- sized to sit
 // comfortably inside kHeaderHeight, same right-margin logic as the
 // accent bar's own left-side 9px text inset.
@@ -527,7 +542,7 @@ double RotorWidget::bearingAt(const QPointF& pos) const
     const int dialAreaTop = kHeaderHeight;
     const int dialAreaHeight = height() - kHeaderHeight - textAreaHeight();
     const QPointF center(width() / 2.0, dialAreaTop + dialAreaHeight / 2.0);
-    const double radius = (std::min(width(), dialAreaHeight) - kDialMargin * 2) / 2.0;
+    const double radius = (std::min(width(), dialAreaHeight) - dialMarginFor(std::min(width(), dialAreaHeight)) * 2) / 2.0;
     if (radius <= 0.0) {
         return -1.0;
     }
@@ -1469,20 +1484,23 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
         // so it existed at every panel size, just more visible at small
         // ones where nothing else fills the gap).
         constexpr double kGapCaptionAllowancePx = 24.0;
-        const double radius = (std::min(width(), dialAreaHeight) - kDialMargin * 2) / 2.0 - kGapCaptionAllowancePx;
+        const int extent = std::min(width(), dialAreaHeight);
+        const double radius = (extent - dialMarginFor(extent) * 2) / 2.0 - kGapCaptionAllowancePx;
         paintPartialArcDial(painter, center, radius);
         break;
     }
     case RotorDialStyle::Digital: {
         const QPointF center(width() / 2.0, dialAreaTop + dialAreaHeight / 2.0);
-        const double radius = (std::min(width(), dialAreaHeight) - kDialMargin * 2) / 2.0;
+        const int extent = std::min(width(), dialAreaHeight);
+        const double radius = (extent - dialMarginFor(extent) * 2) / 2.0;
         paintDigitalDial(painter, center, radius);
         break;
     }
     case RotorDialStyle::FullCompass:
     default: {
         const QPointF center(width() / 2.0, dialAreaTop + dialAreaHeight / 2.0);
-        const double radius = (std::min(width(), dialAreaHeight) - kDialMargin * 2) / 2.0;
+        const int extent = std::min(width(), dialAreaHeight);
+        const double radius = (extent - dialMarginFor(extent) * 2) / 2.0;
         paintFullCompassDial(painter, center, radius);
         break;
     }
