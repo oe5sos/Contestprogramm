@@ -34,6 +34,8 @@ private slots:
     void windowCountsSplitCorrectlyByAge();
     void trendComparesCurrentAgainstPrecedingTenMinuteWindow();
     void bandAndModeTalliesSortedByCountDescendingThenNameAscending();
+    void tenMinuteBucketsCoverTheLastSixHours();
+    void bestHourIsTheBusiestClockHourEarliestOnTies();
 };
 
 // A fresh contest with zero logged QSOs is a real, measured zero --
@@ -128,6 +130,59 @@ void TestRateBreakdown::bandAndModeTalliesSortedByCountDescendingThenNameAscendi
     QCOMPARE(breakdown.byMode.size(), 2);
     QCOMPARE(breakdown.byMode.at(0), qMakePair(QStringLiteral("SSB"), 4));
     QCOMPARE(breakdown.byMode.at(1), qMakePair(QStringLiteral("CW"), 1));
+}
+
+// The sparkline's histogram: 36 buckets of ten minutes, oldest first,
+// the last one the running ten minutes -- so it agrees with last10Min.
+void TestRateBreakdown::tenMinuteBucketsCoverTheLastSixHours()
+{
+    const QDateTime now = QDateTime(QDate(2026, 9, 12), QTime(20, 0, 0), QTimeZone::utc());
+    const QVector<QsoRecord> records = {
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-60)),     // running bucket
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-599)),    // running bucket
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-601)),    // the one before
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-21599)),  // oldest bucket, just inside
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(-21600)),  // six hours: outside
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), now.addSecs(+30)),     // clock ahead: running bucket
+    };
+    const RateBreakdown breakdown = computeRateBreakdown(records, now);
+    QCOMPARE(breakdown.perTenMinutes.size(), RateBreakdown::kSparkBuckets);
+    QCOMPARE(breakdown.perTenMinutes.last(), 3);
+    QCOMPARE(breakdown.perTenMinutes.last(), breakdown.last10Min);
+    QCOMPARE(breakdown.perTenMinutes.at(RateBreakdown::kSparkBuckets - 2), 1);
+    QCOMPARE(breakdown.perTenMinutes.first(), 1);
+    int sum = 0;
+    for (int v : breakdown.perTenMinutes) {
+        sum += v;
+    }
+    QCOMPARE(sum, 5);
+
+    // An empty log still has the full, all-zero axis.
+    QCOMPARE(computeRateBreakdown({}, now).perTenMinutes.size(), RateBreakdown::kSparkBuckets);
+}
+
+void TestRateBreakdown::bestHourIsTheBusiestClockHourEarliestOnTies()
+{
+    const QDateTime now = QDateTime(QDate(2026, 9, 12), QTime(20, 0, 0), QTimeZone::utc());
+    QCOMPARE(computeRateBreakdown({}, now).bestHourQsos, 0);
+    QVERIFY(!computeRateBreakdown({}, now).bestHourStartUtc.isValid());
+
+    // 16z holds three, 18z two, 19z three: 16z wins as the earlier of
+    // the tied hours. A timestamp given in another zone counts by its
+    // UTC hour.
+    const QVector<QsoRecord> records = {
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(16, 5), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(16, 30), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(18, 59, 59), QTimeZone::fromSecondsAheadOfUtc(7200))),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(18, 1), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(18, 2), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(19, 1), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(19, 2), QTimeZone::utc())),
+        makeRecord(QStringLiteral("144"), QStringLiteral("SSB"), QDateTime(QDate(2026, 9, 12), QTime(19, 3), QTimeZone::utc())),
+    };
+    const RateBreakdown breakdown = computeRateBreakdown(records, now);
+    QCOMPARE(breakdown.bestHourQsos, 3);
+    QCOMPARE(breakdown.bestHourStartUtc, QDateTime(QDate(2026, 9, 12), QTime(16, 0), QTimeZone::utc()));
 }
 
 QTEST_MAIN(TestRateBreakdown)
