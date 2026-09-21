@@ -1015,7 +1015,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // AppController::rotctldLaunchFor) failed or died: Hamlib's own
     // reason, first line, where the operator looks first.
     connect(&m_appController, &AppController::rotctldFailed, this, [this](int slot, const QString& message) {
-        const QString reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        // Hamlib's stderr is several lines; the one naming the port
+        // ("Unable to open /dev/tty... - No such file or directory")
+        // says more than the first ("rot_open: error = ...").
+        QString reason;
+        for (const QString& line : message.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+            if (line.contains(QStringLiteral("Unable to open")) || line.contains(QStringLiteral("Permission denied"))
+                || line.contains(QStringLiteral("not found"))) {
+                reason = line.trimmed();
+                break;
+            }
+        }
+        if (reason.isEmpty()) {
+            reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        }
         (slot == 1 ? m_rotctldError1 : m_rotctldError2) = reason;
         qWarning().noquote() << QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(message);
         statusBar()->showMessage(QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(reason), 15000);
@@ -3525,7 +3538,11 @@ void MainWindow::refreshReadiness()
 
     if (LogBackup* backup = m_appController.logBackup()) {
         ctx.backupDirectory = backup->directory();
-        ctx.backupDirectoryWritable = QFileInfo(ctx.backupDirectory).isWritable();
+        // The folder appears with the first copy; before that, its
+        // parent (the data folder) has to take it.
+        ctx.backupDirectoryWritable = QFileInfo::exists(ctx.backupDirectory)
+            ? QFileInfo(ctx.backupDirectory).isWritable()
+            : QFileInfo(QFileInfo(ctx.backupDirectory).path()).isWritable();
         const QVector<LogBackup::Entry> backups = LogBackup::listBackups(ctx.backupDirectory);
         if (!backups.isEmpty()) {
             ctx.lastBackupUtc = backups.first().utc;
