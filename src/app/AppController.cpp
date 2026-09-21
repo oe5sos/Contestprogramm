@@ -84,6 +84,107 @@ AppController::AppController(QObject* parent)
     m_radioInfoTimer->setInterval(kRadioInfoIntervalMs);
     connect(m_radioInfoTimer, &QTimer::timeout, this, &AppController::publishRadioInfoNow);
     m_radioInfoTimer->start();
+
+    // rotctld on demand: the slot's own client dials first, so an
+    // operator's own rotctld is always preferred; only a refused dial
+    // (state back to Disconnected) starts ours. When ours exits, the
+    // client's retries bring it back after a cool-down, with Hamlib's
+    // reason surfaced through rotctldFailed().
+    connect(&m_rotor1, &RotctldClient::stateChanged, this,
+            [this] { superviseRotctld(1, m_rotor1.state() == RotctldClient::State::Disconnected); });
+    connect(&m_rotor2, &RotctldClient::stateChanged, this,
+            [this] { superviseRotctld(2, m_rotor2.state() == RotctldClient::State::Disconnected); });
+    connect(&m_rotctld1, &RotctldProcess::exited, this, [this](int code, const QString& stderrText) {
+        if (m_rotctldStoppingSlot == 1) {
+            return; // our own stopRotctld()
+        }
+        m_rotctldLaunch1 = RotctldLaunch();
+        m_rotctldFailedAt1 = QDateTime::currentDateTimeUtc();
+        emit rotctldFailed(1, stderrText.isEmpty() ? QStringLiteral("rotctld beendet (Code %1)").arg(code) : stderrText);
+    });
+    connect(&m_rotctld2, &RotctldProcess::exited, this, [this](int code, const QString& stderrText) {
+        if (m_rotctldStoppingSlot == 2) {
+            return; // our own stopRotctld()
+        }
+        m_rotctldLaunch2 = RotctldLaunch();
+        m_rotctldFailedAt2 = QDateTime::currentDateTimeUtc();
+        emit rotctldFailed(2, stderrText.isEmpty() ? QStringLiteral("rotctld beendet (Code %1)").arg(code) : stderrText);
+    });
+}
+
+std::optional<AppController::RotctldLaunch> AppController::rotctldLaunchFor(const ContestSettings& settings, int slot)
+{
+    const bool enabled = slot == 1 ? settings.rotor1Enabled : settings.rotor2Enabled;
+    const QString host = (slot == 1 ? settings.rotor1Host : settings.rotor2Host).trimmed();
+    const QString device = (slot == 1 ? settings.rotor1Device : settings.rotor2Device).trimmed();
+    const bool loopback = host == QStringLiteral("127.0.0.1") || host == QStringLiteral("::1")
+                          || host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0;
+    if (!enabled || device.isEmpty() || !loopback) {
+        return std::nullopt;
+    }
+    RotctldLaunch launch;
+    launch.hamlibModel = slot == 1 ? settings.rotor1HamlibModel : settings.rotor2HamlibModel;
+    launch.device = device;
+    launch.baud = slot == 1 ? settings.rotor1Baud : settings.rotor2Baud;
+    launch.port = static_cast<quint16>(slot == 1 ? settings.rotor1Port : settings.rotor2Port);
+    return launch;
+}
+
+bool AppController::rotctldRunning(int slot) const
+{
+    return (slot == 1 ? m_rotctld1 : m_rotctld2).isRunning();
+}
+
+void AppController::stopRotctld(int slot)
+{
+    // stop() waits for the exit, so exited() fires from inside it --
+    // flagged, so it is not taken for a failure (no cool-down, no
+    // message).
+    RotctldProcess& process = slot == 1 ? m_rotctld1 : m_rotctld2;
+    m_rotctldStoppingSlot = slot;
+    process.stop();
+    m_rotctldStoppingSlot = 0;
+    (slot == 1 ? m_rotctldLaunch1 : m_rotctldLaunch2) = RotctldLaunch();
+}
+
+void AppController::superviseRotctld(int slot, bool mayStart)
+{
+    RotctldProcess& process = slot == 1 ? m_rotctld1 : m_rotctld2;
+    RotctldLaunch& current = slot == 1 ? m_rotctldLaunch1 : m_rotctldLaunch2;
+    QDateTime& failedAt = slot == 1 ? m_rotctldFailedAt1 : m_rotctldFailedAt2;
+    const std::optional<RotctldLaunch> wanted = rotctldLaunchFor(m_settings, slot);
+
+    if (!wanted) {
+        if (process.isRunning()) {
+            stopRotctld(slot);
+        }
+        current = RotctldLaunch();
+        return;
+    }
+    if (process.isRunning()) {
+        if (current == *wanted) {
+            return;
+        }
+        // Started with other settings: gone, and the client's next
+        // failed dial brings a fresh one.
+        stopRotctld(slot);
+    }
+    if (!mayStart) {
+        return;
+    }
+    // A rotctld that just died (a serial port that is not there) is
+    // not restarted every three seconds with the client's retries.
+    constexpr qint64 kRestartCoolDownSecs = 30;
+    if (failedAt.isValid() && failedAt.secsTo(QDateTime::currentDateTimeUtc()) < kRestartCoolDownSecs) {
+        return;
+    }
+    QString error;
+    if (!process.start(wanted->hamlibModel, wanted->device, wanted->baud, wanted->port, &error)) {
+        failedAt = QDateTime::currentDateTimeUtc();
+        emit rotctldFailed(slot, error);
+        return;
+    }
+    current = *wanted;
 }
 
 AppController::~AppController()
@@ -91,6 +192,10 @@ AppController::~AppController()
     if (m_logBackup && m_database.isOpen()) {
         m_logBackup->backupNow(false);
     }
+    // Our rotctld processes go with us -- stopped here, while the
+    // members their exited() handlers touch still exist.
+    stopRotctld(1);
+    stopRotctld(2);
 }
 
 bool AppController::openDatabase(const QString& path, QString* errorOut)
@@ -243,6 +348,11 @@ void AppController::applyNetworkSettings()
     // was connected before the operator just disabled it (a live
     // settings-save toggle, not only the startup path) -- matching
     // "does not exist" rather than "exists but idle".
+    // A rotctld of ours that the new settings no longer want (or want
+    // with other arguments) goes first; starting one is left to the
+    // client's own failed dial -- see the constructor.
+    superviseRotctld(1, false);
+    superviseRotctld(2, false);
     if (m_settings.rotor1Enabled) {
         m_rotor1.setTarget(m_settings.rotor1Host, static_cast<quint16>(m_settings.rotor1Port));
         if (!m_settings.rotor1Host.isEmpty() && !m_rotor1.isConnected()) {

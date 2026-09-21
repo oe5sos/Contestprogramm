@@ -993,6 +993,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // shape openSettingsDialog() already uses below, just signal-driven
     // (see AppController::reloadContestDefinitions).
     connect(&m_appController, &AppController::contestDefinitionsChanged, this, &MainWindow::applyActiveContestDefinition);
+    // A rotctld this program started for a rotor slot (see
+    // AppController::rotctldLaunchFor) failed or died: Hamlib's own
+    // reason, first line, where the operator looks first.
+    connect(&m_appController, &AppController::rotctldFailed, this, [this](int slot, const QString& message) {
+        const QString reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        qWarning().noquote() << QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(message);
+        statusBar()->showMessage(QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(reason), 15000);
+    });
 
     // Rotor widgets themselves (and their azimuthChanged/stateChanged
     // wiring) are created on demand by applyRotorWidgetSettings() below

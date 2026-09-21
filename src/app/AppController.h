@@ -9,6 +9,7 @@
 #include "core/RecentPropagationTracker.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
+#include "core/RotctldProcess.h"
 #include "core/WeatherClient.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/ContestDatabase.h"
@@ -19,9 +20,12 @@
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 #include <QVector>
+
+#include <optional>
 
 class QTimer;
 
@@ -148,7 +152,28 @@ public:
     // actually reaching the running UI.
     void reloadContestDefinitions();
 
+    // rotctld, started by this program (core/RotctldProcess.h) when a
+    // rotor slot needs one: the slot enabled, its host the loopback
+    // (someone else's rotctld on another machine is never ours to
+    // start) and a device named in the settings. A launch is what the
+    // process gets started with; nothing means the slot is left to the
+    // operator's own rotctld.
+    struct RotctldLaunch {
+        int hamlibModel = 0;
+        QString device;
+        int baud = 0;
+        quint16 port = 0;
+        bool operator==(const RotctldLaunch&) const = default;
+    };
+    static std::optional<RotctldLaunch> rotctldLaunchFor(const ContestSettings& settings, int slot);
+    bool rotctldRunning(int slot) const;
+
 signals:
+    // A rotctld this program started for `slot` (1 or 2) could not be
+    // started or has exited -- `message` is Hamlib's own stderr (a
+    // wrong model number, a serial port that is not there).
+    void rotctldFailed(int slot, const QString& message);
+
     // MainWindow::applyActiveContestDefinition is connected to this so
     // UnifiedLogWidget's dynamic exchange fields (and mode list)
     // immediately reflect a ContestRulesEditor save -- the same
@@ -176,6 +201,13 @@ private:
     // RotorSlot::None or for a slot that is currently disabled. Shared
     // by activeRotorForBand() for all three bands.
     RotctldClient* rotorForSlot(ContestSettings::RotorSlot slot);
+    // Keeps the slot's rotctld in step with the settings: stops one
+    // that is no longer wanted or was started with other arguments,
+    // and -- with `mayStart`, after the slot's own client failed to
+    // reach anything -- starts one. See rotctldLaunchFor().
+    void superviseRotctld(int slot, bool mayStart);
+    // Stops the slot's rotctld without its exit counting as a failure.
+    void stopRotctld(int slot);
 
     ContestSettings m_settings;
     ContestDatabase m_database;
@@ -187,6 +219,13 @@ private:
     DxClusterClient m_dxClusterClient;
     RotctldClient m_rotor1;
     RotctldClient m_rotor2;
+    RotctldProcess m_rotctld1;
+    RotctldProcess m_rotctld2;
+    RotctldLaunch m_rotctldLaunch1; // what m_rotctld1 runs with; empty when not ours/not running
+    RotctldLaunch m_rotctldLaunch2;
+    QDateTime m_rotctldFailedAt1; // last failure, for the restart cool-down
+    QDateTime m_rotctldFailedAt2;
+    int m_rotctldStoppingSlot = 0; // the slot whose rotctld stopRotctld() is ending right now
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address
     GeoFilter m_geoFilter;
