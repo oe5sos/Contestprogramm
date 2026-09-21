@@ -122,6 +122,9 @@ void LayoutProfileManager::applyState(const QString& serialized)
         }
         container->setVisible(it->first);
     }
+    // A profile saved on a bigger screen: nothing may end up outside
+    // the canvas as it is now.
+    m_panels.clampPanelsToCanvas();
 }
 
 void LayoutProfileManager::saveActiveProfileState()

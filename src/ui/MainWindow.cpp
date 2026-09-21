@@ -1213,9 +1213,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                 panel->setVisible(visible);
                 // A panel switched on from the menu comes to the front --
                 // otherwise a newly added one (Check, Bandmap, Skeds) can
-                // sit invisibly behind the map at its default place.
+                // sit invisibly behind the map at its default place --
+                // and onto the canvas, if its place lies outside it (the
+                // large design's spot on a 13" screen).
                 if (visible) {
-                    m_panelLayoutManager->raisePanel(id);
+                    m_panelLayoutManager->revealPanel(id);
                 }
             }
         });

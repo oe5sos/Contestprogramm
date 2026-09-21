@@ -76,6 +76,7 @@ private slots:
     void compactDesignFitsASmallCanvas();
     void freshInstallPlacesPanelsByTheFittingDesignOnce();
     void profileSnapshotCountsUnshownPanelsAsVisible();
+    void revealedPanelIsPulledOntoTheCanvas();
 };
 
 namespace {
@@ -535,9 +536,11 @@ void TestPanelLayoutManager::profileSnapshotCountsUnshownPanelsAsVisible()
     QVERIFY2(stored.contains(QStringLiteral("rotorrow:1:0:78:620:365")), qPrintable(stored));
     QVERIFY2(stored.contains(QStringLiteral("skeds:0:0:720:620:262")), qPrintable(stored));
 
-    // The same database again: not a first launch, the state restored.
+    // The same database again: not a first launch, the state restored
+    // (on a canvas big enough to hold it -- applying a profile clamps).
     QWidget canvasParent2;
     PanelLayoutManager manager2(db, &canvasParent2);
+    manager2.canvas()->resize(1440, 982);
     PanelContainerWidget* rotors2 = manager2.registerPanel(QStringLiteral("rotorrow"), QStringLiteral("R"), makeContent(),
                                                              false, QRect(0, 0, 100, 100));
     PanelContainerWidget* skeds2 = manager2.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
@@ -547,6 +550,40 @@ void TestPanelLayoutManager::profileSnapshotCountsUnshownPanelsAsVisible()
     QCOMPARE(rotors2->geometry(), QRect(0, 78, 620, 365));
     QVERIFY(!rotors2->isHidden());
     QVERIFY(skeds2->isHidden());
+}
+
+void TestPanelLayoutManager::revealedPanelIsPulledOntoTheCanvas()
+{
+    // Skeds hidden by the compact design keeps its large-design place
+    // (y=720) -- switched on from Fenster > Panels on a 692 px canvas
+    // it must land inside the canvas, in front.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("plm_reveal.sqlite")), QStringLiteral("plm_reveal")));
+    QWidget canvasParent;
+    PanelLayoutManager manager(db, &canvasParent);
+    manager.canvas()->resize(1372, 692);
+    PanelContainerWidget* skeds = manager.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
+                                                          false, QRect(0, 720, 620, 262));
+    skeds->setVisible(false);
+    QCOMPARE(skeds->geometry().top(), 720);
+    skeds->setVisible(true);
+    manager.revealPanel(QStringLiteral("skeds"));
+    QCOMPARE(skeds->geometry(), QRect(0, 692 - 262, 620, 262));
+
+    // A profile made on a bigger screen, applied here: clamped too.
+    db.setSettingValue(QStringLiteral("LayoutProfileOrder"), QStringLiteral("1"));
+    db.setSettingValue(QStringLiteral("LayoutProfileActive"), QStringLiteral("1"));
+    db.setSettingValue(QStringLiteral("LayoutProfile_1"), QStringLiteral("skeds:1:900:800:620:262"));
+    QWidget canvasParent2;
+    PanelLayoutManager manager2(db, &canvasParent2);
+    manager2.canvas()->resize(1372, 692);
+    PanelContainerWidget* skeds2 = manager2.registerPanel(QStringLiteral("skeds"), QStringLiteral("S"), makeContent(),
+                                                            false, QRect(0, 720, 620, 262));
+    LayoutProfileManager profiles(db, manager2, {QStringLiteral("skeds")});
+    QVERIFY(!profiles.isFirstLaunch());
+    QCOMPARE(skeds2->geometry(), QRect(1372 - 620, 692 - 262, 620, 262));
 }
 
 int main(int argc, char* argv[])

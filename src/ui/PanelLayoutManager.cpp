@@ -229,6 +229,16 @@ void PanelLayoutManager::resetToDefaultLayout()
     saveLayout();
 }
 
+void PanelLayoutManager::revealPanel(const QString& id)
+{
+    PanelContainerWidget* container = panel(id);
+    if (!container) {
+        return;
+    }
+    raisePanel(id);
+    clampPanelToCanvas(container);
+}
+
 void PanelLayoutManager::clampPanelsToCanvas()
 {
     // A locked panel is frozen exactly where the operator put it --
@@ -237,33 +247,37 @@ void PanelLayoutManager::clampPanelsToCanvas()
     // leaves locked panels alone too rather than silently unsticking
     // them out from under a lock.
     for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
-        PanelContainerWidget* container = it.value().container;
-        if (!container || container->isLocked()) {
-            continue;
-        }
-        const QRect current = container->geometry();
-        QRect clamped = current;
-        // Shrink first (mirrors PanelContainerWidget::updateResize()'s
-        // own min-size floor), then reposition -- a panel that is both
-        // too far right/down AND wider/taller than the canvas needs both
-        // to end up fully on-canvas.
-        clamped.setWidth(std::min(clamped.width(), std::max(PanelContainerWidget::kMinWidth, m_canvas->width())));
-        clamped.setHeight(std::min(clamped.height(), std::max(PanelContainerWidget::kMinHeight, m_canvas->height())));
-        const int maxX = std::max(0, m_canvas->width() - clamped.width());
-        const int maxY = std::max(0, m_canvas->height() - clamped.height());
-        clamped.moveLeft(std::clamp(clamped.left(), 0, maxX));
-        clamped.moveTop(std::clamp(clamped.top(), 0, maxY));
-        if (clamped != current) {
-            // trySetGeometry() only (setGeometry() + the min-size floor
-            // it already enforces) -- deliberately NOT geometryEdited(),
-            // which would persist this on every single resize tick of a
-            // live window drag. The clamp is idempotent and re-derives
-            // itself from the live canvas size on every resize, so there
-            // is nothing that needs to survive as a standalone saved
-            // edit; the operator's own next real drag/resize still saves
-            // normally through the usual endDrag()/endResize() path.
-            container->trySetGeometry(clamped);
-        }
+        clampPanelToCanvas(it.value().container);
+    }
+}
+
+void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
+{
+    if (!container || container->isLocked()) {
+        return;
+    }
+    const QRect current = container->geometry();
+    QRect clamped = current;
+    // Shrink first (mirrors PanelContainerWidget::updateResize()'s
+    // own min-size floor), then reposition -- a panel that is both
+    // too far right/down AND wider/taller than the canvas needs both
+    // to end up fully on-canvas.
+    clamped.setWidth(std::min(clamped.width(), std::max(PanelContainerWidget::kMinWidth, m_canvas->width())));
+    clamped.setHeight(std::min(clamped.height(), std::max(PanelContainerWidget::kMinHeight, m_canvas->height())));
+    const int maxX = std::max(0, m_canvas->width() - clamped.width());
+    const int maxY = std::max(0, m_canvas->height() - clamped.height());
+    clamped.moveLeft(std::clamp(clamped.left(), 0, maxX));
+    clamped.moveTop(std::clamp(clamped.top(), 0, maxY));
+    if (clamped != current) {
+        // trySetGeometry() only (setGeometry() + the min-size floor
+        // it already enforces) -- deliberately NOT geometryEdited(),
+        // which would persist this on every single resize tick of a
+        // live window drag. The clamp is idempotent and re-derives
+        // itself from the live canvas size on every resize, so there
+        // is nothing that needs to survive as a standalone saved
+        // edit; the operator's own next real drag/resize still saves
+        // normally through the usual endDrag()/endResize() path.
+        container->trySetGeometry(clamped);
     }
 }
 

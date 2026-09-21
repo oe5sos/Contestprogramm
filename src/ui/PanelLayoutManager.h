@@ -131,6 +131,14 @@ public:
     // -- what a header click does, for callers without a mouse (the
     // Panels menu switching a hidden panel on).
     void raisePanel(const QString& id);
+    // A panel switched on from Fenster > Panels: to the front, and
+    // pulled onto the canvas if its remembered place lies outside it
+    // (the large design's spot on a small screen).
+    void revealPanel(const QString& id);
+    // Re-clamps every unlocked panel into the canvas -- run on every
+    // canvas resize (see eventFilter), and by LayoutProfileManager after
+    // a profile made on a bigger screen was applied.
+    void clampPanelsToCanvas();
 
 protected:
     // Watches canvas() for QEvent::Resize -- see clampPanelsToCanvas()'s
@@ -147,9 +155,10 @@ private:
 
     void loadLayoutForPanel(const QString& id, PanelContainerWidget* container, const QRect& defaultGeometry);
     void bumpZOrder(const QString& id);
-    // Re-clamps every registered, unlocked panel to stay fully within
-    // canvas()'s current bounds -- called whenever the canvas actually
-    // changes size (see eventFilter() above). PanelContainerWidget's own
+    void clampPanelToCanvas(PanelContainerWidget* container);
+    // clampPanelsToCanvas() re-clamps every registered, unlocked panel
+    // to stay fully within canvas()'s current bounds -- called whenever
+    // the canvas actually changes size (see eventFilter() above). PanelContainerWidget's own
     // class comment documents this dock mode as "absolute position
     // within a parent canvas, clamped to it", but that clamp previously
     // only ran for an interactive drag/resize (PanelContainerWidget::
@@ -166,7 +175,6 @@ private:
     // actual QEvent::Resize sidesteps that: it only ever fires once
     // canvas() has a real, current size, whether that's the first
     // real layout pass at startup or a later live window resize.
-    void clampPanelsToCanvas();
 
     ContestDatabase& m_database;
     QWidget* m_canvas = nullptr;
