@@ -304,7 +304,9 @@ private:
     QAction* m_rotor1Action = nullptr;
     QAction* m_rotor2Action = nullptr;
     QAction* m_horizonAction = nullptr;
+    QAction* m_rotor1OneAction = nullptr;
     QAction* m_rotor1SecondAction = nullptr;
+    QAction* m_rotor2OneAction = nullptr;
     QAction* m_rotor2SecondAction = nullptr;
     QPushButton* m_zoomOutButton = nullptr;
     QPushButton* m_zoomInButton = nullptr;

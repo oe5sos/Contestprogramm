@@ -617,34 +617,37 @@ void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
 {
     MapWidget widget;
     QSignalSpy toggled(&widget, &MapWidget::secondAntennaToggled);
-    // Fed from the settings: the menu entry follows, no signal.
+    // Fed from the settings: the entries follow, no signal.
     widget.setRotor2SecondAntenna(true, 45.0);
     QCOMPARE(toggled.count(), 0);
-    QAction* rotor2 = nullptr;
-    for (QAction* action : widget.findChildren<QAction*>()) {
-        if (action->text().startsWith(QStringLiteral("Rotor 2: Zweitantenne"))) {
-            rotor2 = action;
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+    QMenu* antennas2 = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->text() == QStringLiteral("Antennen Rotor 2")) {
+            antennas2 = action->menu();
         }
     }
-    QVERIFY(rotor2);
-    QVERIFY(rotor2->isChecked());
-    QVERIFY(rotor2->text().contains(QStringLiteral("+45°")));
-    // Operator unticks it: reported once, so MainWindow can store it.
-    rotor2->setChecked(false);
+    QVERIFY(antennas2);
+    QCOMPARE(antennas2->actions().size(), 2);
+    QAction* one = antennas2->actions().at(0);
+    QAction* two = antennas2->actions().at(1);
+    QCOMPARE(one->text(), QStringLiteral("Eine Antenne (Stack)"));
+    QCOMPARE(two->text(), QStringLiteral("Zwei Antennen (+45°)"));
+    QVERIFY(!one->isChecked());
+    QVERIFY(two->isChecked());
+    // Operator picks one antenna: reported once, so MainWindow can store it.
+    one->trigger();
     QCOMPARE(toggled.count(), 1);
     QCOMPARE(toggled.first().at(0).toInt(), 2);
     QCOMPARE(toggled.first().at(1).toBool(), false);
+    QVERIFY(one->isChecked());
+    QVERIFY(!two->isChecked());
+    // Picking the current choice again changes nothing.
+    one->trigger();
+    QCOMPARE(toggled.count(), 1);
     // Not a map preference: the preferences text does not carry it.
     QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
-    // The menu is the caller's, filled per click; the entry is in it.
-    QMenu menu;
-    widget.populateOptionsMenu(&menu);
-    QStringList texts;
-    for (QAction* action : menu.actions()) {
-        texts << action->text();
-    }
-    QVERIFY(texts.contains(QStringLiteral("Rotor 2: Zweitantenne (+45°)")));
-    QVERIFY(texts.contains(QStringLiteral("Öffnungswinkel Rotor 2")));
 }
 
 int main(int argc, char* argv[])

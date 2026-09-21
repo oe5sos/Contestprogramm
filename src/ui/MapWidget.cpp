@@ -218,22 +218,33 @@ void MapWidget::buildControls()
     m_rotor2Action = addToggle(QStringLiteral("Rotor 2"), QStringLiteral("Peilung von Rotor 2"), &MapWidget::setRotor2HeadingLayerVisible);
     // Whether a rotor carries a second antenna: a station setting (the
     // settings dialog has it too), switchable here where the cones are.
-    const auto addSecondAntenna = [this](int rotor) {
-        auto* action = new QAction(QStringLiteral("Rotor %1: Zweitantenne").arg(rotor), this);
+    // One or two antennas per rotor (operator, 2026-09-21: "pro rotor
+    // ein oder zwei antennen auswählen können … bei rotor 2 öfters nur
+    // eine antenne, stack"): a pair of exclusive entries per rotor, the
+    // station setting the settings dialog edits too.
+    const auto addAntennaChoice = [this](int rotor, bool two) {
+        auto* action = new QAction(this);
         action->setCheckable(true);
-        action->setToolTip(QStringLiteral("Zweite Antenne auf Rotor %1 (Versatz aus den Einstellungen) -- zweiter Kegel").arg(rotor));
-        connect(action, &QAction::toggled, this, [this, rotor](bool on) {
+        connect(action, &QAction::triggered, this, [this, rotor, two] {
             if (m_syncingControls) {
                 return;
             }
-            (rotor == 1 ? m_rotor1SecondEnabled : m_rotor2SecondEnabled) = on;
+            bool& enabled = rotor == 1 ? m_rotor1SecondEnabled : m_rotor2SecondEnabled;
+            if (enabled == two) {
+                syncControls();
+                return;
+            }
+            enabled = two;
+            syncControls();
             update();
-            emit secondAntennaToggled(rotor, on);
+            emit secondAntennaToggled(rotor, two);
         });
         return action;
     };
-    m_rotor1SecondAction = addSecondAntenna(1);
-    m_rotor2SecondAction = addSecondAntenna(2);
+    m_rotor1OneAction = addAntennaChoice(1, false);
+    m_rotor1SecondAction = addAntennaChoice(1, true);
+    m_rotor2OneAction = addAntennaChoice(2, false);
+    m_rotor2SecondAction = addAntennaChoice(2, true);
     m_agingAction = addToggle(QStringLiteral("Alte Kontakte verblassen"), QStringLiteral("Gearbeitete Stationen werden nach 30 min langsam grau"), &MapWidget::setAgingEnabled);
     m_fitAction = addToggle(QStringLiteral("Fläche füllen"), QStringLiteral("Scheibe füllt die Fläche (elliptisch); aus: Kreis"), &MapWidget::setFitToWindowEnabled);
     m_bordersAction = addToggle(QStringLiteral("Grenzen"), QStringLiteral("Staatsgrenzen/Küstenlinien (Natural Earth 1:110m)"), &MapWidget::setBordersLayerVisible);
@@ -284,15 +295,18 @@ void MapWidget::syncControls()
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
-    sync(m_rotor1SecondAction, m_rotor1SecondEnabled);
-    sync(m_rotor2SecondAction, m_rotor2SecondEnabled);
     if (m_rotor1SecondAction) {
-        m_rotor1SecondAction->setText(QStringLiteral("Rotor 1: Zweitantenne (%1%2°)")
-                                          .arg(m_rotor1SecondOffsetDeg >= 0 ? QStringLiteral("+") : QString())
-                                          .arg(m_rotor1SecondOffsetDeg, 0, 'f', 0));
-        m_rotor2SecondAction->setText(QStringLiteral("Rotor 2: Zweitantenne (%1%2°)")
-                                          .arg(m_rotor2SecondOffsetDeg >= 0 ? QStringLiteral("+") : QString())
-                                          .arg(m_rotor2SecondOffsetDeg, 0, 'f', 0));
+        const auto twoText = [](double offset) {
+            return QStringLiteral("Zwei Antennen (%1%2°)").arg(offset >= 0 ? QStringLiteral("+") : QString()).arg(offset, 0, 'f', 0);
+        };
+        m_rotor1OneAction->setText(QStringLiteral("Eine Antenne (Stack)"));
+        m_rotor1SecondAction->setText(twoText(m_rotor1SecondOffsetDeg));
+        m_rotor2OneAction->setText(QStringLiteral("Eine Antenne (Stack)"));
+        m_rotor2SecondAction->setText(twoText(m_rotor2SecondOffsetDeg));
+        sync(m_rotor1OneAction, !m_rotor1SecondEnabled);
+        sync(m_rotor1SecondAction, m_rotor1SecondEnabled);
+        sync(m_rotor2OneAction, !m_rotor2SecondEnabled);
+        sync(m_rotor2SecondAction, m_rotor2SecondEnabled);
     }
     m_syncingControls = false;
 }
@@ -313,8 +327,12 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     menu->addAction(m_horizonAction);
     menu->addAction(m_rotor1Action);
     menu->addAction(m_rotor2Action);
-    menu->addAction(m_rotor1SecondAction);
-    menu->addAction(m_rotor2SecondAction);
+    QMenu* antennas1 = menu->addMenu(QStringLiteral("Antennen Rotor 1"));
+    antennas1->addAction(m_rotor1OneAction);
+    antennas1->addAction(m_rotor1SecondAction);
+    QMenu* antennas2 = menu->addMenu(QStringLiteral("Antennen Rotor 2"));
+    antennas2->addAction(m_rotor2OneAction);
+    antennas2->addAction(m_rotor2SecondAction);
     // Opening angle of each rotor's antennas -- the width of its cone;
     // the submenus are the menu's own, built per click.
     const auto beamwidthMenu = [this, menu](const QString& title, double current, void (MapWidget::*setter)(double)) {
@@ -1154,7 +1172,7 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         bool clash = false;
         if (takenLabels) {
             for (const QRectF& other : *takenLabels) {
-                clash = clash || other.intersects(box);
+                clash = clash || other.adjusted(-6.0, -4.0, 6.0, 4.0).intersects(box);
             }
         }
         if (!clash) {
