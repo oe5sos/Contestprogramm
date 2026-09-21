@@ -25,6 +25,8 @@
 
 #include <QtTest>
 
+#include <QDir>
+
 #include <QApplication>
 #include <QImage>
 
@@ -123,7 +125,7 @@ void TestMapMockup::drawStandardScenario()
         {"I2PQR", "JN45UV", false},
         {"HA5STU", "JN86EF", true},
     };
-    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup.png"), ColorTheme::Bernstein, 500.0, seeds);
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-mockup.png")), ColorTheme::Bernstein, 500.0, seeds);
 }
 
 void TestMapMockup::drawQuietScenario()
@@ -133,7 +135,7 @@ void TestMapMockup::drawQuietScenario()
         {"OE1TEST", "JN77QT", true},
         {"OM3ABC", "JN88WV", false},
     };
-    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup-ruhig.png"), ColorTheme::Bernstein, 500.0, seeds);
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-mockup-ruhig.png")), ColorTheme::Bernstein, 500.0, seeds);
 }
 
 void TestMapMockup::drawBusyWideScenario()
@@ -154,7 +156,7 @@ void TestMapMockup::drawBusyWideScenario()
         {"9A3EFG", "JN75RS", true},     // Zagreb
         {"OK1HIJ", "JO70QK", false},    // Bruenn
     };
-    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup-voll-weit.png"), ColorTheme::Bernstein, 1500.0,
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-mockup-voll-weit.png")), ColorTheme::Bernstein, 1500.0,
                     seeds);
 }
 
@@ -171,7 +173,7 @@ void TestMapMockup::drawGruenScenario()
         {"I2PQR", "JN45UV", false},
         {"HA5STU", "JN86EF", true},
     };
-    renderScenario(QStringLiteral("/tmp/contestprogramm-map-mockup-gruen.png"), ColorTheme::Gruen, 500.0,
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-mockup-gruen.png")), ColorTheme::Gruen, 500.0,
                     seeds);
 }
 

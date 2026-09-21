@@ -132,6 +132,19 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build --output-on-failure --timeout 300
+      - name: Fehlerausgabe der gescheiterten Tests
+        if: failure()
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          # ctest bekommt unter Windows keine Testausgabe zu fassen -- die
+          # gescheiterten Prüfstände noch einmal direkt, mit Ausgabe auf stdout.
+          $failed = ctest --test-dir build --rerun-failed -N 2>$null | Select-String -Pattern 'Test\s+#\d+:\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value }
+          foreach ($t in $failed) {
+            Write-Host "===== $t ====="
+            & "build/tests/$t.exe" -o -,txt 2>&1 | Out-String -Width 400 | Write-Host
+          }
       - name: Portables ZIP
         shell: pwsh
         env:
