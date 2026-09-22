@@ -46,9 +46,26 @@ constexpr int kMinScopeWidthWithNumbers = 240;
 constexpr double kStripMaxElevationDeg = 8.0;
 constexpr double kRimMaxThicknessPx = 22.0;
 constexpr double kMinVisibleRangeKm = 25.0;
-constexpr double kMaxVisibleRangeKm = 3200.0;
+// Kurzwelle: eine Station auf der anderen Seite der Erde ist gut
+// 20 000 km weit weg. Die Obergrenze lag bei 3 200 km -- richtig,
+// solange nur UKW im Spiel war.
+constexpr double kMaxVisibleRangeKm = 20000.0;
 // Operator, 2026-09-14: "mache schritte beim radius bitte alle 250km".
 constexpr double kVisibleRangeStepKm = 250.0;
+
+// Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
+// Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
+// 250km") -- darüber wären das 67 Klicks bis zur Gegenseite der Erde.
+double zoomStepKm(double rangeKm)
+{
+    if (rangeKm < 3200.0) {
+        return kVisibleRangeStepKm;
+    }
+    if (rangeKm < 10000.0) {
+        return 1000.0;
+    }
+    return 2500.0;
+}
 // Operator, 2026-09-12: "die wichtigsten großen städte ab 150 km".
 constexpr double kCityMinDistanceKm = 150.0;
 // Operator, 2026-09-13: "alte Kontakte ausgrauen" -- full colour for
@@ -339,7 +356,8 @@ void MapWidget::notePreferenceChange()
 void MapWidget::refreshZoomLabel() const
 {
     if (m_zoomRangeLabel) {
-        m_zoomRangeLabel->setText(QStringLiteral("%1 km").arg(m_visibleRangeKm, 0, 'f', 0));
+        m_zoomRangeLabel->setText(
+            QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(std::llround(m_visibleRangeKm)))));
     }
 }
 
@@ -496,12 +514,14 @@ void MapWidget::setVisibleRangeKm(double rangeKm)
 
 void MapWidget::zoomIn()
 {
-    setVisibleRangeKm(m_visibleRangeKm - kVisibleRangeStepKm);
+    // Der Schritt der Stufe, in die es hineingeht, nicht der, aus der
+    // es kommt -- sonst springt ein Klick bei 3 200 km um 1 000 km.
+    setVisibleRangeKm(m_visibleRangeKm - zoomStepKm(m_visibleRangeKm - 1.0));
 }
 
 void MapWidget::zoomOut()
 {
-    setVisibleRangeKm(m_visibleRangeKm + kVisibleRangeStepKm);
+    setVisibleRangeKm(m_visibleRangeKm + zoomStepKm(m_visibleRangeKm));
 }
 
 QString MapWidget::preferencesText() const
@@ -927,10 +947,20 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
     const double halfHeight = area.height() / 2.0;
     painter.setBrush(Qt::NoBrush);
     painter.setFont(Style::monoFont(font(), Style::kFontCaption));
-    const double step = m_visibleRangeKm <= 300.0 ? 50.0 : 100.0;
+    // Bis 3 200 km unverändert (50 km im Nahbereich, sonst 100). Darüber
+    // wären 100-km-Ringe bei 20 000 km zweihundert Kreise.
+    double step = 100.0;
+    if (m_visibleRangeKm <= 300.0) {
+        step = 50.0;
+    } else if (m_visibleRangeKm > 12000.0) {
+        step = 2500.0;
+    } else if (m_visibleRangeKm > 3200.0) {
+        step = 1000.0;
+    }
+    const double majorEvery = step <= 100.0 ? 200.0 : step * 5.0;
     for (double km = step; km < m_visibleRangeKm - 0.5; km += step) {
         const double frac = km / m_visibleRangeKm;
-        const bool major = std::fmod(km, 200.0) < 0.5;
+        const bool major = std::fmod(km, majorEvery) < 0.5;
         QColor color{Style::kBorder()};
         color.setAlpha(major ? 255 : 150);
         QPen pen(color, 1.0, major ? Qt::SolidLine : Qt::DotLine);

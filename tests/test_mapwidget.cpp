@@ -275,6 +275,7 @@ private slots:
     void zoomInHalvesVisibleRange();
     void zoomOutDoublesVisibleRange();
     void visibleRangeIsClamped();
+    void zoomStepsGrowBeyondVhfRanges();
     void fitToWindowDefaultsTrueAndRoundTrips();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
@@ -367,8 +368,28 @@ void TestMapWidgetLive::visibleRangeIsClamped()
     MapWidget widget;
     widget.setVisibleRangeKm(1.0);
     QVERIFY(widget.visibleRangeKm() >= 25.0);
+    // Kurzwelle: die Gegenseite der Erde liegt gut 20 000 km weit weg.
     widget.setVisibleRangeKm(100000.0);
-    QVERIFY(widget.visibleRangeKm() <= 3200.0);
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
+}
+
+// Unter 3 200 km bleibt der Klick bei 250 km -- darüber wären das
+// siebenundsechzig Klicks bis zum Rand.
+void TestMapWidgetLive::zoomStepsGrowBeyondVhfRanges()
+{
+    MapWidget widget;
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomIn();
+    QCOMPARE(widget.visibleRangeKm(), 2950.0); // noch der UKW-Schritt
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 4200.0);
+    widget.setVisibleRangeKm(10000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 12500.0);
+    widget.setVisibleRangeKm(20000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0); // am Anschlag
 }
 
 void TestMapWidgetLive::fitToWindowDefaultsTrueAndRoundTrips()
