@@ -71,6 +71,10 @@ public:
     bool install(const QString& packagePath, QString* error);
     // Arms the relaunch (it waits for this process to end) and quits.
     void restart();
+    // Windows: the .cmd install() wrote, which restart() hands to cmd.exe
+    // (empty elsewhere). The tests run it with the wait and the start
+    // taken out.
+    QString relaunchScriptPath() const { return m_relaunchScript; }
 
     static std::optional<ReleaseInfo> parseLatest(const QByteArray& json, const QString& assetSuffix,
                                                   QString* error = nullptr);

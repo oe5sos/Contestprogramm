@@ -5,6 +5,10 @@
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QProcess>
+#include <QStandardPaths>
+
+#include <algorithm>
 
 #include "app/SelfUpdater.h"
 #include "ui/UpdateDialog.h"
@@ -94,6 +98,8 @@ private slots:
     void dialogReportsAnUpToDateCopy();
     void dialogOffersANewerRelease();
     void installSwapsABundleFromARealDmg();
+    void installSwapsAnAppImageInPlace();
+    void installWindowsUnpacksAndWritesAScriptThatCopies();
 };
 
 void TestSelfUpdater::parseLatestPicksTheAssetForThisMachineAndItsChecksum()
@@ -412,6 +418,126 @@ void TestSelfUpdater::installSwapsABundleFromARealDmg()
     const QDir parent = QFileInfo(bundle).dir();
     QVERIFY(parent.entryList({QStringLiteral(".*.app.*")}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
     QVERIFY(!QFileInfo::exists(dmg)); // consumed
+#endif
+}
+
+// The AppImage swap is plain file work and runs on every platform: the
+// new image goes next to the old one, the two change places, nothing
+// is left behind, the download is consumed.
+void TestSelfUpdater::installSwapsAnAppImageInPlace()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString target = dir.filePath(QStringLiteral("Contestprogramm.AppImage"));
+    const QString download = dir.filePath(QStringLiteral("dl/Contestprogramm-9.9.9-x86_64.AppImage"));
+    QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("dl"))));
+    const auto write = [](const QString& path, const QByteArray& body) {
+        QFile f(path);
+        return f.open(QIODevice::WriteOnly) && f.write(body) == body.size();
+    };
+    QVERIFY(write(target, "old image"));
+    QVERIFY(write(download, "new image"));
+
+    SelfUpdater updater;
+    UpdateTarget t;
+    t.kind = UpdateTarget::Kind::LinuxAppImage;
+    t.installPath = target;
+    updater.setTarget(t);
+    QString error;
+    QVERIFY2(updater.install(download, &error), qPrintable(error));
+
+    QFile after(target);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    QCOMPARE(after.readAll(), QByteArray("new image"));
+    QVERIFY(!QFileInfo::exists(target + QStringLiteral(".neu")));
+    QVERIFY(!QFileInfo::exists(target + QStringLiteral(".alt")));
+    QVERIFY(!QFileInfo::exists(download));
+#if !defined(Q_OS_WIN)
+    QVERIFY(QFile::permissions(target) & QFileDevice::ExeOwner);
+#endif
+}
+
+// Windows: install() unpacks the portable ZIP with tar.exe and writes
+// the .cmd that copies it over the program folder once this process is
+// gone. The script is run here with the wait pointed at a PID that
+// does not exist and the final start taken out -- what remains is
+// exactly the copy: the "new" .exe must land in the program folder,
+// the staging folder and the package must be gone, the script must
+// have deleted itself.
+void TestSelfUpdater::installWindowsUnpacksAndWritesAScriptThatCopies()
+{
+#if !defined(Q_OS_WIN)
+    QSKIP("Windows only (tar.exe, cmd.exe, robocopy)");
+#else
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString exeName = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
+    const auto write = [](const QString& path, const QByteArray& body) {
+        QFile f(path);
+        return f.open(QIODevice::WriteOnly) && f.write(body) == body.size();
+    };
+    // The program folder that is to be replaced.
+    const QString exeDir = dir.filePath(QStringLiteral("programm"));
+    QVERIFY(QDir().mkpath(exeDir));
+    QVERIFY(write(exeDir + QLatin1Char('/') + exeName, "old exe"));
+    QVERIFY(write(exeDir + QStringLiteral("/bleibt.txt"), "stays"));
+    // The package: a folder with the "new" .exe, zipped by the same
+    // tar.exe the updater unpacks with.
+    const QString pkgRoot = dir.filePath(QStringLiteral("pkg/Contestprogramm"));
+    QVERIFY(QDir().mkpath(pkgRoot));
+    QVERIFY(write(pkgRoot + QLatin1Char('/') + exeName, "new exe"));
+    QVERIFY(write(pkgRoot + QStringLiteral("/neu.txt"), "new file"));
+    const QString zipPath = dir.filePath(QStringLiteral("Contestprogramm-9.9.9-Windows-x64-portable.zip"));
+    QProcess zip;
+    zip.start(QStringLiteral("tar.exe"), {QStringLiteral("-a"), QStringLiteral("-c"), QStringLiteral("-f"),
+                                          QDir::toNativeSeparators(zipPath), QStringLiteral("-C"),
+                                          QDir::toNativeSeparators(dir.filePath(QStringLiteral("pkg"))),
+                                          QStringLiteral("Contestprogramm")});
+    QVERIFY(zip.waitForFinished(30000));
+    QVERIFY2(zip.exitCode() == 0, qPrintable(QString::fromLocal8Bit(zip.readAllStandardError())));
+
+    SelfUpdater updater;
+    UpdateTarget t;
+    t.kind = UpdateTarget::Kind::WindowsPortable;
+    t.installPath = exeDir;
+    updater.setTarget(t);
+    QString error;
+    QVERIFY2(updater.install(zipPath, &error), qPrintable(error));
+    const QString script = updater.relaunchScriptPath();
+    QVERIFY(QFileInfo::exists(script));
+
+    // Take the wait for this very process and the start out, then run it.
+    QFile scriptFile(script);
+    QVERIFY(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text));
+    QString text = QString::fromLocal8Bit(scriptFile.readAll());
+    scriptFile.close();
+    const QString pid = QString::number(QCoreApplication::applicationPid());
+    QVERIFY(text.contains(QStringLiteral("PID eq %1").arg(pid)));
+    QVERIFY(text.contains(QStringLiteral("robocopy")));
+    text.replace(QStringLiteral("PID eq %1").arg(pid), QStringLiteral("PID eq 4000000000"));
+    text.replace(QStringLiteral("find \"%1\"").arg(pid), QStringLiteral("find \"4000000000\""));
+    QStringList lines = text.split(QStringLiteral("\r\n"));
+    lines.erase(std::remove_if(lines.begin(), lines.end(),
+                               [](const QString& l) { return l.startsWith(QStringLiteral("start ")); }),
+                lines.end());
+    QVERIFY(scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    scriptFile.write(lines.join(QStringLiteral("\r\n")).toLocal8Bit());
+    scriptFile.close();
+
+    QProcess run;
+    run.start(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QDir::toNativeSeparators(script)});
+    QVERIFY(run.waitForFinished(60000));
+
+    QFile after(exeDir + QLatin1Char('/') + exeName);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    QCOMPARE(after.readAll(), QByteArray("new exe"));
+    QVERIFY(QFileInfo::exists(exeDir + QStringLiteral("/neu.txt")));
+    QVERIFY(QFileInfo::exists(exeDir + QStringLiteral("/bleibt.txt")));
+    QVERIFY(!QFileInfo::exists(zipPath));
+    QVERIFY(!QFileInfo::exists(script));
+    QVERIFY(QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/Contestprogramm-Update"))
+                .entryList({QStringLiteral("entpackt-*")}, QDir::Dirs | QDir::NoDotAndDotDot)
+                .isEmpty());
 #endif
 }
 
