@@ -21,7 +21,8 @@ Austria:                   15:  28:  EU:   47.33:   -13.33:    -1.0:  OE:
 Fed. Rep. of Germany:      14:  28:  EU:   51.00:   -10.00:    -1.0:  DL:
     DA,DB,DC,DD,DE,DF,DG,DH,DJ,DK,DL,DM,DO,DP,DQ,DR,=DL0AAA;
 United States:             05:  08:  NA:   37.53:    91.67:     5.0:  K:
-    AA,AB,AC,AK,AL,K,N,W,WA,WB,=W1AW;
+    AA,AB,AC,K,N,W,WA,WB,=W1AW,K6(3)[6]<37.00/121.00>,W6(3)[6]<37.00/121.00>,
+    KL(1)[1]<62.00/150.00>{NA}~9.0~,KH6(31)[61]<21.30/157.85>{OC}~10.0~;
 Japan:                     25:  45:  AS:   36.40:  -138.38:    -9.0:  JA:
     JA,JE,JF,JG,JH,JI,JJ,JK,JL,JM,JN,JO,JP,JQ,JR,JS,7J,7K,7L,7M,7N,8J,8N;
 Australia:                 30:  59:  OC:  -23.70:  -132.33:   -10.0:  VK:
@@ -43,6 +44,7 @@ private slots:
     void portableDesignatorsDecideTheCountry();
     void unknownCallsignStaysUnknown();
     void abrokenFileLeavesTheOldListAlone();
+    void perPrefixOverridesCount();
 };
 
 void TestCountryPrefixIndex::readsTheRecordsAndTheirFields()
@@ -140,6 +142,43 @@ void TestCountryPrefixIndex::abrokenFileLeavesTheOldListAlone()
     // Mitten im Contest darf eine kaputte Datei nicht alles wegnehmen.
     QCOMPARE(index.countryCount(), 6);
     QCOMPARE(index.lookup(QStringLiteral("OE5SOS")).name, QStringLiteral("Austria"));
+}
+
+// Ein Land ist nicht überall gleich: W6 liegt in einer anderen CQ-Zone
+// und viertausend Kilometer von W1 entfernt, Alaska und Hawaii tragen
+// eigene Zonen, Kontinente und Zeitverschiebungen. cty.dat schreibt das
+// in Klammern hinter den Präfix -- wer die Klammern wegwirft, legt jedes
+// US-Rufzeichen auf denselben Punkt.
+void TestCountryPrefixIndex::perPrefixOverridesCount()
+{
+    CountryPrefixIndex index;
+    QString error;
+    QVERIFY2(index.loadFromCty(QByteArray(kMiniCty), &error), qPrintable(error));
+
+    const CountryEntry w1 = index.lookup(QStringLiteral("W1XYZ"));
+    const CountryEntry w6 = index.lookup(QStringLiteral("W6XYZ"));
+    QCOMPARE(w1.name, QStringLiteral("United States"));
+    QCOMPARE(w6.name, QStringLiteral("United States")); // dasselbe Land
+    QCOMPARE(w1.cqZone, 5);
+    QCOMPARE(w6.cqZone, 3);                              // aber andere Zone
+    QCOMPARE(w6.ituZone, 6);
+    // Und ein anderer Ort: Kalifornien liegt weit westlich vom
+    // Mittelpunkt der USA.
+    QVERIFY2(w6.longitudeDeg < w1.longitudeDeg - 10.0,
+             qPrintable(QStringLiteral("%1 vs %2").arg(w6.longitudeDeg).arg(w1.longitudeDeg)));
+
+    // Alaska und Hawaii: eigener Kontinent und eigene Zeitverschiebung.
+    const CountryEntry kl = index.lookup(QStringLiteral("KL7ABC"));
+    QCOMPARE(kl.cqZone, 1);
+    QCOMPARE(kl.continent, QStringLiteral("NA"));
+    QVERIFY2(std::abs(kl.utcOffsetHours + 9.0) < 0.01, qPrintable(QString::number(kl.utcOffsetHours)));
+    const CountryEntry kh6 = index.lookup(QStringLiteral("KH6ABC"));
+    QCOMPARE(kh6.cqZone, 31);
+    QCOMPARE(kh6.continent, QStringLiteral("OC"));
+    QVERIFY(kh6.latitudeDeg > 20.0 && kh6.latitudeDeg < 22.0);
+
+    // Ein Präfix ohne Klammern erbt weiter alles vom Gebiet.
+    QCOMPARE(index.lookup(QStringLiteral("N5ABC")).cqZone, 5);
 }
 
 QTEST_APPLESS_MAIN(TestCountryPrefixIndex)

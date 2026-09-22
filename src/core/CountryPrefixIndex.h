@@ -40,10 +40,15 @@ struct CountryEntry {
 // Format einer Aufzeichnung (durch ';' getrennt): eine Kopfzeile mit
 // acht durch ':' getrennten Feldern -- Name, CQ-Zone, ITU-Zone,
 // Kontinent, Breite, Länge (West positiv), Zeitverschiebung,
-// Hauptpräfix -- und danach die Präfixe, durch Kommas getrennt. Ein
-// Präfix darf Abweichungen tragen: "=RUFZEICHEN" für ein einzelnes
-// Rufzeichen, "(n)" CQ-Zone, "[n]" ITU-Zone, "<lat/lon>" Ort, "{CC}"
-// Kontinent, "~tz~" Zeitzone.
+// Hauptpräfix -- und danach die Präfixe, durch Kommas getrennt.
+//
+// Ein Präfix darf Abweichungen vom Gebiet tragen, und die zählen:
+// "=RUFZEICHEN" für ein einzelnes Rufzeichen, "(n)" CQ-Zone, "[n]"
+// ITU-Zone, "<lat/lon>" Ort, "{CC}" Kontinent, "~tz~" Zeitverschiebung.
+// Ohne sie läge jedes US-Rufzeichen in derselben Zone und am selben
+// Punkt -- W6 ist aber Zone 3 und liegt viertausend Kilometer von W1
+// entfernt. Darum bekommt jeder Präfix seinen eigenen Eintrag, in dem
+// die Abweichungen schon eingerechnet sind.
 class CountryPrefixIndex {
 public:
     // Liest eine cty.dat. Der bisherige Inhalt wird ersetzt -- nur bei
@@ -52,7 +57,10 @@ public:
     bool loadFromCty(const QByteArray& text, QString* errorOut = nullptr);
 
     bool isEmpty() const { return m_entries.isEmpty(); }
-    int countryCount() const { return m_entries.size(); }
+    // Die Zahl der Gebiete -- nicht die der Einträge: ein Gebiet kann
+    // mehrere haben, weil Präfixe eigene Zonen und Orte tragen (siehe
+    // oben).
+    int countryCount() const { return m_countryCount; }
     int prefixCount() const { return m_byPrefix.size(); }
 
     // Das Land zu einem Rufzeichen: zuerst die Liste der einzeln
@@ -69,6 +77,7 @@ public:
 
 private:
     QVector<CountryEntry> m_entries;
+    int m_countryCount = 0;
     QHash<QString, int> m_byPrefix;    // Präfix -> Index in m_entries
     QHash<QString, int> m_byExactCall; // "="-Einträge
 };
