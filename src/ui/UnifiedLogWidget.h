@@ -493,6 +493,10 @@ private:
     // Recomputes m_columnWidths for the current viewport width and
     // visible column set; returns true when any width changed.
     bool fitColumnsToViewport();
+    // Ob km/Grad überhaupt gezeigt werden sollen -- siehe
+    // applyDistanceColumnsVisibility(). true, solange nichts anderes
+    // bekannt ist (jeder UKW-Contest tauscht einen Locator).
+    bool m_distanceColumnsWanted = true;
     // The view mode's own column set (setViewMode()), before any
     // give-way hiding by fitColumnsToViewport().
     bool columnWantedByViewMode(int col) const;
@@ -505,6 +509,7 @@ private:
     void setFieldAutoFilled(QLineEdit* field, bool autoFilled);
     static bool isFieldAutoFilled(const QLineEdit* field);
     void rebuildExchangeCell(const QMap<QString, QString>& previousValues);
+    void applyDistanceColumnsVisibility();
     void configureFeedColumns();
     void applyDividerSpan();
     // Caps m_feedTable's own maximum height to exactly its current row
