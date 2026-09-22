@@ -247,11 +247,14 @@ void AppController::setSettings(const ContestSettings& settings)
 void AppController::loadAvailableContestDefinitions()
 {
     m_availableContestDefinitions.clear();
+    QSet<QString> seenIds;
+    // Leer, wenn das Verzeichnis nicht gefunden wurde -- dann bleiben
+    // nur die selbst angelegten Contests weiter unten (ein leerer Pfad
+    // an QDir wäre das Arbeitsverzeichnis, also irgendwelche JSON).
     const QString dir = findContestDefinitionsDir();
-    if (dir.isEmpty()) {
-        return;
-    }
-    const QStringList files = QDir(dir).entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    const QStringList files = dir.isEmpty()
+        ? QStringList()
+        : QDir(dir).entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
     for (const QString& fileName : files) {
         QString error;
         ContestDefinition def = ContestDefinition::loadFromFile(dir + QLatin1Char('/') + fileName, &error);
@@ -273,6 +276,26 @@ void AppController::loadAvailableContestDefinitions()
             }
         }
         m_availableContestDefinitions.append(def);
+        seenIds.insert(def.id());
+    }
+
+    // Contests the operator invented themselves (ContestRulesEditor's
+    // "Neuer Contest") have no shipped file at all -- they exist only
+    // as an override. They come after the shipped ones, so the
+    // "first all-mode contest" a fresh database starts in stays one of
+    // ours.
+    const QStringList overrideFiles =
+        QDir(ContestDefinition::overrideDirectory())
+            .entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    for (const QString& fileName : overrideFiles) {
+        QString error;
+        const ContestDefinition def = ContestDefinition::loadFromFile(
+            ContestDefinition::overrideDirectory() + QLatin1Char('/') + fileName, &error);
+        if (!def.isValid() || seenIds.contains(def.id())) {
+            continue;
+        }
+        m_availableContestDefinitions.append(def);
+        seenIds.insert(def.id());
     }
 }
 

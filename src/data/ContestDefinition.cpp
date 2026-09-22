@@ -7,6 +7,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 
 namespace Contestprogramm {
@@ -159,6 +161,133 @@ QString ContestDefinition::overrideDirectory()
 QString ContestDefinition::overrideFilePath(const QString& contestId)
 {
     return overrideDirectory() + QLatin1Char('/') + contestId + QStringLiteral(".json");
+}
+
+ContestDefinition::Rules ContestDefinition::rules() const
+{
+    Rules r;
+    r.name = m_name;
+    r.bands = m_bands;
+    r.dupeScope = m_dupeScope;
+    r.exchangeFields = m_exchangeFields;
+    r.multiplierField = m_multiplierField;
+    r.scoring = m_scoring;
+    r.serialScope = m_serialScope;
+    r.cabrilloName = m_cabrilloName;
+    r.modes = m_modes;
+    return r;
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::scoringChoices()
+{
+    return {{QStringLiteral("distance_km"), QStringLiteral("Entfernung in km (UKW: km abgerundet + 1)")},
+            {QStringLiteral("qso_count"), QStringLiteral("Ein Punkt je QSO")}};
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::serialScopeChoices()
+{
+    return {{QStringLiteral("band"), QStringLiteral("Je Band wieder ab 001")},
+            {QStringLiteral("contest"), QStringLiteral("Eine Folge über den ganzen Contest")}};
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::multiplierChoices()
+{
+    return {{QStringLiteral("grid"), QStringLiteral("Locator-Großfeld (JN67)")},
+            {QStringLiteral("none"), QStringLiteral("Keiner")}};
+}
+
+bool ContestDefinition::validateRules(const Rules& rules, QString* errorOut)
+{
+    const auto fail = [errorOut](const QString& message) {
+        if (errorOut) {
+            *errorOut = message;
+        }
+        return false;
+    };
+    if (rules.name.trimmed().isEmpty()) {
+        return fail(QStringLiteral("Der Contest braucht einen Namen."));
+    }
+    if (rules.bands.isEmpty()) {
+        return fail(QStringLiteral("Mindestens ein Band muss angekreuzt sein."));
+    }
+    if (rules.exchangeFields.isEmpty()) {
+        return fail(QStringLiteral("Mindestens ein Exchange-Feld wird benötigt."));
+    }
+    QSet<QString> seen;
+    for (const ExchangeField& field : rules.exchangeFields) {
+        if (field.key.trimmed().isEmpty()) {
+            return fail(QStringLiteral("Ein Exchange-Feld ohne Key geht nicht."));
+        }
+        if (seen.contains(field.key)) {
+            return fail(QStringLiteral("Feld-Key \"%1\" ist mehrfach vergeben.").arg(field.key));
+        }
+        seen.insert(field.key);
+    }
+    // Ohne Rufzeichen ist die Dupe-Prüfung keine: sie würde jedes QSO
+    // auf demselben Band als Doppel melden.
+    if (!rules.dupeScope.contains(QStringLiteral("callsign"))) {
+        return fail(QStringLiteral("Die Dupe-Regel muss das Rufzeichen enthalten."));
+    }
+    for (const QString& scope : rules.dupeScope) {
+        if (scope != QStringLiteral("callsign") && scope != QStringLiteral("band") && scope != QStringLiteral("mode")) {
+            return fail(QStringLiteral("Unbekannter Teil der Dupe-Regel: \"%1\".").arg(scope));
+        }
+    }
+    const auto known = [](const QVector<QPair<QString, QString>>& choices, const QString& value) {
+        for (const auto& choice : choices) {
+            if (choice.first == value) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!known(scoringChoices(), rules.scoring)) {
+        return fail(QStringLiteral("Unbekannte Wertung: \"%1\".").arg(rules.scoring));
+    }
+    if (!known(serialScopeChoices(), rules.serialScope)) {
+        return fail(QStringLiteral("Unbekannter Nummernkreis: \"%1\".").arg(rules.serialScope));
+    }
+    if (!known(multiplierChoices(), rules.multiplierField)) {
+        return fail(QStringLiteral("Unbekannter Multiplikator: \"%1\".").arg(rules.multiplierField));
+    }
+    if (errorOut) {
+        errorOut->clear();
+    }
+    return true;
+}
+
+ContestDefinition ContestDefinition::withRules(const Rules& rules, QString* errorOut) const
+{
+    if (!validateRules(rules, errorOut)) {
+        return ContestDefinition();
+    }
+    ContestDefinition copy = *this;
+    copy.m_name = rules.name.trimmed();
+    copy.m_bands = rules.bands;
+    copy.m_dupeScope = rules.dupeScope;
+    copy.m_exchangeFields = rules.exchangeFields;
+    copy.m_multiplierField = rules.multiplierField;
+    copy.m_scoring = rules.scoring;
+    copy.m_serialScope = rules.serialScope;
+    copy.m_cabrilloName = rules.cabrilloName.trimmed();
+    copy.m_modes = rules.modes;
+    copy.m_valid = true;
+    return copy;
+}
+
+ContestDefinition ContestDefinition::fromRules(const QString& id, const Rules& rules, QString* errorOut)
+{
+    const QString trimmedId = id.trimmed();
+    static const QRegularExpression idPattern(QStringLiteral("^[A-Z0-9_]+$"));
+    if (!idPattern.match(trimmedId).hasMatch()) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("Die Kennung darf nur A-Z, 0-9 und _ enthalten (sie wird ein Dateiname).");
+        }
+        return ContestDefinition();
+    }
+    ContestDefinition def;
+    def.m_id = trimmedId;
+    return def.withRules(rules, errorOut);
 }
 
 ContestDefinition ContestDefinition::withExchangeFields(const QVector<ExchangeField>& fields) const

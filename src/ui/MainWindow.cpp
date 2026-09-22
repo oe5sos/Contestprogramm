@@ -2848,6 +2848,29 @@ void MainWindow::openContestRulesEditor()
     // which applyActiveContestDefinition() (connected in the
     // constructor) picks up to rebuild UnifiedLogWidget's exchange row.
     m_appController.reloadContestDefinitions();
+
+    ContestSettings settings = m_appController.settings();
+    const QString saved = dialog.savedContestId();
+    if (dialog.deletedSelectedContest()) {
+        // Der Contest kann jetzt weg sein (selbst angelegt und
+        // zurückgesetzt). War er der aktive, muss ein anderer her --
+        // sonst steht das Programm ohne Exchange-Zeile da.
+        if (settings.activeContestId == saved && !m_appController.findContestDefinition(saved)) {
+            const QVector<ContestDefinition>& available = m_appController.availableContestDefinitions();
+            settings.activeContestId = available.isEmpty() ? QString() : available.first().id();
+            m_appController.setSettings(settings);
+            applyActiveContestDefinition();
+        }
+        return;
+    }
+    // Ein gerade angelegter Contest ist der, mit dem weitergearbeitet
+    // werden soll -- ihn erst noch in "Contest wählen..." suchen zu
+    // müssen wäre ein Umweg ohne Zweck.
+    if (!saved.isEmpty() && saved != settings.activeContestId && m_appController.findContestDefinition(saved)) {
+        settings.activeContestId = saved;
+        m_appController.setSettings(settings);
+        applyActiveContestDefinition();
+    }
 }
 
 void MainWindow::openContestPicker()

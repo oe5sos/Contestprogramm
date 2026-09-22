@@ -2,6 +2,7 @@
 
 #include "data/ContestSchedule.h"
 
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -87,6 +88,51 @@ public:
     // Memorial is CW only, and a QSO logged in SSB there is one the log
     // check flags (data/LogCheck.h).
     const QStringList& modes() const { return m_modes; }
+
+    // Every rule of a contest that the operator may set, in one place --
+    // what ui/ContestRulesEditor.h edits and what withRules()/
+    // fromRules() write back. Deliberately NOT id() (a contest keeps
+    // its identity; the log rows point at it) and not schedule(), which
+    // no dialog offers yet and which withRules() therefore carries over
+    // untouched.
+    struct Rules {
+        QString name;
+        QStringList bands;
+        QStringList dupeScope;
+        QVector<ExchangeField> exchangeFields;
+        QString multiplierField = QStringLiteral("grid");
+        QString scoring = QStringLiteral("distance_km");
+        QString serialScope = QStringLiteral("band");
+        QString cabrilloName;
+        QStringList modes;
+    };
+
+    Rules rules() const;
+
+    // Checks what the JSON loader would check, before anything is
+    // written: a name, at least one band, at least one exchange field,
+    // no duplicate field keys, "callsign" in the dupe scope, and known
+    // values for scoring/serial_scope/multiplier_field. Returns false
+    // and fills errorOut with a sentence for the operator.
+    static bool validateRules(const Rules& rules, QString* errorOut = nullptr);
+
+    // A copy of this definition with `rules` applied -- id() and
+    // schedule() stay. Returns an invalid definition (and fills
+    // errorOut) when validateRules() says no, so a bad edit can never
+    // be written to disk.
+    ContestDefinition withRules(const Rules& rules, QString* errorOut = nullptr) const;
+
+    // A contest the operator invented, from nothing. `id` must be
+    // non-empty and carry only A-Z, 0-9 and underscore -- it becomes a
+    // file name (overrideFilePath) and the qsos.contest_id of every QSO
+    // logged under it.
+    static ContestDefinition fromRules(const QString& id, const Rules& rules, QString* errorOut = nullptr);
+
+    // Known values, in the order a dialog should offer them, each with
+    // the wording the operator reads.
+    static QVector<QPair<QString, QString>> scoringChoices();
+    static QVector<QPair<QString, QString>> serialScopeChoices();
+    static QVector<QPair<QString, QString>> multiplierChoices();
 
     // Returns a copy of this definition with exchangeFields() replaced
     // by `fields` -- id/name/bands/dupe_scope/multiplier_field stay
