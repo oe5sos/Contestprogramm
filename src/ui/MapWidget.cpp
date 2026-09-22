@@ -53,6 +53,10 @@ constexpr double kMaxVisibleRangeKm = 20000.0;
 // Operator, 2026-09-14: "mache schritte beim radius bitte alle 250km".
 constexpr double kVisibleRangeStepKm = 250.0;
 
+// Was im ⚙-Menü als Sprungweite steht: vom Nahbereich bis zur
+// Weltkarte, ohne zwanzigmal auf die Zoomtaste zu drücken.
+constexpr double kRangePresetsKm[] = {100.0, 300.0, 1000.0, 3000.0, 10000.0, 20000.0};
+
 // Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
 // Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
 // 250km") -- darüber wären das 67 Klicks bis zur Gegenseite der Erde.
@@ -337,6 +341,18 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     };
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), m_beamwidth1Deg, &MapWidget::setRotor1BeamwidthDeg);
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), m_beamwidth2Deg, &MapWidget::setRotor2BeamwidthDeg);
+    // Sprungweiten statt Klicken: von 300 km auf die Weltkarte wären es
+    // mit den beiden Zoomtasten zwanzig Klicks.
+    QMenu* rangeMenu = menu->addMenu(QStringLiteral("Reichweite"));
+    auto* rangeGroup = new QActionGroup(rangeMenu);
+    rangeGroup->setExclusive(true);
+    for (double km : kRangePresetsKm) {
+        QAction* action = rangeMenu->addAction(QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(km))));
+        action->setCheckable(true);
+        action->setChecked(std::fabs(m_visibleRangeKm - km) < 0.5);
+        rangeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, km] { setVisibleRangeKm(km); });
+    }
     menu->addAction(m_agingAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
@@ -844,8 +860,13 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     // Quiet lines, no land fill, no country names: orientation, not a
     // school atlas. The radar dims them further.
     // Quieter still on the radar, where the scope is the point.
+    // Je weiter die Karte reicht, desto kleiner und blasser werden die
+    // Umrisse -- auf der Weltkarte blieben von den Küstenlinien bei
+    // Alpha 90 nur Andeutungen übrig. Im Nahbereich bleibt es bei der
+    // Zurückhaltung von 2026-09-12 ("Orientierung, kein Schulatlas").
     QColor line{Style::kTextInactive()};
-    line.setAlpha(90);
+    const double reach = std::clamp((m_visibleRangeKm - 1000.0) / (20000.0 - 1000.0), 0.0, 1.0);
+    line.setAlpha(static_cast<int>(std::lround(90.0 + reach * 70.0)));
     painter.setPen(QPen(line, 1.0));
     painter.setBrush(Qt::NoBrush);
     const QRectF keep = area.adjusted(-2000, -2000, 2000, 2000);

@@ -276,6 +276,7 @@ private slots:
     void zoomOutDoublesVisibleRange();
     void visibleRangeIsClamped();
     void zoomStepsGrowBeyondVhfRanges();
+    void optionsMenuOffersRangePresets();
     void fitToWindowDefaultsTrueAndRoundTrips();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
@@ -679,6 +680,39 @@ void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
     QCOMPARE(toggled.count(), 1);
     // Not a map preference: the preferences text does not carry it.
     QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
+}
+
+// Sprungweiten im ⚙-Menü: von 300 km auf die Weltkarte wären es mit
+// den Zoomtasten zwanzig Klicks.
+void TestMapWidgetLive::optionsMenuOffersRangePresets()
+{
+    MapWidget widget;
+    widget.setVisibleRangeKm(300.0);
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+    QMenu* rangeMenu = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->menu() && action->text() == QStringLiteral("Reichweite")) {
+            rangeMenu = action->menu();
+        }
+    }
+    QVERIFY2(rangeMenu, "Kein Reichweiten-Untermenü");
+    QStringList labels;
+    QAction* world = nullptr;
+    for (QAction* action : rangeMenu->actions()) {
+        labels << action->text();
+        if (action->text().startsWith(QStringLiteral("20"))) {
+            world = action;
+        }
+        // Der Eintrag, auf dem die Karte gerade steht, ist angehakt.
+        if (action->text().startsWith(QStringLiteral("300"))) {
+            QVERIFY(action->isChecked());
+        }
+    }
+    QCOMPARE(labels.size(), 6);
+    QVERIFY2(world, qPrintable(labels.join(QStringLiteral(", "))));
+    world->trigger();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
 }
 
 int main(int argc, char* argv[])
