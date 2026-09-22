@@ -9,19 +9,26 @@ namespace Contestprogramm {
 
 class ContestDatabase;
 class ContestDefinition;
+class CountryPrefixIndex;
 
 // Per-band worked/needed multiplier tracking, per the plan's
 // "Multiplier-Tracking + Worked/Needed-Raster pro Band" nachziehen item.
 //
-// Zwei Grundlagen (ContestDefinition::multiplierField()): "grid", das
-// Locator-Großfeld der UKW-Contests, und seit 2026-09-22 "prefix", die
-// WPX-Regel für Kurzwelle (core/CallsignPrefix.h) -- beide rechnen
-// sich allein aus dem, was ohnehin im Log steht, ohne fremde Tabelle.
-// Jede andere Angabe (etwa ein Land, wofür es eine Präfix-Tabelle
-// bräuchte) lässt die Listen leer, statt eine Grundlage zu erfinden.
+// Drei Grundlagen (ContestDefinition::multiplierField()): "grid", das
+// Locator-Großfeld der UKW-Contests, "prefix", die WPX-Regel für
+// Kurzwelle (core/CallsignPrefix.h) -- beide rechnen sich allein aus
+// dem, was ohnehin im Log steht --, und "dxcc", das Land, wofür eine
+// geladene Länderliste nötig ist (core/CountryPrefixIndex.h). Fehlt
+// sie, bleiben die Listen leer, statt ein Land zu erraten; jede andere
+// Angabe ebenso.
 class MultiplierTracker {
 public:
     explicit MultiplierTracker(ContestDatabase& database);
+
+    // Die Länderliste, die "dxcc" als Grundlage braucht (der
+    // AppController hängt seine ein). Ohne sie bleibt diese Grundlage
+    // leer -- ein Land lässt sich aus einem Rufzeichen nicht erraten.
+    void setCountryIndex(const CountryPrefixIndex* index) { m_countryIndex = index; }
 
     // Re-derives worked-multiplier sets for `contestId` from `database`,
     // per `definition`'s bands() and multiplierField(). Eine Grundlage,
@@ -56,6 +63,7 @@ private:
     ContestDatabase& m_database;
     QStringList m_bands;
     QString m_basis = QStringLiteral("grid");
+    const CountryPrefixIndex* m_countryIndex = nullptr;
     QHash<QString, QSet<QString>> m_workedByBand;
 };
 

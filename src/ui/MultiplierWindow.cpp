@@ -81,6 +81,9 @@ void MultiplierWindow::applyBasisWording()
     if (basis == QStringLiteral("prefix")) {
         title = QStringLiteral("Präfixe");
         column = QStringLiteral("Präfix");
+    } else if (basis == QStringLiteral("dxcc")) {
+        title = QStringLiteral("Länder");
+        column = QStringLiteral("Land");
     } else if (basis != QStringLiteral("grid")) {
         title = QStringLiteral("Multiplikatoren");
         column = QStringLiteral("Schlüssel");

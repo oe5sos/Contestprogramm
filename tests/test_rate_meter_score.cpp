@@ -6,6 +6,7 @@
 
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
+#include "core/CountryPrefixIndex.h"
 #include "ui/RateMeterWidget.h"
 
 using namespace Contestprogramm;
@@ -70,6 +71,7 @@ private slots:
     void layoutFollowsTheSize();
     void paintsInBothLayouts();
     void prefixBasisCountsPrefixesAndNoneHidesTheTile();
+    void dxccTileSaysWhenTheCountryListIsMissing();
 };
 
 void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
@@ -208,6 +210,53 @@ void TestRateMeterScore::prefixBasisCountsPrefixesAndNoneHidesTheTile()
     text = visibleText(widget);
     QVERIFY2(!text.contains(QStringLiteral("Präfixe")), qPrintable(text));
     QVERIFY2(!text.contains(QStringLiteral("Felder")), qPrintable(text));
+}
+
+// Mit der Grundlage "dxcc" und ohne geladene Länderliste zeigt die
+// Kachel einen Strich mit dem Grund dahinter -- eine Null wäre dort
+// eine Behauptung.
+void TestRateMeterScore::dxccTileSaysWhenTheCountryListIsMissing()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("dxcc.sqlite")), QStringLiteral("rate_meter_dxcc")));
+
+    const auto hfQso = [](const QString& call, const QString& band) {
+        QsoRecord r;
+        r.callsign = call;
+        r.band = band;
+        r.mode = QStringLiteral("CW");
+        r.timestampUtc = QStringLiteral("2026-11-28T09:01:00Z");
+        r.contestId = QStringLiteral("DXCC_TEST");
+        return r;
+    };
+    for (const auto& pair : {qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DK5XYZ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("JA1QQQ"), QStringLiteral("14"))}) {
+        QsoRecord r = hfQso(pair.first, pair.second);
+        QVERIFY(db.insertQso(r));
+    }
+
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("DXCC_TEST"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("dxcc"), nullptr);
+    QString text = visibleText(widget);
+    QVERIFY2(text.contains(QStringLiteral("Länder ——")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("Länderliste fehlt")), qPrintable(text));
+
+    CountryPrefixIndex index;
+    QVERIFY(index.loadFromCty(QByteArrayLiteral(
+        "Fed. Rep. of Germany: 14: 28: EU: 51.00: -10.00: -1.0: DL:\n"
+        "    DA,DB,DC,DD,DK,DL,DM;\n"
+        "Japan: 25: 45: AS: 36.40: -138.38: -9.0: JA:\n"
+        "    JA,JE,JF,JG,JH;\n")));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("dxcc"), &index);
+    text = visibleText(widget);
+    // DL1ABC und DK5XYZ sind dasselbe Land.
+    QVERIFY2(text.contains(QStringLiteral("Länder 2 (14: 2 · 21: 0)")), qPrintable(text));
 }
 
 int main(int argc, char* argv[])

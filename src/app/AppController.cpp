@@ -56,6 +56,9 @@ AppController::AppController(QObject* parent)
     , m_on4kstFeedModel(m_geoFilter, m_dupeChecker)
     , m_clusterFeedModel(m_geoFilter, m_dupeChecker)
 {
+    // Der Zähler holt sich das Land aus derselben Liste, die auch die
+    // Karte benutzt -- eine Liste, ein Stand.
+    m_multiplierTracker.setCountryIndex(&m_countryIndex);
     // Terrain line-of-sight (Phase 2) -- fixed at 144 MHz for now: this
     // codebase has one shared GeoFilter across both spot feeds/bands
     // (see GeoFilter.h's own setTerrainDataManager() comment on what a

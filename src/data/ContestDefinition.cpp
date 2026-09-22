@@ -194,6 +194,7 @@ QVector<QPair<QString, QString>> ContestDefinition::multiplierChoices()
 {
     return {{QStringLiteral("grid"), QStringLiteral("Locator-Großfeld (JN67)")},
             {QStringLiteral("prefix"), QStringLiteral("Präfix (WPX: OE5, DL1, W1)")},
+            {QStringLiteral("dxcc"), QStringLiteral("Land (DXCC — braucht eine geladene Länderliste)")},
             {QStringLiteral("none"), QStringLiteral("Keiner")}};
 }
 

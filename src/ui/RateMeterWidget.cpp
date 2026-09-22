@@ -1,6 +1,7 @@
 #include "ui/RateMeterWidget.h"
 
 #include "core/CallsignPrefix.h"
+#include "core/CountryPrefixIndex.h"
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestScoring.h"
@@ -269,8 +270,9 @@ void RateMeterWidget::setSource(ContestDatabase* database, const QString& contes
 }
 
 void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring,
-                                 const QString& multiplierBasis)
+                                 const QString& multiplierBasis, const CountryPrefixIndex* countryIndex)
 {
+    m_countryIndex = countryIndex;
     m_ownGrid = ownGrid.trimmed().toUpper();
     m_bandOrder = bandOrder;
     m_scoring = scoring;
@@ -340,6 +342,8 @@ void RateMeterWidget::refresh()
         QString key;
         if (m_multiplierBasis == QStringLiteral("prefix")) {
             key = wpxPrefix(record.callsign);
+        } else if (m_multiplierBasis == QStringLiteral("dxcc")) {
+            key = m_countryIndex ? m_countryIndex->lookup(record.callsign).primaryPrefix : QString();
         } else if (record.gridSquare.size() >= 4) {
             key = record.gridSquare.left(4).toUpper();
         }
@@ -459,7 +463,15 @@ QVector<RateMeterWidget::Reading> RateMeterWidget::readings() const
     }
     // Ohne Multiplikator entfällt die Kachel ganz -- eine Null wäre
     // dort keine Aussage, sondern eine falsche.
-    if (m_multiplierBasis == QStringLiteral("grid") || m_multiplierBasis == QStringLiteral("prefix")) {
+    if (m_multiplierBasis == QStringLiteral("dxcc")) {
+        // Ohne geladene Länderliste lässt sich kein Land zählen -- ein
+        // Strich mit dem Grund dahinter, keine Null.
+        const bool haveList = m_countryIndex != nullptr && !m_countryIndex->isEmpty();
+        out.append({QStringLiteral("Länder"), haveList ? QString::number(m_largeSquares) : dash, QString(),
+                    haveList ? squaresPerBand.join(QStringLiteral(" · ")) : QStringLiteral("Länderliste fehlt"),
+                    haveList ? squaresPerBandShort.join(QStringLiteral(" · ")) : QStringLiteral("keine Liste"),
+                    haveList ? primary : inactive});
+    } else if (m_multiplierBasis == QStringLiteral("grid") || m_multiplierBasis == QStringLiteral("prefix")) {
         const QString label = m_multiplierBasis == QStringLiteral("prefix") ? QStringLiteral("Präfixe")
                                                                             : QStringLiteral("Felder");
         out.append({label, QString::number(m_largeSquares), QString(),

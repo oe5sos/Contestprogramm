@@ -6,6 +6,7 @@
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
 #include "core/CallsignPrefix.h"
+#include "core/CountryPrefixIndex.h"
 #include "data/MultiplierTracker.h"
 #include "data/QsoRecord.h"
 
@@ -75,6 +76,7 @@ private slots:
     void unimplementedMultiplierBasisStaysEmpty();
     void wpxPrefixFollowsTheContestRules();
     void prefixBasisCountsPrefixesPerBand();
+    void dxccBasisNeedsTheCountryListAndCountsCountries();
 };
 
 void TestMultiplierTracker::multiplierKeyTruncatesToFourCharsAndUppercases()
@@ -263,6 +265,58 @@ void TestMultiplierTracker::prefixBasisCountsPrefixesPerBand()
     QVERIFY(!tracker.isNeededMultiplier(QStringLiteral("14"), QString(), QStringLiteral("DL1ZZZ")));
     QVERIFY(tracker.isNeededMultiplier(QStringLiteral("21"), QString(), QStringLiteral("DL2QQQ")));
     QVERIFY(tracker.isNeededMultiplier(QStringLiteral("14"), QString(), QStringLiteral("G3ABC")));
+}
+
+// Mit multiplier_field "dxcc" zählt das Land -- und dafür braucht es
+// eine geladene Länderliste. Ohne sie bleibt die Liste leer, statt ein
+// Land zu erraten.
+void TestMultiplierTracker::dxccBasisNeedsTheCountryListAndCountsCountries()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("mult_dxcc2.sqlite")), QStringLiteral("mult_dxcc2")));
+
+    QString error;
+    const ContestDefinition def = ContestDefinition::loadFromJson(QByteArrayLiteral(R"({
+        "id": "DXCC_TEST",
+        "name": "Länderprobe",
+        "bands": ["14", "21"],
+        "dupe_scope": ["callsign", "band"],
+        "scoring": "qso_count",
+        "multiplier_field": "dxcc",
+        "exchange_fields": [ { "key": "rst", "label": "RST", "type": "rst" } ]
+    })"), &error);
+    QVERIFY2(def.isValid(), qPrintable(error));
+
+    QVERIFY(insertMadeRecord(db, QStringLiteral("DL1ABC"), QStringLiteral("14"), QString(), def.id()));
+    QVERIFY(insertMadeRecord(db, QStringLiteral("DK5XYZ"), QStringLiteral("14"), QString(), def.id()));
+    QVERIFY(insertMadeRecord(db, QStringLiteral("JA1QQQ"), QStringLiteral("14"), QString(), def.id()));
+    QVERIFY(insertMadeRecord(db, QStringLiteral("DL1ABC"), QStringLiteral("21"), QString(), def.id()));
+
+    MultiplierTracker tracker(db);
+    // Ohne Liste: nichts, keine erfundenen Länder.
+    tracker.recompute(def.id(), def);
+    QCOMPARE(tracker.totalMultiplierCount(), 0);
+
+    CountryPrefixIndex index;
+    QVERIFY(index.loadFromCty(QByteArrayLiteral(
+        "Fed. Rep. of Germany: 14: 28: EU: 51.00: -10.00: -1.0: DL:\n"
+        "    DA,DB,DC,DD,DK,DL,DM;\n"
+        "Japan: 25: 45: AS: 36.40: -138.38: -9.0: JA:\n"
+        "    JA,JE,JF,JG,JH;\n")));
+    tracker.setCountryIndex(&index);
+    tracker.recompute(def.id(), def);
+
+    // DL1ABC und DK5XYZ sind dasselbe Land -- ein Multiplikator.
+    QCOMPARE(tracker.workedMultipliers(QStringLiteral("14")),
+             QSet<QString>({QStringLiteral("DL"), QStringLiteral("JA")}));
+    QCOMPARE(tracker.workedMultipliers(QStringLiteral("21")), QSet<QString>{QStringLiteral("DL")});
+    QCOMPARE(tracker.totalMultiplierCount(), 2);
+    QVERIFY(!tracker.isNeededMultiplier(QStringLiteral("14"), QString(), QStringLiteral("DM9ZZZ")));
+    QVERIFY(tracker.isNeededMultiplier(QStringLiteral("21"), QString(), QStringLiteral("JA9ZZZ")));
+    // Ein Rufzeichen, das die Liste nicht kennt, zählt nicht mit.
+    QVERIFY(!tracker.isNeededMultiplier(QStringLiteral("14"), QString(), QStringLiteral("ZZ9ZZZ")));
 }
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication

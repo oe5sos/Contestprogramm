@@ -2,6 +2,7 @@
 
 #include "data/ContestDatabase.h"
 #include "core/CallsignPrefix.h"
+#include "core/CountryPrefixIndex.h"
 #include "data/ContestDefinition.h"
 
 #include <QSqlQuery>
@@ -33,7 +34,8 @@ void MultiplierTracker::recompute(const QString& contestId, const ContestDefinit
     m_basis = definition.multiplierField();
     const bool byGrid = m_basis == QStringLiteral("grid");
     const bool byPrefix = m_basis == QStringLiteral("prefix");
-    if (!byGrid && !byPrefix) {
+    const bool byCountry = m_basis == QStringLiteral("dxcc") && m_countryIndex && !m_countryIndex->isEmpty();
+    if (!byGrid && !byPrefix && !byCountry) {
         // Eine Grundlage, die dieser Zähler nicht kennt (oder gar
         // keine): die Listen bleiben leer, statt eine zu erfinden.
         return;
@@ -57,7 +59,7 @@ void MultiplierTracker::recompute(const QString& contestId, const ContestDefinit
     while (query.next()) {
         const QString band = query.value(0).toString();
         const QString value = query.value(1).toString();
-        const QString key = byGrid ? multiplierKeyForGrid(value) : wpxPrefix(value);
+        const QString key = multiplierKeyFor(byGrid ? value : QString(), byGrid ? QString() : value);
         if (key.isEmpty()) {
             continue;
         }
@@ -72,6 +74,11 @@ QString MultiplierTracker::multiplierKeyFor(const QString& grid, const QString& 
     }
     if (m_basis == QStringLiteral("prefix")) {
         return wpxPrefix(callsign);
+    }
+    if (m_basis == QStringLiteral("dxcc") && m_countryIndex) {
+        // Der Hauptpräfix des Gebietes ist sein Name in einer Zeile --
+        // "OE", "DL", "K". Unbekannt heißt leer, nicht geraten.
+        return m_countryIndex->lookup(callsign).primaryPrefix;
     }
     return QString();
 }

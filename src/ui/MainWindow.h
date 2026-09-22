@@ -4,7 +4,6 @@
 #include "core/Transverter.h"
 #include "core/SkedList.h"
 #include "core/CheckPartialIndex.h"
-#include "core/CountryPrefixIndex.h"
 
 #include <QMainWindow>
 #include <QSet>
@@ -431,11 +430,9 @@ private:
     // contest switch and logged QSO, the widget is refreshed from
     // the entry row's formChanged.
     CheckPartialIndex m_checkPartialIndex;
-    // Rufzeichen -> Land, aus einer cty.dat, die der Bediener selbst
-    // lädt (Datei > Länderliste laden). Auf Kurzwelle tritt sie an die
-    // Stelle des Locators: ohne sie bleibt eine KW-Station ohne Ort,
-    // also ohne Punkt auf der Karte und ohne Richtung für den Rotor.
-    CountryPrefixIndex m_countryIndex;
+    // Die Länderliste selbst liegt im AppController (auch der
+    // Multiplikator-Zähler braucht sie); hier steht nur, ob sie beim
+    // Start schon einmal vom gemerkten Pfad gelesen wurde.
     bool m_countryListLoaded = false;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();

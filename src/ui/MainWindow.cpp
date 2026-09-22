@@ -1609,7 +1609,7 @@ void MainWindow::applyActiveContestDefinition()
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
         m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring(),
-                                      def->multiplierField());
+                                      def->multiplierField(), &m_appController.countryIndex());
     }
     reloadCheckPartialSources();
     refreshScoreboard();
@@ -3080,7 +3080,7 @@ void MainWindow::reloadCheckPartialSources()
         const QString countryPath = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
         QFile countryFile(countryPath);
         if (!countryPath.isEmpty() && countryFile.open(QIODevice::ReadOnly)) {
-            m_countryIndex.loadFromCty(countryFile.readAll());
+            m_appController.countryIndex().loadFromCty(countryFile.readAll());
         }
     }
     const QString scpPath = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
@@ -3188,15 +3188,20 @@ void MainWindow::loadCountryFile()
         return;
     }
     QString error;
-    if (!m_countryIndex.loadFromCty(file.readAll(), &error)) {
+    if (!m_appController.countryIndex().loadFromCty(file.readAll(), &error)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"), error);
         return;
     }
     m_appController.database().setSettingValue(QStringLiteral("cty_file_path"), path);
+    // Die Liste beantwortet drei Fragen auf einmal: wo eine Station
+    // steht (Karte), welches Land sie ist (Multiplikator) und wie viele
+    // davon schon im Log sind (Rate-Kachel).
     refreshMapWidget();
+    refreshMultiplierAndFeedScores();
+    m_rateMeterWidget->refresh();
     statusBar()->showMessage(QStringLiteral("Länderliste geladen: %1 Länder, %2 Präfixe aus %3")
-                                 .arg(m_countryIndex.countryCount())
-                                 .arg(m_countryIndex.prefixCount())
+                                 .arg(m_appController.countryIndex().countryCount())
+                                 .arg(m_appController.countryIndex().prefixCount())
                                  .arg(QFileInfo(path).fileName()),
                              5000);
 }
@@ -3215,7 +3220,7 @@ QString MainWindow::mapGridForCallsign(const QString& callsign, const QString& k
     if (isValidGridSquare(knownGrid)) {
         return knownGrid;
     }
-    const CountryEntry country = m_countryIndex.lookup(callsign);
+    const CountryEntry country = m_appController.countryIndex().lookup(callsign);
     if (!country.isValid()) {
         return QString();
     }

@@ -16,6 +16,8 @@ class QTimer;
 
 namespace Contestprogramm {
 
+class CountryPrefixIndex;
+
 class ContestDatabase;
 
 // One pass over this contest's own logged QSOs (see
@@ -93,7 +95,8 @@ public:
     // letzte Kachel zählt danach -- Locator-Großfelder auf UKW,
     // WPX-Präfixe auf Kurzwelle, und ohne Multiplikator entfällt sie.
     void setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring,
-                    const QString& multiplierBasis = QStringLiteral("grid"));
+                    const QString& multiplierBasis = QStringLiteral("grid"),
+                    const CountryPrefixIndex* countryIndex = nullptr);
 
     // Everything currently shown, one reading per line ("QSOs 47 (144:
     // 31 · 432: 16)"), in the tile order -- the test hook now that the
@@ -145,6 +148,9 @@ private:
     QStringList m_bandOrder;
     QString m_scoring = QStringLiteral("distance_km");
     QString m_multiplierBasis = QStringLiteral("grid");
+    // Nur für die Grundlage "dxcc" -- ohne geladene Liste zeigt die
+    // Kachel einen Strich, keine Null.
+    const CountryPrefixIndex* m_countryIndex = nullptr;
     QTimer* m_timer;
 
     // The last refresh(), kept for painting.
