@@ -6,6 +6,7 @@
 #include <QTemporaryDir>
 #include <QTemporaryFile>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -507,8 +508,12 @@ void TestSelfUpdater::installWindowsUnpacksAndWritesAScriptThatCopies()
     QVERIFY(QFileInfo::exists(script));
 
     // Take the wait for this very process and the start out, then run it.
+    // Binary read: in Text mode Qt turns the script's CRLF into LF and a
+    // split on "\r\n" finds nothing -- the first CI run kept the start
+    // line, launched the fake .exe, and the runner sat on its error box
+    // until ctest's timeout.
     QFile scriptFile(script);
-    QVERIFY(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text));
+    QVERIFY(scriptFile.open(QIODevice::ReadOnly));
     QString text = QString::fromLocal8Bit(scriptFile.readAll());
     scriptFile.close();
     const QString pid = QString::number(QCoreApplication::applicationPid());
@@ -516,11 +521,14 @@ void TestSelfUpdater::installWindowsUnpacksAndWritesAScriptThatCopies()
     QVERIFY(text.contains(QStringLiteral("robocopy")));
     text.replace(QStringLiteral("PID eq %1").arg(pid), QStringLiteral("PID eq 4000000000"));
     text.replace(QStringLiteral("find \"%1\"").arg(pid), QStringLiteral("find \"4000000000\""));
-    QStringList lines = text.split(QStringLiteral("\r\n"));
+    QStringList lines = text.split(QRegularExpression(QStringLiteral("\\r?\\n")));
+    QVERIFY(lines.size() > 5);
     lines.erase(std::remove_if(lines.begin(), lines.end(),
                                [](const QString& l) { return l.startsWith(QStringLiteral("start ")); }),
                 lines.end());
-    QVERIFY(scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    QVERIFY(std::none_of(lines.cbegin(), lines.cend(),
+                         [](const QString& l) { return l.startsWith(QStringLiteral("start ")); }));
+    QVERIFY(scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
     scriptFile.write(lines.join(QStringLiteral("\r\n")).toLocal8Bit());
     scriptFile.close();
 
