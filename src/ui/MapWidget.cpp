@@ -61,11 +61,10 @@ constexpr double kRangePresetsKm[] = {100.0, 300.0, 1000.0, 3000.0, 10000.0, 200
 // Die Graulinie wandert gut 15 Grad je Stunde, also rund 0,25 Grad je
 // Minute -- einmal je Minute neu zeichnen ist mehr, als man sieht.
 constexpr int kGreylineRefreshIntervalMs = 60 * 1000;
-// Bürgerliche Dämmerung: die Sonne 6 Grad unter dem Horizont, auf der
-// Kugel rund 667 km jenseits der Tag-Nacht-Grenze. So breit ist das
-// Band, das gezeichnet wird -- die Zone, in der auf den unteren
-// Bändern die Dämpfung wegfällt.
-constexpr double kCivilTwilightKm = 6.0 / 90.0 * 10007.5;
+// Bürgerliche Dämmerung: die Sonne 6 Grad unter dem Horizont. Auf der
+// Kugel sind das 6/90 des Viertelumfangs jenseits der Tag-Nacht-Grenze,
+// rund 667 km -- so breit ist das Band, das gezeichnet wird.
+constexpr double kCivilTwilightDeg = 6.0;
 
 // Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
 // Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
@@ -1012,11 +1011,12 @@ void MapWidget::drawGreylineLayer(QPainter& painter, const QRectF& area) const
     painter.setBrush(Qt::NoBrush);
     // Das Band zuerst, breit und leise; die Linie selbst darüber.
     const double radius = terminatorRadiusKm();
+    const double twilight = radius * kCivilTwilightDeg / 90.0;
     QColor band{Style::kTextSecondary()};
     band.setAlpha(45);
     painter.setPen(QPen(band, 1.0, Qt::DotLine));
-    painter.drawPath(ringPath(radius - kCivilTwilightKm));
-    painter.drawPath(ringPath(radius + kCivilTwilightKm));
+    painter.drawPath(ringPath(radius - twilight));
+    painter.drawPath(ringPath(radius + twilight));
     QColor line{Style::kTextPrimary()};
     line.setAlpha(110);
     painter.setPen(QPen(line, 1.6));

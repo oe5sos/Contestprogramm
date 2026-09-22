@@ -36,8 +36,8 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
-#include "ui/CheckPartialWidget.h"
 #include "ui/CabrilloExportDialog.h"
+#include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
@@ -2006,12 +2006,11 @@ void MainWindow::refreshMapWidget()
     QVector<MapWidget::Station> stations;
     QSet<QString> workedCallsigns;
 
-    // Worked stations: every logged QSO in the active contest that has
-    // a grid to plot (ContestDatabase::qsosWithGrid already does the
-    // "has a grid" filtering in SQL).
-    // Nicht mehr nur die QSOs MIT Locator: auf Kurzwelle hat keines
-    // einen, und der Mittelpunkt des Landes ist dort die einzige
-    // Angabe, die es gibt.
+    // Gearbeitete Stationen: jedes geloggte QSO des aktiven Contests,
+    // für das ein Ort bekannt ist. Bis 2026-09-22 waren das nur die
+    // mit getauschtem Locator (qsosWithGrid filterte das in SQL) -- auf
+    // Kurzwelle hat keines einen, und dort ist der Mittelpunkt des
+    // Landes die einzige Angabe, die es gibt.
     const QVector<QsoRecord> worked = m_appController.database().qsosForContest(settings.activeContestId);
     for (const QsoRecord& record : worked) {
         if (record.isInvalid) {
