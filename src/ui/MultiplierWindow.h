@@ -34,6 +34,8 @@ public slots:
     void refresh();
 
 private:
+    void applyBasisWording();
+
     MultiplierTracker& m_tracker;
     QString m_contestId;
     const ContestDefinition* m_definition = nullptr;

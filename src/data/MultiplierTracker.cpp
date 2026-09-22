@@ -1,6 +1,7 @@
 #include "data/MultiplierTracker.h"
 
 #include "data/ContestDatabase.h"
+#include "core/CallsignPrefix.h"
 #include "data/ContestDefinition.h"
 
 #include <QSqlQuery>
@@ -29,33 +30,50 @@ void MultiplierTracker::recompute(const QString& contestId, const ContestDefinit
         m_workedByBand.insert(band, QSet<QString>());
     }
 
-    if (definition.multiplierField() != QStringLiteral("grid")) {
-        // Not implemented yet -- see the class comment. Every band's
-        // worked set stays empty rather than fabricating a DXCC-based
-        // multiplier basis this pass never asked for.
+    m_basis = definition.multiplierField();
+    const bool byGrid = m_basis == QStringLiteral("grid");
+    const bool byPrefix = m_basis == QStringLiteral("prefix");
+    if (!byGrid && !byPrefix) {
+        // Eine Grundlage, die dieser Zähler nicht kennt (oder gar
+        // keine): die Listen bleiben leer, statt eine zu erfinden.
         return;
     }
 
     QSqlQuery query(m_database.db());
-    query.prepare(QStringLiteral(
-        "SELECT DISTINCT band, grid_square FROM qsos "
-        "WHERE contest_id = :contest_id AND grid_square IS NOT NULL AND grid_square != '' "
-        // A QSO marked invalid (see QsoRecord::isInvalid) no longer
-        // counts toward a multiplier either -- same exclusion
-        // DupeChecker applies.
-        "AND is_invalid = 0"));
+    // Ein ungültig gesetztes QSO (QsoRecord::isInvalid) zählt auch für
+    // den Multiplikator nicht mehr -- dieselbe Ausnahme, die auch
+    // DupeChecker macht.
+    query.prepare(byGrid
+        ? QStringLiteral("SELECT DISTINCT band, grid_square FROM qsos "
+                         "WHERE contest_id = :contest_id AND grid_square IS NOT NULL AND grid_square != '' "
+                         "AND is_invalid = 0")
+        : QStringLiteral("SELECT DISTINCT band, callsign FROM qsos "
+                         "WHERE contest_id = :contest_id AND callsign IS NOT NULL AND callsign != '' "
+                         "AND is_invalid = 0"));
     query.bindValue(QStringLiteral(":contest_id"), contestId);
     if (!query.exec()) {
         return;
     }
     while (query.next()) {
         const QString band = query.value(0).toString();
-        const QString key = multiplierKeyForGrid(query.value(1).toString());
+        const QString value = query.value(1).toString();
+        const QString key = byGrid ? multiplierKeyForGrid(value) : wpxPrefix(value);
         if (key.isEmpty()) {
             continue;
         }
         m_workedByBand[band].insert(key);
     }
+}
+
+QString MultiplierTracker::multiplierKeyFor(const QString& grid, const QString& callsign) const
+{
+    if (m_basis == QStringLiteral("grid")) {
+        return multiplierKeyForGrid(grid);
+    }
+    if (m_basis == QStringLiteral("prefix")) {
+        return wpxPrefix(callsign);
+    }
+    return QString();
 }
 
 QSet<QString> MultiplierTracker::workedMultipliers(const QString& band) const
@@ -72,9 +90,9 @@ int MultiplierTracker::totalMultiplierCount() const
     return allKeys.size();
 }
 
-bool MultiplierTracker::isNeededMultiplier(const QString& band, const QString& grid) const
+bool MultiplierTracker::isNeededMultiplier(const QString& band, const QString& grid, const QString& callsign) const
 {
-    const QString key = multiplierKeyForGrid(grid);
+    const QString key = multiplierKeyFor(grid, callsign);
     if (key.isEmpty()) {
         return false;
     }

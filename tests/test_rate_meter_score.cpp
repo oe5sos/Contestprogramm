@@ -69,6 +69,7 @@ private slots:
     void withoutASourceEveryReadingIsADash();
     void layoutFollowsTheSize();
     void paintsInBothLayouts();
+    void prefixBasisCountsPrefixesAndNoneHidesTheTile();
 };
 
 void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
@@ -161,6 +162,52 @@ void TestRateMeterScore::paintsInBothLayouts()
                               QSize(900, 130), QSize(900, 200)}) {
         QVERIFY2(distinctColours(widget, size) > 12, qPrintable(QStringLiteral("%1x%2").arg(size.width()).arg(size.height())));
     }
+}
+
+// Auf Kurzwelle zählt die letzte Kachel Präfixe statt Locator-Felder
+// (ContestDefinition::multiplierField), und ohne Multiplikator gibt es
+// sie gar nicht -- eine Null wäre dort keine Aussage, sondern eine
+// falsche.
+void TestRateMeterScore::prefixBasisCountsPrefixesAndNoneHidesTheTile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("prefix.sqlite")), QStringLiteral("rate_meter_prefix")));
+
+    // Kurzwelle: kein Locator im Spiel, also auch keine Entfernung.
+    const auto hfQso = [](const QString& call, const QString& band) {
+        QsoRecord r;
+        r.callsign = call;
+        r.band = band;
+        r.mode = QStringLiteral("CW");
+        r.timestampUtc = QStringLiteral("2026-11-28T09:01:00Z");
+        r.contestId = QStringLiteral("KW_UEBUNG");
+        return r;
+    };
+    for (const auto& pair : {qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DL1XYZ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("G3QQQ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("21"))}) {
+        QsoRecord r = hfQso(pair.first, pair.second);
+        QVERIFY(db.insertQso(r));
+    }
+
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("KW_UEBUNG"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("prefix"));
+    QString text = visibleText(widget);
+    // DL1 und G3 auf 14, DL1 auf 21 -- zwei verschiedene insgesamt.
+    QVERIFY2(text.contains(QStringLiteral("Präfixe 2 (14: 2 · 21: 1)")), qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("Felder")), qPrintable(text));
+
+    // Ohne Multiplikator: keine Kachel.
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("none"));
+    text = visibleText(widget);
+    QVERIFY2(!text.contains(QStringLiteral("Präfixe")), qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("Felder")), qPrintable(text));
 }
 
 int main(int argc, char* argv[])

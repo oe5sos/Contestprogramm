@@ -80,6 +80,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/ClockCheck.cpp
     src/core/BandUtils.h
     src/core/BandUtils.cpp
+    src/core/CallsignPrefix.h
+    src/core/CallsignPrefix.cpp
     src/core/Transverter.cpp
     src/core/BroadcastPublisher.h
     src/core/BroadcastPublisher.cpp

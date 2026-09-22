@@ -1,5 +1,6 @@
 #include "ui/RateMeterWidget.h"
 
+#include "core/CallsignPrefix.h"
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestScoring.h"
@@ -267,11 +268,13 @@ void RateMeterWidget::setSource(ContestDatabase* database, const QString& contes
     refresh();
 }
 
-void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring)
+void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring,
+                                 const QString& multiplierBasis)
 {
     m_ownGrid = ownGrid.trimmed().toUpper();
     m_bandOrder = bandOrder;
     m_scoring = scoring;
+    m_multiplierBasis = multiplierBasis;
     refresh();
 }
 
@@ -323,17 +326,34 @@ void RateMeterWidget::refresh()
     m_scoreKnown = isValidGridSquare(m_ownGrid) || m_scoring != QStringLiteral("distance_km");
     m_score = m_scoreKnown ? computeContestScore(records, m_ownGrid, m_bandOrder, m_scoring) : ContestScore();
 
-    // Large squares worked over all bands -- one square worked on two
-    // bands is still one square here (the per-band figures live in
-    // BandScore::largeSquares).
-    QSet<QString> squares;
+    // Multiplikatoren über alle Bänder -- einer auf zwei Bändern bleibt
+    // einer (die Zahlen je Band stehen in BandScore::largeSquares).
+    // Grundlage ist dieselbe wie bei MultiplierTracker: Locator-Großfeld
+    // oder WPX-Präfix; auf Kurzwelle gibt es keinen Locator, ein
+    // Großfeld-Zähler stünde dort für immer auf 0.
+    QSet<QString> keys;
+    QHash<QString, QSet<QString>> keysByBand;
     for (const QsoRecord& record : records) {
-        if (record.isInvalid || record.gridSquare.size() < 4) {
+        if (record.isInvalid) {
             continue;
         }
-        squares.insert(record.gridSquare.left(4).toUpper());
+        QString key;
+        if (m_multiplierBasis == QStringLiteral("prefix")) {
+            key = wpxPrefix(record.callsign);
+        } else if (record.gridSquare.size() >= 4) {
+            key = record.gridSquare.left(4).toUpper();
+        }
+        if (key.isEmpty()) {
+            continue;
+        }
+        keys.insert(key);
+        keysByBand[record.band].insert(key);
     }
-    m_largeSquares = squares.size();
+    m_largeSquares = keys.size();
+    m_multipliersByBand.clear();
+    for (auto it = keysByBand.constBegin(); it != keysByBand.constEnd(); ++it) {
+        m_multipliersByBand.insert(it.key(), it.value().size());
+    }
 
     update();
     emit last10MinRateChanged(m_breakdown.last10Min);
@@ -425,17 +445,27 @@ QVector<RateMeterWidget::Reading> RateMeterWidget::readings() const
         out.append({QStringLiteral("ODX"), dash, QString(), QString(), QString(), inactive});
     }
 
+    // Je Band aus derselben Quelle wie die Gesamtzahl oben -- nicht aus
+    // BandScore::largeSquares, das immer Locator-Großfelder zählt und
+    // unter einer Präfix-Gesamtzahl lauter Nullen ergeben hätte.
     QStringList squaresPerBand;
     QStringList squaresPerBandShort;
     if (m_scoreKnown && multiBand) {
         for (const BandScore& band : m_score.bands) {
-            squaresPerBand << QStringLiteral("%1: %2").arg(band.band).arg(band.largeSquares);
-            squaresPerBandShort << QString::number(band.largeSquares);
+            const int count = m_multipliersByBand.value(band.band);
+            squaresPerBand << QStringLiteral("%1: %2").arg(band.band).arg(count);
+            squaresPerBandShort << QString::number(count);
         }
     }
-    out.append({QStringLiteral("Felder"), QString::number(m_largeSquares), QString(),
-                squaresPerBand.join(QStringLiteral(" · ")), squaresPerBandShort.join(QStringLiteral(" · ")),
-                primary});
+    // Ohne Multiplikator entfällt die Kachel ganz -- eine Null wäre
+    // dort keine Aussage, sondern eine falsche.
+    if (m_multiplierBasis == QStringLiteral("grid") || m_multiplierBasis == QStringLiteral("prefix")) {
+        const QString label = m_multiplierBasis == QStringLiteral("prefix") ? QStringLiteral("Präfixe")
+                                                                            : QStringLiteral("Felder");
+        out.append({label, QString::number(m_largeSquares), QString(),
+                    squaresPerBand.join(QStringLiteral(" · ")), squaresPerBandShort.join(QStringLiteral(" · ")),
+                    primary});
+    }
     return out;
 }
 

@@ -5,7 +5,7 @@
   "dupe_scope": ["callsign", "band", "mode"],
   "scoring": "qso_count",
   "serial_scope": "contest",
-  "multiplier_field": "none",
+  "multiplier_field": "prefix",
   "exchange_fields": [
     { "key": "rst",    "label": "RST", "type": "rst" },
     { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true }

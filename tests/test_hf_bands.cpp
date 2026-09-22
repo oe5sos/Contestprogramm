@@ -94,6 +94,9 @@ void TestHfBands::practiceDefinitionLoads()
     // ausgelieferte Contest, der serial_scope "contest" benutzt.
     QCOMPARE(def.serialScope(), QStringLiteral("contest"));
     QVERIFY(def.dupeScope().contains(QStringLiteral("mode")));
+    // Der Multiplikator, der auf Kurzwelle ohne fremde Tabelle
+    // auskommt: der Präfix steckt im Rufzeichen (core/CallsignPrefix.h).
+    QCOMPARE(def.multiplierField(), QStringLiteral("prefix"));
     QCOMPARE(def.bands().first(), QStringLiteral("1.8"));
     // Jedes Band der Definition muss die Bandtabelle auch kennen,
     // sonst kann keine Gerätefrequenz jemals darauf zeigen.

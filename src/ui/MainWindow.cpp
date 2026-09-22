@@ -1605,7 +1605,8 @@ void MainWindow::applyActiveContestDefinition()
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
-        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
+        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring(),
+                                      def->multiplierField());
     }
     reloadCheckPartialSources();
     refreshScoreboard();
