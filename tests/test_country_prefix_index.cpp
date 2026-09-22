@@ -64,6 +64,13 @@ void TestCountryPrefixIndex::readsTheRecordsAndTheirFields()
     // cty.dat führt die Länge nach Westen positiv -- hier nach Osten,
     // wie überall sonst im Programm. Österreich liegt östlich.
     QVERIFY2(oe.longitudeDeg > 13.0 && oe.longitudeDeg < 13.5, qPrintable(QString::number(oe.longitudeDeg)));
+    // Auch die Zeitverschiebung führt cty.dat andersherum: -1.0 heißt
+    // eine Stunde ÖSTLICH von UTC.
+    QVERIFY2(std::abs(oe.utcOffsetHours - 1.0) < 0.01, qPrintable(QString::number(oe.utcOffsetHours)));
+    QVERIFY2(std::abs(index.lookup(QStringLiteral("W1XYZ")).utcOffsetHours + 5.0) < 0.01,
+             qPrintable(QString::number(index.lookup(QStringLiteral("W1XYZ")).utcOffsetHours)));
+    QVERIFY2(std::abs(index.lookup(QStringLiteral("JA1QQQ")).utcOffsetHours - 9.0) < 0.01,
+             qPrintable(QString::number(index.lookup(QStringLiteral("JA1QQQ")).utcOffsetHours)));
 
     // Und ein Gebiet mit '*' am Hauptpräfix (kein eigenes DXCC).
     const CountryEntry ta1 = index.lookup(QStringLiteral("TA1ABC"));

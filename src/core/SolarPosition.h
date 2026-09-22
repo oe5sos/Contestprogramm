@@ -32,4 +32,29 @@ SolarPoint subsolarPoint(const QDateTime& utc);
 // Programm).
 double terminatorRadiusKm();
 
+// Sonnenauf- und -untergang an einem Ort -- was auf Kurzwelle die
+// Frage beantwortet, ob es bei der Gegenstation gerade dämmert.
+//
+// Gerechnet wird aus demselben Unterpunkt wie die Graulinie: der wahre
+// Mittag ist der Zeitpunkt, an dem die Sonne über der Länge des Ortes
+// steht (zwei Näherungsschritte reichen, die Sonne wandert 15 Grad je
+// Stunde), und der Stundenwinkel dazu kommt aus der Standardformel mit
+// -0,833 Grad für Refraktion und Sonnenradius. Genauigkeit rund eine
+// Minute -- mehr braucht niemand, der auf die Graulinie wartet.
+struct SunTimes {
+    enum class Kind {
+        RiseAndSet,  // der Normalfall
+        AlwaysUp,    // Polartag: die Sonne geht an diesem Tag nicht unter
+        AlwaysDown,  // Polarnacht
+    };
+    Kind kind = Kind::RiseAndSet;
+    QDateTime riseUtc;  // ungültig außer bei RiseAndSet
+    QDateTime setUtc;
+    QDateTime noonUtc;  // wahrer Mittag, immer gültig
+};
+
+// `day` bestimmt den Tag (in UTC gelesen); die Uhrzeit darin spielt
+// keine Rolle.
+SunTimes sunTimes(const QDateTime& day, double latitudeDeg, double longitudeDeg);
+
 } // namespace Contestprogramm

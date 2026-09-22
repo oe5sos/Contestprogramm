@@ -12,6 +12,8 @@
 
 #include <QtTest>
 
+#include <QLabel>
+
 #include <QApplication>
 #include <QTemporaryDir>
 
@@ -40,6 +42,7 @@ private slots:
     void rigOnHfMovesTheLogToThatBand();
     void freshDatabaseDoesNotStartInThePracticeLog();
     void countryListPutsHfStationsOnTheMap();
+    void typingACallsignShowsCountryDirectionAndSun();
 };
 
 void TestHfBands::tableNamesTheHfBands()
@@ -242,6 +245,59 @@ void TestHfBands::countryListPutsHfStationsOnTheMap()
     // Und das Log bleibt ohne Locator -- der ausgedachte Ort ist nur
     // fürs Bild.
     QCOMPARE(controller->database().qsosForContest(settings.activeContestId).last().gridSquare, QString());
+}
+
+// Während ein Rufzeichen getippt wird, steht in der Zeile unter der
+// Eingabe, was über diese Station bekannt ist -- so macht es N1MM in
+// seinem Info-Fenster. Ohne Länderliste bleibt die Zeile leer.
+void TestHfBands::typingACallsignShowsCountryDirectionAndSun()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString ctyPath = dir.filePath(QStringLiteral("mini_cty.dat"));
+    {
+        QFile cty(ctyPath);
+        QVERIFY(cty.open(QIODevice::WriteOnly));
+        cty.write("Japan: 25: 45: AS: 36.40: -138.38: -9.0: JA:\n    JA,JE,JF,JG,JH;\n");
+    }
+
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("dxinfo.sqlite"))));
+    controller->database().setSettingValue(QStringLiteral("cty_file_path"), ctyPath);
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("KW_UEBUNG");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* statusLabel = window.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kLastQsoLabelObjectName));
+    QVERIFY(statusLabel);
+    // Vor dem Tippen: der zuletzt geloggte QSO (hier: keiner).
+    QVERIFY2(statusLabel->text().contains(QStringLiteral("Letzter QSO")), qPrintable(statusLabel->text()));
+
+    log->setCallsign(QStringLiteral("JA1QQQ"));
+    const QString line = statusLabel->text();
+    QVERIFY2(line.contains(QStringLiteral("Japan")), qPrintable(line));
+    QVERIFY2(line.contains(QStringLiteral("(JA)")), qPrintable(line));
+    QVERIFY2(line.contains(QStringLiteral("km")), qPrintable(line));      // Entfernung
+    QVERIFY2(line.contains(QStringLiteral("lang ")), qPrintable(line));   // weit genug für den langen Weg
+    QVERIFY2(line.contains(QStringLiteral("dort ")), qPrintable(line));   // Ortszeit
+    QVERIFY2(line.contains(QStringLiteral("Sonne ")), qPrintable(line));  // Auf- und Untergang
+    QVERIFY2(line.contains(QStringLiteral("~")), qPrintable(line));       // Landesmittelpunkt, kein Locator
+
+    // Feld wieder leer: die Zeile gehört wieder dem Log.
+    log->setCallsign(QString());
+    QVERIFY2(statusLabel->text().contains(QStringLiteral("Letzter QSO")), qPrintable(statusLabel->text()));
+
+    // Ein Rufzeichen, das die Liste nicht kennt, behauptet nichts.
+    log->setCallsign(QStringLiteral("ZZ9ZZZ"));
+    QVERIFY2(statusLabel->text().contains(QStringLiteral("Letzter QSO")), qPrintable(statusLabel->text()));
 }
 
 QTEST_MAIN(TestHfBands)

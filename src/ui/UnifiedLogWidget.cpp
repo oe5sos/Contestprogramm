@@ -2273,6 +2273,14 @@ void UnifiedLogWidget::updateStatusLine()
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
         m_lastQsoLabel->setText(m_dupeDetail);
+    } else if (!m_dxInfoLine.isEmpty()) {
+        // Während ein Rufzeichen dasteht, zählt, was über diese Station
+        // bekannt ist -- Land, Richtung, Entfernung, Sonne dort (siehe
+        // core/DxInfo.h). Der zuletzt geloggte QSO kommt zurück, sobald
+        // das Feld wieder leer ist.
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
+        m_lastQsoLabel->setText(m_dxInfoLine);
     } else if (m_logModel && m_logModel->rowCount() > 0) {
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
@@ -2296,6 +2304,16 @@ void UnifiedLogWidget::updateStatusLine()
 void UnifiedLogWidget::onCallsignTextChanged()
 {
     m_callsignLookupTimer->start();
+    emit callsignTyped(callsign());
+}
+
+void UnifiedLogWidget::setDxInfoLine(const QString& text)
+{
+    if (m_dxInfoLine == text) {
+        return;
+    }
+    m_dxInfoLine = text;
+    updateStatusLine();
 }
 
 void UnifiedLogWidget::onCallsignLookupTimeout()

@@ -8,6 +8,7 @@
 #include "core/Transverter.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
+#include "core/DxInfo.h"
 #include "core/DxClusterClient.h"
 #include "core/EsmPlanner.h"
 #include "core/OnlineScoreboard.h"
@@ -907,6 +908,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.dxClusterClient(), &DxClusterClient::spotReceived, this, noteSeenCall);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
+    connect(m_unifiedLog, &UnifiedLogWidget::callsignTyped, this, &MainWindow::refreshDxInfoLine);
     connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
@@ -2598,8 +2600,36 @@ void MainWindow::handleExternalCallsignLookupFinished(const QString& callsign, b
     m_unifiedLog->applyKnownExchange(grid, std::nullopt);
 }
 
+// Land, Richtung, Entfernung, Ortszeit und Sonne am anderen Ende --
+// das, was N1MM in seinem Info-Fenster zeigt, hier in der Zeile unter
+// der Eingabe (core/DxInfo.h). Gerechnet bei jedem Tastendruck: ein
+// Nachschlagen in einer Hashtabelle und etwas Trigonometrie.
+void MainWindow::refreshDxInfoLine()
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    // Der getauschte Locator, soweit schon eingetippt -- er schlägt den
+    // Landesmittelpunkt. Der Schlüssel ist der des grid-Feldes der
+    // aktiven Definition, sonst schlicht "grid".
+    QString grid;
+    const QMap<QString, QString> received = m_unifiedLog->exchangeReceived();
+    if (const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId)) {
+        if (const ContestDefinition::ExchangeField* field = findFieldByType(*def, QStringLiteral("grid6"))) {
+            grid = received.value(field->key);
+        }
+    }
+    if (grid.isEmpty()) {
+        grid = received.value(QStringLiteral("grid"));
+    }
+    const DxInfo info = lookupDxInfo(m_appController.countryIndex(), m_appController.settings().ownGrid,
+                                     m_unifiedLog->callsign(), grid, QDateTime::currentDateTimeUtc());
+    m_unifiedLog->setDxInfoLine(info.statusLine());
+}
+
 void MainWindow::handleReceivedGridChanged(const QString& grid)
 {
+    refreshDxInfoLine();
     const ContestSettings settings = m_appController.settings();
     if (!isValidGridSquare(settings.ownGrid) || !isValidGridSquare(grid)) {
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);

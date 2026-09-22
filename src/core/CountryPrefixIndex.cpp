@@ -95,6 +95,7 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
         entry.continent = fields.at(3).trimmed().toUpper();
         entry.latitudeDeg = fields.at(4).trimmed().toDouble();
         entry.longitudeDeg = toEastPositive(fields.at(5));
+        entry.utcOffsetHours = toEastPositive(fields.at(6));
         QString primary = fields.at(7).trimmed().toUpper();
         // Ein '*' davor heißt "kein eigenes DXCC-Gebiet" (etwa der
         // europäische Teil der Türkei) -- für die Zuordnung egal.

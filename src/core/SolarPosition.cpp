@@ -61,4 +61,45 @@ double terminatorRadiusKm()
     return kEarthRadiusKm * M_PI / 2.0;
 }
 
+SunTimes sunTimes(const QDateTime& day, double latitudeDeg, double longitudeDeg)
+{
+    SunTimes times;
+    const QDate date = day.toUTC().date();
+
+    // Wahrer Mittag: der Zeitpunkt, an dem die Sonne über DIESER Länge
+    // steht. Start beim mittleren Mittag, dann zwei Näherungsschritte --
+    // die Sonne wandert 15 Grad je Stunde, die Zeitgleichung macht
+    // höchstens gut vier Grad aus.
+    QDateTime noon(date, QTime(12, 0), QTimeZone::utc());
+    noon = noon.addSecs(static_cast<qint64>(std::llround(-longitudeDeg / 15.0 * 3600.0)));
+    for (int step = 0; step < 2; ++step) {
+        const double subsolarLon = subsolarPoint(noon).longitudeDeg;
+        double error = subsolarLon - longitudeDeg;   // Grad, die die Sonne noch braucht
+        error = normalizeDegrees(error, -180.0, 180.0);
+        noon = noon.addSecs(static_cast<qint64>(std::llround(error / 15.0 * 3600.0)));
+    }
+    times.noonUtc = noon;
+
+    // Stundenwinkel für den Horizont: -0,833 Grad deckt Refraktion und
+    // den halben Sonnendurchmesser ab, so rechnen es die Ephemeriden.
+    const double declination = subsolarPoint(noon).latitudeDeg * kDegToRad;
+    const double latitude = latitudeDeg * kDegToRad;
+    const double zenith = -0.833 * kDegToRad;
+    const double cosHourAngle = (std::sin(zenith) - std::sin(latitude) * std::sin(declination))
+        / (std::cos(latitude) * std::cos(declination));
+    if (cosHourAngle < -1.0) {
+        times.kind = SunTimes::Kind::AlwaysUp;
+        return times;
+    }
+    if (cosHourAngle > 1.0) {
+        times.kind = SunTimes::Kind::AlwaysDown;
+        return times;
+    }
+    const double hourAngleDeg = std::acos(cosHourAngle) * kRadToDeg;
+    const qint64 halfDaySecs = static_cast<qint64>(std::llround(hourAngleDeg / 15.0 * 3600.0));
+    times.riseUtc = noon.addSecs(-halfDaySecs);
+    times.setUtc = noon.addSecs(halfDaySecs);
+    return times;
+}
+
 } // namespace Contestprogramm

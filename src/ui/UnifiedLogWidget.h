@@ -250,6 +250,8 @@ public:
     // logging. MainWindow's receivedGridChanged -> handleReceivedGridChanged
     // wiring already computed and discarded these values even when this
     // was a no-op -- see that method's own doc comment.
+    void setDxInfoLine(const QString& text);
+
     void setEntryDistanceBearing(const std::optional<double>& distanceKm, const std::optional<double>& bearingDeg);
 
     // Mode is CAT-driven internal state with no visible control any
@@ -392,6 +394,10 @@ signals:
     // (see that method's own doc comment). Empty when the field is
     // empty or the active contest has no grid6-typed field at all.
     void receivedGridChanged(const QString& grid);
+    // Bei jedem Tastendruck im Rufzeichenfeld (anders als
+    // callsignLookupRequested, das erst nach einer Pause feuert): die
+    // Info-Zeile soll mitlaufen, während getippt wird.
+    void callsignTyped(const QString& callsign);
 
     // A not-yet-worked spot/chat candidate row was clicked -- same
     // signal shape (and the same MainWindow::handleCandidateActivated
@@ -675,6 +681,11 @@ private:
     QLabel* m_statusPillLabel;
     bool m_dupe = false;
     QString m_dupeDetail;
+    // Land, Richtung, Entfernung, Ortszeit, Sonne -- was MainWindow aus
+    // core/DxInfo.h über die gerade getippte Station weiß. Steht in
+    // derselben Zeile wie "Letzter QSO", hinter dem Dupe-Hinweis: die
+    // Nummer eines Doppels ist dringender als die Sonne am anderen Ende.
+    QString m_dxInfoLine;
 
     // The entry row's Time cell -- a live-ticking clock (HH:mm UTC,
     // matching LogTableModel::ColumnTime's own format exactly) rather

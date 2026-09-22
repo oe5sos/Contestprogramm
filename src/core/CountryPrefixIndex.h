@@ -16,6 +16,11 @@ struct CountryEntry {
     int ituZone = 0;
     double latitudeDeg = 0.0;   // Nord positiv
     double longitudeDeg = 0.0;  // OST positiv -- cty.dat führt West positiv, hier umgedreht
+    // Die Zeitverschiebung des Gebietes gegen UTC, Ost positiv (Wien
+    // +1). cty.dat führt auch dieses Feld andersherum, hier ebenfalls
+    // umgedreht. Grobe Angabe je Gebiet, keine Sommerzeit -- sie sagt,
+    // ob am anderen Ende gerade Nacht ist, nicht wann dort der Bus fährt.
+    double utcOffsetHours = 0.0;
     bool isValid() const { return !primaryPrefix.isEmpty(); }
 };
 

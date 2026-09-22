@@ -28,6 +28,7 @@ private slots:
     void longitudeFollowsTheClock();
     void terminatorIsAQuarterOfTheEarth();
     void dayAndNightFallWhereTheyShould();
+    void sunriseAndSunsetMatchTheAlmanac();
 };
 
 void TestSolarPosition::declinationFollowsTheSeasons()
@@ -109,6 +110,49 @@ void TestSolarPosition::dayAndNightFallWhereTheyShould()
         QVERIFY2(isDaylight(utc(2026, 6, 21, hour), northPoleLat, 0.0), qPrintable(QString::number(hour)));
         QVERIFY2(!isDaylight(utc(2026, 12, 21, hour), northPoleLat, 0.0), qPrintable(QString::number(hour)));
     }
+}
+
+// Gegen den Kalender geprüft: Wien zur Sommersonnenwende geht die
+// Sonne um 04:54 MESZ auf und um 20:59 MESZ unter -- also 02:54 und
+// 18:59 UTC. Toleranz drei Minuten; genauer braucht es niemand, der
+// auf die Graulinie wartet.
+void TestSolarPosition::sunriseAndSunsetMatchTheAlmanac()
+{
+    const auto minutesBetween = [](const QDateTime& a, const QDateTime& b) {
+        return std::abs(a.secsTo(b)) / 60.0;
+    };
+    const double viennaLat = 48.21;
+    const double viennaLon = 16.37;
+
+    SunTimes summer = sunTimes(utc(2026, 6, 21, 12), viennaLat, viennaLon);
+    QCOMPARE(summer.kind, SunTimes::Kind::RiseAndSet);
+    QVERIFY2(minutesBetween(summer.riseUtc, utc(2026, 6, 21, 2, 54)) < 3.0,
+             qPrintable(summer.riseUtc.toString(Qt::ISODate)));
+    QVERIFY2(minutesBetween(summer.setUtc, utc(2026, 6, 21, 18, 59)) < 3.0,
+             qPrintable(summer.setUtc.toString(Qt::ISODate)));
+    // Wahrer Mittag liegt in der Mitte -- und in Wien (16,4 Grad Ost)
+    // rund eine Stunde vor 12 UTC.
+    QVERIFY2(minutesBetween(summer.noonUtc, utc(2026, 6, 21, 10, 57)) < 3.0,
+             qPrintable(summer.noonUtc.toString(Qt::ISODate)));
+
+    // Winter: kurzer Tag, gut acht Stunden.
+    SunTimes winter = sunTimes(utc(2026, 12, 21, 12), viennaLat, viennaLon);
+    QCOMPARE(winter.kind, SunTimes::Kind::RiseAndSet);
+    const double winterDayHours = winter.riseUtc.secsTo(winter.setUtc) / 3600.0;
+    QVERIFY2(winterDayHours > 8.0 && winterDayHours < 8.6, qPrintable(QString::number(winterDayHours)));
+
+    // Am Äquator ist der Tag immer rund zwölf Stunden lang.
+    SunTimes equator = sunTimes(utc(2026, 6, 21, 12), 0.0, 0.0);
+    const double equatorDayHours = equator.riseUtc.secsTo(equator.setUtc) / 3600.0;
+    QVERIFY2(std::abs(equatorDayHours - 12.1) < 0.2, qPrintable(QString::number(equatorDayHours)));
+
+    // Und nördlich des Polarkreises hört das Auf und Unter auf.
+    QCOMPARE(sunTimes(utc(2026, 6, 21, 12), 78.0, 15.0).kind, SunTimes::Kind::AlwaysUp);
+    QCOMPARE(sunTimes(utc(2026, 12, 21, 12), 78.0, 15.0).kind, SunTimes::Kind::AlwaysDown);
+
+    // Die Länge verschiebt den Tag: Tokio geht früher auf als Wien.
+    SunTimes tokyo = sunTimes(utc(2026, 6, 21, 12), 35.68, 139.69);
+    QVERIFY(tokyo.riseUtc < summer.riseUtc);
 }
 
 QTEST_APPLESS_MAIN(TestSolarPosition)
