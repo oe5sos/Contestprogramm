@@ -4,6 +4,7 @@
 #include "core/Transverter.h"
 #include "core/SkedList.h"
 #include "core/CheckPartialIndex.h"
+#include "core/CountryPrefixIndex.h"
 
 #include <QMainWindow>
 #include <QSet>
@@ -99,6 +100,8 @@ private slots:
     void exportAdif();
     void exportEdi();
     void loadScpFile();
+    void loadCountryFile();
+    QString mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate = nullptr) const;
     void importOldLogs();
     void archiveActiveContest();
     void refreshCheckPartial();
@@ -428,6 +431,12 @@ private:
     // contest switch and logged QSO, the widget is refreshed from
     // the entry row's formChanged.
     CheckPartialIndex m_checkPartialIndex;
+    // Rufzeichen -> Land, aus einer cty.dat, die der Bediener selbst
+    // lädt (Datei > Länderliste laden). Auf Kurzwelle tritt sie an die
+    // Stelle des Locators: ohne sie bleibt eine KW-Station ohne Ort,
+    // also ohne Punkt auf der Karte und ohne Richtung für den Rotor.
+    CountryPrefixIndex m_countryIndex;
+    bool m_countryListLoaded = false;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
     bool m_scpLoaded = false;

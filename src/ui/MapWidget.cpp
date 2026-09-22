@@ -1338,7 +1338,7 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if (station.worked) {
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(color);
-                painter.drawEllipse(p.point, 3.0, 3.0);
+                painter.drawEllipse(p.point, station.approximate ? 2.0 : 3.0, station.approximate ? 2.0 : 3.0);
                 const bool fresh = ageSecs >= 0 && ageSecs < kFreshLabelMinutes * 60;
                 if (fresh) {
                     labels.place(painter, p.point, station.callsign, QColor(Style::kTextTertiary()));
@@ -1348,6 +1348,16 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
                 painter.setBrush(Qt::NoBrush);
                 painter.drawEllipse(p.point, 4.0, 4.0);
                 labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+            }
+            // Nur der Mittelpunkt eines Landes, kein getauschter
+            // Locator: ein gepunkteter Hof sagt, dass die Station
+            // irgendwo dort drin sitzt und nicht genau da.
+            if (station.approximate) {
+                QColor halo = color;
+                halo.setAlpha(120);
+                painter.setPen(QPen(halo, 1.0, Qt::DotLine));
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(p.point, 7.0, 7.0);
             }
         }
     }

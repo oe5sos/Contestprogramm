@@ -1213,6 +1213,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* loadCountryAction = fileMenu->addAction(QStringLiteral("&Länderliste laden (cty.dat)..."));
+    connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
     QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
     connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
     QAction* transverterAction = fileMenu->addAction(QStringLiteral("Trans&verter..."));
@@ -2007,14 +2009,23 @@ void MainWindow::refreshMapWidget()
     // Worked stations: every logged QSO in the active contest that has
     // a grid to plot (ContestDatabase::qsosWithGrid already does the
     // "has a grid" filtering in SQL).
-    const QVector<QsoRecord> worked = m_appController.database().qsosWithGrid(settings.activeContestId);
+    // Nicht mehr nur die QSOs MIT Locator: auf Kurzwelle hat keines
+    // einen, und der Mittelpunkt des Landes ist dort die einzige
+    // Angabe, die es gibt.
+    const QVector<QsoRecord> worked = m_appController.database().qsosForContest(settings.activeContestId);
     for (const QsoRecord& record : worked) {
         if (record.isInvalid) {
             continue; // struck from the log, not a worked station
         }
+        bool approximate = false;
+        const QString grid = mapGridForCallsign(record.callsign, record.gridSquare, &approximate);
+        if (grid.isEmpty()) {
+            continue; // kein Ort bekannt -- dann auch kein Punkt
+        }
         MapWidget::Station station;
         station.callsign = record.callsign;
-        station.grid = record.gridSquare;
+        station.grid = grid;
+        station.approximate = approximate;
         station.worked = true;
         station.freqHz = record.freqHz.value_or(0);
         // Same QDateTime::fromString(..., Qt::ISODate) round-trip
@@ -2045,17 +2056,20 @@ void MainWindow::refreshMapWidget()
                 continue;
             }
             const SpotCandidate& candidate = model.candidateAt(row);
-            if (candidate.grid.isEmpty()) {
-                continue;
-            }
             const QString key = candidate.callsign.trimmed().toUpper();
             if (key.isEmpty() || workedCallsigns.contains(key) || spottedCallsigns.contains(key)) {
+                continue;
+            }
+            bool approximate = false;
+            const QString grid = mapGridForCallsign(candidate.callsign, candidate.grid, &approximate);
+            if (grid.isEmpty()) {
                 continue;
             }
             spottedCallsigns.insert(key);
             MapWidget::Station station;
             station.callsign = candidate.callsign;
-            station.grid = candidate.grid;
+            station.grid = grid;
+            station.approximate = approximate;
             station.worked = false;
             station.freqHz = candidate.freqHz;
             stations.append(station);
@@ -3059,6 +3073,16 @@ void MainWindow::reloadCheckPartialSources()
             m_checkPartialIndex.setScpCalls(CheckPartialIndex::parseScp(file.readAll()));
         }
     }
+    // Dieselbe Regel für die Länderliste: einmal vom gemerkten Pfad,
+    // eine fehlende Datei lässt sie eben leer.
+    if (!m_countryListLoaded) {
+        m_countryListLoaded = true;
+        const QString countryPath = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+        QFile countryFile(countryPath);
+        if (!countryPath.isEmpty() && countryFile.open(QIODevice::ReadOnly)) {
+            m_countryIndex.loadFromCty(countryFile.readAll());
+        }
+    }
     const QString scpPath = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
     m_checkPartialWidget->setSources(m_checkPartialIndex.scpCount(),
                                      m_checkPartialIndex.scpCount() > 0 ? QFileInfo(scpPath).fileName() : QString(),
@@ -3147,6 +3171,58 @@ void MainWindow::loadScpFile()
                                      m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
     refreshCheckPartial();
     statusBar()->showMessage(QStringLiteral("SCP-Liste geladen: %1 Rufzeichen aus %2").arg(calls.size()).arg(QFileInfo(path).fileName()), 5000);
+}
+
+void MainWindow::loadCountryFile()
+{
+    const QString previous = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Länderliste laden"), previous,
+                                                      QStringLiteral("Länderlisten (cty.dat *.dat);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Länderliste konnte nicht gelesen werden:\n%1").arg(file.errorString()));
+        return;
+    }
+    QString error;
+    if (!m_countryIndex.loadFromCty(file.readAll(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"), error);
+        return;
+    }
+    m_appController.database().setSettingValue(QStringLiteral("cty_file_path"), path);
+    refreshMapWidget();
+    statusBar()->showMessage(QStringLiteral("Länderliste geladen: %1 Länder, %2 Präfixe aus %3")
+                                 .arg(m_countryIndex.countryCount())
+                                 .arg(m_countryIndex.prefixCount())
+                                 .arg(QFileInfo(path).fileName()),
+                             5000);
+}
+
+// Wo eine Station auf der Karte steht. Der getauschte Locator zuerst --
+// er ist die genaue Angabe. Fehlt er (auf Kurzwelle immer), tritt der
+// Mittelpunkt des Landes an seine Stelle, sofern eine Länderliste
+// geladen ist. Das ist eine grobe Angabe, und die Karte zeichnet sie
+// auch anders (siehe MapWidget::Station::approximate) -- ins Log kommt
+// sie nie.
+QString MainWindow::mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate) const
+{
+    if (approximate) {
+        *approximate = false;
+    }
+    if (isValidGridSquare(knownGrid)) {
+        return knownGrid;
+    }
+    const CountryEntry country = m_countryIndex.lookup(callsign);
+    if (!country.isValid()) {
+        return QString();
+    }
+    if (approximate) {
+        *approximate = true;
+    }
+    return gridSquareFromLatLon(country.latitudeDeg, country.longitudeDeg);
 }
 
 void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newText)

@@ -22,6 +22,7 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/MainWindow.h"
+#include "ui/MapWidget.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -38,6 +39,7 @@ private slots:
     void practiceDefinitionLoads();
     void rigOnHfMovesTheLogToThatBand();
     void freshDatabaseDoesNotStartInThePracticeLog();
+    void countryListPutsHfStationsOnTheMap();
 };
 
 void TestHfBands::tableNamesTheHfBands()
@@ -179,6 +181,67 @@ void TestHfBands::rigOnHfMovesTheLogToThatBand()
     // (die bestehende Regel in applyRigFrequency(), unverändert).
     emit controller->rigctldClient().frequencyChanged(50150000);
     QCOMPARE(logQso(QStringLiteral("SP9QQQ")).band, QStringLiteral("7"));
+}
+
+// Ohne Locator kein Ort -- außer es ist eine Länderliste geladen: dann
+// tritt der Mittelpunkt des Landes an seine Stelle, damit eine
+// KW-Station überhaupt einen Punkt auf der Karte und eine Richtung für
+// den Rotor bekommt. Gezeichnet wird sie anders (approximate), und ins
+// Log kommt der ausgedachte Ort nie.
+void TestHfBands::countryListPutsHfStationsOnTheMap()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    // Eine kleine Länderliste im cty.dat-Format, von Hand für diesen
+    // Prüfstand -- die echte lädt der Bediener selbst.
+    const QString ctyPath = dir.filePath(QStringLiteral("mini_cty.dat"));
+    {
+        QFile cty(ctyPath);
+        QVERIFY(cty.open(QIODevice::WriteOnly));
+        cty.write(
+            "Fed. Rep. of Germany:      14:  28:  EU:   51.00:   -10.00:    -1.0:  DL:\n"
+            "    DA,DB,DC,DD,DE,DF,DG,DH,DJ,DK,DL,DM;\n"
+            "Japan:                     25:  45:  AS:   36.40:  -138.38:    -9.0:  JA:\n"
+            "    JA,JE,JF,JG,JH,JI,JJ,JK,JL,JM,JN,JO,JP,JQ,JR,JS;\n");
+    }
+
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("kwmap.sqlite"))));
+    controller->database().setSettingValue(QStringLiteral("cty_file_path"), ctyPath);
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("KW_UEBUNG");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    settings.esmEnabled = false;
+    controller->setSettings(settings);
+
+    // Ein KW-QSO, wie es wirklich aussieht: kein Locator.
+    QsoRecord r;
+    r.callsign = QStringLiteral("DL1ABC");
+    r.band = QStringLiteral("14");
+    r.mode = QStringLiteral("CW");
+    r.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    r.contestId = settings.activeContestId;
+    QVERIFY(controller->database().insertQso(r));
+    QVERIFY(controller->database().qsosForContest(settings.activeContestId).last().gridSquare.isEmpty());
+
+    MainWindow window(*controller);
+    auto* map = window.findChild<MapWidget*>();
+    QVERIFY(map);
+    QVector<MapWidget::Station> onMap = map->stations();
+    QCOMPARE(onMap.size(), 1);
+    QCOMPARE(onMap.first().callsign, QStringLiteral("DL1ABC"));
+    QVERIFY2(onMap.first().approximate, "Ein Landesmittelpunkt muss als ungefähr gekennzeichnet sein");
+    // Mitte Deutschlands, nicht irgendwo.
+    QVERIFY2(onMap.first().grid.startsWith(QStringLiteral("JO")), qPrintable(onMap.first().grid));
+
+    // Und das Log bleibt ohne Locator -- der ausgedachte Ort ist nur
+    // fürs Bild.
+    QCOMPARE(controller->database().qsosForContest(settings.activeContestId).last().gridSquare, QString());
 }
 
 QTEST_MAIN(TestHfBands)

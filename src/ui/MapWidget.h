@@ -64,6 +64,14 @@ public:
         bool worked = false;
         qint64 freqHz = 0;
         QDateTime workedAtUtc;
+        // Der Ort ist nur der Mittelpunkt eines Landes, nicht ein
+        // getauschter Locator (auf Kurzwelle der Normalfall, siehe
+        // MainWindow::mapGridForCallsign). Solche Punkte bekommen einen
+        // gepunkteten Hof -- ein blanker Punkt behauptet eine
+        // Genauigkeit, die es hier nicht gibt. Steht bewusst am Ende:
+        // die Reihenfolge davor ist die, in der überall im Baum
+        // Stationen aufgezählt werden.
+        bool approximate = false;
     };
 
     explicit MapWidget(QWidget* parent = nullptr);
