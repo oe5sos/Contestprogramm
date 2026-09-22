@@ -37,6 +37,7 @@
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
 #include "ui/CheckPartialWidget.h"
+#include "ui/CabrilloExportDialog.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/CwMacroPanel.h"
@@ -2950,6 +2951,17 @@ void MainWindow::exportCabrillo()
         return;
     }
 
+    // Erst die Angaben, die kein QSO beantworten kann (Leistung,
+    // Bedienerklasse, Hilfsmittel), dann die Datei -- der Robot liest
+    // sie, und falsch angegeben landet das Log in der falschen
+    // Wertungsklasse.
+    CabrilloExportDialog categoriesDialog(CabrilloCategories::load(m_appController.database()), this);
+    if (categoriesDialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const CabrilloCategories categories = categoriesDialog.categories();
+    categories.save(m_appController.database());
+
     const QString suggested = settings.activeContestId + QStringLiteral(".cbr");
     const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Cabrillo exportieren"), suggested,
                                                         QStringLiteral("Cabrillo-Log (*.cbr *.log)"));
@@ -2958,7 +2970,7 @@ void MainWindow::exportCabrillo()
     }
 
     CabrilloExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId, *def, settings);
+    const QString text = exporter.exportContest(settings.activeContestId, *def, settings, categories);
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {

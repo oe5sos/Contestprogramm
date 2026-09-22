@@ -194,6 +194,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/SettingsDialog.cpp
     src/ui/ContestRulesEditor.h
     src/ui/ContestRulesEditor.cpp
+    src/ui/CabrilloExportDialog.h
+    src/ui/CabrilloExportDialog.cpp
     src/ui/ContestPickerDialog.h
     src/ui/ContestPickerDialog.cpp
     src/ui/MultiplierWindow.h
