@@ -7,6 +7,7 @@
 #include "core/BandmapModel.h"
 #include "core/SpotCandidate.h"
 #include "ui/BandmapWidget.h"
+#include "ui/StyleKit.h"
 
 using namespace Contestprogramm;
 
@@ -43,6 +44,7 @@ private slots:
     void modelIgnoresSpotsWithoutFrequencyAndFiltersByBand();
     void widgetRangeFollowsSpotsAndOwnFrequency();
     void widgetStacksOverlappingLabelsAndEmitsOnClick();
+    void aNeededMultiplierIsDrawnInAmber();
 };
 
 void TestBandmap::modelKeepsNewestPerCallSortsByFrequencyAndAgesOut()
@@ -165,6 +167,43 @@ void TestBandmap::widgetStacksOverlappingLabelsAndEmitsOnClick()
 
     // Painting a widget with stacked labels must not crash off-screen.
     widget.grab();
+}
+
+// Ein Spot, der einen fehlenden Multiplikator brächte, steht in
+// Bernstein -- er zählt mehr als ein QSO. Geprüft am Bild: dieselbe
+// Bandmap zweimal, einmal mit und einmal ohne die Kennzeichnung.
+void TestBandmap::aNeededMultiplierIsDrawnInAmber()
+{
+    BandmapWidget widget;
+    widget.resize(250, 300);
+    widget.setBand(QStringLiteral("144"));
+
+    BandmapSpot spot;
+    spot.callsign = QStringLiteral("DL1ABC");
+    spot.freqHz = 144300000;
+    spot.worked = false;
+
+    widget.setSpots({spot});
+    const QImage plain = widget.grab().toImage();
+
+    spot.neededMultiplier = true;
+    widget.setSpots({spot});
+    const QImage amber = widget.grab().toImage();
+
+    QVERIFY2(plain != amber, "Die Kennzeichnung kommt im Bild nicht an");
+
+    // Und die Farbe ist wirklich der Bernstein des Hauses.
+    const QRgb amberRgb = QColor(Style::kAmberText()).rgb();
+    bool found = false;
+    for (int y = 0; y < amber.height() && !found; ++y) {
+        for (int x = 0; x < amber.width(); ++x) {
+            if ((amber.pixel(x, y) | 0xff000000) == (amberRgb | 0xff000000)) {
+                found = true;
+                break;
+            }
+        }
+    }
+    QVERIFY2(found, "Kein einziger Bildpunkt in Bernstein");
 }
 
 int main(int argc, char* argv[])

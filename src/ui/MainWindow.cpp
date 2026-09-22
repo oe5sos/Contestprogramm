@@ -8,6 +8,7 @@
 #include "core/Transverter.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
+#include "core/DxInfo.h"
 #include "core/DxClusterClient.h"
 #include "core/EsmPlanner.h"
 #include "core/OnlineScoreboard.h"
@@ -907,6 +908,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.dxClusterClient(), &DxClusterClient::spotReceived, this, noteSeenCall);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
+    connect(m_unifiedLog, &UnifiedLogWidget::callsignTyped, this, &MainWindow::refreshDxInfoLine);
     connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
@@ -2529,6 +2531,17 @@ void MainWindow::handleCandidateActivated(const QString& callsign, const QString
 
 void MainWindow::handleCallsignLookupRequested(const QString& callsign)
 {
+    // Die CQ-Zone aus der Länderliste, sobald sie bekannt ist -- sie
+    // hängt am Präfix, nicht am einzelnen QSO, und steht damit vor
+    // jeder anderen Quelle fest. Wer eine andere Zone hört, tippt sie
+    // drüber (das Feld ist nur vorbelegt, nicht gesperrt).
+    if (m_unifiedLog) {
+        const CountryEntry country = m_appController.countryIndex().lookup(callsign);
+        if (country.isValid()) {
+            m_unifiedLog->applyKnownCqZone(country.cqZone);
+        }
+    }
+
     // Tier 1: the operator's own log for the active contest -- instant,
     // always-on, exactly as before this task.
     const auto known = m_appController.database().knownExchangeForCallsign(callsign, m_appController.settings().activeContestId);
@@ -2598,8 +2611,79 @@ void MainWindow::handleExternalCallsignLookupFinished(const QString& callsign, b
     m_unifiedLog->applyKnownExchange(grid, std::nullopt);
 }
 
+// Land, Richtung, Entfernung, Ortszeit und Sonne am anderen Ende --
+// das, was N1MM in seinem Info-Fenster zeigt, hier in der Zeile unter
+// der Eingabe (core/DxInfo.h). Gerechnet bei jedem Tastendruck: ein
+// Nachschlagen in einer Hashtabelle und etwas Trigonometrie.
+void MainWindow::refreshDxInfoLine()
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    // Der getauschte Locator, soweit schon eingetippt -- er schlägt den
+    // Landesmittelpunkt. Der Schlüssel ist der des grid-Feldes der
+    // aktiven Definition, sonst schlicht "grid".
+    QString grid;
+    const QMap<QString, QString> received = m_unifiedLog->exchangeReceived();
+    if (const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId)) {
+        if (const ContestDefinition::ExchangeField* field = findFieldByType(*def, QStringLiteral("grid6"))) {
+            grid = received.value(field->key);
+        }
+    }
+    if (grid.isEmpty()) {
+        grid = received.value(QStringLiteral("grid"));
+    }
+    const DxInfo info = lookupDxInfo(m_appController.countryIndex(), m_appController.settings().ownGrid,
+                                     m_unifiedLog->callsign(), grid, QDateTime::currentDateTimeUtc());
+    m_unifiedLog->setDxInfoLine(info.statusLine());
+    refreshMultiplierHint(grid);
+}
+
+// DXLogs "Check Multipliers": bringt diese Station auf diesem Band
+// einen neuen Multiplikator, und auf welchen Bändern steht er schon?
+// Die Antwort steht über den Treffern im Check-Panel, weil man dort
+// ohnehin hinsieht, während man tippt.
+void MainWindow::refreshMultiplierHint(const QString& grid)
+{
+    if (!m_checkPartialWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const QString call = m_unifiedLog ? m_unifiedLog->callsign() : QString();
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
+    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
+    if (!def || key.isEmpty()) {
+        // Kein Multiplikator in den Regeln, oder über diese Station ist
+        // (noch) nichts bekannt -- dann steht dort auch nichts.
+        m_checkPartialWidget->setMultiplierStatus(QString());
+        return;
+    }
+
+    QStringList worked;
+    for (const QString& band : def->bands()) {
+        if (tracker.workedMultipliers(band).contains(key)) {
+            worked << band;
+        }
+    }
+    const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
+    QStringList parts;
+    parts << key;
+    if (!m_currentBand.isEmpty()) {
+        parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
+                             : QStringLiteral("auf %1 neu").arg(m_currentBand));
+    }
+    if (!worked.isEmpty()) {
+        parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
+    } else {
+        parts << QStringLiteral("noch auf keinem Band");
+    }
+    m_checkPartialWidget->setMultiplierStatus(parts.join(QStringLiteral(" · ")));
+}
+
 void MainWindow::handleReceivedGridChanged(const QString& grid)
 {
+    refreshDxInfoLine();
     const ContestSettings settings = m_appController.settings();
     if (!isValidGridSquare(settings.ownGrid) || !isValidGridSquare(grid)) {
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);
@@ -3551,9 +3635,14 @@ void MainWindow::refreshBandmap()
     const QStringList dupeScope = def ? def->dupeScope()
                                       : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
     QVector<BandmapSpot> spots = m_bandmapModel.spotsForBand(m_currentBand, QDateTime::currentDateTimeUtc());
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
     for (BandmapSpot& spot : spots) {
         spot.worked = m_appController.dupeChecker().isDupe(spot.callsign, m_currentBand, m_currentMode,
                                                           settings.activeContestId, dupeScope);
+        // Ein Spot, der einen fehlenden Multiplikator brächte, ist mehr
+        // wert als ein QSO -- die Bandmap sagt es, wie N1MM und DXLog.
+        spot.neededMultiplier = !spot.worked && !m_currentBand.isEmpty()
+            && tracker.isNeededMultiplier(m_currentBand, spot.grid, spot.callsign);
     }
     m_bandmapWidget->setBand(m_currentBand);
     m_bandmapWidget->setOwnFrequencyHz(currentRfFrequencyHz());

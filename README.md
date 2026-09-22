@@ -93,6 +93,10 @@ abgerundet auf ganze km plus 1, Summe je Band, keine Multiplikatoren; so
 werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 `serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
 001, IARU-R1-Regel) oder `contest` (eine Folge über den ganzen Contest).
+Feldtypen: `rst`, `int` (laufende Nummer, mit `auto_increment`),
+`grid6` (Locator), `cqzone` (CQ-Zone 1–40, aus der Länderliste
+vorbelegt, sobald das Rufzeichen dasteht) und `text` für alles andere.
+
 `multiplier_field`: `grid` (Standard – Locator-Großfeld), `prefix`
 (WPX-Regel, rechnet sich allein aus dem Rufzeichen), `dxcc` (Land,
 braucht eine geladene Länderliste) oder `none`. `cabrillo_name`

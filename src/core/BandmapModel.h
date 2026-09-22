@@ -23,6 +23,11 @@ struct BandmapSpot {
     QDateTime timestampUtc;
     QString source;
     bool worked = false;
+    // Würde diese Station auf diesem Band einen neuen Multiplikator
+    // bringen? Wie `worked` vom Aufrufer gefüllt (MainWindow fragt den
+    // MultiplierTracker), nicht hier geraten -- N1MM und DXLog heben
+    // genau diese Spots hervor, weil sie mehr zählen als ein QSO.
+    bool neededMultiplier = false;
 };
 
 class BandmapModel {

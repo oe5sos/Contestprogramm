@@ -26,6 +26,38 @@ double toEastPositive(const QString& field)
     return -field.trimmed().toDouble();
 }
 
+// Zieht die Abweichungen aus einem Präfix heraus und rechnet sie in
+// `entry` ein; zurück kommt der Präfix ohne die Klammern.
+QString applyAliasOverrides(const QString& alias, CountryEntry& entry)
+{
+    QString rest = alias;
+    static const QRegularExpression pattern(
+        QStringLiteral("\\(([^)]*)\\)|\\[([^\\]]*)\\]|<([^>]*)>|\\{([^}]*)\\}|~([^~]*)~"));
+    QRegularExpressionMatchIterator it = pattern.globalMatch(alias);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        if (!match.captured(1).isNull()) {
+            entry.cqZone = match.captured(1).toInt();
+        } else if (!match.captured(2).isNull()) {
+            entry.ituZone = match.captured(2).toInt();
+        } else if (!match.captured(3).isNull()) {
+            // "<lat/lon>", beide wie in der Kopfzeile: Länge nach Westen
+            // positiv.
+            const QStringList pair = match.captured(3).split(QLatin1Char('/'));
+            if (pair.size() == 2) {
+                entry.latitudeDeg = pair.at(0).trimmed().toDouble();
+                entry.longitudeDeg = toEastPositive(pair.at(1));
+            }
+        } else if (!match.captured(4).isNull()) {
+            entry.continent = match.captured(4).trimmed().toUpper();
+        } else if (!match.captured(5).isNull()) {
+            entry.utcOffsetHours = toEastPositive(match.captured(5));
+        }
+    }
+    rest.remove(pattern);
+    return rest.trimmed();
+}
+
 } // namespace
 
 QString CountryPrefixIndex::lookupKey(const QString& callsign)
@@ -66,6 +98,7 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
     QVector<CountryEntry> entries;
     QHash<QString, int> byPrefix;
     QHash<QString, int> byExactCall;
+    int countryCount = 0;
 
     // Zeilenenden vereinheitlichen, Kommentare (#) weg, dann an den
     // Semikola in Aufzeichnungen schneiden.
@@ -95,6 +128,7 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
         entry.continent = fields.at(3).trimmed().toUpper();
         entry.latitudeDeg = fields.at(4).trimmed().toDouble();
         entry.longitudeDeg = toEastPositive(fields.at(5));
+        entry.utcOffsetHours = toEastPositive(fields.at(6));
         QString primary = fields.at(7).trimmed().toUpper();
         // Ein '*' davor heißt "kein eigenes DXCC-Gebiet" (etwa der
         // europäische Teil der Türkei) -- für die Zuordnung egal.
@@ -107,6 +141,7 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
         }
 
         entries.append(entry);
+        ++countryCount;
         const int index = entries.size() - 1;
 
         const QStringList aliases = aliasBlock.split(QLatin1Char(','), Qt::SkipEmptyParts);
@@ -115,20 +150,27 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
             if (alias.isEmpty()) {
                 continue;
             }
-            // Abweichungen in Klammern gehören zum Eintrag, nicht zum
-            // Präfix. Sie ändern Zone/Ort/Kontinent -- für "welches
-            // Land?" ändern sie nichts, also weg damit.
-            static const QRegularExpression overrides(
-                QStringLiteral("\\([^)]*\\)|\\[[^\\]]*\\]|<[^>]*>|\\{[^}]*\\}|~[^~]*~"));
-            alias.remove(overrides);
-            alias = alias.trimmed();
+            // Die Abweichungen in Klammern gehören zu DIESEM Präfix und
+            // werden eingerechnet -- sonst läge jedes US-Rufzeichen in
+            // Zone 5 und am selben Punkt.
+            CountryEntry aliasEntry = entry;
+            alias = applyAliasOverrides(alias, aliasEntry);
             if (alias.isEmpty()) {
                 continue;
             }
+            int aliasIndex = index;
+            if (aliasEntry.cqZone != entry.cqZone || aliasEntry.ituZone != entry.ituZone
+                || !qFuzzyCompare(aliasEntry.latitudeDeg + 1000.0, entry.latitudeDeg + 1000.0)
+                || !qFuzzyCompare(aliasEntry.longitudeDeg + 1000.0, entry.longitudeDeg + 1000.0)
+                || aliasEntry.continent != entry.continent
+                || !qFuzzyCompare(aliasEntry.utcOffsetHours + 1000.0, entry.utcOffsetHours + 1000.0)) {
+                entries.append(aliasEntry);
+                aliasIndex = entries.size() - 1;
+            }
             if (alias.startsWith(QLatin1Char('='))) {
-                byExactCall.insert(alias.mid(1), index);
+                byExactCall.insert(alias.mid(1), aliasIndex);
             } else {
-                byPrefix.insert(alias, index);
+                byPrefix.insert(alias, aliasIndex);
             }
         }
         // Der Hauptpräfix zählt immer mit, auch wenn er in der
@@ -146,6 +188,7 @@ bool CountryPrefixIndex::loadFromCty(const QByteArray& text, QString* errorOut)
     }
 
     m_entries = entries;
+    m_countryCount = countryCount;
     m_byPrefix = byPrefix;
     m_byExactCall = byExactCall;
     if (errorOut) {

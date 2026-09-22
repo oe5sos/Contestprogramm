@@ -1725,6 +1725,11 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
 
         if (field.type == QStringLiteral("int")) {
             edit->setValidator(new QIntValidator(0, 999999, edit));
+        } else if (field.type == QStringLiteral("cqzone")) {
+            // CQ-Zonen gehen von 1 bis 40; mehr als zwei Stellen gibt
+            // es nicht.
+            edit->setValidator(new QIntValidator(1, 40, edit));
+            edit->setMaxLength(2);
         } else if (field.type == QStringLiteral("grid6")) {
             edit->setMaxLength(6);
         } else if (field.type == QStringLiteral("rst")) {
@@ -1924,6 +1929,26 @@ void UnifiedLogWidget::applyKnownExchange(const QString& gridSquare, const std::
         }
         if (field.autoIncrement && serialRcvd.has_value() && edit->text().isEmpty()) {
             edit->setText(QString::number(*serialRcvd));
+            setFieldAutoFilled(edit, true);
+        }
+    }
+}
+
+void UnifiedLogWidget::applyKnownCqZone(int zone)
+{
+    if (zone <= 0) {
+        return;
+    }
+    for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
+        const bool isZoneField = field.type.compare(QStringLiteral("cqzone"), Qt::CaseInsensitive) == 0
+            || field.key.compare(QStringLiteral("cqzone"), Qt::CaseInsensitive) == 0
+            || field.key.compare(QStringLiteral("zone"), Qt::CaseInsensitive) == 0;
+        if (!isZoneField) {
+            continue;
+        }
+        QLineEdit* edit = m_exchangeEditsByKey.value(field.key, nullptr);
+        if (edit && edit->text().isEmpty()) {
+            edit->setText(QString::number(zone));
             setFieldAutoFilled(edit, true);
         }
     }
@@ -2273,6 +2298,14 @@ void UnifiedLogWidget::updateStatusLine()
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
         m_lastQsoLabel->setText(m_dupeDetail);
+    } else if (!m_dxInfoLine.isEmpty()) {
+        // Während ein Rufzeichen dasteht, zählt, was über diese Station
+        // bekannt ist -- Land, Richtung, Entfernung, Sonne dort (siehe
+        // core/DxInfo.h). Der zuletzt geloggte QSO kommt zurück, sobald
+        // das Feld wieder leer ist.
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
+        m_lastQsoLabel->setText(m_dxInfoLine);
     } else if (m_logModel && m_logModel->rowCount() > 0) {
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kTextSecondary()));
@@ -2296,6 +2329,16 @@ void UnifiedLogWidget::updateStatusLine()
 void UnifiedLogWidget::onCallsignTextChanged()
 {
     m_callsignLookupTimer->start();
+    emit callsignTyped(callsign());
+}
+
+void UnifiedLogWidget::setDxInfoLine(const QString& text)
+{
+    if (m_dxInfoLine == text) {
+        return;
+    }
+    m_dxInfoLine = text;
+    updateStatusLine();
 }
 
 void UnifiedLogWidget::onCallsignLookupTimeout()

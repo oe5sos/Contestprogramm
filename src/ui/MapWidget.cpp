@@ -1394,14 +1394,22 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
         y += px + 26;
     };
 
-    // Beam: rotor 1's heading, its second antenna's after a dot.
-    caption(m_rotor1Label.isEmpty() ? QStringLiteral("Beam · Rotor 1") : QStringLiteral("Beam · Rotor 1 · %1").arg(m_rotor1Label));
+    // Beam: rotor 1's heading, its second antenna's after a dot. Ohne
+    // Verbindung steht "getrennt" in der KLEINEN Beschriftungszeile,
+    // nicht im großen Wert -- dort trüge es sonst dasselbe Gewicht wie
+    // die Peilung selbst.
+    {
+        QString beamCaption = m_rotor1Label.isEmpty()
+            ? QStringLiteral("Beam · Rotor 1")
+            : QStringLiteral("Beam · Rotor 1 · %1").arg(m_rotor1Label);
+        if (m_rotor1Connected && !m_rotor1Live) {
+            beamCaption += QStringLiteral(" · getrennt");
+        }
+        caption(beamCaption);
+    }
     QString beamText = Style::unknownDash();
     if (m_rotor1Connected) {
         beamText = QStringLiteral("%1°").arg(wrap360(m_rotor1AzimuthDeg), 0, 'f', 0);
-        if (!m_rotor1Live) {
-            beamText += QStringLiteral(" · getrennt");
-        }
         if (m_rotor1SecondEnabled) {
             beamText += QStringLiteral(" · %1°").arg(wrap360(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg), 0, 'f', 0);
         }
@@ -1409,13 +1417,15 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     value(beamText, m_rotor1Live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive()),
           Style::kFontReading);
     if (m_rotor2Connected && m_showRotor2Heading) {
-        caption(m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2") : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label));
+        QString rotor2Caption = m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2")
+                                                        : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label);
+        if (!m_rotor2Live) {
+            rotor2Caption += QStringLiteral(" · getrennt");
+        }
+        caption(rotor2Caption);
         QString text = QStringLiteral("%1°").arg(wrap360(m_rotor2AzimuthDeg), 0, 'f', 0);
         if (m_rotor2SecondEnabled) {
             text += QStringLiteral(" · %1°").arg(wrap360(m_rotor2AzimuthDeg + m_rotor2SecondOffsetDeg), 0, 'f', 0);
-        }
-        if (!m_rotor2Live) {
-            text += QStringLiteral(" · getrennt");
         }
         value(text, m_rotor2Live ? QColor(Style::kTextSecondary()) : QColor(Style::kTextInactive()),
               Style::kFontBody);
@@ -1468,6 +1478,31 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
 
     caption(QStringLiteral("ODX"));
     value(odx.isEmpty() ? Style::unknownDash() : odx, QColor(Style::kTextPrimary()), Style::kFontBody);
+
+    // Wer die Graulinie eingeschaltet hat, will auch wissen, wann sie
+    // über den eigenen Standort läuft -- sonst steht sie nur im Bild.
+    if (m_layers.greyline && isValidGridSquare(m_ownGrid)) {
+        double homeLat = 0.0;
+        double homeLon = 0.0;
+        calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+        const SunTimes sun = sunTimes(QDateTime::currentDateTimeUtc(), homeLat, homeLon);
+        QString sunText = Style::unknownDash();
+        switch (sun.kind) {
+        case SunTimes::Kind::AlwaysUp:
+            sunText = QStringLiteral("geht nicht unter");
+            break;
+        case SunTimes::Kind::AlwaysDown:
+            sunText = QStringLiteral("geht nicht auf");
+            break;
+        case SunTimes::Kind::RiseAndSet:
+            sunText = QStringLiteral("%1–%2Z")
+                          .arg(sun.riseUtc.toString(QStringLiteral("HH:mm")),
+                               sun.setUtc.toString(QStringLiteral("HH:mm")));
+            break;
+        }
+        caption(QStringLiteral("Sonne hier"));
+        value(sunText, QColor(Style::kTextSecondary()), Style::kFontBody);
+    }
 
     drawLegend(painter, QPointF(x, column.bottom() - 4.0));
 }

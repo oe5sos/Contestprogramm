@@ -131,6 +131,8 @@ private slots:
     // UnifiedLogWidget::receivedGridChanged) and pushes the result back
     // via UnifiedLogWidget::setEntryDistanceBearing().
     void handleReceivedGridChanged(const QString& grid);
+    void refreshDxInfoLine();
+    void refreshMultiplierHint(const QString& grid);
     // Tier 3 (QRZ/HamQTH) result, arriving asynchronously well after
     // handleCallsignLookupRequested() returned -- see core/
     // CallsignLocatorLookup.h. Re-checks the entry row's callsign field
