@@ -2531,6 +2531,17 @@ void MainWindow::handleCandidateActivated(const QString& callsign, const QString
 
 void MainWindow::handleCallsignLookupRequested(const QString& callsign)
 {
+    // Die CQ-Zone aus der Länderliste, sobald sie bekannt ist -- sie
+    // hängt am Präfix, nicht am einzelnen QSO, und steht damit vor
+    // jeder anderen Quelle fest. Wer eine andere Zone hört, tippt sie
+    // drüber (das Feld ist nur vorbelegt, nicht gesperrt).
+    if (m_unifiedLog) {
+        const CountryEntry country = m_appController.countryIndex().lookup(callsign);
+        if (country.isValid()) {
+            m_unifiedLog->applyKnownCqZone(country.cqZone);
+        }
+    }
+
     // Tier 1: the operator's own log for the active contest -- instant,
     // always-on, exactly as before this task.
     const auto known = m_appController.database().knownExchangeForCallsign(callsign, m_appController.settings().activeContestId);

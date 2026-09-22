@@ -13,6 +13,7 @@
 #include <QtTest>
 
 #include <QLabel>
+#include <QStandardPaths>
 
 #include <QApplication>
 #include <QTemporaryDir>
@@ -44,6 +45,7 @@ private slots:
     void countryListPutsHfStationsOnTheMap();
     void typingACallsignShowsCountryDirectionAndSun();
     void checkPanelSaysWhetherTheMultiplierIsNew();
+    void aZoneFieldIsPrefilledFromTheCountryList();
 };
 
 void TestHfBands::tableNamesTheHfBands()
@@ -352,6 +354,79 @@ void TestHfBands::checkPanelSaysWhetherTheMultiplierIsNew()
     // Feld leer: Zeile weg.
     log->setCallsign(QString());
     QVERIFY(multiplierLabel->isHidden());
+}
+
+// Ein Contest mit CQ-Zone im Exchange (CQ WW und Verwandte): die Zone
+// hängt am Präfix, steht also fest, bevor die Gegenstation sie nennt --
+// N1MM belegt sie genauso vor. Wer eine andere hört, tippt sie drüber.
+void TestHfBands::aZoneFieldIsPrefilledFromTheCountryList()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString ctyPath = dir.filePath(QStringLiteral("mini_cty.dat"));
+    {
+        QFile cty(ctyPath);
+        QVERIFY(cty.open(QIODevice::WriteOnly));
+        cty.write("Japan: 25: 45: AS: 36.40: -138.38: -9.0: JA:\n    JA,JE,JF,JG,JH;\n"
+                  "United States: 05: 08: NA: 37.53: 91.67: 5.0: K:\n"
+                  "    K,N,W,AA,AB,AC,W6(3)[6]<37.00/121.00>;\n");
+    }
+
+    // Ein eigener Contest mit Zonenfeld, über die Override-Datei.
+    QStandardPaths::setTestModeEnabled(true);
+    QString error;
+    const ContestDefinition zoneContest = ContestDefinition::loadFromJson(QByteArrayLiteral(R"({
+        "id": "ZONE_TEST",
+        "name": "Zonenprobe",
+        "bands": ["14", "21"],
+        "dupe_scope": ["callsign", "band"],
+        "scoring": "qso_count",
+        "multiplier_field": "none",
+        "exchange_fields": [
+            { "key": "rst",    "label": "RST",  "type": "rst" },
+            { "key": "cqzone", "label": "Zone", "type": "cqzone" }
+        ]
+    })"), &error);
+    QVERIFY2(zoneContest.isValid(), qPrintable(error));
+    QVERIFY(zoneContest.saveToFile(ContestDefinition::overrideFilePath(zoneContest.id()), &error));
+
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("zone.sqlite"))));
+    controller->database().setSettingValue(QStringLiteral("cty_file_path"), ctyPath);
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = zoneContest.id();
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+    QVERIFY(controller->findContestDefinition(zoneContest.id()));
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    // Japan ist Zone 25.
+    log->setCallsign(QStringLiteral("JA1QQQ"));
+    QMetaObject::invokeMethod(&window, "handleCallsignLookupRequested", Qt::DirectConnection,
+                              Q_ARG(QString, QStringLiteral("JA1QQQ")));
+    QCOMPARE(log->exchangeReceived().value(QStringLiteral("cqzone")), QStringLiteral("25"));
+
+    // Und die Abweichung hinter dem Präfix zählt: W6 ist Zone 3, nicht 5.
+    log->setExchangeFieldValue(QStringLiteral("cqzone"), QString());
+    log->setCallsign(QStringLiteral("W6XYZ"));
+    QMetaObject::invokeMethod(&window, "handleCallsignLookupRequested", Qt::DirectConnection,
+                              Q_ARG(QString, QStringLiteral("W6XYZ")));
+    QCOMPARE(log->exchangeReceived().value(QStringLiteral("cqzone")), QStringLiteral("3"));
+
+    // Was schon dasteht, wird nicht überschrieben -- gehört ist gehört.
+    log->setExchangeFieldValue(QStringLiteral("cqzone"), QStringLiteral("14"));
+    QMetaObject::invokeMethod(&window, "handleCallsignLookupRequested", Qt::DirectConnection,
+                              Q_ARG(QString, QStringLiteral("W6XYZ")));
+    QCOMPARE(log->exchangeReceived().value(QStringLiteral("cqzone")), QStringLiteral("14"));
+
+    QFile::remove(ContestDefinition::overrideFilePath(zoneContest.id()));
 }
 
 QTEST_MAIN(TestHfBands)

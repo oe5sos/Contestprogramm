@@ -1725,6 +1725,11 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
 
         if (field.type == QStringLiteral("int")) {
             edit->setValidator(new QIntValidator(0, 999999, edit));
+        } else if (field.type == QStringLiteral("cqzone")) {
+            // CQ-Zonen gehen von 1 bis 40; mehr als zwei Stellen gibt
+            // es nicht.
+            edit->setValidator(new QIntValidator(1, 40, edit));
+            edit->setMaxLength(2);
         } else if (field.type == QStringLiteral("grid6")) {
             edit->setMaxLength(6);
         } else if (field.type == QStringLiteral("rst")) {
@@ -1924,6 +1929,26 @@ void UnifiedLogWidget::applyKnownExchange(const QString& gridSquare, const std::
         }
         if (field.autoIncrement && serialRcvd.has_value() && edit->text().isEmpty()) {
             edit->setText(QString::number(*serialRcvd));
+            setFieldAutoFilled(edit, true);
+        }
+    }
+}
+
+void UnifiedLogWidget::applyKnownCqZone(int zone)
+{
+    if (zone <= 0) {
+        return;
+    }
+    for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
+        const bool isZoneField = field.type.compare(QStringLiteral("cqzone"), Qt::CaseInsensitive) == 0
+            || field.key.compare(QStringLiteral("cqzone"), Qt::CaseInsensitive) == 0
+            || field.key.compare(QStringLiteral("zone"), Qt::CaseInsensitive) == 0;
+        if (!isZoneField) {
+            continue;
+        }
+        QLineEdit* edit = m_exchangeEditsByKey.value(field.key, nullptr);
+        if (edit && edit->text().isEmpty()) {
+            edit->setText(QString::number(zone));
             setFieldAutoFilled(edit, true);
         }
     }

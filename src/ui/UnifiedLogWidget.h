@@ -279,6 +279,13 @@ public:
     // own typing always takes priority.
     void applyKnownExchange(const QString& gridSquare, const std::optional<int>& serialRcvd);
 
+    // Die CQ-Zone aus der Länderliste in ein Zonenfeld schreiben, wenn
+    // dort noch nichts steht -- so macht es N1MM auch: die Zone steht
+    // da, bevor die Gegenstation sie nennt, und wer eine andere hört,
+    // tippt sie drüber. Feld erkannt am Typ "cqzone" oder am Schlüssel
+    // "cqzone"/"zone".
+    void applyKnownCqZone(int zone);
+
     // Is there an in-progress entry the operator has not yet logged?
     // Used by MainWindow's Run-mode CAT-autofill guard.
     bool hasUnsentContent() const;
