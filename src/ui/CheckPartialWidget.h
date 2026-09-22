@@ -36,6 +36,13 @@ public:
     // then offers the load action itself (scpLoadRequested()).
     void setSources(int scpCount, const QString& scpFileName, int historyCount, int seenCount);
 
+    // Eine Zeile über den Treffern: bringt diese Station auf diesem
+    // Band einen neuen Multiplikator, und auf welchen Bändern steht er
+    // schon? Das ist DXLogs "Check Multipliers" -- die Frage, die man
+    // beim Tippen wirklich hat. Leer blendet die Zeile aus (kein
+    // Multiplikator in den Regeln, oder nichts bekannt).
+    void setMultiplierStatus(const QString& text);
+
 signals:
     void callsignChosen(const QString& callsign, const QString& grid);
     void scpLoadRequested();
@@ -43,6 +50,7 @@ signals:
 private:
     void rebuildStatus();
 
+    QLabel* m_multiplierLabel;
     QLabel* m_matchesLabel;
     QLabel* m_statusLabel;
     int m_scpCount = 0;

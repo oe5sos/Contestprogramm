@@ -2625,6 +2625,49 @@ void MainWindow::refreshDxInfoLine()
     const DxInfo info = lookupDxInfo(m_appController.countryIndex(), m_appController.settings().ownGrid,
                                      m_unifiedLog->callsign(), grid, QDateTime::currentDateTimeUtc());
     m_unifiedLog->setDxInfoLine(info.statusLine());
+    refreshMultiplierHint(grid);
+}
+
+// DXLogs "Check Multipliers": bringt diese Station auf diesem Band
+// einen neuen Multiplikator, und auf welchen Bändern steht er schon?
+// Die Antwort steht über den Treffern im Check-Panel, weil man dort
+// ohnehin hinsieht, während man tippt.
+void MainWindow::refreshMultiplierHint(const QString& grid)
+{
+    if (!m_checkPartialWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const QString call = m_unifiedLog ? m_unifiedLog->callsign() : QString();
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
+    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
+    if (!def || key.isEmpty()) {
+        // Kein Multiplikator in den Regeln, oder über diese Station ist
+        // (noch) nichts bekannt -- dann steht dort auch nichts.
+        m_checkPartialWidget->setMultiplierStatus(QString());
+        return;
+    }
+
+    QStringList worked;
+    for (const QString& band : def->bands()) {
+        if (tracker.workedMultipliers(band).contains(key)) {
+            worked << band;
+        }
+    }
+    const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
+    QStringList parts;
+    parts << key;
+    if (!m_currentBand.isEmpty()) {
+        parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
+                             : QStringLiteral("auf %1 neu").arg(m_currentBand));
+    }
+    if (!worked.isEmpty()) {
+        parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
+    } else {
+        parts << QStringLiteral("noch auf keinem Band");
+    }
+    m_checkPartialWidget->setMultiplierStatus(parts.join(QStringLiteral(" · ")));
 }
 
 void MainWindow::handleReceivedGridChanged(const QString& grid)

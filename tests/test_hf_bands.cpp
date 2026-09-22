@@ -43,6 +43,7 @@ private slots:
     void freshDatabaseDoesNotStartInThePracticeLog();
     void countryListPutsHfStationsOnTheMap();
     void typingACallsignShowsCountryDirectionAndSun();
+    void checkPanelSaysWhetherTheMultiplierIsNew();
 };
 
 void TestHfBands::tableNamesTheHfBands()
@@ -298,6 +299,59 @@ void TestHfBands::typingACallsignShowsCountryDirectionAndSun()
     // Ein Rufzeichen, das die Liste nicht kennt, behauptet nichts.
     log->setCallsign(QStringLiteral("ZZ9ZZZ"));
     QVERIFY2(statusLabel->text().contains(QStringLiteral("Letzter QSO")), qPrintable(statusLabel->text()));
+}
+
+// DXLogs "Check Multipliers", hier über den Treffern im Check-Panel:
+// bringt diese Station auf diesem Band einen neuen Multiplikator?
+void TestHfBands::checkPanelSaysWhetherTheMultiplierIsNew()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("mult.sqlite"))));
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("KW_UEBUNG"); // Multiplikator: WPX-Präfix
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    // Ein QSO mit DL1ABC auf 1.8 (das erste Band der Definition, auf
+    // dem das Log ohne CAT steht) -- vor setSettings(), weil der
+    // Multiplikator-Zähler dort neu rechnet.
+    QsoRecord r;
+    r.callsign = QStringLiteral("DL1ABC");
+    r.band = QStringLiteral("1.8");
+    r.mode = QStringLiteral("CW");
+    r.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    r.contestId = settings.activeContestId;
+    QVERIFY(controller->database().insertQso(r));
+    controller->setSettings(settings);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* multiplierLabel = window.findChild<QLabel*>(QStringLiteral("checkMultiplier"));
+    QVERIFY(multiplierLabel);
+    QVERIFY2(multiplierLabel->isHidden(), "Ohne Rufzeichen steht dort nichts");
+
+    // Dasselbe Präfix, dasselbe Band: kein neuer Multiplikator.
+    log->setCallsign(QStringLiteral("DL1XYZ"));
+    QString text = multiplierLabel->text();
+    QVERIFY2(text.contains(QStringLiteral("DL1")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("schon gearbeitet")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("1.8")), qPrintable(text));
+
+    // Anderes Präfix: neu, und auf keinem Band bisher.
+    log->setCallsign(QStringLiteral("G3ABC"));
+    text = multiplierLabel->text();
+    QVERIFY2(text.contains(QStringLiteral("G3")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("neu")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("noch auf keinem Band")), qPrintable(text));
+
+    // Feld leer: Zeile weg.
+    log->setCallsign(QString());
+    QVERIFY(multiplierLabel->isHidden());
 }
 
 QTEST_MAIN(TestHfBands)

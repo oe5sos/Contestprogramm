@@ -56,6 +56,7 @@ QString callSpan(const CheckPartialMatch& match)
 CheckPartialWidget::CheckPartialWidget(QWidget* parent)
     : QWidget(parent)
     , m_matchesLabel(new QLabel(this))
+    , m_multiplierLabel(new QLabel(this))
     , m_statusLabel(new QLabel(this))
 {
     Style::applyPanelFrameStyle(this);
@@ -78,9 +79,18 @@ CheckPartialWidget::CheckPartialWidget(QWidget* parent)
     m_statusLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
     connect(m_statusLabel, &QLabel::linkActivated, this, [this](const QString&) { emit scpLoadRequested(); });
 
+    m_matchesLabel->setObjectName(QStringLiteral("checkMatches"));
+    m_multiplierLabel->setObjectName(QStringLiteral("checkMultiplier"));
+    m_statusLabel->setObjectName(QStringLiteral("checkSources"));
+    m_multiplierLabel->setTextFormat(Qt::RichText);
+    m_multiplierLabel->setWordWrap(true);
+    m_multiplierLabel->setFont(Style::capsFont(m_multiplierLabel->font()));
+    m_multiplierLabel->hide();
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(14, 6, 14, 6);
     layout->setSpacing(4);
+    layout->addWidget(m_multiplierLabel);
     layout->addWidget(m_matchesLabel, 1);
     layout->addWidget(m_statusLabel);
 
@@ -117,6 +127,21 @@ void CheckPartialWidget::setSources(int scpCount, const QString& scpFileName, in
     m_historyCount = historyCount;
     m_seenCount = seenCount;
     rebuildStatus();
+}
+
+void CheckPartialWidget::setMultiplierStatus(const QString& text)
+{
+    m_multiplierLabel->setVisible(!text.isEmpty());
+    if (text.isEmpty()) {
+        return;
+    }
+    // "neu" in Bernstein, alles andere ruhig -- die Farbe trägt hier
+    // die eine Aussage, auf die es ankommt.
+    QString html = text.toHtmlEscaped();
+    html.replace(QStringLiteral("neu"),
+                 QStringLiteral("<span style='color:%1;'>neu</span>").arg(Style::kAmberText()));
+    m_multiplierLabel->setText(QStringLiteral("<span style='color:%1;'>%2</span>")
+                                   .arg(Style::kTextSecondary(), html));
 }
 
 void CheckPartialWidget::rebuildStatus()
