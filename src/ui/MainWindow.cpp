@@ -3624,9 +3624,14 @@ void MainWindow::refreshBandmap()
     const QStringList dupeScope = def ? def->dupeScope()
                                       : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
     QVector<BandmapSpot> spots = m_bandmapModel.spotsForBand(m_currentBand, QDateTime::currentDateTimeUtc());
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
     for (BandmapSpot& spot : spots) {
         spot.worked = m_appController.dupeChecker().isDupe(spot.callsign, m_currentBand, m_currentMode,
                                                           settings.activeContestId, dupeScope);
+        // Ein Spot, der einen fehlenden Multiplikator brächte, ist mehr
+        // wert als ein QSO -- die Bandmap sagt es, wie N1MM und DXLog.
+        spot.neededMultiplier = !spot.worked && !m_currentBand.isEmpty()
+            && tracker.isNeededMultiplier(m_currentBand, spot.grid, spot.callsign);
     }
     m_bandmapWidget->setBand(m_currentBand);
     m_bandmapWidget->setOwnFrequencyHz(currentRfFrequencyHz());

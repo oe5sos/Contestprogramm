@@ -209,7 +209,16 @@ void BandmapWidget::paintEvent(QPaintEvent* event)
         QFont f = labelFont;
         f.setStrikeOut(spot.worked);
         painter.setFont(f);
-        painter.setPen(QColor(spot.worked ? Style::kTextInactive() : Style::kTextPrimary()));
+        // Drei Zustände, drei Farben: gearbeitet ist durchgestrichen und
+        // grau, ein fehlender Multiplikator steht in Bernstein (er zählt
+        // mehr als ein QSO), alles andere hell.
+        QColor color(Style::kTextPrimary());
+        if (spot.worked) {
+            color = QColor(Style::kTextInactive());
+        } else if (spot.neededMultiplier) {
+            color = QColor(Style::kAmberText());
+        }
+        painter.setPen(color);
         painter.drawText(rect.left() + 4, rect.top() + (kLabelHeight + labelMetrics.ascent() - labelMetrics.descent()) / 2,
                          spot.callsign);
     }

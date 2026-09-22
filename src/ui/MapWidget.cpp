@@ -1469,6 +1469,31 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     caption(QStringLiteral("ODX"));
     value(odx.isEmpty() ? Style::unknownDash() : odx, QColor(Style::kTextPrimary()), Style::kFontBody);
 
+    // Wer die Graulinie eingeschaltet hat, will auch wissen, wann sie
+    // über den eigenen Standort läuft -- sonst steht sie nur im Bild.
+    if (m_layers.greyline && isValidGridSquare(m_ownGrid)) {
+        double homeLat = 0.0;
+        double homeLon = 0.0;
+        calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+        const SunTimes sun = sunTimes(QDateTime::currentDateTimeUtc(), homeLat, homeLon);
+        QString sunText = Style::unknownDash();
+        switch (sun.kind) {
+        case SunTimes::Kind::AlwaysUp:
+            sunText = QStringLiteral("geht nicht unter");
+            break;
+        case SunTimes::Kind::AlwaysDown:
+            sunText = QStringLiteral("geht nicht auf");
+            break;
+        case SunTimes::Kind::RiseAndSet:
+            sunText = QStringLiteral("%1–%2Z")
+                          .arg(sun.riseUtc.toString(QStringLiteral("HH:mm")),
+                               sun.setUtc.toString(QStringLiteral("HH:mm")));
+            break;
+        }
+        caption(QStringLiteral("Sonne hier"));
+        value(sunText, QColor(Style::kTextSecondary()), Style::kFontBody);
+    }
+
     drawLegend(painter, QPointF(x, column.bottom() - 4.0));
 }
 
