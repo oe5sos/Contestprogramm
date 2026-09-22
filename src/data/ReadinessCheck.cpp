@@ -341,6 +341,22 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             QStringLiteral("locators"));
     }
 
+    // Die Länderliste nur dort, wo sie zählt: bei einem Contest ohne
+    // getauschten Locator oder mit Länder-Multiplikator. Bei einem
+    // UKW-Contest hat sie nichts zu sagen und steht deshalb auch nicht
+    // in der Liste.
+    if (ctx.countryListNeeded) {
+        if (ctx.countryEntries > 0) {
+            add(Level::Ok, kGroupData, QStringLiteral("Länderliste"),
+                QStringLiteral("%1 Gebiete").arg(ctx.countryEntries), QStringLiteral("countries"));
+        } else {
+            add(Level::Warning, kGroupData, QStringLiteral("Länderliste"),
+                QStringLiteral("Keine geladen — ohne sie bleibt eine Station ohne Land, ohne Punkt auf der "
+                               "Karte und ohne Richtung für den Rotor (Datei › Länderliste laden)."),
+                QStringLiteral("countries"));
+        }
+    }
+
     return result;
 }
 

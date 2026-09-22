@@ -4012,6 +4012,22 @@ void MainWindow::refreshReadiness()
             && m_appController.terrainDataManager().tileLoader().isTileLoaded(SrtmTileLoader::tileNameForLatLon(lat, lon));
     }
     ctx.importedLocators = m_appController.database().importedLocatorCount();
+    ctx.countryEntries = m_appController.countryIndex().countryCount();
+    // Gebraucht wird sie, wo kein Locator getauscht wird oder wo der
+    // Multiplikator das Land ist -- bei einem UKW-Contest hat sie
+    // nichts zu sagen.
+    if (const ContestDefinition* def = findContestDefinition(settings.activeContestId)) {
+        bool hasGridField = false;
+        for (const ContestDefinition::ExchangeField& field : def->exchangeFields()) {
+            if (field.type.compare(QStringLiteral("grid6"), Qt::CaseInsensitive) == 0
+                || field.type.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0
+                || field.key.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0) {
+                hasGridField = true;
+                break;
+            }
+        }
+        ctx.countryListNeeded = !hasGridField || def->multiplierField() == QStringLiteral("dxcc");
+    }
 
     m_readinessWindow->setResult(checkReadiness(ctx));
 }

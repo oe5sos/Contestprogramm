@@ -97,6 +97,7 @@ private slots:
     void secondBackupFolderIsWiredThrough();
     void shortcutsWindowListsTheKeys();
     void bandmapStartsOnTheContestsFirstBand();
+    void countryListOnlyAppearsWhereItMatters();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -429,6 +430,33 @@ void TestReadinessCheck::bandmapStartsOnTheContestsFirstBand()
     auto* bandmap = window.findChild<BandmapWidget*>();
     QVERIFY(bandmap);
     QCOMPARE(bandmap->band(), QStringLiteral("432"));
+}
+
+// Die Länderliste steht nur dort in der Liste, wo sie etwas zu sagen
+// hat: bei einem Contest ohne getauschten Locator oder mit
+// Länder-Multiplikator. Bei einem UKW-Contest wäre sie nur eine Zeile
+// mehr, die von nichts handelt.
+void TestReadinessCheck::countryListOnlyAppearsWhereItMatters()
+{
+    ReadinessContext ctx = readyContext();
+    ctx.countryListNeeded = false;
+    ctx.countryEntries = 0;
+    ReadinessResult result = checkReadiness(ctx);
+    QVERIFY2(!itemWithCode(result, QStringLiteral("countries")), "Auf UKW hat die Länderliste nichts zu melden");
+
+    ctx.countryListNeeded = true;
+    result = checkReadiness(ctx);
+    const ReadinessItem* missing = itemWithCode(result, QStringLiteral("countries"));
+    QVERIFY(missing);
+    QCOMPARE(missing->level, ReadinessItem::Level::Warning);
+    QVERIFY2(missing->detail.contains(QStringLiteral("Länderliste laden")), qPrintable(missing->detail));
+
+    ctx.countryEntries = 346;
+    result = checkReadiness(ctx);
+    const ReadinessItem* loaded = itemWithCode(result, QStringLiteral("countries"));
+    QVERIFY(loaded);
+    QCOMPARE(loaded->level, ReadinessItem::Level::Ok);
+    QCOMPARE(loaded->detail, QStringLiteral("346 Gebiete"));
 }
 
 int main(int argc, char* argv[])
