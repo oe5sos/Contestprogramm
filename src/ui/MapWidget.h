@@ -64,6 +64,14 @@ public:
         bool worked = false;
         qint64 freqHz = 0;
         QDateTime workedAtUtc;
+        // Der Ort ist nur der Mittelpunkt eines Landes, nicht ein
+        // getauschter Locator (auf Kurzwelle der Normalfall, siehe
+        // MainWindow::mapGridForCallsign). Solche Punkte bekommen einen
+        // gepunkteten Hof -- ein blanker Punkt behauptet eine
+        // Genauigkeit, die es hier nicht gibt. Steht bewusst am Ende:
+        // die Reihenfolge davor ist die, in der überall im Baum
+        // Stationen aufgezählt werden.
+        bool approximate = false;
     };
 
     explicit MapWidget(QWidget* parent = nullptr);
@@ -87,6 +95,10 @@ public:
     void setWorkedCellsLayerVisible(bool visible);
     void setBordersLayerVisible(bool visible);
     void setCitiesLayerVisible(bool visible);
+    // Die Dämmerungszone: wo gerade die Sonne auf- oder untergeht
+    // (core/SolarPosition.h). Auf Kurzwelle die eine Schicht, die über
+    // die Ausbreitung etwas sagt; auf UKW ohne Bedeutung, darum aus.
+    void setGreylineLayerVisible(bool visible);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
     void setRotor1HeadingLayerVisible(bool visible);
@@ -98,6 +110,7 @@ public:
     bool workedCellsLayerVisible() const { return m_layers.cells; }
     bool bordersLayerVisible() const { return m_layers.borders; }
     bool citiesLayerVisible() const { return m_layers.cities; }
+    bool greylineLayerVisible() const { return m_layers.greyline; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
@@ -114,6 +127,13 @@ public:
     void setTerrainSectors(const QVector<LineOfSightClass>& sectorsByDegree);
 
     void setRotor1Heading(bool connected, double azimuthDeg, const QString& label);
+    // Ob die Verbindung zu diesem Rotor gerade wirklich steht. Die
+    // Speiche zeigt weiter, was der Steckplatz verfolgt (Martin,
+    // 2026-09-14) -- aber ohne Verbindung gestrichelt und gedämpft,
+    // wie der Ring der Rotorscheibe daneben, statt wie eine gemessene
+    // Peilung auszusehen. `rotor` ist 1 oder 2.
+    void setRotorLinkLive(int rotor, bool live);
+    bool rotorLinkLive(int rotor) const { return rotor == 2 ? m_rotor2Live : m_rotor1Live; }
     void setRotor2Heading(bool connected, double azimuthDeg, const QString& label);
     // A second antenna on the same rotor (ContestSettings::rotorN
     // SecondAntennaEnabled/-OffsetDeg): its own cone at heading +
@@ -220,6 +240,8 @@ private:
     // Painting
     void drawScopeFace(QPainter& painter, const QRectF& area) const;
     void drawBordersLayer(QPainter& painter, const QRectF& area) const;
+    void drawGreylineLayer(QPainter& painter, const QRectF& area) const;
+    void syncGreylineTimer();
     void drawCitiesLayer(QPainter& painter, const QRectF& area) const;
     void drawGridLayer(QPainter& painter, const QRectF& area) const;
     void drawRingsLayer(QPainter& painter, const QRectF& area) const;
@@ -256,6 +278,7 @@ private:
         bool cells = true;
         bool borders = false;
         bool cities = false;
+        bool greyline = false;
     };
     Layers m_layers;
     bool m_showRings = true;
@@ -269,6 +292,8 @@ private:
     QVector<double> m_horizonProfile;
     QVector<LineOfSightClass> m_terrainSectors;
     bool m_rotor1Connected = false;
+    bool m_rotor1Live = false;
+    bool m_rotor2Live = false;
     double m_rotor1AzimuthDeg = 0.0;
     QString m_rotor1Label;
     bool m_rotor2Connected = false;
@@ -305,7 +330,11 @@ private:
     QPushButton* m_zoomOutButton = nullptr;
     QPushButton* m_zoomInButton = nullptr;
     QLabel* m_zoomRangeLabel = nullptr;
+    QAction* m_greylineAction = nullptr;
     QTimer* m_agingRefreshTimer = nullptr;
+    // Die Graulinie wandert 15 Grad je Stunde -- einmal je Minute neu
+    // zeichnen reicht, und nur solange die Schicht an ist.
+    QTimer* m_greylineTimer = nullptr;
     bool m_syncingControls = false;
 };
 

@@ -101,6 +101,12 @@ struct ReadinessContext {
     bool mirrorWritable = false;
     bool terrainLoadedForOwnLocation = false;
     int importedLocators = 0;
+    // Die Länderliste (core/CountryPrefixIndex.h): wie viele Gebiete
+    // geladen sind, und ob dieser Contest sie überhaupt braucht -- auf
+    // Kurzwelle steht ohne sie keine Station auf der Karte, und ein
+    // Länder-Multiplikator zählt gar nicht.
+    int countryEntries = 0;
+    bool countryListNeeded = false;
 };
 
 ReadinessResult checkReadiness(const ReadinessContext& context);

@@ -1,4 +1,5 @@
 #include "app/AppActivation.h"
+#include "app/AppLanguage.h"
 #include "app/AppController.h"
 #include "app/SingleInstanceGuard.h"
 #include "ui/MainWindow.h"
@@ -19,6 +20,9 @@ int main(int argc, char* argv[])
     QApplication::setApplicationName(QStringLiteral("Contestprogramm"));
     QApplication::setOrganizationName(QStringLiteral("Contestprogramm"));
     QApplication::setApplicationVersion(QStringLiteral(CONTESTPROGRAMM_VERSION));
+
+    // Qts eigene Knopfbeschriftungen auf Deutsch (siehe app/AppLanguage.h).
+    Contestprogramm::installGermanQtTranslations(app);
 
     // Override hook for isolated test runs -- bench-found 2026-09-14: a
     // launch with HOME repointed at a scratch directory still opened the

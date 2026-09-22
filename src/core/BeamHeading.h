@@ -41,6 +41,8 @@
 //                 BeamHeading; no maths changed. AI-assisted via
 //                 Anthropic Claude Code, operator Ralph Martin Fischer.
 // =================================================================
+//   2026-09-22 — longPathDistanceKm() ergänzt (Contestprogramm-eigen,
+//                 nicht aus dem Vorbild portiert).
 
 #include <QString>
 
@@ -51,6 +53,14 @@ double wrap360(double deg);
 
 // The long path for a given short-path bearing.
 double longPath(double shortPathDeg);
+
+// Wie weit es auf dem langen Weg ist: einmal um die Erde, minus dem
+// kurzen Weg. Der Umfang kommt aus demselben Erdradius, mit dem das
+// ganze Programm rechnet (6371 km, siehe core/Maidenhead.cpp) --
+// 40 030 km. Eine Entfernung, die größer als der halbe Umfang ist
+// (rechnerisch möglich, in echten Daten nicht), gibt 0 statt eines
+// negativen Wertes.
+double longPathDistanceKm(double shortPathKm);
 
 // Where a rotor cannot turn through.
 enum class Stop {

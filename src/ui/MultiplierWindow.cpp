@@ -30,7 +30,9 @@ MultiplierWindow::MultiplierWindow(MultiplierTracker& tracker, QWidget* parent)
     // header bar below needs its own chrome.
     // "Locator-Felder", not "Multiplikatoren": with the km scoring
     // (data/ContestScoring.h) a large square is no score factor, this
-    // list answers "which squares are still open on which band".
+    // list answers "which squares are still open on which band". Bei
+    // einer anderen Grundlage (Präfix auf Kurzwelle) heißt das Fenster
+    // anders -- siehe applyBasisWording().
     m_header = new PanelHeaderBar(QStringLiteral("Locator-Felder"), this);
 
     m_table = new QTableWidget(this);
@@ -64,7 +66,33 @@ void MultiplierWindow::setContest(const QString& contestId, const ContestDefinit
 {
     m_contestId = contestId;
     m_definition = definition;
+    applyBasisWording();
     refresh();
+}
+
+// Das Fenster heißt nach dem, was drinsteht: auf UKW Locator-Felder,
+// auf Kurzwelle Präfixe. Eine Liste mit der Überschrift "Feld", in der
+// "OE5" steht, wäre schlicht falsch beschriftet.
+void MultiplierWindow::applyBasisWording()
+{
+    const QString basis = m_definition ? m_definition->multiplierField() : QStringLiteral("grid");
+    QString title = QStringLiteral("Locator-Felder");
+    QString column = QStringLiteral("Feld");
+    if (basis == QStringLiteral("prefix")) {
+        title = QStringLiteral("Präfixe");
+        column = QStringLiteral("Präfix");
+    } else if (basis == QStringLiteral("dxcc")) {
+        title = QStringLiteral("Länder");
+        column = QStringLiteral("Land");
+    } else if (basis != QStringLiteral("grid")) {
+        title = QStringLiteral("Multiplikatoren");
+        column = QStringLiteral("Schlüssel");
+    }
+    setWindowTitle(QStringLiteral("Contestprogramm - %1").arg(title));
+    if (m_header) {
+        m_header->setTitle(title);
+    }
+    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), column, QStringLiteral("gearbeitet")});
 }
 
 void MultiplierWindow::refresh()

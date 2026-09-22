@@ -12,8 +12,24 @@ struct BandRange {
 };
 
 // Base = the band as it is named; the range tolerates a rig sweeping a
-// little past the allocation.
+// little past the allocation. The HF entries carry the widest
+// allocation any ITU region grants (e.g. 40 m up to 7.300, which is
+// Region 2/3), so a rig parked on a frequency that is legal somewhere
+// still names its band here rather than falling through to "unknown" --
+// this table answers "which band is this?", not "am I allowed to
+// transmit here?".
+//
+// 60 m is deliberately absent: a 15 kHz sliver no contest works, and
+// ContestDefinition::bands() is what actually gates logging anyway.
 constexpr BandRange kBands[] = {
+    {"1.8", 1800000LL, 1800000LL, 2000000LL},
+    {"3.5", 3500000LL, 3500000LL, 4000000LL},
+    {"7", 7000000LL, 7000000LL, 7300000LL},
+    {"10", 10100000LL, 10100000LL, 10150000LL},
+    {"14", 14000000LL, 14000000LL, 14350000LL},
+    {"18", 18068000LL, 18068000LL, 18168000LL},
+    {"21", 21000000LL, 21000000LL, 21450000LL},
+    {"24", 24890000LL, 24890000LL, 24990000LL},
     {"28", 28000000LL, 28000000LL, 29700000LL},
     {"50", 50000000LL, 50000000LL, 54000000LL},
     {"70", 70000000LL, 70000000LL, 70500000LL},

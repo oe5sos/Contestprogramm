@@ -149,7 +149,7 @@ double ChatFeedModel::computeScore(const SpotCandidate& candidate, bool worked, 
 
     bool needed = false;
     if (m_multiplierTracker && !band.isEmpty() && !candidate.grid.isEmpty()) {
-        needed = m_multiplierTracker->isNeededMultiplier(band, candidate.grid);
+        needed = m_multiplierTracker->isNeededMultiplier(band, candidate.grid, candidate.callsign);
     }
 
     // The plan's "Rate-Potenzial aus einem frischen eigenen QSO" --

@@ -99,6 +99,8 @@ private slots:
     void exportAdif();
     void exportEdi();
     void loadScpFile();
+    void loadCountryFile();
+    QString mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate = nullptr) const;
     void importOldLogs();
     void archiveActiveContest();
     void refreshCheckPartial();
@@ -428,6 +430,10 @@ private:
     // contest switch and logged QSO, the widget is refreshed from
     // the entry row's formChanged.
     CheckPartialIndex m_checkPartialIndex;
+    // Die Länderliste selbst liegt im AppController (auch der
+    // Multiplikator-Zähler braucht sie); hier steht nur, ob sie beim
+    // Start schon einmal vom gemerkten Pfad gelesen wurde.
+    bool m_countryListLoaded = false;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
     bool m_scpLoaded = false;

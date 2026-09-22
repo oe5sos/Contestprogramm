@@ -36,6 +36,7 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
+#include "ui/CabrilloExportDialog.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
@@ -1212,6 +1213,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
     QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
     connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* loadCountryAction = fileMenu->addAction(QStringLiteral("&Länderliste laden (cty.dat)..."));
+    connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
     QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
     connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
     QAction* transverterAction = fileMenu->addAction(QStringLiteral("Trans&verter..."));
@@ -1605,7 +1608,8 @@ void MainWindow::applyActiveContestDefinition()
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
-        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
+        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring(),
+                                      def->multiplierField(), &m_appController.countryIndex());
     }
     reloadCheckPartialSources();
     refreshScoreboard();
@@ -1879,11 +1883,17 @@ void MainWindow::pushRotorHeadingToMap(RotctldClient& client, bool connected, do
     if (!m_mapWidget) {
         return;
     }
-    if (&client == &m_appController.rotor1Client()) {
+    // `connected` heißt hier "dieser Steckplatz hat ein Bedienfeld"
+    // (siehe die Aufrufstellen) -- ob der Draht zum Rotor wirklich
+    // steht, ist eine zweite Frage, und die Karte soll sie ehrlich
+    // beantworten statt eine Peilung vorzutäuschen.
+    const bool isRotor1 = &client == &m_appController.rotor1Client();
+    if (isRotor1) {
         m_mapWidget->setRotor1Heading(connected, azimuthDeg, label);
     } else {
         m_mapWidget->setRotor2Heading(connected, azimuthDeg, label);
     }
+    m_mapWidget->setRotorLinkLive(isRotor1 ? 1 : 2, connected && client.isConnected());
 }
 
 RotorWidget* MainWindow::rotorWidgetForClient(RotctldClient* client) const
@@ -1996,17 +2006,25 @@ void MainWindow::refreshMapWidget()
     QVector<MapWidget::Station> stations;
     QSet<QString> workedCallsigns;
 
-    // Worked stations: every logged QSO in the active contest that has
-    // a grid to plot (ContestDatabase::qsosWithGrid already does the
-    // "has a grid" filtering in SQL).
-    const QVector<QsoRecord> worked = m_appController.database().qsosWithGrid(settings.activeContestId);
+    // Gearbeitete Stationen: jedes geloggte QSO des aktiven Contests,
+    // für das ein Ort bekannt ist. Bis 2026-09-22 waren das nur die
+    // mit getauschtem Locator (qsosWithGrid filterte das in SQL) -- auf
+    // Kurzwelle hat keines einen, und dort ist der Mittelpunkt des
+    // Landes die einzige Angabe, die es gibt.
+    const QVector<QsoRecord> worked = m_appController.database().qsosForContest(settings.activeContestId);
     for (const QsoRecord& record : worked) {
         if (record.isInvalid) {
             continue; // struck from the log, not a worked station
         }
+        bool approximate = false;
+        const QString grid = mapGridForCallsign(record.callsign, record.gridSquare, &approximate);
+        if (grid.isEmpty()) {
+            continue; // kein Ort bekannt -- dann auch kein Punkt
+        }
         MapWidget::Station station;
         station.callsign = record.callsign;
-        station.grid = record.gridSquare;
+        station.grid = grid;
+        station.approximate = approximate;
         station.worked = true;
         station.freqHz = record.freqHz.value_or(0);
         // Same QDateTime::fromString(..., Qt::ISODate) round-trip
@@ -2037,17 +2055,20 @@ void MainWindow::refreshMapWidget()
                 continue;
             }
             const SpotCandidate& candidate = model.candidateAt(row);
-            if (candidate.grid.isEmpty()) {
-                continue;
-            }
             const QString key = candidate.callsign.trimmed().toUpper();
             if (key.isEmpty() || workedCallsigns.contains(key) || spottedCallsigns.contains(key)) {
+                continue;
+            }
+            bool approximate = false;
+            const QString grid = mapGridForCallsign(candidate.callsign, candidate.grid, &approximate);
+            if (grid.isEmpty()) {
                 continue;
             }
             spottedCallsigns.insert(key);
             MapWidget::Station station;
             station.callsign = candidate.callsign;
-            station.grid = candidate.grid;
+            station.grid = grid;
+            station.approximate = approximate;
             station.worked = false;
             station.freqHz = candidate.freqHz;
             stations.append(station);
@@ -2848,6 +2869,29 @@ void MainWindow::openContestRulesEditor()
     // which applyActiveContestDefinition() (connected in the
     // constructor) picks up to rebuild UnifiedLogWidget's exchange row.
     m_appController.reloadContestDefinitions();
+
+    ContestSettings settings = m_appController.settings();
+    const QString saved = dialog.savedContestId();
+    if (dialog.deletedSelectedContest()) {
+        // Der Contest kann jetzt weg sein (selbst angelegt und
+        // zurückgesetzt). War er der aktive, muss ein anderer her --
+        // sonst steht das Programm ohne Exchange-Zeile da.
+        if (settings.activeContestId == saved && !m_appController.findContestDefinition(saved)) {
+            const QVector<ContestDefinition>& available = m_appController.availableContestDefinitions();
+            settings.activeContestId = available.isEmpty() ? QString() : available.first().id();
+            m_appController.setSettings(settings);
+            applyActiveContestDefinition();
+        }
+        return;
+    }
+    // Ein gerade angelegter Contest ist der, mit dem weitergearbeitet
+    // werden soll -- ihn erst noch in "Contest wählen..." suchen zu
+    // müssen wäre ein Umweg ohne Zweck.
+    if (!saved.isEmpty() && saved != settings.activeContestId && m_appController.findContestDefinition(saved)) {
+        settings.activeContestId = saved;
+        m_appController.setSettings(settings);
+        applyActiveContestDefinition();
+    }
 }
 
 void MainWindow::openContestPicker()
@@ -2920,6 +2964,17 @@ void MainWindow::exportCabrillo()
         return;
     }
 
+    // Erst die Angaben, die kein QSO beantworten kann (Leistung,
+    // Bedienerklasse, Hilfsmittel), dann die Datei -- der Robot liest
+    // sie, und falsch angegeben landet das Log in der falschen
+    // Wertungsklasse.
+    CabrilloExportDialog categoriesDialog(CabrilloCategories::load(m_appController.database()), this);
+    if (categoriesDialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const CabrilloCategories categories = categoriesDialog.categories();
+    categories.save(m_appController.database());
+
     const QString suggested = settings.activeContestId + QStringLiteral(".cbr");
     const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Cabrillo exportieren"), suggested,
                                                         QStringLiteral("Cabrillo-Log (*.cbr *.log)"));
@@ -2928,7 +2983,7 @@ void MainWindow::exportCabrillo()
     }
 
     CabrilloExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId, *def, settings);
+    const QString text = exporter.exportContest(settings.activeContestId, *def, settings, categories);
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -3015,6 +3070,16 @@ void MainWindow::reloadCheckPartialSources()
         QFile file(path);
         if (!path.isEmpty() && file.open(QIODevice::ReadOnly)) {
             m_checkPartialIndex.setScpCalls(CheckPartialIndex::parseScp(file.readAll()));
+        }
+    }
+    // Dieselbe Regel für die Länderliste: einmal vom gemerkten Pfad,
+    // eine fehlende Datei lässt sie eben leer.
+    if (!m_countryListLoaded) {
+        m_countryListLoaded = true;
+        const QString countryPath = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+        QFile countryFile(countryPath);
+        if (!countryPath.isEmpty() && countryFile.open(QIODevice::ReadOnly)) {
+            m_appController.countryIndex().loadFromCty(countryFile.readAll());
         }
     }
     const QString scpPath = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
@@ -3105,6 +3170,63 @@ void MainWindow::loadScpFile()
                                      m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
     refreshCheckPartial();
     statusBar()->showMessage(QStringLiteral("SCP-Liste geladen: %1 Rufzeichen aus %2").arg(calls.size()).arg(QFileInfo(path).fileName()), 5000);
+}
+
+void MainWindow::loadCountryFile()
+{
+    const QString previous = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Länderliste laden"), previous,
+                                                      QStringLiteral("Länderlisten (cty.dat *.dat);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Länderliste konnte nicht gelesen werden:\n%1").arg(file.errorString()));
+        return;
+    }
+    QString error;
+    if (!m_appController.countryIndex().loadFromCty(file.readAll(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"), error);
+        return;
+    }
+    m_appController.database().setSettingValue(QStringLiteral("cty_file_path"), path);
+    // Die Liste beantwortet drei Fragen auf einmal: wo eine Station
+    // steht (Karte), welches Land sie ist (Multiplikator) und wie viele
+    // davon schon im Log sind (Rate-Kachel).
+    refreshMapWidget();
+    refreshMultiplierAndFeedScores();
+    m_rateMeterWidget->refresh();
+    statusBar()->showMessage(QStringLiteral("Länderliste geladen: %1 Länder, %2 Präfixe aus %3")
+                                 .arg(m_appController.countryIndex().countryCount())
+                                 .arg(m_appController.countryIndex().prefixCount())
+                                 .arg(QFileInfo(path).fileName()),
+                             5000);
+}
+
+// Wo eine Station auf der Karte steht. Der getauschte Locator zuerst --
+// er ist die genaue Angabe. Fehlt er (auf Kurzwelle immer), tritt der
+// Mittelpunkt des Landes an seine Stelle, sofern eine Länderliste
+// geladen ist. Das ist eine grobe Angabe, und die Karte zeichnet sie
+// auch anders (siehe MapWidget::Station::approximate) -- ins Log kommt
+// sie nie.
+QString MainWindow::mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate) const
+{
+    if (approximate) {
+        *approximate = false;
+    }
+    if (isValidGridSquare(knownGrid)) {
+        return knownGrid;
+    }
+    const CountryEntry country = m_appController.countryIndex().lookup(callsign);
+    if (!country.isValid()) {
+        return QString();
+    }
+    if (approximate) {
+        *approximate = true;
+    }
+    return gridSquareFromLatLon(country.latitudeDeg, country.longitudeDeg);
 }
 
 void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newText)
@@ -3890,6 +4012,22 @@ void MainWindow::refreshReadiness()
             && m_appController.terrainDataManager().tileLoader().isTileLoaded(SrtmTileLoader::tileNameForLatLon(lat, lon));
     }
     ctx.importedLocators = m_appController.database().importedLocatorCount();
+    ctx.countryEntries = m_appController.countryIndex().countryCount();
+    // Gebraucht wird sie, wo kein Locator getauscht wird oder wo der
+    // Multiplikator das Land ist -- bei einem UKW-Contest hat sie
+    // nichts zu sagen.
+    if (const ContestDefinition* def = findContestDefinition(settings.activeContestId)) {
+        bool hasGridField = false;
+        for (const ContestDefinition::ExchangeField& field : def->exchangeFields()) {
+            if (field.type.compare(QStringLiteral("grid6"), Qt::CaseInsensitive) == 0
+                || field.type.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0
+                || field.key.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0) {
+                hasGridField = true;
+                break;
+            }
+        }
+        ctx.countryListNeeded = !hasGridField || def->multiplierField() == QStringLiteral("dxcc");
+    }
 
     m_readinessWindow->setResult(checkReadiness(ctx));
 }

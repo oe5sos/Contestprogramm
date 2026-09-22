@@ -1,6 +1,8 @@
 #include "data/CabrilloExporter.h"
 
+#include "BuildInfo.h"
 #include "app/ContestSettings.h"
+#include "core/BandUtils.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
 #include "data/QsoRecord.h"
@@ -34,6 +36,47 @@ QString cabrilloModeCode(const QString& mode)
     return m;
 }
 
+// The QSO line's first field. Cabrillo v3 wants the frequency in kHz
+// below 30 MHz and a band designator above it -- and the designator is
+// the ARRL/CQ spelling ("1.2G"), not this program's own band label
+// ("1296"). A label the table below does not know passes through
+// unchanged, the same best-effort rule cabrilloModeCode() follows.
+QString cabrilloQsoBandField(const QsoRecord& record)
+{
+    const qint64 base = bandBaseHz(record.band);
+    if (base > 0 && base < 30000000LL) {
+        const qint64 hz = record.freqHz.value_or(base);
+        return QString::number(hz / 1000);
+    }
+    static const struct { const char* band; const char* designator; } kDesignators[] = {
+        {"1296", "1.2G"}, {"2320", "2.3G"}, {"3400", "3.4G"}, {"5760", "5.7G"}, {"10368", "10G"},
+    };
+    for (const auto& entry : kDesignators) {
+        if (record.band == QLatin1String(entry.band)) {
+            return QString::fromLatin1(entry.designator);
+        }
+    }
+    return record.band;
+}
+
+// CATEGORY-BAND speaks wavelengths ("20M"), not the megahertz this
+// program names its bands after.
+QString cabrilloCategoryBand(const QString& band)
+{
+    static const struct { const char* band; const char* category; } kCategories[] = {
+        {"1.8", "160M"}, {"3.5", "80M"}, {"7", "40M"}, {"10", "30M"}, {"14", "20M"},
+        {"18", "17M"}, {"21", "15M"}, {"24", "12M"}, {"28", "10M"}, {"50", "6M"},
+        {"70", "4M"}, {"144", "2M"}, {"432", "432"}, {"1296", "1.2G"}, {"2320", "2.3G"},
+        {"3400", "3.4G"}, {"5760", "5.7G"}, {"10368", "10G"},
+    };
+    for (const auto& entry : kCategories) {
+        if (band == QLatin1String(entry.band)) {
+            return QString::fromLatin1(entry.category);
+        }
+    }
+    return band;
+}
+
 QString formatDate(const QString& timestampUtc)
 {
     const QDateTime dt = QDateTime::fromString(timestampUtc, Qt::ISODate);
@@ -54,6 +97,62 @@ QString formatTime(const QString& timestampUtc)
 
 } // namespace
 
+QStringList CabrilloCategories::operatorChoices()
+{
+    return {QStringLiteral("SINGLE-OP"), QStringLiteral("MULTI-OP"), QStringLiteral("CHECKLOG")};
+}
+
+QStringList CabrilloCategories::assistedChoices()
+{
+    return {QStringLiteral("NON-ASSISTED"), QStringLiteral("ASSISTED")};
+}
+
+QStringList CabrilloCategories::powerChoices()
+{
+    return {QStringLiteral("HIGH"), QStringLiteral("LOW"), QStringLiteral("QRP")};
+}
+
+QStringList CabrilloCategories::transmitterChoices()
+{
+    return {QStringLiteral("ONE"), QStringLiteral("TWO"), QStringLiteral("LIMITED"), QStringLiteral("UNLIMITED"),
+            QStringLiteral("SWL")};
+}
+
+QStringList CabrilloCategories::stationChoices()
+{
+    return {QStringLiteral("FIXED"), QStringLiteral("PORTABLE"), QStringLiteral("MOBILE"),
+            QStringLiteral("EXPEDITION"), QStringLiteral("SCHOOL")};
+}
+
+CabrilloCategories CabrilloCategories::load(const ContestDatabase& database)
+{
+    CabrilloCategories c;
+    const auto value = [&database](const QString& key, const QString& fallback) {
+        const QString stored = database.settingValue(key, fallback);
+        return stored.isEmpty() ? fallback : stored;
+    };
+    c.operatorCategory = value(QStringLiteral("cabrillo_operator"), c.operatorCategory);
+    c.assisted = value(QStringLiteral("cabrillo_assisted"), c.assisted);
+    c.power = value(QStringLiteral("cabrillo_power"), c.power);
+    c.transmitter = value(QStringLiteral("cabrillo_transmitter"), c.transmitter);
+    c.station = value(QStringLiteral("cabrillo_station"), c.station);
+    // Club und E-Mail dürfen leer sein -- dort ist leer eine Antwort.
+    c.club = database.settingValue(QStringLiteral("cabrillo_club"));
+    c.email = database.settingValue(QStringLiteral("cabrillo_email"));
+    return c;
+}
+
+void CabrilloCategories::save(ContestDatabase& database) const
+{
+    database.setSettingValue(QStringLiteral("cabrillo_operator"), operatorCategory);
+    database.setSettingValue(QStringLiteral("cabrillo_assisted"), assisted);
+    database.setSettingValue(QStringLiteral("cabrillo_power"), power);
+    database.setSettingValue(QStringLiteral("cabrillo_transmitter"), transmitter);
+    database.setSettingValue(QStringLiteral("cabrillo_station"), station);
+    database.setSettingValue(QStringLiteral("cabrillo_club"), club.trimmed());
+    database.setSettingValue(QStringLiteral("cabrillo_email"), email.trimmed());
+}
+
 CabrilloExporter::CabrilloExporter(ContestDatabase& database)
     : m_database(&database)
 {
@@ -62,7 +161,7 @@ CabrilloExporter::CabrilloExporter(ContestDatabase& database)
 QString CabrilloExporter::exportContest(const QString& contestId,
                                         const ContestDefinition& definition,
                                         const ContestSettings& settings,
-                                        const QString& categoryPower) const
+                                        const CabrilloCategories& categories) const
 {
     QVector<QsoRecord> records = m_database->qsosForContest(contestId);
     // A QSO marked invalid (see QsoRecord::isInvalid / this task's
@@ -79,24 +178,41 @@ QString CabrilloExporter::exportContest(const QString& contestId,
         distinctBands.insert(record.band);
         distinctModes.insert(cabrilloModeCode(record.mode));
     }
-    const QString categoryBand = distinctBands.size() == 1 ? *distinctBands.begin() : QStringLiteral("ALL");
+    const QString categoryBand = distinctBands.size() == 1 ? cabrilloCategoryBand(*distinctBands.begin())
+                                                          : QStringLiteral("ALL");
     const QString categoryMode = distinctModes.size() == 1 ? *distinctModes.begin() : QStringLiteral("MIXED");
 
     QStringList lines;
     lines << QStringLiteral("START-OF-LOG: 3.0");
     lines << QStringLiteral("CALLSIGN: %1").arg(settings.ownCallsign);
-    lines << QStringLiteral("CONTEST: %1").arg(definition.id());
-    lines << QStringLiteral("CATEGORY-OPERATOR: SINGLE-OP");
+    // The robot reads this, so it must be the contest's own Cabrillo
+    // name ("CQ-WW-CW"), not this program's internal id. A definition
+    // without the key keeps the old behaviour -- better a wrong name
+    // than an empty field, and the VHF/UHF contests submit EDI anyway.
+    lines << QStringLiteral("CONTEST: %1").arg(definition.cabrilloName().isEmpty() ? definition.id()
+                                                                                   : definition.cabrilloName());
+    lines << QStringLiteral("CATEGORY-OPERATOR: %1").arg(categories.operatorCategory);
+    lines << QStringLiteral("CATEGORY-ASSISTED: %1").arg(categories.assisted);
     lines << QStringLiteral("CATEGORY-BAND: %1").arg(categoryBand);
     lines << QStringLiteral("CATEGORY-MODE: %1").arg(categoryMode);
-    lines << QStringLiteral("CATEGORY-POWER: %1").arg(categoryPower);
-    lines << QStringLiteral("CATEGORY-STATION: FIXED");
-    lines << QStringLiteral("LOCATION: %1").arg(settings.ownGrid);
-    lines << QStringLiteral("CREATED-BY: Contestprogramm 1.0");
+    lines << QStringLiteral("CATEGORY-POWER: %1").arg(categories.power);
+    lines << QStringLiteral("CATEGORY-STATION: %1").arg(categories.station);
+    lines << QStringLiteral("CATEGORY-TRANSMITTER: %1").arg(categories.transmitter);
+    if (!categories.club.trimmed().isEmpty()) {
+        lines << QStringLiteral("CLUB: %1").arg(categories.club.trimmed());
+    }
+    if (!categories.email.trimmed().isEmpty()) {
+        lines << QStringLiteral("EMAIL: %1").arg(categories.email.trimmed());
+    }
+    // GRID-LOCATOR, not LOCATION: the latter carries a section/country
+    // ("DX", "OE"), and a Maidenhead square in it is simply the wrong
+    // field.
+    lines << QStringLiteral("GRID-LOCATOR: %1").arg(settings.ownGrid);
+    lines << QStringLiteral("CREATED-BY: Contestprogramm %1").arg(QStringLiteral(CONTESTPROGRAMM_VERSION));
 
     for (const QsoRecord& record : records) {
         lines << QStringLiteral("QSO: %1 %2 %3 %4 %5 %6 %7 %8")
-                     .arg(record.band)
+                     .arg(cabrilloQsoBandField(record))
                      .arg(cabrilloModeCode(record.mode))
                      .arg(formatDate(record.timestampUtc))
                      .arg(formatTime(record.timestampUtc))

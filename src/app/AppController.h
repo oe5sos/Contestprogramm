@@ -3,6 +3,7 @@
 #include "app/ContestSettings.h"
 #include "core/BroadcastPublisher.h"
 #include "core/CallsignLocatorLookup.h"
+#include "core/CountryPrefixIndex.h"
 #include "core/DxClusterClient.h"
 #include "core/GeoFilter.h"
 #include "core/On4kstClient.h"
@@ -118,6 +119,8 @@ public:
     // read it (see the constructor) for their own importance scoring.
     RecentPropagationTracker& recentPropagationTracker() { return m_propagationTracker; }
     MultiplierTracker& multiplierTracker() { return m_multiplierTracker; }
+    CountryPrefixIndex& countryIndex() { return m_countryIndex; }
+    const CountryPrefixIndex& countryIndex() const { return m_countryIndex; }
     // UDP-Contact-Broadcast-Standard (plan section of the same name) --
     // MainWindow calls publishQso() right after a successful
     // ContestDatabase::insertQso(), the one QSO-insert path that
@@ -221,6 +224,11 @@ private:
     ContestDatabase m_database;
     LogBackup* m_logBackup = nullptr; // owned via QObject parent
     DupeChecker m_dupeChecker; // holds ContestDatabase& -- declared after m_database
+    // Rufzeichen -> Land, aus einer cty.dat, die der Bediener selbst
+    // lädt (MainWindow: Datei > Länderliste laden). Liegt hier und
+    // nicht im Fenster, weil auch der Multiplikator-Zähler sie braucht:
+    // mit multiplier_field "dxcc" zählt er Länder.
+    CountryPrefixIndex m_countryIndex;
     MultiplierTracker m_multiplierTracker; // holds ContestDatabase& -- declared after m_database
     RigctldClient m_rigctldClient;
     On4kstClient m_on4kstClient;

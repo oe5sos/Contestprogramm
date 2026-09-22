@@ -1,5 +1,6 @@
 #include "ui/StyleKit.h"
 
+#include <QStringList>
 #include <QWidget>
 
 #include <algorithm>
@@ -181,6 +182,27 @@ QFont capsFont(const QFont& base, int px)
     return f;
 }
 
+namespace {
+// Eine Liste, zwei Wege hinaus: monoFont() fuer QFont, monoFontFamilyCss()
+// fuer die wenigen Stellen, die eine Schrift in Rich Text setzen muessen.
+QStringList monoFamilies()
+{
+    return {QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("Consolas"),
+            QStringLiteral("Cascadia Mono"), QStringLiteral("DejaVu Sans Mono"),
+            QStringLiteral("Liberation Mono"), QStringLiteral("Courier New")};
+}
+} // namespace
+
+QString monoFontFamilyCss()
+{
+    QStringList quoted;
+    for (const QString& family : monoFamilies()) {
+        quoted << QStringLiteral("\"%1\"").arg(family);
+    }
+    quoted << QStringLiteral("monospace");
+    return quoted.join(QStringLiteral(", "));
+}
+
 QFont monoFont(const QFont& base, int px, QFont::Weight weight)
 {
     QFont f = base;
@@ -202,9 +224,7 @@ QFont monoFont(const QFont& base, int px, QFont::Weight weight)
     // DejaVu/Liberation pair on Linux, all of them 0.55-0.6 em wide like
     // Menlo, so the readout's measured column budgets (RotorWidget.cpp,
     // kReadoutMinWidth) hold on every platform.
-    f.setFamilies({QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("Consolas"),
-                   QStringLiteral("Cascadia Mono"), QStringLiteral("DejaVu Sans Mono"),
-                   QStringLiteral("Liberation Mono"), QStringLiteral("Courier New")});
+    f.setFamilies(monoFamilies());
     f.setStyleHint(QFont::Monospace);
     f.setFixedPitch(true);
     return f;

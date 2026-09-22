@@ -43,6 +43,9 @@ constexpr int kDialMargin = 18;
 // separately-eyeballed number that could silently drift out of sync.
 constexpr int kReadoutTopPad = 6;
 constexpr int kReadoutLabelHeight = 14;  // "Aktuell"/"Ziel"/"Entfernung" caps labels
+// Ab wann der lange Weg überhaupt eine Frage ist. Darunter ist die
+// Gegenrichtung nie die bessere, und die Zeile bliebe nur im Weg.
+constexpr double kLongPathFromKm = 5000.0;
 constexpr int kReadoutValueHeight = 46;  // kFontDisplay (38px) big numbers + leading
 constexpr int kReadoutRowGap = 4;
 constexpr int kReadoutLineHeight = 18;   // one generic text line -- caption row and connection-status row both use this
@@ -757,6 +760,16 @@ void RotorWidget::showOptionsPopup()
     addStyleAction(RotorDialStyle::PartialArc, QStringLiteral("Rotor-Box (Bogen)"));
     addStyleAction(RotorDialStyle::Digital, QStringLiteral("Digital (Zahlen)"));
 
+    // Der lange Weg zum aktuellen Ziel -- nur wenn es eines gibt und es
+    // weit genug weg ist, dass die Gegenrichtung überhaupt eine Frage
+    // ist.
+    if (m_hasTarget && m_targetDistanceKm >= kLongPathFromKm) {
+        menu->addSeparator();
+        const double longPath = BeamHeading::longPath(m_targetBearingDeg);
+        QAction* action = menu->addAction(QStringLiteral("Auf langen Weg drehen (%1°)").arg(longPath, 0, 'f', 0));
+        connect(action, &QAction::triggered, this, [this, longPath]() { emit rotateRequested(longPath); });
+    }
+
     // Below the button, right-aligned with it -- the same positioning
     // rule the real Longpath TxApplet::showFinePopup() uses for its own
     // gear-triggered popup ("Unter dem Zahnrad, aber rechtsbündig mit
@@ -1354,6 +1367,15 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
     drawConnectionStatusRow(painter, QRect(area.left(), y, area.width(), kReadoutLineHeight));
 }
 
+QString RotorWidget::captionText() const
+{
+    QString text;
+    QColor color;
+    bool show = false;
+    computeCaptionLine(text, color, show);
+    return show ? text : QString();
+}
+
 void RotorWidget::computeCaptionLine(QString& text, QColor& color, bool& show) const
 {
     const QColor tertiaryColor{Style::kTextTertiary()};
@@ -1399,6 +1421,14 @@ void RotorWidget::computeCaptionLine(QString& text, QColor& color, bool& show) c
             // is simply left off rather than printing "-1 km".
             if (m_targetDistanceKm >= 0.0) {
                 parts << QStringLiteral("%1 km").arg(m_targetDistanceKm, 0, 'f', 0);
+            }
+            // Ab einer gewissen Entfernung ist der lange Weg eine
+            // ernsthafte zweite Möglichkeit -- darunter nicht, und dann
+            // steht er auch nicht da.
+            if (m_targetDistanceKm >= kLongPathFromKm) {
+                parts << QStringLiteral("lang %1° · %2 km")
+                             .arg(BeamHeading::longPath(m_targetBearingDeg), 0, 'f', 0)
+                             .arg(BeamHeading::longPathDistanceKm(m_targetDistanceKm), 0, 'f', 0);
             }
             text = parts.join(QStringLiteral(" · "));
             show = true;

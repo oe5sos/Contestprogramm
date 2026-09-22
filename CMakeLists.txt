@@ -80,6 +80,12 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/ClockCheck.cpp
     src/core/BandUtils.h
     src/core/BandUtils.cpp
+    src/core/CountryPrefixIndex.h
+    src/core/CountryPrefixIndex.cpp
+    src/core/CallsignPrefix.h
+    src/core/SolarPosition.h
+    src/core/SolarPosition.cpp
+    src/core/CallsignPrefix.cpp
     src/core/Transverter.cpp
     src/core/BroadcastPublisher.h
     src/core/BroadcastPublisher.cpp
@@ -115,6 +121,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/AppController.cpp
     src/app/AppActivation.h
     src/app/AppActivation.cpp
+    src/app/AppLanguage.h
+    src/app/AppLanguage.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
     src/app/SelfUpdater.h
@@ -188,6 +196,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/SettingsDialog.cpp
     src/ui/ContestRulesEditor.h
     src/ui/ContestRulesEditor.cpp
+    src/ui/CabrilloExportDialog.h
+    src/ui/CabrilloExportDialog.cpp
     src/ui/ContestPickerDialog.h
     src/ui/ContestPickerDialog.cpp
     src/ui/MultiplierWindow.h

@@ -275,6 +275,8 @@ private slots:
     void zoomInHalvesVisibleRange();
     void zoomOutDoublesVisibleRange();
     void visibleRangeIsClamped();
+    void zoomStepsGrowBeyondVhfRanges();
+    void optionsMenuOffersRangePresets();
     void fitToWindowDefaultsTrueAndRoundTrips();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
@@ -367,8 +369,28 @@ void TestMapWidgetLive::visibleRangeIsClamped()
     MapWidget widget;
     widget.setVisibleRangeKm(1.0);
     QVERIFY(widget.visibleRangeKm() >= 25.0);
+    // Kurzwelle: die Gegenseite der Erde liegt gut 20 000 km weit weg.
     widget.setVisibleRangeKm(100000.0);
-    QVERIFY(widget.visibleRangeKm() <= 3200.0);
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
+}
+
+// Unter 3 200 km bleibt der Klick bei 250 km -- darüber wären das
+// siebenundsechzig Klicks bis zum Rand.
+void TestMapWidgetLive::zoomStepsGrowBeyondVhfRanges()
+{
+    MapWidget widget;
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomIn();
+    QCOMPARE(widget.visibleRangeKm(), 2950.0); // noch der UKW-Schritt
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 4200.0);
+    widget.setVisibleRangeKm(10000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 12500.0);
+    widget.setVisibleRangeKm(20000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0); // am Anschlag
 }
 
 void TestMapWidgetLive::fitToWindowDefaultsTrueAndRoundTrips()
@@ -504,6 +526,10 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     MapWidget widget;
     widget.setGridLayerVisible(true);
     widget.setCitiesLayerVisible(true);
+    // Die Graulinie ist standardmäßig aus (auf UKW ohne Bedeutung) und
+    // muss den Weg durch die gespeicherten Einstellungen überstehen.
+    QVERIFY(!widget.greylineLayerVisible());
+    widget.setGreylineLayerVisible(true);
     widget.setHorizonLayerVisible(false);
     widget.setAgingEnabled(false);
     widget.setRotor1BeamwidthDeg(25.0);
@@ -513,12 +539,14 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     QVERIFY(text.contains(QStringLiteral("rgrid=1")));
     QVERIFY(text.contains(QStringLiteral("rcities=1")));
     QVERIFY(text.contains(QStringLiteral("bw1=25")));
+    QVERIFY2(text.contains(QStringLiteral("greyline=1")), qPrintable(text));
 
     MapWidget other;
     QSignalSpy changed(&other, &MapWidget::preferencesChanged);
     other.applyPreferencesText(text);
     QVERIFY(other.gridLayerVisible());
     QVERIFY(other.citiesLayerVisible());
+    QVERIFY(other.greylineLayerVisible());
     QVERIFY(!other.horizonLayerVisible());
     QVERIFY(!other.agingEnabled());
     QVERIFY(other.ringsLayerVisible()); // untouched keys keep their default
@@ -658,6 +686,39 @@ void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
     QCOMPARE(toggled.count(), 1);
     // Not a map preference: the preferences text does not carry it.
     QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
+}
+
+// Sprungweiten im ⚙-Menü: von 300 km auf die Weltkarte wären es mit
+// den Zoomtasten zwanzig Klicks.
+void TestMapWidgetLive::optionsMenuOffersRangePresets()
+{
+    MapWidget widget;
+    widget.setVisibleRangeKm(300.0);
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+    QMenu* rangeMenu = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->menu() && action->text() == QStringLiteral("Reichweite")) {
+            rangeMenu = action->menu();
+        }
+    }
+    QVERIFY2(rangeMenu, "Kein Reichweiten-Untermenü");
+    QStringList labels;
+    QAction* world = nullptr;
+    for (QAction* action : rangeMenu->actions()) {
+        labels << action->text();
+        if (action->text().startsWith(QStringLiteral("20"))) {
+            world = action;
+        }
+        // Der Eintrag, auf dem die Karte gerade steht, ist angehakt.
+        if (action->text().startsWith(QStringLiteral("300"))) {
+            QVERIFY(action->isChecked());
+        }
+    }
+    QCOMPARE(labels.size(), 6);
+    QVERIFY2(world, qPrintable(labels.join(QStringLiteral(", "))));
+    world->trigger();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
 }
 
 int main(int argc, char* argv[])

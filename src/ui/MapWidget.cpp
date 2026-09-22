@@ -3,6 +3,7 @@
 #include "core/Cities.h"
 #include "core/CountryBorders.h"
 #include "core/Maidenhead.h"
+#include "core/SolarPosition.h"
 #include "ui/StyleKit.h"
 
 #include <QAction>
@@ -46,9 +47,38 @@ constexpr int kMinScopeWidthWithNumbers = 240;
 constexpr double kStripMaxElevationDeg = 8.0;
 constexpr double kRimMaxThicknessPx = 22.0;
 constexpr double kMinVisibleRangeKm = 25.0;
-constexpr double kMaxVisibleRangeKm = 3200.0;
+// Kurzwelle: eine Station auf der anderen Seite der Erde ist gut
+// 20 000 km weit weg. Die Obergrenze lag bei 3 200 km -- richtig,
+// solange nur UKW im Spiel war.
+constexpr double kMaxVisibleRangeKm = 20000.0;
 // Operator, 2026-09-14: "mache schritte beim radius bitte alle 250km".
 constexpr double kVisibleRangeStepKm = 250.0;
+
+// Was im ⚙-Menü als Sprungweite steht: vom Nahbereich bis zur
+// Weltkarte, ohne zwanzigmal auf die Zoomtaste zu drücken.
+constexpr double kRangePresetsKm[] = {100.0, 300.0, 1000.0, 3000.0, 10000.0, 20000.0};
+
+// Die Graulinie wandert gut 15 Grad je Stunde, also rund 0,25 Grad je
+// Minute -- einmal je Minute neu zeichnen ist mehr, als man sieht.
+constexpr int kGreylineRefreshIntervalMs = 60 * 1000;
+// Bürgerliche Dämmerung: die Sonne 6 Grad unter dem Horizont. Auf der
+// Kugel sind das 6/90 des Viertelumfangs jenseits der Tag-Nacht-Grenze,
+// rund 667 km -- so breit ist das Band, das gezeichnet wird.
+constexpr double kCivilTwilightDeg = 6.0;
+
+// Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
+// Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
+// 250km") -- darüber wären das 67 Klicks bis zur Gegenseite der Erde.
+double zoomStepKm(double rangeKm)
+{
+    if (rangeKm < 3200.0) {
+        return kVisibleRangeStepKm;
+    }
+    if (rangeKm < 10000.0) {
+        return 1000.0;
+    }
+    return 2500.0;
+}
 // Operator, 2026-09-12: "die wichtigsten großen städte ab 150 km".
 constexpr double kCityMinDistanceKm = 150.0;
 // Operator, 2026-09-13: "alte Kontakte ausgrauen" -- full colour for
@@ -160,6 +190,11 @@ MapWidget::MapWidget(QWidget* parent)
     if (m_showAging) {
         m_agingRefreshTimer->start();
     }
+
+    m_greylineTimer = new QTimer(this);
+    m_greylineTimer->setInterval(kGreylineRefreshIntervalMs);
+    connect(m_greylineTimer, &QTimer::timeout, this, QOverload<>::of(&MapWidget::update));
+    syncGreylineTimer();
 }
 
 void MapWidget::buildControls()
@@ -192,6 +227,10 @@ void MapWidget::buildControls()
         return action;
     };
     m_ringsAction = addToggle(QStringLiteral("Entfernungsringe"), QStringLiteral("Ringe alle 100 km"), &MapWidget::setRingsLayerVisible);
+    m_greylineAction = addToggle(QStringLiteral("Graulinie"),
+                                 QStringLiteral("Wo gerade Dämmerung ist -- auf Kurzwelle die Zone, in der die "
+                                                "unteren Bänder aufmachen"),
+                                 &MapWidget::setGreylineLayerVisible);
     m_spokesAction = addToggle(QStringLiteral("Peilung"), QStringLiteral("Gradteilung am Rand, in der Karte auch Speichen"), &MapWidget::setSpokesLayerVisible);
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
     m_rotor1Action = addToggle(QStringLiteral("Rotor 1"), QStringLiteral("Peilung von Rotor 1 als Lichtkegel"), &MapWidget::setRotor1HeadingLayerVisible);
@@ -262,6 +301,7 @@ void MapWidget::syncControls()
     };
     sync(m_gridAction, m_layers.grid);
     sync(m_ringsAction, m_showRings);
+    sync(m_greylineAction, m_layers.greyline);
     sync(m_spokesAction, m_showSpokes);
     sync(m_workedCellsAction, m_layers.cells);
     sync(m_bordersAction, m_layers.borders);
@@ -294,6 +334,7 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     }
     syncControls();
     menu->addAction(m_ringsAction);
+    menu->addAction(m_greylineAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
     menu->addAction(m_rotor1Action);
@@ -320,6 +361,18 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     };
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), m_beamwidth1Deg, &MapWidget::setRotor1BeamwidthDeg);
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), m_beamwidth2Deg, &MapWidget::setRotor2BeamwidthDeg);
+    // Sprungweiten statt Klicken: von 300 km auf die Weltkarte wären es
+    // mit den beiden Zoomtasten zwanzig Klicks.
+    QMenu* rangeMenu = menu->addMenu(QStringLiteral("Reichweite"));
+    auto* rangeGroup = new QActionGroup(rangeMenu);
+    rangeGroup->setExclusive(true);
+    for (double km : kRangePresetsKm) {
+        QAction* action = rangeMenu->addAction(QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(km))));
+        action->setCheckable(true);
+        action->setChecked(std::fabs(m_visibleRangeKm - km) < 0.5);
+        rangeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, km] { setVisibleRangeKm(km); });
+    }
     menu->addAction(m_agingAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
@@ -339,7 +392,8 @@ void MapWidget::notePreferenceChange()
 void MapWidget::refreshZoomLabel() const
 {
     if (m_zoomRangeLabel) {
-        m_zoomRangeLabel->setText(QStringLiteral("%1 km").arg(m_visibleRangeKm, 0, 'f', 0));
+        m_zoomRangeLabel->setText(
+            QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(std::llround(m_visibleRangeKm)))));
     }
 }
 
@@ -392,6 +446,31 @@ MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
 #undef MAPWIDGET_TOGGLE
 
+// Nicht über das Makro: diese Schicht hat einen Zeitgeber, der mit ihr
+// an- und ausgeht.
+void MapWidget::setGreylineLayerVisible(bool on)
+{
+    if (m_layers.greyline == on) {
+        syncControls();
+        return;
+    }
+    m_layers.greyline = on;
+    syncGreylineTimer();
+    notePreferenceChange();
+}
+
+void MapWidget::syncGreylineTimer()
+{
+    if (!m_greylineTimer) {
+        return;
+    }
+    if (m_layers.greyline) {
+        m_greylineTimer->start();
+    } else {
+        m_greylineTimer->stop();
+    }
+}
+
 void MapWidget::setAgingEnabled(bool enabled)
 {
     if (m_showAging != enabled) {
@@ -426,6 +505,16 @@ void MapWidget::setRotor1Heading(bool connected, double azimuthDeg, const QStrin
     m_rotor1Connected = connected;
     m_rotor1AzimuthDeg = azimuthDeg;
     m_rotor1Label = label;
+    update();
+}
+
+void MapWidget::setRotorLinkLive(int rotor, bool live)
+{
+    bool& member = rotor == 2 ? m_rotor2Live : m_rotor1Live;
+    if (member == live) {
+        return;
+    }
+    member = live;
     update();
 }
 
@@ -496,12 +585,14 @@ void MapWidget::setVisibleRangeKm(double rangeKm)
 
 void MapWidget::zoomIn()
 {
-    setVisibleRangeKm(m_visibleRangeKm - kVisibleRangeStepKm);
+    // Der Schritt der Stufe, in die es hineingeht, nicht der, aus der
+    // es kommt -- sonst springt ein Klick bei 3 200 km um 1 000 km.
+    setVisibleRangeKm(m_visibleRangeKm - zoomStepKm(m_visibleRangeKm - 1.0));
 }
 
 void MapWidget::zoomOut()
 {
-    setVisibleRangeKm(m_visibleRangeKm + kVisibleRangeStepKm);
+    setVisibleRangeKm(m_visibleRangeKm + zoomStepKm(m_visibleRangeKm));
 }
 
 QString MapWidget::preferencesText() const
@@ -510,11 +601,12 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
-        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities));
+        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
+             flag(m_layers.greyline));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -549,6 +641,9 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_layers.borders);
         } else if (key == QStringLiteral("rcities")) {
             apply(m_layers.cities);
+        } else if (key == QStringLiteral("greyline")) {
+            apply(m_layers.greyline);
+            syncGreylineTimer();
         } else if (key == QStringLiteral("aging")) {
             if (m_showAging != on) {
                 changed = true;
@@ -824,8 +919,13 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     // Quiet lines, no land fill, no country names: orientation, not a
     // school atlas. The radar dims them further.
     // Quieter still on the radar, where the scope is the point.
+    // Je weiter die Karte reicht, desto kleiner und blasser werden die
+    // Umrisse -- auf der Weltkarte blieben von den Küstenlinien bei
+    // Alpha 90 nur Andeutungen übrig. Im Nahbereich bleibt es bei der
+    // Zurückhaltung von 2026-09-12 ("Orientierung, kein Schulatlas").
     QColor line{Style::kTextInactive()};
-    line.setAlpha(90);
+    const double reach = std::clamp((m_visibleRangeKm - 1000.0) / (20000.0 - 1000.0), 0.0, 1.0);
+    line.setAlpha(static_cast<int>(std::lround(90.0 + reach * 70.0)));
     painter.setPen(QPen(line, 1.0));
     painter.setBrush(Qt::NoBrush);
     const QRectF keep = area.adjusted(-2000, -2000, 2000, 2000);
@@ -848,6 +948,91 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
             }
         }
         painter.drawPath(path);
+    }
+}
+
+// Die Dämmerungszone als Band, nicht als ausgemalte Nachtseite: die
+// Karte ist dunkel, eine halb zugedeckte Scheibe würde mit den
+// anderen Schichten streiten. Dazu die Sonne als kleiner Ring, damit
+// zu sehen ist, welche Seite Tag ist.
+//
+// Gezeichnet wird der Kreis mit 10 008 km Abstand um den GEGENPUNKT
+// der Sonne -- in dieser Darstellung (Richtung und Entfernung vom
+// eigenen Standort) ist das kein Kreis mehr, sondern ein Vieleck aus
+// 360 gerechneten Punkten. Wo es den Gegenpunkt des eigenen Standorts
+// streift, läuft die Linie über den Rand der Scheibe; dort wird sie
+// abgesetzt statt quer durchs Bild gezogen.
+void MapWidget::drawGreylineLayer(QPainter& painter, const QRectF& area) const
+{
+    if (!isValidGridSquare(m_ownGrid)) {
+        return;
+    }
+    double homeLat = 0.0;
+    double homeLon = 0.0;
+    calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+
+    const SolarPoint sun = subsolarPoint(QDateTime::currentDateTimeUtc());
+    const double antiLat = -sun.latitudeDeg;
+    const double antiLon = sun.longitudeDeg > 0.0 ? sun.longitudeDeg - 180.0 : sun.longitudeDeg + 180.0;
+
+    const auto plot = [&](double lat, double lon, bool& nearRim) {
+        const double bearing = calculateBearingInDegreesBetween(homeLat, homeLon, lat, lon);
+        const double distance = calculateDistanceKmBetween(homeLat, homeLon, lat, lon);
+        nearRim = distance > 0.97 * m_visibleRangeKm;
+        return projectBearingDistance(bearing, distance, m_visibleRangeKm, area);
+    };
+
+    const auto ringPath = [&](double radiusKm) {
+        QPainterPath path;
+        bool started = false;
+        bool previousNearRim = false;
+        QPointF previous;
+        for (int azimuth = 0; azimuth <= 360; ++azimuth) {
+            double lat = 0.0;
+            double lon = 0.0;
+            destinationPoint(antiLat, antiLon, azimuth % 360, radiusKm, lat, lon);
+            bool nearRim = false;
+            const QPointF point = plot(lat, lon, nearRim);
+            const bool jump = started
+                && QLineF(previous, point).length() > area.width() / 4.0
+                && (nearRim || previousNearRim);
+            if (!started || jump) {
+                path.moveTo(point);
+                started = true;
+            } else {
+                path.lineTo(point);
+            }
+            previous = point;
+            previousNearRim = nearRim;
+        }
+        return path;
+    };
+
+    painter.setBrush(Qt::NoBrush);
+    // Das Band zuerst, breit und leise; die Linie selbst darüber.
+    const double radius = terminatorRadiusKm();
+    const double twilight = radius * kCivilTwilightDeg / 90.0;
+    QColor band{Style::kTextSecondary()};
+    band.setAlpha(45);
+    painter.setPen(QPen(band, 1.0, Qt::DotLine));
+    painter.drawPath(ringPath(radius - twilight));
+    painter.drawPath(ringPath(radius + twilight));
+    QColor line{Style::kTextPrimary()};
+    line.setAlpha(110);
+    painter.setPen(QPen(line, 1.6));
+    painter.drawPath(ringPath(radius));
+
+    // Die Sonne, wenn sie im Bild liegt: ein Ring in Bernstein, kein
+    // ausgefüllter Punkt -- ausgefüllte Punkte sind hier Stationen.
+    bool sunNearRim = false;
+    const double sunDistance = calculateDistanceKmBetween(homeLat, homeLon, sun.latitudeDeg, sun.longitudeDeg);
+    if (sunDistance <= m_visibleRangeKm) {
+        const QPointF point = plot(sun.latitudeDeg, sun.longitudeDeg, sunNearRim);
+        QColor sunColor{Style::kAmberText()};
+        sunColor.setAlpha(150);
+        painter.setPen(QPen(sunColor, 1.4));
+        painter.drawEllipse(point, 5.0, 5.0);
+        painter.drawEllipse(point, 9.0, 9.0);
     }
 }
 
@@ -927,10 +1112,20 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
     const double halfHeight = area.height() / 2.0;
     painter.setBrush(Qt::NoBrush);
     painter.setFont(Style::monoFont(font(), Style::kFontCaption));
-    const double step = m_visibleRangeKm <= 300.0 ? 50.0 : 100.0;
+    // Bis 3 200 km unverändert (50 km im Nahbereich, sonst 100). Darüber
+    // wären 100-km-Ringe bei 20 000 km zweihundert Kreise.
+    double step = 100.0;
+    if (m_visibleRangeKm <= 300.0) {
+        step = 50.0;
+    } else if (m_visibleRangeKm > 12000.0) {
+        step = 2500.0;
+    } else if (m_visibleRangeKm > 3200.0) {
+        step = 1000.0;
+    }
+    const double majorEvery = step <= 100.0 ? 200.0 : step * 5.0;
     for (double km = step; km < m_visibleRangeKm - 0.5; km += step) {
         const double frac = km / m_visibleRangeKm;
-        const bool major = std::fmod(km, 200.0) < 0.5;
+        const bool major = std::fmod(km, majorEvery) < 0.5;
         QColor color{Style::kBorder()};
         color.setAlpha(major ? 255 : 150);
         QPen pen(color, 1.0, major ? Qt::SolidLine : Qt::DotLine);
@@ -1006,6 +1201,12 @@ QVector<MapWidget::Beam> MapWidget::beams() const
         main.color = QColor(Style::kAmberText());
         main.label = degrees(m_rotor1AzimuthDeg);
         main.labelPx = Style::kFontSmall;
+        if (!m_rotor1Live) {
+            // Kein Draht zum Rotor: die Richtung ist das, was der
+            // Steckplatz verfolgt, keine gemessene Peilung.
+            main.color.setAlpha(110);
+            main.lineStyle = Qt::DashLine;
+        }
         out.append(main);
         if (m_rotor1SecondEnabled) {
             Beam second = main;
@@ -1023,6 +1224,9 @@ QVector<MapWidget::Beam> MapWidget::beams() const
         main.halfWidthDeg = m_beamwidth2Deg / 2.0;
         main.color = QColor(Style::kTextSecondary());
         main.lineStyle = Qt::DashLine;
+        if (!m_rotor2Live) {
+            main.color.setAlpha(110);
+        }
         main.label = (m_rotor2Label.isEmpty() ? QString() : m_rotor2Label + QLatin1Char(' ')) + degrees(m_rotor2AzimuthDeg);
         main.labelPx = Style::kFontCaption;
         out.append(main);
@@ -1134,7 +1338,7 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if (station.worked) {
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(color);
-                painter.drawEllipse(p.point, 3.0, 3.0);
+                painter.drawEllipse(p.point, station.approximate ? 2.0 : 3.0, station.approximate ? 2.0 : 3.0);
                 const bool fresh = ageSecs >= 0 && ageSecs < kFreshLabelMinutes * 60;
                 if (fresh) {
                     labels.place(painter, p.point, station.callsign, QColor(Style::kTextTertiary()));
@@ -1144,6 +1348,16 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
                 painter.setBrush(Qt::NoBrush);
                 painter.drawEllipse(p.point, 4.0, 4.0);
                 labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+            }
+            // Nur der Mittelpunkt eines Landes, kein getauschter
+            // Locator: ein gepunkteter Hof sagt, dass die Station
+            // irgendwo dort drin sitzt und nicht genau da.
+            if (station.approximate) {
+                QColor halo = color;
+                halo.setAlpha(120);
+                painter.setPen(QPen(halo, 1.0, Qt::DotLine));
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(p.point, 7.0, 7.0);
             }
         }
     }
@@ -1185,18 +1399,26 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     QString beamText = Style::unknownDash();
     if (m_rotor1Connected) {
         beamText = QStringLiteral("%1°").arg(wrap360(m_rotor1AzimuthDeg), 0, 'f', 0);
+        if (!m_rotor1Live) {
+            beamText += QStringLiteral(" · getrennt");
+        }
         if (m_rotor1SecondEnabled) {
             beamText += QStringLiteral(" · %1°").arg(wrap360(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg), 0, 'f', 0);
         }
     }
-    value(beamText, QColor(Style::kAmberText()), Style::kFontReading);
+    value(beamText, m_rotor1Live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive()),
+          Style::kFontReading);
     if (m_rotor2Connected && m_showRotor2Heading) {
         caption(m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2") : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label));
         QString text = QStringLiteral("%1°").arg(wrap360(m_rotor2AzimuthDeg), 0, 'f', 0);
         if (m_rotor2SecondEnabled) {
             text += QStringLiteral(" · %1°").arg(wrap360(m_rotor2AzimuthDeg + m_rotor2SecondOffsetDeg), 0, 'f', 0);
         }
-        value(text, QColor(Style::kTextSecondary()), Style::kFontBody);
+        if (!m_rotor2Live) {
+            text += QStringLiteral(" · getrennt");
+        }
+        value(text, m_rotor2Live ? QColor(Style::kTextSecondary()) : QColor(Style::kTextInactive()),
+              Style::kFontBody);
     }
 
     // Open stations inside any of rotor 1's cones -- blue, because a
@@ -1302,6 +1524,9 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     painter.setClipPath(clip, Qt::IntersectClip);
     if (m_layers.borders) {
         drawBordersLayer(painter, area);
+    }
+    if (m_layers.greyline) {
+        drawGreylineLayer(painter, area);
     }
     if (m_layers.grid) {
         drawGridLayer(painter, area);

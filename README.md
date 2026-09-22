@@ -58,7 +58,17 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 über *Datei › Contest-Regeln…* landen als Override im Anwendungsdatenordner.
 Mitgeliefert: IARU R1 VHF (144, September), UHF/Microwave (432 + 1296,
 Oktober), Marconi Memorial (144 CW, November), die Subregionals
-(144 + 432, März/Mai/Juli) und ein ÖVSV-Contest.
+(144 + 432, März/Mai/Juli), ein ÖVSV-Contest und ein Kurzwellen-Übungslog
+(RST + laufende Nummer, keine echte Ausschreibung – zum Mitloggen am
+Gerät).
+
+Über *Datei › Contest-Regeln…* lässt sich **jede** dieser Regeln selbst
+setzen – Name, Bänder, Exchange-Felder, Wertung, Nummernkreis,
+Multiplikator, Dupe-Regel, erlaubte Betriebsarten, Cabrillo-Name – und
+mit *Neuer Contest…* eine Ausschreibung von Null anlegen. Die Kennung
+wird aus dem Namen abgeleitet und ändert sich danach nicht mehr: sie
+steht in jedem geloggten QSO. *Zurücksetzen* wirft die eigenen
+Einstellungen wieder weg.
 
 ```json
 {
@@ -82,7 +92,12 @@ Oktober), Marconi Memorial (144 CW, November), die Subregionals
 abgerundet auf ganze km plus 1, Summe je Band, keine Multiplikatoren; so
 werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 `serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
-001, IARU-R1-Regel) oder `contest`. `dupe_scope`: bei IARU R1/ÖVSV
+001, IARU-R1-Regel) oder `contest` (eine Folge über den ganzen Contest).
+`multiplier_field`: `grid` (Standard – Locator-Großfeld), `prefix`
+(WPX-Regel, rechnet sich allein aus dem Rufzeichen), `dxcc` (Land,
+braucht eine geladene Länderliste) oder `none`. `cabrillo_name`
+(optional): der Name, unter dem der Robot den Contest kennt
+(`CQ-WW-CW`); ohne ihn steht die interne Kennung im Kopf der Datei. `dupe_scope`: bei IARU R1/ÖVSV
 `["callsign", "band"]` – einmal je Band, unabhängig von der Betriebsart.
 `modes` (optional): erlaubte Betriebsarten, sonst alle; bei genau einer
 startet das Programm ohne CAT in dieser Betriebsart (Marconi: CW/599). `schedule`
@@ -99,7 +114,8 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Vor/nach dem Contest | *Datei › Neues Log beginnen (altes archivieren)* (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
 | Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter; in Nr./Grid zählt, was ein Wert ist -- „JN58SD“ allein bleibt der Locator, „12“ allein die Nummer); statt Löschen „ungültig" markieren (zählt dann nirgends mehr mit). Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
 | Wertung | QSOs, Punkte (km je Band, Σ), 10 min/Stunde mit Trend und bester Stunde, ODX, Großfelder -- als Instrument, das der Panelgröße folgt: niedrig und breit die Zählerleiste mit Balken je Band und Sechs-Stunden-Sparkline, sonst Kacheln (bei 270×130 die vier wichtigsten, größer alle sechs mit Unterzeile) | Panel „Rate"; *Fenster › Statistik…* (je Band, je Stunde, längste QSOs) |
-| Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
+| Multiplikatoren | gearbeitete/offene Multiplikatoren je Band -- Locator-Großfelder, WPX-Präfixe oder Länder, je nach Contest-Regel; das Fenster heißt nach dem, was drinsteht | *Fenster › Locator-Felder…* |
+| Kurzwelle | Bänder 1,8 bis 28 MHz, Band folgt dem Funkgerät; Multiplikator wahlweise WPX-Präfix (rechnet sich aus dem Rufzeichen) oder Land; Karte bis 20 000 km mit Graulinie; Cabrillo mit kHz und Kategorien. Ohne getauschten Locator setzt die **Länderliste** (cty.dat von country-files.com, selbst geladen) die Station auf den Mittelpunkt ihres Landes -- gepunkteter Hof heißt „ungefähr", ins Log kommt dieser Ort nie | *Datei › Länderliste laden (cty.dat)…* |
 | Check Partial | Rufzeichen-Vorschläge beim Tippen aus Log, Locator-Liste, gehörten Stationen, SCP-Liste; N+1 ab vier Zeichen; Klick übernimmt Call+Locator | Panel „Check"; *Datei › SCP-Liste laden…* |
 | Bandmap | Spots (KST/Cluster) auf der Frequenzachse, eigene Frequenz, gearbeitet gedimmt; Klick = QSY | Panel „Bandmap" |
 | Skeds | Verabredungen mit Zeitleiste der nächsten Stunde; Eingabe von Hand oder als Vorschlag aus einer KST-Nachricht an dich; Klick = QSY + Rotor + Eingabezeile; Alarm 2 min vorher; ein QSO schließt den Sked | Panel „Skeds" |
@@ -112,7 +128,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Tastenkürzel | Alle Tasten und Griffe auf einer Seite (Eingabezeile, CW, Korrekturen, Klicks auf Station/Spot/Radar, Rotor-Ziel, Panels) | *Hilfe › Tastenkürzel…* |
 | Über | Version, Commit und Baudatum (bei jedem Bauen erzeugt), Qt, Datenbank- und Sicherungspfade, „Datenordner zeigen" | *Hilfe › Über Contestprogramm…* |
 | Contest wählen | Liste der Definitionen; der eigene Locator wird jedes Mal mit abgefragt (vorbelegt, OK nur mit gültigem Locator, „Exakter Standort: JN67UT übernehmen" wenn die Einstellungen woanders liegen) | *Datei › Contest wählen…* |
-| Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
+| Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo (fragt vorher nach Bediener, Hilfsmitteln, Leistung, Sender, Station, Club, E-Mail und merkt sich die Angaben), ADIF | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 | Farbthema | Zwei Varianten: **Bernstein** (Standard, die Longpath-Farben) und **Grün** (dunkles Anthrazit, helle Schrift, grüner Akzent für Messwerte und Kopfzeilen, Bernstein nur noch für Warnungen); wird beim nächsten Start wirksam | *Datei › Einstellungen › Farbthema* |
 

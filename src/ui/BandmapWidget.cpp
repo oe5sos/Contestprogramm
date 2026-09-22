@@ -1,5 +1,6 @@
 #include "ui/BandmapWidget.h"
 
+#include "core/BandUtils.h"
 #include "ui/StyleKit.h"
 
 #include <QFontMetrics>
@@ -27,8 +28,15 @@ struct Segment {
     qint64 highHz;
 };
 // The usual narrow-band (SSB/CW) segments -- the range shown when
-// neither a spot nor the rig says anything else.
+// neither a spot nor the rig says anything else. Only bands whose
+// worked portion is a lot narrower than the allocation need an entry
+// here; everything else falls back to bandRangeHz() below, which for
+// an HF band IS the worked portion.
 const Segment kSegments[] = {
+    {"1.8", 1810000, 1850000},
+    {"28", 28000000, 28700000},
+    {"50", 50000000, 50400000},
+    {"70", 70000000, 70300000},
     {"144", 144000000, 144400000},
     {"432", 432000000, 432400000},
     {"1296", 1296000000, 1296400000},
@@ -95,6 +103,17 @@ void BandmapWidget::recomputeRange()
                 m_highHz = segment.highHz;
                 return;
             }
+        }
+        // No narrow segment for this band: the whole allocation. Before
+        // the HF bands existed this fell through to 0 .. 60 kHz, which
+        // drew an axis labelled "0.000" -- a band the program knows is
+        // never a blank scale any more.
+        qint64 bandLow = 0;
+        qint64 bandHigh = 0;
+        if (bandRangeHz(m_band, bandLow, bandHigh)) {
+            m_lowHz = bandLow;
+            m_highHz = bandHigh;
+            return;
         }
         m_lowHz = 0;
         m_highHz = kMinSpanHz;

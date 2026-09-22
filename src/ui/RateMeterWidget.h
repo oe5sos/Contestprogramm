@@ -5,6 +5,7 @@
 
 #include <QDateTime>
 #include <QPair>
+#include <QHash>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -14,6 +15,8 @@ class QPainter;
 class QTimer;
 
 namespace Contestprogramm {
+
+class CountryPrefixIndex;
 
 class ContestDatabase;
 
@@ -88,7 +91,12 @@ public:
     // distances, the definition's band order, and its scoring rule.
     // Without a valid own grid the readings show a dash rather than a
     // wrong zero.
-    void setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring);
+    // `multiplierBasis` ist ContestDefinition::multiplierField(): die
+    // letzte Kachel zählt danach -- Locator-Großfelder auf UKW,
+    // WPX-Präfixe auf Kurzwelle, und ohne Multiplikator entfällt sie.
+    void setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring,
+                    const QString& multiplierBasis = QStringLiteral("grid"),
+                    const CountryPrefixIndex* countryIndex = nullptr);
 
     // Everything currently shown, one reading per line ("QSOs 47 (144:
     // 31 · 432: 16)"), in the tile order -- the test hook now that the
@@ -139,6 +147,10 @@ private:
     QString m_ownGrid;
     QStringList m_bandOrder;
     QString m_scoring = QStringLiteral("distance_km");
+    QString m_multiplierBasis = QStringLiteral("grid");
+    // Nur für die Grundlage "dxcc" -- ohne geladene Liste zeigt die
+    // Kachel einen Strich, keine Null.
+    const CountryPrefixIndex* m_countryIndex = nullptr;
     QTimer* m_timer;
 
     // The last refresh(), kept for painting.
@@ -146,7 +158,8 @@ private:
     RateBreakdown m_breakdown;
     bool m_scoreKnown = false;
     ContestScore m_score;
-    int m_largeSquares = 0;
+    int m_largeSquares = 0; // Multiplikatoren über alle Bänder, nach m_multiplierBasis
+    QHash<QString, int> m_multipliersByBand; // dieselbe Grundlage, je Band
 };
 
 } // namespace Contestprogramm

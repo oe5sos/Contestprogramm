@@ -1517,6 +1517,11 @@ bool UnifiedLogWidget::columnWantedByViewMode(int col) const
         return !dxLog;
     case ColExchRcvd:
         return false;
+    case ColKm:
+    case ColDeg:
+        // Kein Locator im Exchange, keine Entfernung und keine Peilung
+        // -- siehe applyDistanceColumnsVisibility().
+        return m_distanceColumnsWanted;
     default:
         return true;
     }
@@ -1658,6 +1663,37 @@ void UnifiedLogWidget::setExchangeFields(const QVector<ContestDefinition::Exchan
     const QMap<QString, QString> previousValues = exchangeReceived();
     m_exchangeFields = fields;
     rebuildExchangeCell(previousValues);
+    applyDistanceColumnsVisibility();
+}
+
+// Kilometer und Grad stehen und fallen mit dem Locator: tauscht der
+// Contest keinen (auf Kurzwelle tut das keiner), bleiben beide Spalten
+// für immer leer und nehmen nur Platz weg. Sie hängen an der
+// Definition, nicht an der Ansicht -- deshalb hier und nicht in
+// setViewMode().
+void UnifiedLogWidget::applyDistanceColumnsVisibility()
+{
+    bool hasGrid = false;
+    for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
+        if (field.type.compare(QStringLiteral("grid6"), Qt::CaseInsensitive) == 0
+            || field.type.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0
+            || field.key.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0) {
+            hasGrid = true;
+            break;
+        }
+    }
+    if (m_distanceColumnsWanted == hasGrid) {
+        return;
+    }
+    m_distanceColumnsWanted = hasGrid;
+    // Beides: hier sofort, damit es auch gilt, wenn die Tabelle noch
+    // keine echte Breite hat (fitColumnsToViewport() steigt dann früh
+    // aus), und dann der Anpasser, der die Breiten neu verteilt. Die
+    // Regel steht zusätzlich in columnWantedByViewMode(), sonst holte
+    // der nächste Anpasser die Spalten wieder zurück.
+    m_feedTable->setColumnHidden(ColKm, !hasGrid);
+    m_feedTable->setColumnHidden(ColDeg, !hasGrid);
+    fitColumnsToViewport();
 }
 
 void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previousValues)

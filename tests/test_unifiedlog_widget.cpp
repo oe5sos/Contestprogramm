@@ -69,6 +69,7 @@ private slots:
     void aNewlyLoggedQsoScrollsIntoView();
     void serialsReadAsThreeDigitsEverywhere();
     void dupeDetailReplacesTheLastQsoLine();
+    void distanceColumnsFollowTheExchangeFields();
 };
 
 namespace {
@@ -1061,6 +1062,44 @@ void TestUnifiedLogWidget::dupeDetailReplacesTheLastQsoLine()
 
 // Not QTEST_APPLESS_MAIN: UnifiedLogWidget is a QWidget subclass, which
 // needs a live QApplication (not just QCoreApplication) to construct.
+// Kilometer und Grad stehen und fallen mit dem Locator: tauscht der
+// Contest keinen -- auf Kurzwelle tut das keiner --, bleiben beide
+// Spalten für immer leer und nehmen nur Platz weg.
+void TestUnifiedLogWidget::distanceColumnsFollowTheExchangeFields()
+{
+    UnifiedLogWidget widget;
+    widget.resize(900, 300);
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+
+    // Mit Locator im Exchange: beide Spalten da.
+    widget.setExchangeFields(rstSerialGridFields());
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnDistanceKm));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBearingDeg));
+
+    // Kurzwelle: RST und laufende Nummer, kein Locator.
+    ContestDefinition::ExchangeField rst;
+    rst.key = QStringLiteral("rst");
+    rst.label = QStringLiteral("RST");
+    rst.type = QStringLiteral("rst");
+    ContestDefinition::ExchangeField serial;
+    serial.key = QStringLiteral("serial");
+    serial.label = QStringLiteral("Nr.");
+    serial.type = QStringLiteral("int");
+    serial.autoIncrement = true;
+    widget.setExchangeFields({rst, serial});
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnDistanceKm));
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnBearingDeg));
+    // Der Rest bleibt, wie er war.
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnCall));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnTime));
+
+    // Und zurück: ein UKW-Contest bringt sie wieder.
+    widget.setExchangeFields(rstSerialGridFields());
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnDistanceKm));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBearingDeg));
+}
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
