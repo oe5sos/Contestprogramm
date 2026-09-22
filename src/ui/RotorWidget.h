@@ -73,6 +73,12 @@ public:
     // invented default target.
     void setTargetBearing(double bearingDeg, double distanceKm, const QString& callsign = QString(),
                            const QString& grid = QString());
+
+    // Die Zeile unter der Scheibe, als Text -- "SP9XYZ · JO90AA ·
+    // 471 km", bei weiten Zielen mit dem langen Weg dahinter. Der
+    // Prüfhaken für etwas, das gemalt und nicht in einem QLabel
+    // gehalten wird (dieselbe Rolle wie RateMeterWidget::readingsText).
+    QString captionText() const;
     void clearTargetBearing();
     bool hasTargetBearing() const { return m_hasTarget; }
     // Accessors added alongside the readout pass that draws these values

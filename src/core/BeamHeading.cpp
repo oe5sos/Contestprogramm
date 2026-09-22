@@ -11,10 +11,14 @@
 //                 Longpath/NereusSDR's BeamHeading.cpp; no maths
 //                 changed. AI-assisted via Anthropic Claude Code,
 //                 operator Ralph Martin Fischer.
+//   2026-09-22 — longPathDistanceKm() ergänzt (Contestprogramm-eigen,
+//                 nicht aus dem Vorbild portiert): auf Kurzwelle ist
+//                 die Entfernung auf dem langen Weg eine echte Frage.
 // =================================================================
 
 #include "core/BeamHeading.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace Contestprogramm::BeamHeading {
@@ -29,6 +33,12 @@ double wrap360(double deg)
 double longPath(double shortPathDeg)
 {
     return wrap360(shortPathDeg + 180.0);
+}
+
+double longPathDistanceKm(double shortPathKm)
+{
+    constexpr double kEarthCircumferenceKm = 2.0 * M_PI * 6371.0;
+    return std::max(0.0, kEarthCircumferenceKm - shortPathKm);
 }
 
 Move plan(double fromDeg, double toDeg, Stop stop)
