@@ -1196,47 +1196,54 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(contestPickerAction, &QAction::triggered, this, &MainWindow::openContestPicker);
     QAction* contestRulesAction = fileMenu->addAction(QStringLiteral("Contest-&Regeln..."));
     connect(contestRulesAction, &QAction::triggered, this, &MainWindow::openContestRulesEditor);
-    QAction* exportCabrilloAction = fileMenu->addAction(QStringLiteral("&Cabrillo exportieren..."));
-    connect(exportCabrilloAction, &QAction::triggered, this, &MainWindow::exportCabrillo);
-    QAction* exportAdifAction = fileMenu->addAction(QStringLiteral("&ADIF exportieren..."));
-    connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
-    // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
-    // Cabrillo alone is not enough for a VHF/UHF contest entry.
-    // What the robot would find, found first -- see data/LogCheck.h.
-    QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
-    connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
+    fileMenu->addSeparator();
+
+    // Vor dem ersten CQ und vor der Abgabe -- die beiden Prüfungen
+    // stehen für sich, weil man sie genau zweimal braucht und dann
+    // sofort finden will.
     // Before the first CQ: station, contest, links, data -- see
     // data/ReadinessCheck.h.
     QAction* readinessAction = fileMenu->addAction(QStringLiteral("Start&check (bereit?)..."));
     connect(readinessAction, &QAction::triggered, this, &MainWindow::openReadinessWindow);
-    QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
-    connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
-    QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
-    connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
-    QAction* loadCountryAction = fileMenu->addAction(QStringLiteral("&Länderliste laden (cty.dat)..."));
-    connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
-    QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
-    connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
-    QAction* transverterAction = fileMenu->addAction(QStringLiteral("Trans&verter..."));
-    connect(transverterAction, &QAction::triggered, this, &MainWindow::openTransverterDialog);
-    QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
-    connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
-    QAction* scoreboardAction = fileMenu->addAction(QStringLiteral("&Online-Scoreboard..."));
-    connect(scoreboardAction, &QAction::triggered, this, &MainWindow::openScoreboardDialog);
-    QAction* postScoreAction = fileMenu->addAction(QStringLiteral("Score &jetzt senden"));
-    connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
+    // What the robot would find, found first -- see data/LogCheck.h.
+    QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
+    connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
     fileMenu->addSeparator();
-    QAction* restoreAction = fileMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
+
+    // Ab hier Untermenüs. Das Datei-Menü war auf einundzwanzig Einträge
+    // gewachsen -- eine Schublade, kein Menü; gesucht wurde darin
+    // zeilenweise. Alles bleibt erreichbar, nur eine Ebene tiefer, und
+    // nichts wandert weiter als in die Gruppe, in der man es sucht.
+    QMenu* exportMenu = fileMenu->addMenu(QStringLiteral("E&xportieren"));
+    // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
+    // Cabrillo alone is not enough for a VHF/UHF contest entry.
+    QAction* exportEdiAction = exportMenu->addAction(QStringLiteral("&EDI (REG1TEST)..."));
+    connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
+    QAction* exportCabrilloAction = exportMenu->addAction(QStringLiteral("&Cabrillo..."));
+    connect(exportCabrilloAction, &QAction::triggered, this, &MainWindow::exportCabrillo);
+    QAction* exportAdifAction = exportMenu->addAction(QStringLiteral("&ADIF..."));
+    connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
+
+    QMenu* listsMenu = fileMenu->addMenu(QStringLiteral("&Listen laden"));
+    QAction* loadScpAction = listsMenu->addAction(QStringLiteral("SCP-&Liste (Rufzeichen)..."));
+    connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* loadCountryAction = listsMenu->addAction(QStringLiteral("Länder&liste (cty.dat)..."));
+    connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
+    QAction* importOldLogsAction = listsMenu->addAction(QStringLiteral("Locator aus alten Logs (EDI/ADIF)..."));
+    connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
+
+    QMenu* backupMenu = fileMenu->addMenu(QStringLiteral("Sicherun&g"));
+    QAction* restoreAction = backupMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
     connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
     // A second copy of every backup on a stick or in a cloud folder --
     // the log survives the laptop (see LogBackup::setMirrorDirectory).
-    QAction* mirrorAction = fileMenu->addAction(QStringLiteral("Zweiter Sicherungsordner..."));
+    QAction* mirrorAction = backupMenu->addAction(QStringLiteral("&Zweiter Sicherungsordner..."));
     mirrorAction->setObjectName(QStringLiteral("backupMirrorAction"));
     connect(mirrorAction, &QAction::triggered, this, &MainWindow::chooseBackupMirror);
-    QAction* clearMirrorAction = fileMenu->addAction(QStringLiteral("Zweiten Sicherungsordner entfernen"));
+    QAction* clearMirrorAction = backupMenu->addAction(QStringLiteral("Zweiten Sicherungsordner &entfernen"));
     clearMirrorAction->setObjectName(QStringLiteral("backupMirrorClearAction"));
     connect(clearMirrorAction, &QAction::triggered, this, &MainWindow::clearBackupMirror);
-    connect(fileMenu, &QMenu::aboutToShow, this, [this, clearMirrorAction] {
+    connect(backupMenu, &QMenu::aboutToShow, this, [this, clearMirrorAction] {
         const LogBackup* backup = m_appController.logBackup();
         clearMirrorAction->setEnabled(backup && !backup->mirrorDirectory().isEmpty());
     });
@@ -1246,6 +1253,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             statusBar()->showMessage(error, 15000);
         });
     }
+
+    QMenu* scoreMenu = fileMenu->addMenu(QStringLiteral("&Online-Score"));
+    QAction* scoreboardAction = scoreMenu->addAction(QStringLiteral("&Scoreboard einrichten..."));
+    connect(scoreboardAction, &QAction::triggered, this, &MainWindow::openScoreboardDialog);
+    QAction* postScoreAction = scoreMenu->addAction(QStringLiteral("Score &jetzt senden"));
+    connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
+
+    QMenu* toolsMenu = fileMenu->addMenu(QStringLiteral("Werk&zeuge"));
+    QAction* transverterAction = toolsMenu->addAction(QStringLiteral("Trans&verter..."));
+    connect(transverterAction, &QAction::triggered, this, &MainWindow::openTransverterDialog);
+    QAction* esmTemplatesAction = toolsMenu->addAction(QStringLiteral("ESM-&Texte..."));
+    connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
+
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);

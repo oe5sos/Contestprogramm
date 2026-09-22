@@ -3,6 +3,11 @@
 
 #include <QtTest>
 
+#include <QMenu>
+#include <QMenuBar>
+
+#include <functional>
+
 #include <QApplication>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -98,6 +103,7 @@ private slots:
     void shortcutsWindowListsTheKeys();
     void bandmapStartsOnTheContestsFirstBand();
     void countryListOnlyAppearsWhereItMatters();
+    void fileMenuIsGroupedAndLosesNothing();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -457,6 +463,90 @@ void TestReadinessCheck::countryListOnlyAppearsWhereItMatters()
     QVERIFY(loaded);
     QCOMPARE(loaded->level, ReadinessItem::Level::Ok);
     QCOMPARE(loaded->detail, QStringLiteral("346 Gebiete"));
+}
+
+// Das Datei-Menü war auf einundzwanzig Einträge gewachsen -- eine
+// Schublade, in der zeilenweise gesucht wurde. Seit 2026-09-22 stehen
+// Export, Listen, Sicherung, Online-Score und Werkzeuge in
+// Untermenüs. Dieser Prüfstand hält zweierlei fest: dass die oberste
+// Ebene kurz bleibt, und -- wichtiger -- dass dabei nichts verloren
+// gegangen ist.
+void TestReadinessCheck::fileMenuIsGroupedAndLosesNothing()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("menu.sqlite"))));
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+    MainWindow window(*controller);
+
+    QMenu* fileMenu = nullptr;
+    for (QAction* action : window.menuBar()->actions()) {
+        if (action->menu() && action->text().contains(QStringLiteral("Datei"))) {
+            fileMenu = action->menu();
+        }
+    }
+    QVERIFY(fileMenu);
+
+    // Oberste Ebene: kurz genug, um sie zu überblicken.
+    int topLevelEntries = 0;
+    for (const QAction* action : fileMenu->actions()) {
+        if (!action->isSeparator()) {
+            ++topLevelEntries;
+        }
+    }
+    QVERIFY2(topLevelEntries <= 14, qPrintable(QString::number(topLevelEntries)));
+
+    // Und jetzt alles, was von hier aus erreichbar ist -- eine Ebene
+    // tiefer zählt mit.
+    QStringList reachable;
+    const std::function<void(const QMenu*)> collect = [&](const QMenu* menu) {
+        for (QAction* action : menu->actions()) {
+            if (action->isSeparator()) {
+                continue;
+            }
+            if (action->menu()) {
+                collect(action->menu());
+            } else {
+                reachable << action->text().remove(QLatin1Char('&'));
+            }
+        }
+    };
+    collect(fileMenu);
+
+    // Jeder Eintrag, den das Menü vor dem Ordnen hatte, ist noch da --
+    // an der Wortmarke erkannt, damit eine umformulierte Beschriftung
+    // den Prüfstand nicht grundlos umwirft.
+    const QStringList mustExist{
+        QStringLiteral("Neues Log"),     QStringLiteral("sichern"),
+        QStringLiteral("Einstellungen"), QStringLiteral("Contest wählen"),
+        QStringLiteral("Contest-Regeln"), QStringLiteral("Startcheck"),
+        QStringLiteral("Log prüfen"),    QStringLiteral("EDI"),
+        QStringLiteral("Cabrillo"),      QStringLiteral("ADIF"),
+        QStringLiteral("SCP"),           QStringLiteral("cty.dat"),
+        QStringLiteral("Locator aus alten Logs"), QStringLiteral("wiederherstellen"),
+        QStringLiteral("Zweiter Sicherungsordner"), QStringLiteral("entfernen"),
+        QStringLiteral("Scoreboard"),    QStringLiteral("Score jetzt senden"),
+        QStringLiteral("Transverter"),   QStringLiteral("ESM"),
+        QStringLiteral("Beenden"),
+    };
+    for (const QString& needle : mustExist) {
+        bool found = false;
+        for (const QString& entry : reachable) {
+            if (entry.contains(needle)) {
+                found = true;
+                break;
+            }
+        }
+        QVERIFY2(found, qPrintable(QStringLiteral("Verloren gegangen: %1 -- da ist nur: %2")
+                                       .arg(needle, reachable.join(QStringLiteral(" | ")))));
+    }
 }
 
 int main(int argc, char* argv[])
