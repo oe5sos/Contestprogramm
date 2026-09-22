@@ -149,16 +149,34 @@ void StatisticsWindow::refresh()
                    .arg(stats.bestHourQsos)
                    .arg(stats.bestHourStartUtc.toString(QStringLiteral("HH:mm")));
     }
+    // Betriebszeit und Pausen -- was N1MM "on time"/"off time" nennt.
+    // Eine Lücke ab einer halben Stunde ist eine Pause; steht keine im
+    // Log, sagt die Zeile das auch ("keine Pause") statt einer Null.
+    const auto span = [](qint64 secs) {
+        return QStringLiteral("%1:%2").arg(secs / 3600).arg((secs % 3600) / 60, 2, 10, QLatin1Char('0'));
+    };
+    QString onAir = dash;
+    QString offAir = dash;
+    if (stats.score.validQsos > 1) {
+        onAir = QStringLiteral("%1 h").arg(span(stats.onAirSecs));
+        offAir = stats.breaks == 0
+            ? QStringLiteral("keine Pause")
+            : QStringLiteral("%1 h in %2").arg(span(stats.offAirSecs))
+                  .arg(stats.breaks == 1 ? QStringLiteral("einer Pause")
+                                         : QStringLiteral("%1 Pausen").arg(stats.breaks));
+    }
     m_summaryLabel->setText(
         QStringLiteral("<span style='color:%1;'>QSOs</span> <b>%2</b> &nbsp;&middot;&nbsp; "
                        "<span style='color:%1;'>Punkte</span> <b>%3</b> &nbsp;&middot;&nbsp; "
                        "<span style='color:%1;'>Ø km</span> <b>%4</b> &nbsp;&middot;&nbsp; "
-                       "<span style='color:%1;'>Beste Stunde</span> <b>%5</b>")
+                       "<span style='color:%1;'>Beste Stunde</span> <b>%5</b> &nbsp;&middot;&nbsp; "
+                       "<span style='color:%1;'>Am Gerät</span> <b>%6</b> &nbsp;&middot;&nbsp; "
+                       "<span style='color:%1;'>Pausen</span> <b>%7</b>")
             .arg(Style::kTextScale())
             .arg(stats.score.validQsos)
             .arg(grouped(stats.score.points))
             .arg(stats.averageKm > 0.0 ? QString::number(stats.averageKm, 'f', 0) : dash)
-            .arg(best));
+            .arg(best, onAir, offAir));
 
     m_bandTable->setRowCount(stats.score.bands.size());
     for (int row = 0; row < stats.score.bands.size(); ++row) {

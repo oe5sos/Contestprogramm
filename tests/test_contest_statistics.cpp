@@ -31,6 +31,7 @@ private slots:
     void longestListIsSortedCappedAndSkipsDupesAndInvalid();
     void emptyLogGivesEmptyStatistics();
     void widelySpreadLogListsOnlyHoursWithQsos();
+    void onAirAndBreaksCountTheGapsInTheLog();
 };
 
 void TestContestStatistics::hoursCoverTheWholeSpanAndMarkTheBest()
@@ -104,6 +105,48 @@ void TestContestStatistics::emptyLogGivesEmptyStatistics()
     QCOMPARE(stats.bestHourQsos, 0);
     QCOMPARE(stats.averageKm, 0.0);
     QCOMPARE(stats.score.bands.size(), 1); // the definition's band still listed, at 0
+}
+
+// Am Gerät und in Pause -- N1MMs "on time"/"off time". Eine Lücke ab
+// einer halben Stunde ist eine Pause, alles darunter ist Betrieb (auch
+// wenn zehn Minuten nichts kam). Vor dem ersten und nach dem letzten
+// QSO wird nichts gezählt: davon weiß das Log nichts.
+void TestContestStatistics::onAirAndBreaksCountTheGapsInTheLog()
+{
+    // 14:00, 14:20, 14:35 -- durchgehend. Dann zwei Stunden nichts.
+    // Danach 16:35, 16:50.
+    const QVector<QsoRecord> records{
+        makeQso(QStringLiteral("A"), QStringLiteral("144"), QStringLiteral("14:00"), QStringLiteral("JN88TC"), 200.0),
+        makeQso(QStringLiteral("B"), QStringLiteral("144"), QStringLiteral("14:20"), QStringLiteral("JN88TC"), 200.0),
+        makeQso(QStringLiteral("C"), QStringLiteral("144"), QStringLiteral("14:35"), QStringLiteral("JN88TC"), 200.0),
+        makeQso(QStringLiteral("D"), QStringLiteral("144"), QStringLiteral("16:35"), QStringLiteral("JN88TC"), 200.0),
+        makeQso(QStringLiteral("E"), QStringLiteral("144"), QStringLiteral("16:50"), QStringLiteral("JN88TC"), 200.0),
+    };
+    const ContestStatistics stats = computeContestStatistics(records, QStringLiteral("JN67UT"),
+                                                             {QStringLiteral("144")});
+    // 20 + 15 + 15 Minuten Betrieb.
+    QCOMPARE(stats.onAirSecs, qint64(50 * 60));
+    QCOMPARE(stats.breaks, 1);
+    QCOMPARE(stats.offAirSecs, qint64(120 * 60));
+    QCOMPARE(stats.longestBreakSecs, qint64(120 * 60));
+    QCOMPARE(stats.longestBreakStartUtc.toString(QStringLiteral("HH:mm")), QStringLiteral("14:35"));
+
+    // Ein Log ohne Lücke hat keine Pause.
+    const QVector<QsoRecord> tight{
+        makeQso(QStringLiteral("A"), QStringLiteral("144"), QStringLiteral("14:00"), QStringLiteral("JN88TC"), 200.0),
+        makeQso(QStringLiteral("B"), QStringLiteral("144"), QStringLiteral("14:10"), QStringLiteral("JN88TC"), 200.0),
+    };
+    const ContestStatistics none = computeContestStatistics(tight, QStringLiteral("JN67UT"),
+                                                            {QStringLiteral("144")});
+    QCOMPARE(none.breaks, 0);
+    QCOMPARE(none.offAirSecs, qint64(0));
+    QCOMPARE(none.onAirSecs, qint64(10 * 60));
+
+    // Ein einziges QSO ergibt keine Zeitspanne.
+    const ContestStatistics single = computeContestStatistics({tight.first()}, QStringLiteral("JN67UT"),
+                                                              {QStringLiteral("144")});
+    QCOMPARE(single.onAirSecs, qint64(0));
+    QCOMPARE(single.breaks, 0);
 }
 
 QTEST_APPLESS_MAIN(TestContestStatistics)

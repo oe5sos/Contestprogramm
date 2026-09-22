@@ -82,6 +82,36 @@ ContestStatistics computeContestStatistics(const QVector<QsoRecord>& records,
         stats.longest.resize(maxLongest);
     }
     stats.averageKm = kmCount > 0 ? kmSum / kmCount : 0.0;
+
+    // Betriebszeit und Pausen: die Zeitstempel der gültigen QSOs der
+    // Reihe nach, jede Lücke ab einer halben Stunde ist eine Pause, der
+    // Rest ist Betrieb. Vor dem ersten und nach dem letzten QSO wird
+    // nichts gezählt -- davon weiß das Log nichts.
+    QVector<qint64> stamps;
+    stamps.reserve(records.size());
+    for (const QsoRecord& record : records) {
+        if (record.isInvalid || record.isDupe) {
+            continue;
+        }
+        const QDateTime ts = QDateTime::fromString(record.timestampUtc, Qt::ISODate).toUTC();
+        if (ts.isValid()) {
+            stamps.append(ts.toSecsSinceEpoch());
+        }
+    }
+    std::sort(stamps.begin(), stamps.end());
+    for (int i = 1; i < stamps.size(); ++i) {
+        const qint64 gap = stamps.at(i) - stamps.at(i - 1);
+        if (gap >= kOffAirThresholdSecs) {
+            stats.offAirSecs += gap;
+            ++stats.breaks;
+            if (gap > stats.longestBreakSecs) {
+                stats.longestBreakSecs = gap;
+                stats.longestBreakStartUtc = QDateTime::fromSecsSinceEpoch(stamps.at(i - 1), QTimeZone::utc());
+            }
+        } else {
+            stats.onAirSecs += gap;
+        }
+    }
     return stats;
 }
 
