@@ -100,6 +100,26 @@ void TestBandmap::widgetRangeFollowsSpotsAndOwnFrequency()
     widget.setSpots({a, b});
     QCOMPARE(widget.rangeLowHz(), qint64(144195000));
     QCOMPARE(widget.rangeHighHz(), qint64(144385000));
+
+    // Kurzwelle: kein eigener Ausschnitt nötig, dort wird das ganze
+    // Band gearbeitet -- die Achse nimmt die Bandgrenzen. Vorher fiel
+    // jedes Band ohne Eintrag auf 0 .. 60 kHz durch und zeichnete eine
+    // Skala, die bei "0.000" begann.
+    BandmapWidget hf;
+    hf.resize(250, 300);
+    hf.setBand(QStringLiteral("14"));
+    QCOMPARE(hf.rangeLowHz(), qint64(14000000));
+    QCOMPARE(hf.rangeHighHz(), qint64(14350000));
+    // 160 m hat einen: die Zuteilung geht bis 2,000, gearbeitet wird
+    // der untere Streifen.
+    hf.setBand(QStringLiteral("1.8"));
+    QCOMPARE(hf.rangeLowHz(), qint64(1810000));
+    QCOMPARE(hf.rangeHighHz(), qint64(1850000));
+    // Ein Band, das die Tabelle nicht kennt: unverändert der
+    // Mindestausschnitt.
+    hf.setBand(QStringLiteral("23cm"));
+    QCOMPARE(hf.rangeLowHz(), qint64(0));
+    QCOMPARE(hf.rangeHighHz(), qint64(60000));
 }
 
 void TestBandmap::widgetStacksOverlappingLabelsAndEmitsOnClick()
