@@ -509,6 +509,16 @@ void MapWidget::setRotor1Heading(bool connected, double azimuthDeg, const QStrin
     update();
 }
 
+void MapWidget::setRotorLinkLive(int rotor, bool live)
+{
+    bool& member = rotor == 2 ? m_rotor2Live : m_rotor1Live;
+    if (member == live) {
+        return;
+    }
+    member = live;
+    update();
+}
+
 void MapWidget::setRotor2Heading(bool connected, double azimuthDeg, const QString& label)
 {
     m_rotor2Connected = connected;
@@ -1191,6 +1201,12 @@ QVector<MapWidget::Beam> MapWidget::beams() const
         main.color = QColor(Style::kAmberText());
         main.label = degrees(m_rotor1AzimuthDeg);
         main.labelPx = Style::kFontSmall;
+        if (!m_rotor1Live) {
+            // Kein Draht zum Rotor: die Richtung ist das, was der
+            // Steckplatz verfolgt, keine gemessene Peilung.
+            main.color.setAlpha(110);
+            main.lineStyle = Qt::DashLine;
+        }
         out.append(main);
         if (m_rotor1SecondEnabled) {
             Beam second = main;
@@ -1208,6 +1224,9 @@ QVector<MapWidget::Beam> MapWidget::beams() const
         main.halfWidthDeg = m_beamwidth2Deg / 2.0;
         main.color = QColor(Style::kTextSecondary());
         main.lineStyle = Qt::DashLine;
+        if (!m_rotor2Live) {
+            main.color.setAlpha(110);
+        }
         main.label = (m_rotor2Label.isEmpty() ? QString() : m_rotor2Label + QLatin1Char(' ')) + degrees(m_rotor2AzimuthDeg);
         main.labelPx = Style::kFontCaption;
         out.append(main);
@@ -1370,18 +1389,26 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     QString beamText = Style::unknownDash();
     if (m_rotor1Connected) {
         beamText = QStringLiteral("%1°").arg(wrap360(m_rotor1AzimuthDeg), 0, 'f', 0);
+        if (!m_rotor1Live) {
+            beamText += QStringLiteral(" · getrennt");
+        }
         if (m_rotor1SecondEnabled) {
             beamText += QStringLiteral(" · %1°").arg(wrap360(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg), 0, 'f', 0);
         }
     }
-    value(beamText, QColor(Style::kAmberText()), Style::kFontReading);
+    value(beamText, m_rotor1Live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive()),
+          Style::kFontReading);
     if (m_rotor2Connected && m_showRotor2Heading) {
         caption(m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2") : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label));
         QString text = QStringLiteral("%1°").arg(wrap360(m_rotor2AzimuthDeg), 0, 'f', 0);
         if (m_rotor2SecondEnabled) {
             text += QStringLiteral(" · %1°").arg(wrap360(m_rotor2AzimuthDeg + m_rotor2SecondOffsetDeg), 0, 'f', 0);
         }
-        value(text, QColor(Style::kTextSecondary()), Style::kFontBody);
+        if (!m_rotor2Live) {
+            text += QStringLiteral(" · getrennt");
+        }
+        value(text, m_rotor2Live ? QColor(Style::kTextSecondary()) : QColor(Style::kTextInactive()),
+              Style::kFontBody);
     }
 
     // Open stations inside any of rotor 1's cones -- blue, because a

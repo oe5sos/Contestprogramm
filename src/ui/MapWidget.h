@@ -119,6 +119,13 @@ public:
     void setTerrainSectors(const QVector<LineOfSightClass>& sectorsByDegree);
 
     void setRotor1Heading(bool connected, double azimuthDeg, const QString& label);
+    // Ob die Verbindung zu diesem Rotor gerade wirklich steht. Die
+    // Speiche zeigt weiter, was der Steckplatz verfolgt (Martin,
+    // 2026-09-14) -- aber ohne Verbindung gestrichelt und gedämpft,
+    // wie der Ring der Rotorscheibe daneben, statt wie eine gemessene
+    // Peilung auszusehen. `rotor` ist 1 oder 2.
+    void setRotorLinkLive(int rotor, bool live);
+    bool rotorLinkLive(int rotor) const { return rotor == 2 ? m_rotor2Live : m_rotor1Live; }
     void setRotor2Heading(bool connected, double azimuthDeg, const QString& label);
     // A second antenna on the same rotor (ContestSettings::rotorN
     // SecondAntennaEnabled/-OffsetDeg): its own cone at heading +
@@ -277,6 +284,8 @@ private:
     QVector<double> m_horizonProfile;
     QVector<LineOfSightClass> m_terrainSectors;
     bool m_rotor1Connected = false;
+    bool m_rotor1Live = false;
+    bool m_rotor2Live = false;
     double m_rotor1AzimuthDeg = 0.0;
     QString m_rotor1Label;
     bool m_rotor2Connected = false;

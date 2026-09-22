@@ -31,6 +31,7 @@ private slots:
     void disablingRotor2RemovesItsWidgetEntirely();
     void reEnablingRotor2RecreatesItsWidget();
     void mapBeamwidthReachesTheRotorDials();
+    void mapKnowsWhetherTheRotorLinkIsUp();
 };
 
 namespace {
@@ -171,6 +172,27 @@ void TestMainWindowRotorToggle::mapBeamwidthReachesTheRotorDials()
     const QList<RotorWidget*> recreated = window.findChildren<RotorWidget*>();
     QCOMPARE(recreated.size(), 2);
     QCOMPARE(recreated.at(1)->beamwidthDeg(), 20.0);
+}
+
+// Die Karte zeichnet die Speiche weiter, auch ohne Draht zum Rotor
+// (Martin, 2026-09-14: sie zeigt, was der Steckplatz verfolgt) -- aber
+// sie muss wissen, dass die Verbindung nicht steht, sonst sieht die
+// Richtung aus wie eine gemessene Peilung.
+void TestMainWindowRotorToggle::mapKnowsWhetherTheRotorLinkIsUp()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeReadyController(dir, QStringLiteral("mw_link.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    auto* map = window.findChild<MapWidget*>();
+    QVERIFY(map);
+    // Kein rotctld in diesem Prüfstand: beide Steckplätze haben ein
+    // Bedienfeld, aber keine Verbindung.
+    QVERIFY(!controller->rotor1Client().isConnected());
+    QVERIFY(!map->rotorLinkLive(1));
+    QVERIFY(!map->rotorLinkLive(2));
 }
 
 int main(int argc, char* argv[])

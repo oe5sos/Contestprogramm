@@ -1880,11 +1880,17 @@ void MainWindow::pushRotorHeadingToMap(RotctldClient& client, bool connected, do
     if (!m_mapWidget) {
         return;
     }
-    if (&client == &m_appController.rotor1Client()) {
+    // `connected` heißt hier "dieser Steckplatz hat ein Bedienfeld"
+    // (siehe die Aufrufstellen) -- ob der Draht zum Rotor wirklich
+    // steht, ist eine zweite Frage, und die Karte soll sie ehrlich
+    // beantworten statt eine Peilung vorzutäuschen.
+    const bool isRotor1 = &client == &m_appController.rotor1Client();
+    if (isRotor1) {
         m_mapWidget->setRotor1Heading(connected, azimuthDeg, label);
     } else {
         m_mapWidget->setRotor2Heading(connected, azimuthDeg, label);
     }
+    m_mapWidget->setRotorLinkLive(isRotor1 ? 1 : 2, connected && client.isConnected());
 }
 
 RotorWidget* MainWindow::rotorWidgetForClient(RotctldClient* client) const
