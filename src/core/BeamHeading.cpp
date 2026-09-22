@@ -18,6 +18,8 @@
 
 #include "core/BeamHeading.h"
 
+#include <QtMath>   // definiert M_PI auch dort, wo <cmath> das nicht tut (MSVC)
+
 #include <algorithm>
 #include <cmath>
 

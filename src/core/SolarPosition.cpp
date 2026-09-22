@@ -1,6 +1,7 @@
 #include "core/SolarPosition.h"
 
 #include <QTimeZone>
+#include <QtMath>   // definiert M_PI auch dort, wo <cmath> das nicht tut (MSVC)
 
 #include <cmath>
 
