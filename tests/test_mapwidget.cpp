@@ -526,6 +526,10 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     MapWidget widget;
     widget.setGridLayerVisible(true);
     widget.setCitiesLayerVisible(true);
+    // Die Graulinie ist standardmäßig aus (auf UKW ohne Bedeutung) und
+    // muss den Weg durch die gespeicherten Einstellungen überstehen.
+    QVERIFY(!widget.greylineLayerVisible());
+    widget.setGreylineLayerVisible(true);
     widget.setHorizonLayerVisible(false);
     widget.setAgingEnabled(false);
     widget.setRotor1BeamwidthDeg(25.0);
@@ -535,12 +539,14 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     QVERIFY(text.contains(QStringLiteral("rgrid=1")));
     QVERIFY(text.contains(QStringLiteral("rcities=1")));
     QVERIFY(text.contains(QStringLiteral("bw1=25")));
+    QVERIFY2(text.contains(QStringLiteral("greyline=1")), qPrintable(text));
 
     MapWidget other;
     QSignalSpy changed(&other, &MapWidget::preferencesChanged);
     other.applyPreferencesText(text);
     QVERIFY(other.gridLayerVisible());
     QVERIFY(other.citiesLayerVisible());
+    QVERIFY(other.greylineLayerVisible());
     QVERIFY(!other.horizonLayerVisible());
     QVERIFY(!other.agingEnabled());
     QVERIFY(other.ringsLayerVisible()); // untouched keys keep their default

@@ -81,6 +81,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/BandUtils.h
     src/core/BandUtils.cpp
     src/core/CallsignPrefix.h
+    src/core/SolarPosition.h
+    src/core/SolarPosition.cpp
     src/core/CallsignPrefix.cpp
     src/core/Transverter.cpp
     src/core/BroadcastPublisher.h

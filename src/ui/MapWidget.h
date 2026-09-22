@@ -87,6 +87,10 @@ public:
     void setWorkedCellsLayerVisible(bool visible);
     void setBordersLayerVisible(bool visible);
     void setCitiesLayerVisible(bool visible);
+    // Die Dämmerungszone: wo gerade die Sonne auf- oder untergeht
+    // (core/SolarPosition.h). Auf Kurzwelle die eine Schicht, die über
+    // die Ausbreitung etwas sagt; auf UKW ohne Bedeutung, darum aus.
+    void setGreylineLayerVisible(bool visible);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
     void setRotor1HeadingLayerVisible(bool visible);
@@ -98,6 +102,7 @@ public:
     bool workedCellsLayerVisible() const { return m_layers.cells; }
     bool bordersLayerVisible() const { return m_layers.borders; }
     bool citiesLayerVisible() const { return m_layers.cities; }
+    bool greylineLayerVisible() const { return m_layers.greyline; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
@@ -220,6 +225,8 @@ private:
     // Painting
     void drawScopeFace(QPainter& painter, const QRectF& area) const;
     void drawBordersLayer(QPainter& painter, const QRectF& area) const;
+    void drawGreylineLayer(QPainter& painter, const QRectF& area) const;
+    void syncGreylineTimer();
     void drawCitiesLayer(QPainter& painter, const QRectF& area) const;
     void drawGridLayer(QPainter& painter, const QRectF& area) const;
     void drawRingsLayer(QPainter& painter, const QRectF& area) const;
@@ -256,6 +263,7 @@ private:
         bool cells = true;
         bool borders = false;
         bool cities = false;
+        bool greyline = false;
     };
     Layers m_layers;
     bool m_showRings = true;
@@ -305,7 +313,11 @@ private:
     QPushButton* m_zoomOutButton = nullptr;
     QPushButton* m_zoomInButton = nullptr;
     QLabel* m_zoomRangeLabel = nullptr;
+    QAction* m_greylineAction = nullptr;
     QTimer* m_agingRefreshTimer = nullptr;
+    // Die Graulinie wandert 15 Grad je Stunde -- einmal je Minute neu
+    // zeichnen reicht, und nur solange die Schicht an ist.
+    QTimer* m_greylineTimer = nullptr;
     bool m_syncingControls = false;
 };
 

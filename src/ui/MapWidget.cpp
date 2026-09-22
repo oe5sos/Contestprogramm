@@ -3,6 +3,7 @@
 #include "core/Cities.h"
 #include "core/CountryBorders.h"
 #include "core/Maidenhead.h"
+#include "core/SolarPosition.h"
 #include "ui/StyleKit.h"
 
 #include <QAction>
@@ -56,6 +57,15 @@ constexpr double kVisibleRangeStepKm = 250.0;
 // Was im ⚙-Menü als Sprungweite steht: vom Nahbereich bis zur
 // Weltkarte, ohne zwanzigmal auf die Zoomtaste zu drücken.
 constexpr double kRangePresetsKm[] = {100.0, 300.0, 1000.0, 3000.0, 10000.0, 20000.0};
+
+// Die Graulinie wandert gut 15 Grad je Stunde, also rund 0,25 Grad je
+// Minute -- einmal je Minute neu zeichnen ist mehr, als man sieht.
+constexpr int kGreylineRefreshIntervalMs = 60 * 1000;
+// Bürgerliche Dämmerung: die Sonne 6 Grad unter dem Horizont, auf der
+// Kugel rund 667 km jenseits der Tag-Nacht-Grenze. So breit ist das
+// Band, das gezeichnet wird -- die Zone, in der auf den unteren
+// Bändern die Dämpfung wegfällt.
+constexpr double kCivilTwilightKm = 6.0 / 90.0 * 10007.5;
 
 // Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
 // Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
@@ -181,6 +191,11 @@ MapWidget::MapWidget(QWidget* parent)
     if (m_showAging) {
         m_agingRefreshTimer->start();
     }
+
+    m_greylineTimer = new QTimer(this);
+    m_greylineTimer->setInterval(kGreylineRefreshIntervalMs);
+    connect(m_greylineTimer, &QTimer::timeout, this, QOverload<>::of(&MapWidget::update));
+    syncGreylineTimer();
 }
 
 void MapWidget::buildControls()
@@ -213,6 +228,10 @@ void MapWidget::buildControls()
         return action;
     };
     m_ringsAction = addToggle(QStringLiteral("Entfernungsringe"), QStringLiteral("Ringe alle 100 km"), &MapWidget::setRingsLayerVisible);
+    m_greylineAction = addToggle(QStringLiteral("Graulinie"),
+                                 QStringLiteral("Wo gerade Dämmerung ist -- auf Kurzwelle die Zone, in der die "
+                                                "unteren Bänder aufmachen"),
+                                 &MapWidget::setGreylineLayerVisible);
     m_spokesAction = addToggle(QStringLiteral("Peilung"), QStringLiteral("Gradteilung am Rand, in der Karte auch Speichen"), &MapWidget::setSpokesLayerVisible);
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
     m_rotor1Action = addToggle(QStringLiteral("Rotor 1"), QStringLiteral("Peilung von Rotor 1 als Lichtkegel"), &MapWidget::setRotor1HeadingLayerVisible);
@@ -283,6 +302,7 @@ void MapWidget::syncControls()
     };
     sync(m_gridAction, m_layers.grid);
     sync(m_ringsAction, m_showRings);
+    sync(m_greylineAction, m_layers.greyline);
     sync(m_spokesAction, m_showSpokes);
     sync(m_workedCellsAction, m_layers.cells);
     sync(m_bordersAction, m_layers.borders);
@@ -315,6 +335,7 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     }
     syncControls();
     menu->addAction(m_ringsAction);
+    menu->addAction(m_greylineAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
     menu->addAction(m_rotor1Action);
@@ -425,6 +446,31 @@ MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
 #undef MAPWIDGET_TOGGLE
+
+// Nicht über das Makro: diese Schicht hat einen Zeitgeber, der mit ihr
+// an- und ausgeht.
+void MapWidget::setGreylineLayerVisible(bool on)
+{
+    if (m_layers.greyline == on) {
+        syncControls();
+        return;
+    }
+    m_layers.greyline = on;
+    syncGreylineTimer();
+    notePreferenceChange();
+}
+
+void MapWidget::syncGreylineTimer()
+{
+    if (!m_greylineTimer) {
+        return;
+    }
+    if (m_layers.greyline) {
+        m_greylineTimer->start();
+    } else {
+        m_greylineTimer->stop();
+    }
+}
 
 void MapWidget::setAgingEnabled(bool enabled)
 {
@@ -546,11 +592,12 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
-        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities));
+        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
+             flag(m_layers.greyline));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -585,6 +632,9 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_layers.borders);
         } else if (key == QStringLiteral("rcities")) {
             apply(m_layers.cities);
+        } else if (key == QStringLiteral("greyline")) {
+            apply(m_layers.greyline);
+            syncGreylineTimer();
         } else if (key == QStringLiteral("aging")) {
             if (m_showAging != on) {
                 changed = true;
@@ -889,6 +939,90 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
             }
         }
         painter.drawPath(path);
+    }
+}
+
+// Die Dämmerungszone als Band, nicht als ausgemalte Nachtseite: die
+// Karte ist dunkel, eine halb zugedeckte Scheibe würde mit den
+// anderen Schichten streiten. Dazu die Sonne als kleiner Ring, damit
+// zu sehen ist, welche Seite Tag ist.
+//
+// Gezeichnet wird der Kreis mit 10 008 km Abstand um den GEGENPUNKT
+// der Sonne -- in dieser Darstellung (Richtung und Entfernung vom
+// eigenen Standort) ist das kein Kreis mehr, sondern ein Vieleck aus
+// 360 gerechneten Punkten. Wo es den Gegenpunkt des eigenen Standorts
+// streift, läuft die Linie über den Rand der Scheibe; dort wird sie
+// abgesetzt statt quer durchs Bild gezogen.
+void MapWidget::drawGreylineLayer(QPainter& painter, const QRectF& area) const
+{
+    if (!isValidGridSquare(m_ownGrid)) {
+        return;
+    }
+    double homeLat = 0.0;
+    double homeLon = 0.0;
+    calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+
+    const SolarPoint sun = subsolarPoint(QDateTime::currentDateTimeUtc());
+    const double antiLat = -sun.latitudeDeg;
+    const double antiLon = sun.longitudeDeg > 0.0 ? sun.longitudeDeg - 180.0 : sun.longitudeDeg + 180.0;
+
+    const auto plot = [&](double lat, double lon, bool& nearRim) {
+        const double bearing = calculateBearingInDegreesBetween(homeLat, homeLon, lat, lon);
+        const double distance = calculateDistanceKmBetween(homeLat, homeLon, lat, lon);
+        nearRim = distance > 0.97 * m_visibleRangeKm;
+        return projectBearingDistance(bearing, distance, m_visibleRangeKm, area);
+    };
+
+    const auto ringPath = [&](double radiusKm) {
+        QPainterPath path;
+        bool started = false;
+        bool previousNearRim = false;
+        QPointF previous;
+        for (int azimuth = 0; azimuth <= 360; ++azimuth) {
+            double lat = 0.0;
+            double lon = 0.0;
+            destinationPoint(antiLat, antiLon, azimuth % 360, radiusKm, lat, lon);
+            bool nearRim = false;
+            const QPointF point = plot(lat, lon, nearRim);
+            const bool jump = started
+                && QLineF(previous, point).length() > area.width() / 4.0
+                && (nearRim || previousNearRim);
+            if (!started || jump) {
+                path.moveTo(point);
+                started = true;
+            } else {
+                path.lineTo(point);
+            }
+            previous = point;
+            previousNearRim = nearRim;
+        }
+        return path;
+    };
+
+    painter.setBrush(Qt::NoBrush);
+    // Das Band zuerst, breit und leise; die Linie selbst darüber.
+    const double radius = terminatorRadiusKm();
+    QColor band{Style::kTextSecondary()};
+    band.setAlpha(45);
+    painter.setPen(QPen(band, 1.0, Qt::DotLine));
+    painter.drawPath(ringPath(radius - kCivilTwilightKm));
+    painter.drawPath(ringPath(radius + kCivilTwilightKm));
+    QColor line{Style::kTextPrimary()};
+    line.setAlpha(110);
+    painter.setPen(QPen(line, 1.6));
+    painter.drawPath(ringPath(radius));
+
+    // Die Sonne, wenn sie im Bild liegt: ein Ring in Bernstein, kein
+    // ausgefüllter Punkt -- ausgefüllte Punkte sind hier Stationen.
+    bool sunNearRim = false;
+    const double sunDistance = calculateDistanceKmBetween(homeLat, homeLon, sun.latitudeDeg, sun.longitudeDeg);
+    if (sunDistance <= m_visibleRangeKm) {
+        const QPointF point = plot(sun.latitudeDeg, sun.longitudeDeg, sunNearRim);
+        QColor sunColor{Style::kAmberText()};
+        sunColor.setAlpha(150);
+        painter.setPen(QPen(sunColor, 1.4));
+        painter.drawEllipse(point, 5.0, 5.0);
+        painter.drawEllipse(point, 9.0, 9.0);
     }
 }
 
@@ -1353,6 +1487,9 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     painter.setClipPath(clip, Qt::IntersectClip);
     if (m_layers.borders) {
         drawBordersLayer(painter, area);
+    }
+    if (m_layers.greyline) {
+        drawGreylineLayer(painter, area);
     }
     if (m_layers.grid) {
         drawGridLayer(painter, area);
