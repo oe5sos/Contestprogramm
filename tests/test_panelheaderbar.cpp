@@ -6,6 +6,9 @@
 
 #include <QLabel>
 
+#include <QDialogButtonBox>
+
+#include "app/AppLanguage.h"
 #include "ui/PanelHeaderBar.h"
 #include "ui/StyleKit.h"
 #include "ui/SuggestionPanel.h"
@@ -36,6 +39,7 @@ private slots:
     void clickingOptionsButtonEmitsOptionsRequested();
     void constructionDoesNotEmitOptionsRequested();
     void monoFamilyCssCarriesEveryPlatformsFallback();
+    void qtsOwnButtonsSpeakGerman();
 };
 
 namespace {
@@ -134,6 +138,21 @@ void TestPanelHeaderBar::monoFamilyCssCarriesEveryPlatformsFallback()
         QVERIFY2(label->text().contains(QStringLiteral("SF Mono")), qPrintable(label->text()));
     }
     QVERIFY(found);
+}
+
+// Qt malt die Knöpfe in QDialogButtonBox und QMessageBox selbst und
+// beschriftet sie englisch, solange kein Übersetzer installiert ist --
+// "Save"/"Cancel" mitten in einem deutschen Fenster. main.cpp
+// installiert ihn (app/AppLanguage.h); hier steht, dass das auch
+// ankommt. Ohne .qm-Datei im Qt dieser Maschine ist nichts zu prüfen.
+void TestPanelHeaderBar::qtsOwnButtonsSpeakGerman()
+{
+    if (!installGermanQtTranslations(*QCoreApplication::instance())) {
+        QSKIP("qtbase_de.qm ist in diesem Qt nicht da -- dann bleibt es bei Qts englischen Knöpfen");
+    }
+    QDialogButtonBox box(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    QCOMPARE(box.button(QDialogButtonBox::Save)->text(), QStringLiteral("Speichern"));
+    QCOMPARE(box.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Abbrechen"));
 }
 
 int main(int argc, char* argv[])

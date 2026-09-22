@@ -28,6 +28,19 @@ ARCH=$(uname -m); [[ "$ARCH" == "arm64" ]] && ARCH_LABEL=apple-silicon || ARCH_L
 
 "$MACDEPLOYQT" "$APP" -verbose=0 2>/dev/null || true   # die rpath-Fehler betreffen genau die Teile, die gleich entfernt werden
 
+# Qts deutsche Knopfbeschriftungen ins Bundle (app/AppLanguage.h sucht
+# hier). macdeployqt bringt keine Übersetzungen mit; ohne die Datei
+# stünde im fertigen Programm "Save"/"Cancel". Homebrew legt sie unter
+# share/qt/translations ab, ein aqt-Qt direkt unter translations.
+QT_BIN_DIR=${MACDEPLOYQT:h}
+for qm in "$QT_BIN_DIR/../share/qt/translations/qtbase_de.qm" "$QT_BIN_DIR/../translations/qtbase_de.qm"; do
+    if [[ -f "$qm" ]]; then
+        mkdir -p "$APP/Contents/Resources/translations"
+        cp "$qm" "$APP/Contents/Resources/translations/"
+        break
+    fi
+done
+
 FW="$APP/Contents/Frameworks"; PL="$APP/Contents/PlugIns"
 for f in QtQml QtQmlMeta QtQmlModels QtQmlWorkerScript QtQuick QtOpenGL QtVirtualKeyboard QtVirtualKeyboardQml QtSvg QtPdf; do
     rm -rf "$FW/$f.framework"

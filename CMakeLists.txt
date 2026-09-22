@@ -115,6 +115,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/AppController.cpp
     src/app/AppActivation.h
     src/app/AppActivation.cpp
+    src/app/AppLanguage.h
+    src/app/AppLanguage.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
     src/app/SelfUpdater.h
