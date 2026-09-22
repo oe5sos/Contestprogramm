@@ -146,6 +146,12 @@ QFont capsFont(const QFont& base, int px = kFontCaption);
 // frequency, distance, bearing, rate, callsign.
 QFont monoFont(const QFont& base, int px, QFont::Weight weight = QFont::Normal);
 
+// Dieselbe Familienliste als CSS-Wert, fuer die wenigen Stellen, die
+// eine Schrift in Rich Text setzen muessen und deshalb kein QFont
+// setzen koennen. Nie eine einzelne Familie dort hinschreiben: "Menlo"
+// allein gibt es auf Windows und Linux nicht.
+QString monoFontFamilyCss();
+
 // "Unbekannt ist ein Strich, keine Null" -- HAUSSTIL rule 7. Two
 // em dashes, matching the design mockups this pass follows.
 QString unknownDash();

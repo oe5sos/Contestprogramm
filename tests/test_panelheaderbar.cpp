@@ -4,7 +4,13 @@
 #include <QPushButton>
 #include <QSignalSpy>
 
+#include <QLabel>
+
 #include "ui/PanelHeaderBar.h"
+#include "ui/StyleKit.h"
+#include "ui/SuggestionPanel.h"
+
+#include <optional>
 
 using namespace Contestprogramm;
 
@@ -29,6 +35,7 @@ private slots:
     void disablingHidesButtonAgain();
     void clickingOptionsButtonEmitsOptionsRequested();
     void constructionDoesNotEmitOptionsRequested();
+    void monoFamilyCssCarriesEveryPlatformsFallback();
 };
 
 namespace {
@@ -100,6 +107,33 @@ void TestPanelHeaderBar::constructionDoesNotEmitOptionsRequested()
     bar.setOptionsAffordanceEnabled(false);
 
     QCOMPARE(spy.count(), 0);
+}
+
+// Wer eine Monoschrift in Rich Text setzen muss, nimmt Style::
+// monoFontFamilyCss() -- eine einzelne Familie ("Menlo") gibt es nur auf
+// dem Mac, und genau so ist die Schrift im Vorschlagspanel auf Windows
+// und Linux zur Proportionalschrift geworden.
+void TestPanelHeaderBar::monoFamilyCssCarriesEveryPlatformsFallback()
+{
+    const QString css = Style::monoFontFamilyCss();
+    QVERIFY(css.contains(QStringLiteral("\"SF Mono\"")));            // macOS
+    QVERIFY(css.contains(QStringLiteral("\"Consolas\"")));           // Windows
+    QVERIFY(css.contains(QStringLiteral("\"DejaVu Sans Mono\"")));   // Linux
+    QVERIFY(css.endsWith(QStringLiteral("monospace")));
+
+    // Und die Stelle, die ihn braucht, benutzt ihn auch.
+    SuggestionPanel panel;
+    panel.setSuggestion(std::nullopt, std::nullopt, std::nullopt, QString());
+    bool found = false;
+    for (const QLabel* label : panel.findChildren<QLabel*>()) {
+        if (!label->text().contains(QStringLiteral("font-family:"))) {
+            continue;
+        }
+        found = true;
+        QVERIFY2(!label->text().contains(QStringLiteral("font-family:Menlo")), qPrintable(label->text()));
+        QVERIFY2(label->text().contains(QStringLiteral("SF Mono")), qPrintable(label->text()));
+    }
+    QVERIFY(found);
 }
 
 int main(int argc, char* argv[])
