@@ -75,6 +75,13 @@ public:
     // contestEndUtc alone.
     const ContestSchedule& schedule() const { return m_schedule; }
 
+    // The contest's name in a Cabrillo header ("CQ-WW-CW",
+    // "IARU-HF") -- what the receiving robot matches on, which is
+    // almost never this file's own id(). Optional JSON key
+    // "cabrillo_name"; empty (the default) makes CabrilloExporter fall
+    // back to id(), exactly as it did before this key existed.
+    const QString& cabrilloName() const { return m_cabrilloName; }
+
     // Modes the rules allow ("CW", "SSB", ...), upper-cased; empty (the
     // default) means any. Optional JSON key "modes" -- the Marconi
     // Memorial is CW only, and a QSO logged in SSB there is one the log
@@ -108,6 +115,7 @@ private:
     QString m_multiplierField = QStringLiteral("grid");
     QString m_scoring = QStringLiteral("distance_km");
     QString m_serialScope = QStringLiteral("band");
+    QString m_cabrilloName;
     ContestSchedule m_schedule;
     QStringList m_modes;
     bool m_valid = false;

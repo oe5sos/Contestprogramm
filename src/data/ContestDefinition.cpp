@@ -118,6 +118,9 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         }
         def.m_serialScope = scope;
     }
+    if (root.value(QStringLiteral("cabrillo_name")).isString()) {
+        def.m_cabrilloName = root.value(QStringLiteral("cabrillo_name")).toString().trimmed();
+    }
     if (root.contains(QStringLiteral("schedule"))) {
         if (!root.value(QStringLiteral("schedule")).isObject()) {
             if (errorOut) { *errorOut = QStringLiteral("\"schedule\" is not an object"); }
@@ -198,6 +201,9 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
     root.insert(QStringLiteral("serial_scope"), m_serialScope);
     // Optional keys are written only when set, so a saved override of a
     // definition without them stays identical in shape to the shipped file.
+    if (!m_cabrilloName.isEmpty()) {
+        root.insert(QStringLiteral("cabrillo_name"), m_cabrilloName);
+    }
     if (m_schedule.isValid()) {
         root.insert(QStringLiteral("schedule"), m_schedule.toJson());
     }
