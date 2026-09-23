@@ -24,6 +24,7 @@ private slots:
     void settingsRoundTripSingleRotorMode();
     void settingsRoundTripRenamedRotorLabel();
     void appControllerRoutesBandsForTwoRotorDefault();
+    void shortwaveBandsFollowTheirOwnAssignment();
     void appControllerNoOpsForBandMappedToDisabledRotor();
     void hamlibModelDeviceAndBaudDefaultToYaesuAndRoundTripPerSlot();
 };
@@ -105,7 +106,37 @@ void TestRotorSettings::appControllerRoutesBandsForTwoRotorDefault()
     // 1296 shares slot 1 by default, same as the old band1296RotorRef
     // default of "2m".
     QCOMPARE(controller.activeRotorForBand(QStringLiteral("1296")), &controller.rotor1Client());
+    // Jedes andere Band -- Kurzwelle eingeschlossen -- hängt an
+    // bandOtherRotorSlot, und das ist von Haus aus keines.
+    QVERIFY(controller.activeRotorForBand(QStringLiteral("14")) == nullptr);
     QVERIFY(controller.activeRotorForBand(QStringLiteral("60")) == nullptr);
+}
+
+// Bis 2026-09-23 drehte auf Kurzwelle kein Rotor mit: es gab nur die
+// drei Felder für 144, 432 und 1296. Eine Zuordnung für alles übrige
+// löst das, ohne acht weitere Felder zu brauchen -- auf Kurzwelle
+// hängt an einem Rotor ohnehin eine Antenne für mehrere Bänder.
+void TestRotorSettings::shortwaveBandsFollowTheirOwnAssignment()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    AppController controller;
+    QVERIFY(controller.openDatabase(dir.filePath(QStringLiteral("hf_rotor.sqlite"))));
+
+    ContestSettings settings = controller.settings();
+    settings.bandOtherRotorSlot = ContestSettings::RotorSlot::Slot1;
+    controller.setSettings(settings);
+
+    QCOMPARE(controller.activeRotorForBand(QStringLiteral("14")), &controller.rotor1Client());
+    QCOMPARE(controller.activeRotorForBand(QStringLiteral("3.5")), &controller.rotor1Client());
+    QCOMPARE(controller.activeRotorForBand(QStringLiteral("50")), &controller.rotor1Client());
+    // Die drei ausdrücklich zugeordneten Bänder bleiben, wo sie waren.
+    QCOMPARE(controller.activeRotorForBand(QStringLiteral("432")), &controller.rotor2Client());
+
+    // Und über die Einstellungstabelle hinweg.
+    ContestSettings reloaded;
+    reloaded.loadFrom(controller.database());
+    QCOMPARE(reloaded.bandOtherRotorSlot, ContestSettings::RotorSlot::Slot1);
 }
 
 void TestRotorSettings::appControllerNoOpsForBandMappedToDisabledRotor()

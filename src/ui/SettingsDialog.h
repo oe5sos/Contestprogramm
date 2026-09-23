@@ -208,6 +208,7 @@ private:
     QComboBox* m_band144RotorCombo;
     QComboBox* m_band432RotorCombo;
     QComboBox* m_band1296RotorCombo;
+    QComboBox* m_bandOtherRotorCombo;
 
     // Which RotorWidget paint style both compasses use (core/
     // RotorDialStyle.h) -- one operator-wide combo, not per-slot, see

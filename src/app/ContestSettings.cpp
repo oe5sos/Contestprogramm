@@ -235,6 +235,8 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
         database.settingValue(QStringLiteral("band_432_rotor_slot"), rotorSlotToString(band432RotorSlot)), band432RotorSlot);
     band1296RotorSlot = rotorSlotFromString(
         database.settingValue(QStringLiteral("band_1296_rotor_slot"), rotorSlotToString(band1296RotorSlot)), band1296RotorSlot);
+    bandOtherRotorSlot = rotorSlotFromString(
+        database.settingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot)), bandOtherRotorSlot);
 
     rotorDialStyle = rotorDialStyleFromString(
         database.settingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle)), rotorDialStyle);
@@ -327,6 +329,7 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("band_144_rotor_slot"), rotorSlotToString(band144RotorSlot));
     database.setSettingValue(QStringLiteral("band_432_rotor_slot"), rotorSlotToString(band432RotorSlot));
     database.setSettingValue(QStringLiteral("band_1296_rotor_slot"), rotorSlotToString(band1296RotorSlot));
+    database.setSettingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot));
 
     database.setSettingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle));
 

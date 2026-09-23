@@ -134,6 +134,11 @@ struct ContestSettings {
     RotorSlot band144RotorSlot = RotorSlot::Slot1;
     RotorSlot band432RotorSlot = RotorSlot::Slot2;
     RotorSlot band1296RotorSlot = RotorSlot::Slot1;
+    // Jedes andere Band -- Kurzwelle, 6 m, 4 m, die Mikrowellenbänder.
+    // Ohne diese Zuordnung dreht auf Kurzwelle überhaupt kein Rotor mit,
+    // weil die drei Felder darüber die einzigen waren. None ist die
+    // Vorgabe: solange sie steht, verhält sich alles wie bisher.
+    RotorSlot bandOtherRotorSlot = RotorSlot::None;
 
     // Which of RotorWidget's four paint styles both rotor compasses
     // use (core/RotorDialStyle.h) -- one operator-wide setting, not

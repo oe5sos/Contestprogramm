@@ -84,6 +84,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_band144RotorCombo(new QComboBox(this))
     , m_band432RotorCombo(new QComboBox(this))
     , m_band1296RotorCombo(new QComboBox(this))
+    , m_bandOtherRotorCombo(new QComboBox(this))
     , m_rotorDialStyleCombo(new QComboBox(this))
     , m_colorThemeCombo(new QComboBox(this))
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
@@ -328,6 +329,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     selectRotorSlot(m_band144RotorCombo, initial.band144RotorSlot);
     selectRotorSlot(m_band432RotorCombo, initial.band432RotorSlot);
     selectRotorSlot(m_band1296RotorCombo, initial.band1296RotorSlot);
+    selectRotorSlot(m_bandOtherRotorCombo, initial.bandOtherRotorSlot);
 
     // Live sync: a slot being disabled or renamed while the dialog is
     // still open must be reflected in the band combos immediately, not
@@ -493,6 +495,10 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     bandRoutingForm->addRow(QStringLiteral("144 MHz (2m):"), m_band144RotorCombo);
     bandRoutingForm->addRow(QStringLiteral("432 MHz (70cm):"), m_band432RotorCombo);
     bandRoutingForm->addRow(QStringLiteral("1296 MHz (23cm):"), m_band1296RotorCombo);
+    // Alles übrige in einer Zeile: auf Kurzwelle hängt an einem Rotor
+    // in aller Regel eine Antenne für mehrere Bänder, eine Zeile je
+    // Band wäre acht Mal dieselbe Antwort.
+    bandRoutingForm->addRow(QStringLiteral("Übrige Bänder (Kurzwelle …):"), m_bandOtherRotorCombo);
 
     auto* bandRoutingGroup = new QGroupBox(QStringLiteral("Band-Zuordnung"), this);
     bandRoutingGroup->setLayout(bandRoutingForm);
@@ -660,6 +666,7 @@ ContestSettings SettingsDialog::settings() const
     result.band144RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band144RotorCombo->currentData().toInt());
     result.band432RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band432RotorCombo->currentData().toInt());
     result.band1296RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band1296RotorCombo->currentData().toInt());
+    result.bandOtherRotorSlot = static_cast<ContestSettings::RotorSlot>(m_bandOtherRotorCombo->currentData().toInt());
 
     result.rotorDialStyle = static_cast<RotorDialStyle>(m_rotorDialStyleCombo->currentData().toInt());
     result.colorTheme = static_cast<ColorTheme>(m_colorThemeCombo->currentData().toInt());
@@ -800,6 +807,7 @@ void SettingsDialog::refreshBandRotorCombos()
     rebuild(m_band144RotorCombo);
     rebuild(m_band432RotorCombo);
     rebuild(m_band1296RotorCombo);
+    rebuild(m_bandOtherRotorCombo);
 }
 
 } // namespace Contestprogramm

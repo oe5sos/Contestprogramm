@@ -335,7 +335,10 @@ RotctldClient* AppController::activeRotorForBand(const QString& band)
         // ContestSettings::band1296RotorSlot.
         return rotorForSlot(m_settings.band1296RotorSlot);
     }
-    return nullptr;
+    // Alles andere -- Kurzwelle, 6 m, 4 m, die Mikrowellenbänder. Bis
+    // 2026-09-23 gab es hier nur nullptr: auf Kurzwelle drehte kein
+    // Rotor mit, egal was angeschlossen war. Vorgabe bleibt None.
+    return rotorForSlot(m_settings.bandOtherRotorSlot);
 }
 
 const ContestDefinition* AppController::findContestDefinition(const QString& contestId) const
