@@ -1042,6 +1042,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             && m_unifiedLog->hasUnsentContent()) {
             return;
         }
+        // Das Funkgerät meldet sich selbst -- seine Frequenz gilt ab
+        // jetzt, nicht die zuletzt eingetippte.
+        m_typedFrequencyHz = 0;
         applyRigFrequency(hz);
     });
     connect(&m_appController.rigctldClient(), &RigctldClient::modeChanged, this,
@@ -4011,7 +4014,8 @@ qint64 MainWindow::currentRfFrequencyHz() const
 {
     const RigctldClient& rig = m_appController.rigctldClient();
     if (!rig.isConnected() || rig.frequencyHz() <= 0) {
-        return 0;
+        // Kein Funkgerät -- dann gilt, was zuletzt eingetippt wurde.
+        return m_typedFrequencyHz;
     }
     return m_transverter.rfFrequencyHz(rig.frequencyHz());
 }
@@ -4066,6 +4070,7 @@ void MainWindow::tuneToFrequency(qint64 rfHz)
             8000);
         return;
     }
+    m_typedFrequencyHz = rfHz;
     if (m_appController.rigctldClient().isConnected()) {
         // Durch den Transverter, wie beim Bandmap-Klick.
         m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(rfHz));
@@ -4073,6 +4078,17 @@ void MainWindow::tuneToFrequency(qint64 rfHz)
     // Auch ohne Funkgerät: das Band gilt ab jetzt. applyRigFrequency()
     // erwartet die Frequenz, wie sie am Gerät steht.
     applyRigFrequency(m_transverter.rigFrequencyHz(rfHz));
+    // Und die Betriebsart nach dem Bandplan -- ohne CAT gäbe es sonst
+    // keine: sie bliebe auf SSB stehen, auch auf 14,045 MHz, und der
+    // Rapport käme mit 59 statt 599. Hängt ein Funkgerät dran, sagt es
+    // gleich darauf seine eigene und die gilt.
+    const QString planMode = usualModeForFrequencyHz(rfHz);
+    if (!planMode.isEmpty() && planMode != m_currentMode
+        && (!def || def->modes().isEmpty() || def->modes().contains(planMode))) {
+        m_currentMode = planMode;
+        m_unifiedLog->setCurrentMode(planMode);
+        updateStatusBar();
+    }
     statusBar()->showMessage(QStringLiteral("%1 MHz · %2").arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel),
                               4000);
 }

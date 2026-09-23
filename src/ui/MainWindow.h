@@ -429,6 +429,12 @@ private:
     // one place a rig frequency becomes m_currentBand: the transverter
     // applied, bands outside the contest ignored.
     qint64 currentRfFrequencyHz() const;
+    // Die zuletzt von Hand eingetippte Frequenz auf der Antenne (siehe
+    // tuneToFrequency()). Ohne CAT ist sie die einzige, die es gibt --
+    // ohne sie stünde im Cabrillo-Log die Bandkante statt der Stelle,
+    // an der das QSO wirklich lief. Ein Funkgerät, das seine eigene
+    // Frequenz meldet, löscht sie: seine gilt.
+    qint64 m_typedFrequencyHz = 0;
     void applyRigFrequency(qint64 rigHz);
     void syncTransverterCheck();
     // Auf eine Frequenz auf der Antenne gehen (Hertz): Funkgerät
