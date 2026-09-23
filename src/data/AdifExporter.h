@@ -5,6 +5,7 @@
 namespace Contestprogramm {
 
 class ContestDatabase;
+struct ContestSettings;
 
 // General-format export alongside CabrilloExporter, per the plan's
 // Cabrillo-Export section: "Cabrillo... aber qsos.freq_hz... wird im
@@ -25,7 +26,11 @@ class AdifExporter {
 public:
     explicit AdifExporter(ContestDatabase& database);
 
-    QString exportContest(const QString& contestId) const;
+    // `settings` liefert die Felder, die kein QSO beantworten kann:
+    // eigenes Rufzeichen und eigener Locator (STATION_CALLSIGN /
+    // OPERATOR / MY_GRIDSQUARE). Dieselbe Aufteilung wie beim
+    // Cabrillo-Export.
+    QString exportContest(const QString& contestId, const ContestSettings& settings) const;
 
 private:
     ContestDatabase* m_database;

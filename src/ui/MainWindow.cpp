@@ -3117,7 +3117,7 @@ void MainWindow::exportAdif()
     }
 
     AdifExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId);
+    const QString text = exporter.exportContest(settings.activeContestId, settings);
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
