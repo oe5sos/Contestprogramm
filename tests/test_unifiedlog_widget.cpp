@@ -985,6 +985,21 @@ void TestUnifiedLogWidget::narrowPanelFitsTheColumnsAndTheEntryRowFollows()
     QCoreApplication::processEvents();
     QCOMPARE(feedTable->columnWidth(UnifiedLogWidget::ColumnCall), 115);
     QCOMPARE(callsign->width(), 115);
+
+    // Und die Bandzelle genauso: sie trägt seit 2026-09-23 einen
+    // echten Wert statt eines Strichs, und die Stelle, die die
+    // Eingabezeile nachzieht, hatte sie dabei verloren -- in den
+    // Vollspalten folgte weder sie noch die QSO-Nummer der
+    // angepassten Breite, und die Zeile verrutschte gegen die Tabelle.
+    widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
+    widget.resize(620, 400);
+    QCoreApplication::processEvents();
+    auto* bandCell = widget.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kEntryBandLabelObjectName));
+    QVERIFY(bandCell);
+    QCOMPARE(bandCell->width(), feedTable->columnWidth(UnifiedLogWidget::ColumnBand));
+    widget.resize(1300, 400);
+    QCoreApplication::processEvents();
+    QCOMPARE(bandCell->width(), feedTable->columnWidth(UnifiedLogWidget::ColumnBand));
 }
 
 // The newest QSO must be on screen after logging -- the operator's own

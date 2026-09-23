@@ -224,6 +224,10 @@ public:
     // Contest mehr als ein Band führt (auf Kurzwelle die Regel).
     void setContestHasSeveralBands(bool several);
 
+    // Die Bandzelle der Eingabezeile -- benannt, damit die Prüfstände
+    // nachmessen können, ob sie mit der Spalte darunter mitwächst.
+    static constexpr const char* kEntryBandLabelObjectName = "entryBandCell";
+
     QString callsign() const;
 
     // key -> current text, one entry per field passed to the last

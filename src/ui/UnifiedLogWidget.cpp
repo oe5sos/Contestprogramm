@@ -1587,9 +1587,19 @@ void UnifiedLogWidget::applyEntryRowWidths()
     }
     const int rowHeight = m_feedTable->verticalHeader()->defaultSectionSize();
     const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
-    if (dxLog && m_entryRowBlanks.size() == 2) {
+    // Die QSO-Nummer ist die einzige leere Zelle, die es hier noch
+    // gibt: die Bandzelle trägt seit 2026-09-23 einen echten Wert und
+    // steht in m_entryBandLabel (siehe rebuildEntryRowLayout()). Vorher
+    // stand hier eine Prüfung auf genau zwei Platzhalter -- die traf
+    // seitdem nie mehr zu, und damit folgte in den Vollspalten keine
+    // der beiden Zellen mehr der angepassten Spaltenbreite: die
+    // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
+    // schmaler oder breiter wurde.
+    if (dxLog && !m_entryRowBlanks.isEmpty()) {
         m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
-        m_entryRowBlanks.at(1)->setFixedSize(columnWidthFor(ColBand), rowHeight);
+    }
+    if (m_entryBandLabel) {
+        m_entryBandLabel->setFixedSize(columnWidthFor(ColBand), rowHeight);
     }
     m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
@@ -2269,6 +2279,7 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
             QStringLiteral("color: %1; background: transparent; border-right: 1px solid %2; padding: 0 %3px;")
                 .arg(Style::kTextPrimary(), Style::kBorder())
                 .arg(kEntryRowHPadding));
+        band->setObjectName(QLatin1String(kEntryBandLabelObjectName));
         band->setFixedSize(columnWidthFor(ColBand), rowHeight);
         m_entryRowLayout->addWidget(band);
         m_entryBandLabel = band;
