@@ -309,6 +309,25 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/resources"
             "$<TARGET_FILE_DIR:Contestprogramm>/resources"
+    # resources/mac/ gehoert NICHT ins Bundle: darin liegt
+    # AppIcon.iconset, ein Verzeichnis voller PNGs. Ein .iconset an
+    # dieser Stelle macht das Bundle fuer codesign ungueltig
+    # ("bundle format unrecognized, invalid, or unsuitable"), und
+    # macOS weigert sich dann, es zu starten ("Launch failed",
+    # RBSRequestErrorDomain Code=5). Am 2026-09-23 beim Installieren
+    # nach /Applications aufgefallen: erst nach dem Entfernen dieses
+    # Ordners liess sich die Kopie signieren und oeffnen.
+    #
+    # Das fertige Symbol braucht das Programm hier ohnehin nicht --
+    # AppIcon.icns wird ueber MACOSX_BUNDLE_ICON_FILE nach
+    # Contents/Resources gelegt. Was unter resources/mac liegt, ist
+    # Baumaterial, keine Laufzeitdatei.
+    #
+    # Erst kopieren, dann entfernen (statt gezielt zu kopieren): so
+    # muss niemand diese Liste pflegen, wenn ein neues
+    # Ressourcenverzeichnis dazukommt.
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+            "$<TARGET_FILE_DIR:Contestprogramm>/resources/mac"
     COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/resources_copied.stamp"
     DEPENDS ${CONTESTPROGRAMM_RESOURCE_FILES}
     COMMENT "Copying resources/ next to the built binary"
