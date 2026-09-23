@@ -705,6 +705,17 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // 2026-09-20) -- each view's own layer defaults are the widget's.
     m_mapWidget->applyPreferencesText(m_appController.database().settingValue(
         QStringLiteral("map_preferences"), QStringLiteral("view=radar")));
+    // Die runde Scheibe ist seit 2026-09-23 die Vorgabe (siehe
+    // MapWidget::m_fitToWindow). Eine Datenbank, die schon läuft, trägt
+    // aber das alte "fit=1" und sähe von der Entscheidung nichts --
+    // darum genau einmal nachgezogen. Wer danach im ⚙ der Karte wieder
+    // "Fläche füllen" einschaltet, behält das: der Schlüssel unten ist
+    // dann längst gesetzt.
+    if (m_appController.database().settingValue(QStringLiteral("map_round_default_applied")).isEmpty()) {
+        m_mapWidget->setFitToWindowEnabled(false);
+        m_appController.database().setSettingValue(QStringLiteral("map_round_default_applied"), QStringLiteral("1"));
+        m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
+    }
     connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
         m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
         // The beamwidth set in the map's ⚙ menu is also the cone the
@@ -1705,7 +1716,7 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
-        m_unifiedLog->setContestHasSeveralBands(def->bands().size() > 1);
+        m_unifiedLog->setContestBandCount(def->bands().size());
         m_unifiedLog->setCurrentBand(m_currentBand);
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the

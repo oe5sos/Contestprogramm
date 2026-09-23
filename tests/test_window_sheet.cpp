@@ -6,12 +6,15 @@
 // zeigt es das ganze Fenster: Panelaufteilung, Kopfzeilen, Leerzustaende,
 // Statuszeile.
 //
-// Blaetter paarweise, eines je Variante und in wirklicher Groesse
-// (Hausregel): das Fenster wie es startet gegen dasselbe Fenster mit
-// runder Karte, das blaue Profil-Abzeichen gegen ein bernsteinfarbenes,
-// und das Kurzwellen-Log ohne gegen eines mit Bandfarben. Die Varianten
-// werden HIER gebaut, nicht im Programm -- solange nichts entschieden
-// ist, soll der Quelltext keine halbfertige zweite Gestaltung tragen.
+// Drei Blaetter, jedes in wirklicher Groesse (Hausregel): das Fenster
+// wie es startet, dasselbe mit "Flaeche fuellen" statt runder Scheibe
+// (die Einstellung gibt es weiter im Karten-Zahnrad, also gehoert sie
+// aufs Blatt), und das Kurzwellen-Log mit seinen sechs Baendern.
+//
+// Die drei Gestaltungsfragen vom 2026-09-23 -- runde Karte,
+// bernsteinfarbenes Profil-Abzeichen, Bandfarbe im Log -- sind
+// entschieden und stehen jetzt im Programm; die Varianten, die dieses
+// Werkzeug dafuer kurzzeitig selbst gebaut hat, sind wieder raus.
 //
 // Ziel ist SHEET_DIR, sonst das Temp-Verzeichnis (wie beim Kartenblatt),
 // damit dieses Werkzeug im normalen Durchlauf einfach mitlaeuft.
@@ -24,64 +27,19 @@
 #include <QImage>
 #include <QTemporaryDir>
 
-#include <QHeaderView>
-#include <QPainter>
-#include <QPushButton>
-#include <QStyledItemDelegate>
-#include <QTableView>
-
 #include "app/AppController.h"
 #include "core/ColorTheme.h"
 #include "ui/MainWindow.h"
 #include "ui/MapWidget.h"
-#include "ui/ProfileRail.h"
 #include "ui/StyleKit.h"
-#include "ui/UnifiedLogWidget.h"
 
 using namespace Contestprogramm;
-
-namespace {
-
-// Eine Farbe je Band, gedaempft, damit die Zeile nicht zum Regenbogen
-// wird -- die Hausregel erlaubt ~2% Farbflaeche. Nur der Text der
-// Bandzelle wird eingefaerbt, kein Hintergrund.
-QColor bandTint(const QString& band)
-{
-    static const QHash<QString, int> kHues{
-        {QStringLiteral("1.8"), 20},  {QStringLiteral("3.5"), 40},  {QStringLiteral("7"), 75},
-        {QStringLiteral("14"), 145},  {QStringLiteral("21"), 190},  {QStringLiteral("28"), 265},
-        {QStringLiteral("50"), 300},  {QStringLiteral("144"), 40},  {QStringLiteral("432"), 190},
-        {QStringLiteral("1296"), 265},
-    };
-    const auto it = kHues.constFind(band.trimmed());
-    if (it == kHues.constEnd()) {
-        return QColor(Style::kTextPrimary());
-    }
-    return QColor::fromHsl(it.value(), 110, 165);
-}
-
-class BandTintDelegate : public QStyledItemDelegate {
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-    void initStyleOption(QStyleOptionViewItem* option, const QModelIndex& index) const override
-    {
-        // initStyleOption ueberschreiben, nicht nur die lokale Kopie
-        // anfassen -- die Delegate-Falle aus dem Log-Feinschliff vom
-        // 2026-09-11.
-        QStyledItemDelegate::initStyleOption(option, index);
-        const QColor tint = bandTint(index.data(Qt::DisplayRole).toString());
-        option->palette.setColor(QPalette::Text, tint);
-        option->palette.setColor(QPalette::HighlightedText, tint);
-    }
-};
-
-} // namespace
 
 class TestWindowSheet : public QObject {
     Q_OBJECT
 private slots:
     void render();
-    void shortwaveLogWithAndWithoutBandColours();
+    void shortwaveLog();
 };
 
 void TestWindowSheet::render()
@@ -157,48 +115,21 @@ void TestWindowSheet::render()
     };
     save(QStringLiteral("contestprogramm-hauptfenster"));
 
-    // Frage 2: das Profil-Abzeichen links oben. Heute das einzige
-    // kraeftige Blau im ganzen Fenster -- daneben gestellt dasselbe
-    // Abzeichen in der Farbe, die das Fenster sonst fuer "aktiv"
-    // benutzt. Erst als Paar entscheidbar, darum beide Blaetter.
-    if (auto* rail = window.findChild<ProfileRail*>()) {
-        save(QStringLiteral("contestprogramm-abzeichen-blau"));
-        const QList<QPushButton*> badges = rail->findChildren<QPushButton*>();
-        for (QPushButton* badge : badges) {
-            if (badge->text() == QStringLiteral("+")) {
-                continue;
-            }
-            badge->setStyleSheet(
-                QStringLiteral("QPushButton { background: %1; border: 2px solid %2; border-radius: 16px; color: %3; }")
-                    .arg(Style::kAmberBg(), Style::kAmberBorder(), Style::kAmberText()));
-        }
-        save(QStringLiteral("contestprogramm-abzeichen-bernstein"));
-        for (QPushButton* badge : badges) {
-            if (badge->text() == QStringLiteral("+")) {
-                continue;
-            }
-            badge->setStyleSheet(
-                QStringLiteral("QPushButton { background: %1; border: 2px solid %2; border-radius: 16px; color: %3; }")
-                    .arg(Style::kBlueBg(), Style::kBlueBorder(), Style::kBlueText()));
-        }
-    } else {
-        qWarning("ProfileRail nicht gefunden");
-    }
-
+    // Die runde Scheibe ist die Vorgabe; "Flaeche fuellen" bleibt im
+    // Karten-Zahnrad erreichbar und gehoert darum weiter aufs Blatt.
     if (auto* map = window.findChild<MapWidget*>()) {
-        map->setFitToWindowEnabled(false);
-        save(QStringLiteral("contestprogramm-hauptfenster-runde-karte"));
+        map->setFitToWindowEnabled(true);
+        save(QStringLiteral("contestprogramm-hauptfenster-flaeche-fuellen"));
     } else {
         qWarning("MapWidget nicht gefunden");
     }
 }
 
 
-// Frage 3: Bandfarbe im Log. Sinn ergibt sie erst, wo wirklich mehrere
-// Baender untereinander stehen -- darum das Kurzwellen-Uebungslog und
-// nicht das VHF-Fenster oben. Zwei Blaetter, sonst identisch: einmal
-// wie heute, einmal mit eingefaerbter Bandzelle.
-void TestWindowSheet::shortwaveLogWithAndWithoutBandColours()
+// Das Kurzwellen-Uebungslog: sechs Baender untereinander, also die
+// Ansicht, in der Bandspalte und Bandfarbe ueberhaupt etwas sagen. Das
+// VHF-Fenster oben zeigt das nicht.
+void TestWindowSheet::shortwaveLog()
 {
     QString outDir = qEnvironmentVariable("SHEET_DIR");
     if (outDir.isEmpty()) {
@@ -261,13 +192,7 @@ void TestWindowSheet::shortwaveLogWithAndWithoutBandColours()
         QVERIFY(shot.save(path));
         qInfo() << "geschrieben:" << path << shot.size();
     };
-    save(QStringLiteral("contestprogramm-kurzwelle-log-ohne-bandfarbe"));
-
-    auto* feedTable = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
-    QVERIFY(feedTable);
-    feedTable->setItemDelegateForColumn(UnifiedLogWidget::ColumnBand, new BandTintDelegate(feedTable));
-    feedTable->viewport()->update();
-    save(QStringLiteral("contestprogramm-kurzwelle-log-mit-bandfarbe"));
+    save(QStringLiteral("contestprogramm-kurzwelle-log"));
 }
 
 QTEST_MAIN(TestWindowSheet)

@@ -220,9 +220,14 @@ public:
     // field.
     void setExchangeFields(const QVector<ContestDefinition::ExchangeField>& fields);
 
-    // Zeigt die Bandspalte auch in der kompakten Ansicht, sobald der
-    // Contest mehr als ein Band führt (auf Kurzwelle die Regel).
-    void setContestHasSeveralBands(bool several);
+    // Wie viele Bänder der laufende Contest führt. Zwei Schwellen
+    // hängen daran: ab zwei Bändern steht die Bandspalte auch in der
+    // kompakten Ansicht (sonst sagt sie nichts und nimmt Platz weg), ab
+    // vier bekommt die Bandzelle ihre Bandfarbe. Die zweite Schwelle
+    // ist Martins Entscheidung am Blätterpaar vom 2026-09-23: auf
+    // Kurzwelle findet der Blick die Farbe schneller als die Zahl, auf
+    // einem Contest mit zwei Bändern bringt sie nichts.
+    void setContestBandCount(int bandCount);
 
     // Die Bandzelle der Eingabezeile -- benannt, damit die Prüfstände
     // nachmessen können, ob sie mit der Spalte darunter mitwächst.
@@ -524,7 +529,7 @@ private:
     // bekannt ist (jeder UKW-Contest tauscht einen Locator).
     bool m_distanceColumnsWanted = true;
     // Ob der laufende Contest mehr als ein Band hat -- siehe
-    // setContestHasSeveralBands(). false: die Bandspalte bleibt der
+    // setContestBandCount(). false: die Bandspalte bleibt der
     // Vollspaltenansicht vorbehalten, wie bisher.
     bool m_bandColumnWanted = false;
     // The view mode's own column set (setViewMode()), before any

@@ -56,6 +56,32 @@ constexpr int ColKm = UnifiedLogWidget::ColumnDistanceKm;
 constexpr int ColDeg = UnifiedLogWidget::ColumnBearingDeg;
 constexpr int ColStatus = UnifiedLogWidget::ColumnStatus;
 constexpr int ColBand = UnifiedLogWidget::ColumnBand;
+
+// Eine Farbe je Band für die Bandzelle -- nur der Text, kein
+// Hintergrund, damit die Farbfläche im Rahmen der Hausregel bleibt
+// (StyleKit.h, ~2%). Martins Entscheidung am Blätterpaar vom
+// 2026-09-23: auf Kurzwelle findet der Blick die Farbe schneller als
+// die Zahl. Auf einem Contest mit wenigen Bändern bringt sie nichts und
+// bleibt darum aus -- siehe UnifiedLogWidget::setContestBandCount().
+//
+// Die Töne sind gedämpft (geringe Sättigung, heller Wert) und liegen
+// weit genug auseinander, dass benachbarte Bänder unterscheidbar sind.
+// Ein Band ohne Eintrag behält die normale Textfarbe; geraten wird
+// nicht.
+QColor bandTint(const QString& band)
+{
+    static const QHash<QString, int> kHues{
+        {QStringLiteral("1.8"), 20},  {QStringLiteral("3.5"), 40},  {QStringLiteral("7"), 75},
+        {QStringLiteral("10"), 110},  {QStringLiteral("14"), 145},  {QStringLiteral("18"), 170},
+        {QStringLiteral("21"), 190},  {QStringLiteral("24"), 225},  {QStringLiteral("28"), 265},
+        {QStringLiteral("50"), 300},  {QStringLiteral("70"), 330},
+    };
+    const auto it = kHues.constFind(band.trimmed());
+    if (it == kHues.constEnd()) {
+        return QColor();
+    }
+    return QColor::fromHsl(it.value(), 110, 165);
+}
 constexpr int ColRstSent = UnifiedLogWidget::ColumnRstSent;
 constexpr int ColSerialSent = UnifiedLogWidget::ColumnSerialSent;
 constexpr int ColRstRcvd = UnifiedLogWidget::ColumnRstRcvd;
@@ -589,6 +615,19 @@ public:
         rebuild();
     }
 
+    // Bandfarbe in der Bandzelle an/aus -- gesetzt von
+    // UnifiedLogWidget::setContestBandCount().
+    void setBandTintEnabled(bool on)
+    {
+        if (m_bandTint == on) {
+            return;
+        }
+        m_bandTint = on;
+        if (!m_rows.isEmpty()) {
+            emit dataChanged(index(0, ColBand), index(m_rows.size() - 1, ColBand));
+        }
+    }
+
     void setGridFilter(const QString& text)
     {
         if (m_gridFilter == text) {
@@ -870,6 +909,17 @@ private:
             }
         }
 
+        if (role == Qt::ForegroundRole && column == ColBand && m_bandTint) {
+            // Nur die Bandzelle, nur der Text. Ein ungültiges QSO ist
+            // oben schon abgefangen -- dort schlägt das gedimmte Grau
+            // die Bandfarbe, weil "zählt nicht" die wichtigere Aussage
+            // ist.
+            const QColor tint = bandTint(record.band);
+            if (tint.isValid()) {
+                return tint;
+            }
+        }
+
         if (role != Qt::DisplayRole) {
             if (column == ColStatus && record.isInvalid) {
                 // UNGÜLTIG pill -- red, the same warning family DUPE
@@ -1020,6 +1070,7 @@ private:
     ChatFeedModel* m_onKst = nullptr;
     ChatFeedModel* m_cluster = nullptr;
     QString m_gridFilter;
+    bool m_bandTint = false;
     QVector<RowRef> m_rows;
     int m_dividerRow = -1;
 };
@@ -1726,8 +1777,13 @@ void UnifiedLogWidget::setCurrentBand(const QString& band)
     }
 }
 
-void UnifiedLogWidget::setContestHasSeveralBands(bool several)
+void UnifiedLogWidget::setContestBandCount(int bandCount)
 {
+    // Ab vier Bändern trägt die Bandzelle ihre Farbe (siehe
+    // bandTint()); darunter bleibt sie im normalen Textton.
+    m_feedModel->setBandTintEnabled(bandCount > 3);
+
+    const bool several = bandCount > 1;
     if (m_bandColumnWanted == several) {
         return;
     }
