@@ -1695,6 +1695,8 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
+        m_unifiedLog->setContestHasSeveralBands(def->bands().size() > 1);
+        m_unifiedLog->setCurrentBand(m_currentBand);
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
@@ -4033,6 +4035,9 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     }
     const bool bandChanged = bandLabel != m_currentBand;
     m_currentBand = bandLabel;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(m_currentBand);
+    }
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other

@@ -220,6 +220,10 @@ public:
     // field.
     void setExchangeFields(const QVector<ContestDefinition::ExchangeField>& fields);
 
+    // Zeigt die Bandspalte auch in der kompakten Ansicht, sobald der
+    // Contest mehr als ein Band führt (auf Kurzwelle die Regel).
+    void setContestHasSeveralBands(bool several);
+
     QString callsign() const;
 
     // key -> current text, one entry per field passed to the last
@@ -261,6 +265,11 @@ public:
     // and this widget uses it purely to keep the RST exchange
     // sub-field's "59"/"599" default current (see applyRstDefaults()).
     void setCurrentMode(const QString& mode);
+
+    // Das Band, auf dem das nächste QSO landet -- die Bandzelle der
+    // Eingabezeile. Anders als die QSO-Nummer ist es bekannt, bevor
+    // geloggt wird, also steht dort kein Strich.
+    void setCurrentBand(const QString& band);
     // From a clicked candidate row (callsign; grid goes through
     // setExchangeFieldValue below, same as EntryBarWidget's own
     // click-to-fill wiring did).
@@ -510,6 +519,10 @@ private:
     // applyDistanceColumnsVisibility(). true, solange nichts anderes
     // bekannt ist (jeder UKW-Contest tauscht einen Locator).
     bool m_distanceColumnsWanted = true;
+    // Ob der laufende Contest mehr als ein Band hat -- siehe
+    // setContestHasSeveralBands(). false: die Bandspalte bleibt der
+    // Vollspaltenansicht vorbehalten, wie bisher.
+    bool m_bandColumnWanted = false;
     // The view mode's own column set (setViewMode()), before any
     // give-way hiding by fitColumnsToViewport().
     bool columnWantedByViewMode(int col) const;
@@ -728,6 +741,10 @@ private:
     // copy (m_currentMode) as the actual source of truth for
     // everything else (dupe scope, export, CW-macro context).
     QString m_currentMode;
+    QString m_currentBand;
+    // Die Bandzelle der Eingabezeile; nur vorhanden, solange die
+    // Bandspalte sichtbar ist (siehe rebuildEntryRowLayout()).
+    QLabel* m_entryBandLabel = nullptr;
 
     QVector<ContestDefinition::ExchangeField> m_exchangeFields;
     QVector<QLineEdit*> m_exchangeEdits;

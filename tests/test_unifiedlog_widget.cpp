@@ -843,9 +843,26 @@ void TestUnifiedLogWidget::dxLogFullColumnsShowsSplitColumnsInDxLogOrder()
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnRstRcvd));
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialGridRcvd));
     QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnExchangeRcvd));
+    // Die Bandspalte steht seit 2026-09-23 auch kompakt an derselben
+    // Stelle wie in den Vollspalten (gleich hinter der QSO-Nummer),
+    // hier nur ausgeblendet: der Contest dieses Prüfstands hat kein
+    // zweites Band. Die Reihenfolge zählt die verborgenen Spalten mit.
     QCOMPARE(header->logicalIndex(0), static_cast<int>(UnifiedLogWidget::ColumnSerial));
-    QCOMPARE(header->logicalIndex(1), static_cast<int>(UnifiedLogWidget::ColumnTime));
-    QCOMPARE(header->logicalIndex(2), static_cast<int>(UnifiedLogWidget::ColumnCall));
+    QCOMPARE(header->logicalIndex(1), static_cast<int>(UnifiedLogWidget::ColumnBand));
+    QCOMPARE(header->logicalIndex(2), static_cast<int>(UnifiedLogWidget::ColumnTime));
+    QCOMPARE(header->logicalIndex(3), static_cast<int>(UnifiedLogWidget::ColumnCall));
+
+    // Und sobald der Contest mehrere Bänder hat, ist sie auch kompakt
+    // zu sehen -- ohne sie stünden auf Kurzwelle QSOs von acht Bändern
+    // untereinander, ohne dass eines sagt, welches.
+    widget.setContestHasSeveralBands(true);
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
+    // Auch nach einem erneuten setViewMode() -- das läuft bei jedem
+    // CAT-Takt und holte die Spalte sonst sofort wieder weg.
+    widget.setViewMode(ContestSettings::LogViewMode::Compact);
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
+    widget.setContestHasSeveralBands(false);
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
 }
 
 // Log-panel ⚙ "Eingabezeile: Oben"/"Eingabezeile: Unten" (see
