@@ -85,6 +85,12 @@ void TestFrequencyEntry::aNumberInTheCallsignFieldChangesTheBand()
     result = bandAfterEntry(QStringLiteral("1830"));
     QCOMPARE(result.second, QStringLiteral("1.8"));
 
+    // Unsinn bleibt Unsinn: eine sehr lange Ziffernfolge ist keine
+    // Frequenz und darf auch nicht überlaufen.
+    log->setCallsign(QStringLiteral("99999999999999999999"));
+    emit log->logRequested();
+    QCOMPARE(window.currentBand(), QStringLiteral("1.8")); // unverändert
+
     // Nichts davon ist im Log gelandet.
     QCOMPARE(controller->database().qsosForContest(QStringLiteral("KW_UEBUNG")).size(), 0);
 }

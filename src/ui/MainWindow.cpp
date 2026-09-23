@@ -340,7 +340,14 @@ qint64 frequencyFromEntry(const QString& text)
         const qint64 hz = static_cast<qint64>(std::llround(mhz * 1000000.0));
         return bandLabelForFrequencyHz(hz).isEmpty() ? 0 : hz;
     }
-    const qint64 whole = match.captured(1).toLongLong();
+    bool ok = false;
+    const qint64 whole = match.captured(1).toLongLong(&ok);
+    // Oberhalb von 100 GHz gibt es hier nichts mehr, und die
+    // Multiplikation unten soll nicht überlaufen -- eine lange
+    // Ziffernfolge ist ohnehin keine Frequenz.
+    if (!ok || whole <= 0 || whole > 100000000LL) {
+        return 0;
+    }
     const qint64 asKhz = whole * 1000LL;
     if (!bandLabelForFrequencyHz(asKhz).isEmpty()) {
         return asKhz;
