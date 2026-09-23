@@ -85,6 +85,12 @@ public:
     // closed.
     bool performRestore(const QString& backupPath, QString* errorOut = nullptr);
 
+    // Das Band, auf dem geloggt wird. Es hat keine eigene Anzeige im
+    // Fenster (siehe den Klassenkommentar): es kommt vom Funkgerät oder
+    // von einer Frequenz im Rufzeichenfeld. Die Fußzeile zeigt es an
+    // der CAT-Plakette, und die Prüfstände fragen hier.
+    QString currentBand() const { return m_currentBand; }
+
 signals:
     // Datei > Sicherung wiederherstellen has put a backup in place of
     // the database: main() releases the instance lock, starts a fresh
@@ -425,6 +431,11 @@ private:
     qint64 currentRfFrequencyHz() const;
     void applyRigFrequency(qint64 rigHz);
     void syncTransverterCheck();
+    // Auf eine Frequenz auf der Antenne gehen (Hertz): Funkgerät
+    // mitnehmen, falls verbunden, und das Band im Log umstellen. Der
+    // einzige Weg zu einem anderen Band ohne CAT -- ausgelöst durch
+    // eine Zahl im Rufzeichenfeld, wie bei N1MM und DXLog.
+    void tuneToFrequency(qint64 rfHz);
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not

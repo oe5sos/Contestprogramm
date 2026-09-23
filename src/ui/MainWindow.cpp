@@ -89,6 +89,9 @@
 #include <QMoveEvent>
 #include <QPair>
 #include <QPushButton>
+#include <QRegularExpression>
+
+#include <cmath>
 #include <QRect>
 #include <QResizeEvent>
 #include <QSet>
@@ -299,6 +302,51 @@ QLabel* makeStatusBadge(QWidget* parent)
     auto* label = new QLabel(parent);
     label->setAlignment(Qt::AlignCenter);
     return label;
+}
+
+// Eine Zahl im Rufzeichenfeld ist keine Station, sondern eine Frequenz
+// -- das macht N1MM so (Callsign-Feld: "Entering a frequency in kHz and
+// pressing Enter moves the radio there") und DXLog ebenso. Bis
+// 2026-09-23 gab es in diesem Programm überhaupt keinen anderen Weg,
+// das Band zu wechseln, als am Funkgerät zu drehen: ohne CAT blieb das
+// Log auf dem ersten Band des Contests stehen. Auf Kurzwelle, wo man
+// zwischen acht Bändern springt, ist das keine Einschränkung, sondern
+// ein Riegel.
+//
+// Zurück kommen Hertz auf der Antenne, oder 0, wenn das kein
+// Frequenzeintrag ist.
+//
+// Mit Punkt oder Komma sind es Megahertz ("14.045", "1,8"). Ohne
+// Trennzeichen erst Kilohertz ("14045" -> 20 m), und nur wenn das kein
+// Band ergibt, Megahertz ("144" -> 2 m, "50" -> 6 m). Die
+// Zweideutigkeit löst sich damit von selbst auf, weil die beiden
+// Lesarten nie gleichzeitig auf einem Amateurband landen. Was auf gar
+// keinem Band liegt -- ein verirrtes "59" -- ist keine Frequenz und
+// geht den gewohnten Weg weiter.
+qint64 frequencyFromEntry(const QString& text)
+{
+    const QString t = text.trimmed();
+    if (t.isEmpty()) {
+        return 0;
+    }
+    static const QRegularExpression number(QStringLiteral("^(\\d+)(?:[.,](\\d+))?$"));
+    const QRegularExpressionMatch match = number.match(t);
+    if (!match.hasMatch()) {
+        return 0;
+    }
+    const bool hasFraction = !match.captured(2).isEmpty();
+    if (hasFraction) {
+        const double mhz = QStringLiteral("%1.%2").arg(match.captured(1), match.captured(2)).toDouble();
+        const qint64 hz = static_cast<qint64>(std::llround(mhz * 1000000.0));
+        return bandLabelForFrequencyHz(hz).isEmpty() ? 0 : hz;
+    }
+    const qint64 whole = match.captured(1).toLongLong();
+    const qint64 asKhz = whole * 1000LL;
+    if (!bandLabelForFrequencyHz(asKhz).isEmpty()) {
+        return asKhz;
+    }
+    const qint64 asMhz = whole * 1000000LL;
+    return bandLabelForFrequencyHz(asMhz).isEmpty() ? 0 : asMhz;
 }
 
 void setStatusBadge(QLabel* label, bool ok, const QString& text)
@@ -2310,6 +2358,15 @@ void MainWindow::handleLogRequested()
     const QString callsign = m_unifiedLog->callsign();
     const ContestSettings settings = m_appController.settings();
 
+    // Erst die Frage, ob da überhaupt eine Station steht: eine nackte
+    // Zahl ist eine Frequenz und wird gefahren, nicht geloggt (siehe
+    // frequencyFromEntry() oben).
+    if (const qint64 rfHz = frequencyFromEntry(callsign); rfHz > 0) {
+        tuneToFrequency(rfHz);
+        m_unifiedLog->setCallsign(QString());
+        return;
+    }
+
     // Enter Sends Message: Enter keys the text this state calls for
     // and only logs once the exchange is complete -- see
     // core/EsmPlanner.h. CW only: there is nothing to "send" in SSB
@@ -3958,6 +4015,34 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
         recheckDupeIndicator();
         refreshBandmap();
     }
+}
+
+// Auf eine Frequenz gehen: das Funkgerät mitnehmen, wenn eines hängt,
+// und in jedem Fall das Band im Log umstellen -- ohne CAT ist das der
+// einzige Weg dorthin.
+void MainWindow::tuneToFrequency(qint64 rfHz)
+{
+    const QString bandLabel = bandLabelForFrequencyHz(rfHz);
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+    if (def && !def->bands().isEmpty() && !def->bands().contains(bandLabel)) {
+        // Lieber sagen, warum nichts passiert, als stillschweigend
+        // stehenbleiben: applyRigFrequency() lässt so eine Frequenz
+        // bewusst liegen, und das sieht sonst nach einem Fehler aus.
+        statusBar()->showMessage(
+            QStringLiteral("%1 MHz liegt auf %2 m -- dieses Band hat der Contest nicht (%3).")
+                .arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel, def->bands().join(QStringLiteral(", "))),
+            8000);
+        return;
+    }
+    if (m_appController.rigctldClient().isConnected()) {
+        // Durch den Transverter, wie beim Bandmap-Klick.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(rfHz));
+    }
+    // Auch ohne Funkgerät: das Band gilt ab jetzt. applyRigFrequency()
+    // erwartet die Frequenz, wie sie am Gerät steht.
+    applyRigFrequency(m_transverter.rigFrequencyHz(rfHz));
+    statusBar()->showMessage(QStringLiteral("%1 MHz · %2").arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel),
+                              4000);
 }
 
 void MainWindow::syncTransverterCheck()
