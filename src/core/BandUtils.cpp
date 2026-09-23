@@ -42,7 +42,39 @@ constexpr BandRange kBands[] = {
     {"10368", 10368000000LL, 10000000000LL, 10500000000LL},
 };
 
+// Die Telefoniegrenze je Kurzwellenband nach IARU Region 1: darunter
+// CW (und die Digimodes), darüber SSB. 10, 18 und 24 MHz stehen nicht
+// drin -- auf den WARC-Bändern wird nicht contestet, und Telefonie ist
+// dort ohnehin nur ein schmaler Streifen.
+struct PhoneEdge {
+    const char* band;
+    qint64 phoneFromHz;
+};
+
+constexpr PhoneEdge kPhoneEdges[] = {
+    {"1.8", 1838000LL},
+    {"3.5", 3600000LL},
+    {"7", 7040000LL},
+    {"14", 14101000LL},
+    {"21", 21151000LL},
+    {"28", 28320000LL},
+};
+
 } // namespace
+
+QString usualModeForFrequencyHz(qint64 hz)
+{
+    const QString band = bandLabelForFrequencyHz(hz);
+    if (band.isEmpty()) {
+        return QString();
+    }
+    for (const PhoneEdge& edge : kPhoneEdges) {
+        if (band == QLatin1String(edge.band)) {
+            return hz < edge.phoneFromHz ? QStringLiteral("CW") : QStringLiteral("SSB");
+        }
+    }
+    return QString();
+}
 
 QString bandLabelForFrequencyHz(qint64 hz)
 {

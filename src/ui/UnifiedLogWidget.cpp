@@ -1509,10 +1509,14 @@ bool UnifiedLogWidget::columnWantedByViewMode(int col) const
     const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
     switch (col) {
     case ColSerial:
-    case ColBand:
     case ColRstSent:
     case ColSerialSent:
         return dxLog;
+    case ColBand:
+        // In den Vollspalten immer, sonst nur, wenn der Contest
+        // überhaupt mehrere Bänder hat -- siehe
+        // setContestHasSeveralBands().
+        return dxLog || m_bandColumnWanted;
     case ColExchSent:
         return !dxLog;
     case ColExchRcvd:
@@ -1693,6 +1697,41 @@ void UnifiedLogWidget::applyDistanceColumnsVisibility()
     // der nächste Anpasser die Spalten wieder zurück.
     m_feedTable->setColumnHidden(ColKm, !hasGrid);
     m_feedTable->setColumnHidden(ColDeg, !hasGrid);
+    fitColumnsToViewport();
+}
+
+// Auf einem Einbandcontest sagt eine Bandspalte nichts und nimmt nur
+// Platz weg; auf Kurzwelle stehen QSOs von acht Bändern untereinander
+// und ohne sie weiß niemand, welches QSO auf welchem Band liegt. Bis
+// 2026-09-23 gab es die Spalte nur in den DXLog-Vollspalten -- in der
+// voreingestellten Ansicht also nie.
+void UnifiedLogWidget::setCurrentBand(const QString& band)
+{
+    if (m_currentBand == band) {
+        return;
+    }
+    m_currentBand = band;
+    if (m_entryBandLabel) {
+        m_entryBandLabel->setText(band.isEmpty() ? Style::unknownDash() : band);
+    }
+}
+
+void UnifiedLogWidget::setContestHasSeveralBands(bool several)
+{
+    if (m_bandColumnWanted == several) {
+        return;
+    }
+    m_bandColumnWanted = several;
+    // Die Eingabezeile spiegelt die Spalten -- sie muss die Zelle
+    // bekommen oder verlieren.
+    if (m_entryRowLayoutBuilt) {
+        rebuildEntryRowLayout();
+    }
+    // Wie bei den Entfernungsspalten: sofort setzen (der Anpasser
+    // steigt bei schmalem Fenster früh aus) und die Regel steht
+    // zusätzlich in columnWantedByViewMode().
+    const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
+    m_feedTable->setColumnHidden(ColBand, !(dxLog || several));
     fitColumnsToViewport();
 }
 
@@ -2077,7 +2116,12 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
     const bool dxLog = (mode == ContestSettings::LogViewMode::DxLogFullColumns);
 
     m_feedTable->setColumnHidden(ColSerial, !dxLog);
-    m_feedTable->setColumnHidden(ColBand, !dxLog);
+    // Die Bandspalte hängt nicht nur an der Ansicht: ein Contest mit
+    // mehreren Bändern zeigt sie auch kompakt (siehe
+    // setContestHasSeveralBands()). Ohne dieses ODER holte der nächste
+    // CAT-Takt -- setViewMode() läuft bei jedem -- die Spalte sofort
+    // wieder weg.
+    m_feedTable->setColumnHidden(ColBand, !(dxLog || m_bandColumnWanted));
     m_feedTable->setColumnHidden(ColRstSent, !dxLog);
     m_feedTable->setColumnHidden(ColSerialSent, !dxLog);
     // ColRstRcvd/ColSerialGridRcvd are ALWAYS visible now, in BOTH view
@@ -2113,8 +2157,8 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
         // ColSerialGridRcvd where the old combined ColExchRcvd used to
         // sit) -- ColExchRcvd trails, hidden, alongside the DXLog-only
         // Sent-side split columns Compact still doesn't use.
-        applyColumnOrder({ColSerial, ColTime, ColCall, ColExchSent, ColRstRcvd, ColSerialGridRcvd, ColKm, ColDeg,
-                           ColStatus, ColBand, ColRstSent, ColSerialSent, ColExchRcvd});
+        applyColumnOrder({ColSerial, ColBand, ColTime, ColCall, ColExchSent, ColRstRcvd, ColSerialGridRcvd, ColKm,
+                           ColDeg, ColStatus, ColRstSent, ColSerialSent, ColExchRcvd});
     }
 
     // The entry row is sized off these same columns (see
@@ -2209,11 +2253,25 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
     };
 
     if (dxLog) {
-        // QSO#/Band: not yet assigned/tracked for an in-progress entry
-        // either -- blank (Time and Km/° below are different -- see
-        // m_entryTimeLabel's/m_entryKmLabel's own doc comments).
+        // QSO#: not yet assigned for an in-progress entry -- blank
+        // (Time, Band and Km/° below are different: die sind bekannt,
+        // bevor geloggt wird).
         addBlank(columnWidthFor(ColSerial));
-        addBlank(columnWidthFor(ColBand));
+    }
+    // Die Bandzelle, wo die Spalte steht: sie trägt das Band, auf dem
+    // das nächste QSO landet. Sonst gäbe es im ganzen Fenster außer der
+    // Fußzeile keine Stelle, die es sagt.
+    m_entryBandLabel = nullptr;
+    if (dxLog || m_bandColumnWanted) {
+        auto* band = new QLabel(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand, m_entryRow);
+        band->setFont(Style::monoFont(band->font(), Style::kFontBody));
+        band->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent; border-right: 1px solid %2; padding: 0 %3px;")
+                .arg(Style::kTextPrimary(), Style::kBorder())
+                .arg(kEntryRowHPadding));
+        band->setFixedSize(columnWidthFor(ColBand), rowHeight);
+        m_entryRowLayout->addWidget(band);
+        m_entryBandLabel = band;
     }
     m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
     m_entryRowLayout->addWidget(m_entryTimeLabel);

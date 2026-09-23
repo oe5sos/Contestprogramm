@@ -89,6 +89,9 @@
 #include <QMoveEvent>
 #include <QPair>
 #include <QPushButton>
+#include <QRegularExpression>
+
+#include <cmath>
 #include <QRect>
 #include <QResizeEvent>
 #include <QSet>
@@ -301,6 +304,58 @@ QLabel* makeStatusBadge(QWidget* parent)
     return label;
 }
 
+// Eine Zahl im Rufzeichenfeld ist keine Station, sondern eine Frequenz
+// -- das macht N1MM so (Callsign-Feld: "Entering a frequency in kHz and
+// pressing Enter moves the radio there") und DXLog ebenso. Bis
+// 2026-09-23 gab es in diesem Programm überhaupt keinen anderen Weg,
+// das Band zu wechseln, als am Funkgerät zu drehen: ohne CAT blieb das
+// Log auf dem ersten Band des Contests stehen. Auf Kurzwelle, wo man
+// zwischen acht Bändern springt, ist das keine Einschränkung, sondern
+// ein Riegel.
+//
+// Zurück kommen Hertz auf der Antenne, oder 0, wenn das kein
+// Frequenzeintrag ist.
+//
+// Mit Punkt oder Komma sind es Megahertz ("14.045", "1,8"). Ohne
+// Trennzeichen erst Kilohertz ("14045" -> 20 m), und nur wenn das kein
+// Band ergibt, Megahertz ("144" -> 2 m, "50" -> 6 m). Die
+// Zweideutigkeit löst sich damit von selbst auf, weil die beiden
+// Lesarten nie gleichzeitig auf einem Amateurband landen. Was auf gar
+// keinem Band liegt -- ein verirrtes "59" -- ist keine Frequenz und
+// geht den gewohnten Weg weiter.
+qint64 frequencyFromEntry(const QString& text)
+{
+    const QString t = text.trimmed();
+    if (t.isEmpty()) {
+        return 0;
+    }
+    static const QRegularExpression number(QStringLiteral("^(\\d+)(?:[.,](\\d+))?$"));
+    const QRegularExpressionMatch match = number.match(t);
+    if (!match.hasMatch()) {
+        return 0;
+    }
+    const bool hasFraction = !match.captured(2).isEmpty();
+    if (hasFraction) {
+        const double mhz = QStringLiteral("%1.%2").arg(match.captured(1), match.captured(2)).toDouble();
+        const qint64 hz = static_cast<qint64>(std::llround(mhz * 1000000.0));
+        return bandLabelForFrequencyHz(hz).isEmpty() ? 0 : hz;
+    }
+    bool ok = false;
+    const qint64 whole = match.captured(1).toLongLong(&ok);
+    // Oberhalb von 100 GHz gibt es hier nichts mehr, und die
+    // Multiplikation unten soll nicht überlaufen -- eine lange
+    // Ziffernfolge ist ohnehin keine Frequenz.
+    if (!ok || whole <= 0 || whole > 100000000LL) {
+        return 0;
+    }
+    const qint64 asKhz = whole * 1000LL;
+    if (!bandLabelForFrequencyHz(asKhz).isEmpty()) {
+        return asKhz;
+    }
+    const qint64 asMhz = whole * 1000000LL;
+    return bandLabelForFrequencyHz(asMhz).isEmpty() ? 0 : asMhz;
+}
+
 void setStatusBadge(QLabel* label, bool ok, const QString& text)
 {
     label->setText(text);
@@ -322,71 +377,75 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
 
-    // Top bar: UTC clock + contest-end countdown, right-aligned, per the
-    // plan's "UTC-Uhr + Countdown oben in der Titelzeile" UI direction
-    // and the design mockup's clock treatment (Main.dc.html). The
-    // countdown half's visibility is a live toggle further down (see
-    // the filter row below); contestEndUtc/countdownVisible themselves
-    // come from ContestSettings via applyClockSettings().
+    // Die oberste Zeile: links der Grid-Filter, rechts das Zahnrad und
+    // die UTC-Uhr mit dem Countdown ("UTC-Uhr + Countdown oben in der
+    // Titelzeile" aus dem Plan, Uhrbehandlung wie im Entwurf
+    // Main.dc.html).
+    //
+    // Bis 2026-09-23 stand darunter eine zweite Zeile mit vier
+    // Kästchen -- Rohdaten, CW-Makros, Countdown, ESM -- und dem
+    // Transverter. Die sind jetzt Einträge im Zahnrad. Martins Regel
+    // dazu steht seit dem 20.09. fest: Optionen gehören rechts oben
+    // unter das ⚙, nicht als Kästchenreihe quer über das Fenster. Was
+    // sie schalten, ist unverändert; nur eine Zeile Höhe gewinnt die
+    // Arbeitsfläche dazu.
     auto* topBarRow = new QWidget(central);
     auto* topBarLayout = new QHBoxLayout(topBarRow);
     topBarLayout->setContentsMargins(0, 0, 0, 0);
-    topBarLayout->addStretch();
-    // Same affordance PanelHeaderBar::setOptionsAffordanceEnabled() gives
-    // individual panels (⚙, Style::iconButtonStyle()) -- "Einstellungen"
-    // used to live only in Datei > Einstellungen..., buried behind the
-    // menu bar. Martin's explicit ask: it must also sit directly on the
-    // window itself. This is the one always-visible strip every layout
-    // (including the map-dominant one) keeps fixed, so it is the natural
-    // permanent home for it, right beside the clock it already anchors.
-    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
-    settingsButton->setFixedSize(24, 22);
-    settingsButton->setCursor(Qt::PointingHandCursor);
-    settingsButton->setToolTip(QStringLiteral("Einstellungen"));
-    settingsButton->setStyleSheet(Style::iconButtonStyle());
-    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettingsDialog);
-    topBarLayout->addWidget(settingsButton);
-    m_utcClockWidget = new UtcClockWidget(topBarRow);
-    topBarLayout->addWidget(m_utcClockWidget);
-    layout->addWidget(topBarRow);
-
-    auto* filterRow = new QWidget(central);
-    auto* filterLayout = new QHBoxLayout(filterRow);
-    filterLayout->setContentsMargins(0, 0, 0, 0);
-    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), filterRow);
+    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), topBarRow);
     filterLabel->setFont(Style::capsFont(filterLabel->font()));
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
-    filterLayout->addWidget(filterLabel);
-    m_gridFilterEdit = new QLineEdit(filterRow);
+    topBarLayout->addWidget(filterLabel);
+    m_gridFilterEdit = new QLineEdit(topBarRow);
     m_gridFilterEdit->setMaximumWidth(120);
     m_gridFilterEdit->setFont(Style::monoFont(m_gridFilterEdit->font(), Style::kFontBody));
-    filterLayout->addWidget(m_gridFilterEdit);
-    auto* rawFeedCheck = new QCheckBox(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"), filterRow);
-    filterLayout->addWidget(rawFeedCheck);
-    // Same visual family as rawFeedCheck above -- two more independent
-    // display toggles, not buried in SettingsDialog since (unlike most
-    // settings there) the operator wants to flip these live, mid-session.
-    auto* cwMacroVisibleCheck = new QCheckBox(QStringLiteral("CW-Makros anzeigen"), filterRow);
+    topBarLayout->addWidget(m_gridFilterEdit);
+    topBarLayout->addStretch();
+
+    // Dasselbe Zahnrad, das PanelHeaderBar::setOptionsAffordanceEnabled()
+    // jedem einzelnen Panel gibt (Style::iconButtonStyle()) -- hier für
+    // das Fenster selbst. "Einstellungen" lag einmal nur unter Datei ›
+    // Einstellungen…, hinter der Menüleiste vergraben; Martin wollte es
+    // ausdrücklich auch auf dem Fenster haben. Diese Zeile ist der eine
+    // immer sichtbare Streifen, den jede Anordnung behält, also gehört
+    // es hierher, neben die Uhr, an der es ohnehin schon hängt.
+    m_windowOptionsMenu = new QMenu(this);
+    m_windowOptionsMenu->setObjectName(QStringLiteral("windowOptionsMenu"));
+
+    auto* rawFeedCheck = m_windowOptionsMenu->addAction(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"));
+    rawFeedCheck->setObjectName(QStringLiteral("optionRawFeed"));
+    rawFeedCheck->setCheckable(true);
+    // Dieselbe Familie wie darüber -- Anzeigeschalter, die der Bediener
+    // mitten im Contest umlegen will und die darum nicht im
+    // Einstellungsfenster liegen.
+    auto* cwMacroVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("CW-Makros anzeigen"));
+    cwMacroVisibleCheck->setObjectName(QStringLiteral("optionCwMacros"));
+    cwMacroVisibleCheck->setCheckable(true);
     cwMacroVisibleCheck->setChecked(m_appController.settings().cwMacroPanelVisible);
-    filterLayout->addWidget(cwMacroVisibleCheck);
-    auto* countdownVisibleCheck = new QCheckBox(QStringLiteral("Contest-Countdown anzeigen"), filterRow);
+    auto* countdownVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("Contest-Countdown anzeigen"));
+    countdownVisibleCheck->setObjectName(QStringLiteral("optionCountdown"));
+    countdownVisibleCheck->setCheckable(true);
     countdownVisibleCheck->setChecked(m_appController.settings().countdownVisible);
-    filterLayout->addWidget(countdownVisibleCheck);
-    // Enter Sends Message (core/EsmPlanner.h) -- flipped live like the
-    // two toggles above; the texts live under Datei > ESM-Texte.
-    auto* esmCheck = new QCheckBox(QStringLiteral("ESM (Enter sendet, CW)"), filterRow);
+    // Enter Sends Message (core/EsmPlanner.h) -- live umschaltbar wie
+    // die beiden darüber; die Texte stehen unter Datei › ESM-Texte.
+    auto* esmCheck = m_windowOptionsMenu->addAction(QStringLiteral("ESM (Enter sendet, CW)"));
+    esmCheck->setObjectName(QStringLiteral("optionEsm"));
+    esmCheck->setCheckable(true);
     esmCheck->setChecked(m_appController.settings().esmEnabled);
-    filterLayout->addWidget(esmCheck);
-    // The transverter switch (core/Transverter.h): shown once a
-    // transverter is set up (Datei > Transverter...), on = the rig's
-    // IF is the band on the antenna.
+
+    // Der Transverterschalter (core/Transverter.h): sichtbar, sobald
+    // einer eingerichtet ist (Datei › Transverter…), an = die
+    // Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne.
+    // Weil er aus der Zeile ins Menü gewandert ist, sagt es zusätzlich
+    // die CAT-Plakette in der Fußzeile, wenn er an ist -- ein
+    // Schalter, der jede Frequenz umdeutet, darf nicht unsichtbar sein.
     m_transverter = TransverterSetup::load(m_appController.database());
     m_appController.setTransverter(m_transverter);
-    m_transverterCheck = new QCheckBox(filterRow);
-    m_transverterCheck->setObjectName(QStringLiteral("transverterCheck"));
-    filterLayout->addWidget(m_transverterCheck);
+    m_transverterAction = m_windowOptionsMenu->addAction(QString());
+    m_transverterAction->setObjectName(QStringLiteral("transverterCheck"));
+    m_transverterAction->setCheckable(true);
     syncTransverterCheck();
-    connect(m_transverterCheck, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_transverterAction, &QAction::toggled, this, [this](bool on) {
         if (m_transverter.enabled == on) {
             return;
         }
@@ -400,8 +459,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         refreshBandmap();
         updateStatusBar();
     });
-    filterLayout->addStretch();
-    layout->addWidget(filterRow);
+
+    m_windowOptionsMenu->addSeparator();
+    auto* windowSettingsAction = m_windowOptionsMenu->addAction(QStringLiteral("Einstellungen…"));
+    windowSettingsAction->setObjectName(QStringLiteral("optionSettings"));
+    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
+    settingsButton->setFixedSize(24, 22);
+    settingsButton->setCursor(Qt::PointingHandCursor);
+    settingsButton->setToolTip(QStringLiteral("Optionen und Einstellungen"));
+    settingsButton->setStyleSheet(Style::iconButtonStyle());
+    connect(settingsButton, &QPushButton::clicked, this, [this, settingsButton]() {
+        m_windowOptionsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+    });
+    topBarLayout->addWidget(settingsButton);
+    m_utcClockWidget = new UtcClockWidget(topBarRow);
+    topBarLayout->addWidget(m_utcClockWidget);
+    layout->addWidget(topBarRow);
 
     // Kern-Welle "movable/resizable/dockable panels": everything below
     // used to be a fixed QVBoxLayout/QSplitter arrangement (entry bar in
@@ -934,21 +1009,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.callsignLocatorLookup(), &CallsignLocatorLookup::externalLookupFinished,
             this, &MainWindow::handleExternalCallsignLookupFinished);
     connect(m_gridFilterEdit, &QLineEdit::textChanged, m_unifiedLog, &UnifiedLogWidget::setGridFilter);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(cwMacroVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(cwMacroVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_cwMacroPanelContainer->setVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.cwMacroPanelVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(countdownVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(countdownVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_utcClockWidget->setCountdownVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.countdownVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(esmCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+    connect(esmCheck, &QAction::toggled, this, [this](bool enabled) {
         ContestSettings settings = m_appController.settings();
         settings.esmEnabled = enabled;
         m_appController.setSettings(settings);
@@ -974,6 +1049,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             && m_unifiedLog->hasUnsentContent()) {
             return;
         }
+        // Das Funkgerät meldet sich selbst -- seine Frequenz gilt ab
+        // jetzt, nicht die zuletzt eingetippte.
+        m_typedFrequencyHz = 0;
         applyRigFrequency(hz);
     });
     connect(&m_appController.rigctldClient(), &RigctldClient::modeChanged, this,
@@ -1190,7 +1268,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
     // A proper contest-selection window, per the operator's explicit
     // request, distinct from the combo box buried in SettingsDialog --
     // see ui/ContestPickerDialog.h's class comment for scope.
@@ -1627,6 +1705,8 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
+        m_unifiedLog->setContestHasSeveralBands(def->bands().size() > 1);
+        m_unifiedLog->setCurrentBand(m_currentBand);
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
@@ -2240,6 +2320,12 @@ void MainWindow::updateStatusBar()
     if (!m_currentBand.isEmpty()) {
         catText += QStringLiteral(" · %1 %2").arg(m_currentBand, m_currentMode);
     }
+    // Der Transverter sitzt seit 2026-09-23 im ⚙-Menü und damit außer
+    // Sicht. Ist er an, deutet er jede Frequenz um -- das muss hier
+    // stehen, sonst merkt es niemand.
+    if (m_transverter.active()) {
+        catText += QStringLiteral(" · TRV");
+    }
     setStatusBadge(m_rigctldStatusLabel, rigctldOk, QStringLiteral("CAT: %1").arg(catText));
 
     QString on4kstText;
@@ -2283,6 +2369,15 @@ void MainWindow::handleLogRequested()
 {
     const QString callsign = m_unifiedLog->callsign();
     const ContestSettings settings = m_appController.settings();
+
+    // Erst die Frage, ob da überhaupt eine Station steht: eine nackte
+    // Zahl ist eine Frequenz und wird gefahren, nicht geloggt (siehe
+    // frequencyFromEntry() oben).
+    if (const qint64 rfHz = frequencyFromEntry(callsign); rfHz > 0) {
+        tuneToFrequency(rfHz);
+        m_unifiedLog->setCallsign(QString());
+        return;
+    }
 
     // Enter Sends Message: Enter keys the text this state calls for
     // and only logs once the exchange is complete -- see
@@ -2651,34 +2746,61 @@ void MainWindow::refreshMultiplierHint(const QString& grid)
     const ContestSettings settings = m_appController.settings();
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     const QString call = m_unifiedLog ? m_unifiedLog->callsign() : QString();
-    MultiplierTracker& tracker = m_appController.multiplierTracker();
-    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
-    if (!def || key.isEmpty()) {
-        // Kein Multiplikator in den Regeln, oder über diese Station ist
-        // (noch) nichts bekannt -- dann steht dort auch nichts.
-        m_checkPartialWidget->setMultiplierStatus(QString());
-        return;
-    }
 
-    QStringList worked;
-    for (const QString& band : def->bands()) {
-        if (tracker.workedMultipliers(band).contains(key)) {
-            worked << band;
+    QStringList lines;
+
+    // Zuerst die Station selbst: auf welchen Bändern steht SIE schon im
+    // Log. Die Dupe-Pille beantwortet nur das laufende Band, und der
+    // Multiplikator unten ist eine andere Frage -- DL1ABC kann neu sein,
+    // während der Präfix DL längst steht. Auf Kurzwelle, wo dieselbe
+    // Station auf acht Bändern zählt, ist das die Frage beim Tippen.
+    if (!call.isEmpty() && def) {
+        const QStringList worked = m_appController.database().bandsWorkedForCallsign(call, settings.activeContestId);
+        if (!worked.isEmpty()) {
+            // In der Reihenfolge des Contests, nicht in der der
+            // Datenbank.
+            QStringList ordered;
+            for (const QString& band : def->bands()) {
+                if (worked.contains(band)) {
+                    ordered << band;
+                }
+            }
+            for (const QString& band : worked) {
+                if (!ordered.contains(band)) {
+                    ordered << band;
+                }
+            }
+            lines << QStringLiteral("%1 steht auf %2").arg(call.toUpper(), ordered.join(QStringLiteral(", ")));
         }
     }
-    const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
-    QStringList parts;
-    parts << key;
-    if (!m_currentBand.isEmpty()) {
-        parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
-                             : QStringLiteral("auf %1 neu").arg(m_currentBand));
+
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
+    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
+    if (def && !key.isEmpty()) {
+        QStringList worked;
+        for (const QString& band : def->bands()) {
+            if (tracker.workedMultipliers(band).contains(key)) {
+                worked << band;
+            }
+        }
+        const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
+        QStringList parts;
+        parts << key;
+        if (!m_currentBand.isEmpty()) {
+            parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
+                                 : QStringLiteral("auf %1 neu").arg(m_currentBand));
+        }
+        if (!worked.isEmpty()) {
+            parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
+        } else {
+            parts << QStringLiteral("noch auf keinem Band");
+        }
+        lines << parts.join(QStringLiteral(" · "));
     }
-    if (!worked.isEmpty()) {
-        parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
-    } else {
-        parts << QStringLiteral("noch auf keinem Band");
-    }
-    m_checkPartialWidget->setMultiplierStatus(parts.join(QStringLiteral(" · ")));
+
+    // Nichts bekannt -- kein Multiplikator in den Regeln, und die
+    // Station ist neu: dann steht dort auch nichts.
+    m_checkPartialWidget->setMultiplierStatus(lines.join(QLatin1Char('\n')));
 }
 
 void MainWindow::handleReceivedGridChanged(const QString& grid)
@@ -3117,7 +3239,7 @@ void MainWindow::exportAdif()
     }
 
     AdifExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId);
+    const QString text = exporter.exportContest(settings.activeContestId, settings);
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -3899,7 +4021,8 @@ qint64 MainWindow::currentRfFrequencyHz() const
 {
     const RigctldClient& rig = m_appController.rigctldClient();
     if (!rig.isConnected() || rig.frequencyHz() <= 0) {
-        return 0;
+        // Kein Funkgerät -- dann gilt, was zuletzt eingetippt wurde.
+        return m_typedFrequencyHz;
     }
     return m_transverter.rfFrequencyHz(rig.frequencyHz());
 }
@@ -3923,6 +4046,9 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     }
     const bool bandChanged = bandLabel != m_currentBand;
     m_currentBand = bandLabel;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(m_currentBand);
+    }
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other
@@ -3934,17 +4060,57 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     }
 }
 
-void MainWindow::syncTransverterCheck()
+// Auf eine Frequenz gehen: das Funkgerät mitnehmen, wenn eines hängt,
+// und in jedem Fall das Band im Log umstellen -- ohne CAT ist das der
+// einzige Weg dorthin.
+void MainWindow::tuneToFrequency(qint64 rfHz)
 {
-    if (!m_transverterCheck) {
+    const QString bandLabel = bandLabelForFrequencyHz(rfHz);
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+    if (def && !def->bands().isEmpty() && !def->bands().contains(bandLabel)) {
+        // Lieber sagen, warum nichts passiert, als stillschweigend
+        // stehenbleiben: applyRigFrequency() lässt so eine Frequenz
+        // bewusst liegen, und das sieht sonst nach einem Fehler aus.
+        statusBar()->showMessage(
+            QStringLiteral("%1 MHz liegt auf %2 m -- dieses Band hat der Contest nicht (%3).")
+                .arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel, def->bands().join(QStringLiteral(", "))),
+            8000);
         return;
     }
-    const QSignalBlocker blocker(m_transverterCheck);
-    m_transverterCheck->setVisible(m_transverter.configured());
-    m_transverterCheck->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
-    m_transverterCheck->setChecked(m_transverter.active());
-    m_transverterCheck->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
-                                                  "(Datei › Transverter…)"));
+    m_typedFrequencyHz = rfHz;
+    if (m_appController.rigctldClient().isConnected()) {
+        // Durch den Transverter, wie beim Bandmap-Klick.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(rfHz));
+    }
+    // Auch ohne Funkgerät: das Band gilt ab jetzt. applyRigFrequency()
+    // erwartet die Frequenz, wie sie am Gerät steht.
+    applyRigFrequency(m_transverter.rigFrequencyHz(rfHz));
+    // Und die Betriebsart nach dem Bandplan -- ohne CAT gäbe es sonst
+    // keine: sie bliebe auf SSB stehen, auch auf 14,045 MHz, und der
+    // Rapport käme mit 59 statt 599. Hängt ein Funkgerät dran, sagt es
+    // gleich darauf seine eigene und die gilt.
+    const QString planMode = usualModeForFrequencyHz(rfHz);
+    if (!planMode.isEmpty() && planMode != m_currentMode
+        && (!def || def->modes().isEmpty() || def->modes().contains(planMode))) {
+        m_currentMode = planMode;
+        m_unifiedLog->setCurrentMode(planMode);
+        updateStatusBar();
+    }
+    statusBar()->showMessage(QStringLiteral("%1 MHz · %2").arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel),
+                              4000);
+}
+
+void MainWindow::syncTransverterCheck()
+{
+    if (!m_transverterAction) {
+        return;
+    }
+    const QSignalBlocker blocker(m_transverterAction);
+    m_transverterAction->setVisible(m_transverter.configured());
+    m_transverterAction->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
+    m_transverterAction->setChecked(m_transverter.active());
+    m_transverterAction->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
+                                                    "(Datei › Transverter…)"));
 }
 
 void MainWindow::openTransverterDialog()

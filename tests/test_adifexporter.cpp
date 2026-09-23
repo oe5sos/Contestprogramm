@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 
+#include "app/ContestSettings.h"
 #include "data/AdifExporter.h"
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
@@ -16,6 +17,8 @@ class TestAdifExporter : public QObject
 private slots:
     void exportsGoldenBlockWithExactFrequencyAndGracefulNullFreq();
     void invalidQsoIsExcluded();
+    void shortwaveBandsGetTheirAdifNames();
+    void reportExchangeAndOwnStationAreWritten();
 };
 
 void TestAdifExporter::exportsGoldenBlockWithExactFrequencyAndGracefulNullFreq()
@@ -53,7 +56,10 @@ void TestAdifExporter::exportsGoldenBlockWithExactFrequencyAndGracefulNullFreq()
     QVERIFY(db.insertQso(withoutFreq));
 
     AdifExporter exporter(db);
-    const QString actual = exporter.exportContest(QStringLiteral("OE_VHF_UHF"));
+    // Leere Einstellungen: die Stationsfelder entfallen, genau wie jedes
+    // andere leere Feld hier -- der Blockvergleich unten zeigt es.
+    const ContestSettings settings;
+    const QString actual = exporter.exportContest(QStringLiteral("OE_VHF_UHF"), settings);
 
     const QString expected =
         QStringLiteral("Contestprogramm ADIF export\n")
@@ -102,10 +108,100 @@ void TestAdifExporter::invalidQsoIsExcluded()
     QVERIFY(db.setQsoInvalid(invalid.id, true));
 
     AdifExporter exporter(db);
-    const QString actual = exporter.exportContest(QStringLiteral("OE_VHF_UHF"));
+    const QString actual = exporter.exportContest(QStringLiteral("OE_VHF_UHF"), ContestSettings());
 
     QVERIFY(actual.contains(QStringLiteral("OE1ABC")));
     QVERIFY(!actual.contains(QStringLiteral("OE9ZZZ")));
+}
+
+
+// Bis 2026-09-23 kannte der Export nur 144/432/1296 und schrieb für
+// alles andere die nackte Megahertz-Zahl hin -- ein Kurzwellen-QSO kam
+// also als BAND=14 heraus, und das ist in ADIF kein Band. Hier steht
+// jedes Band der Tabelle in core/BandUtils.cpp einmal drin.
+void TestAdifExporter::shortwaveBandsGetTheirAdifNames()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("adif_hf.sqlite")), QStringLiteral("adif_hf")));
+
+    const QVector<QPair<QString, QString>> expected{
+        {QStringLiteral("1.8"), QStringLiteral("160m")}, {QStringLiteral("3.5"), QStringLiteral("80m")},
+        {QStringLiteral("7"), QStringLiteral("40m")},    {QStringLiteral("10"), QStringLiteral("30m")},
+        {QStringLiteral("14"), QStringLiteral("20m")},   {QStringLiteral("18"), QStringLiteral("17m")},
+        {QStringLiteral("21"), QStringLiteral("15m")},   {QStringLiteral("24"), QStringLiteral("12m")},
+        {QStringLiteral("28"), QStringLiteral("10m")},   {QStringLiteral("50"), QStringLiteral("6m")},
+        {QStringLiteral("70"), QStringLiteral("4m")},    {QStringLiteral("144"), QStringLiteral("2m")},
+        {QStringLiteral("432"), QStringLiteral("70cm")}, {QStringLiteral("1296"), QStringLiteral("23cm")},
+        {QStringLiteral("2320"), QStringLiteral("13cm")}, {QStringLiteral("3400"), QStringLiteral("9cm")},
+        {QStringLiteral("5760"), QStringLiteral("6cm")}, {QStringLiteral("10368"), QStringLiteral("3cm")},
+    };
+
+    int minute = 0;
+    for (const auto& pair : expected) {
+        QsoRecord qso;
+        qso.callsign = QStringLiteral("OE1ABC");
+        qso.band = pair.first;
+        qso.mode = QStringLiteral("CW");
+        qso.timestampUtc = QStringLiteral("2026-06-13T12:%1:00Z").arg(minute++, 2, 10, QLatin1Char('0'));
+        qso.contestId = QStringLiteral("KW_UEBUNG");
+        QVERIFY(db.insertQso(qso));
+    }
+
+    AdifExporter exporter(db);
+    const QString actual = exporter.exportContest(QStringLiteral("KW_UEBUNG"), ContestSettings());
+
+    for (const auto& pair : expected) {
+        const QString tag =
+            QStringLiteral("<BAND:%1>%2 ").arg(pair.second.toUtf8().size()).arg(pair.second);
+        QVERIFY2(actual.contains(tag), qPrintable(QStringLiteral("fehlt: %1 (Band %2)").arg(tag, pair.first)));
+    }
+    // Und keine nackte Zahl mehr -- die war der Fehler.
+    QVERIFY(!actual.contains(QStringLiteral("<BAND:2>14 ")));
+}
+
+// Rapport, getauschter Text und die eigene Station stehen seit
+// 2026-09-23 mit in der Datei: ohne sie trägt das Logbuch am anderen
+// Ende 59 ein, verliert alles, was kein Zahlenfeld ist, und TQSL weiß
+// nicht, wessen QSO es hochlädt.
+void TestAdifExporter::reportExchangeAndOwnStationAreWritten()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("adif_station.sqlite")), QStringLiteral("adif_station")));
+
+    QsoRecord qso;
+    qso.callsign = QStringLiteral("W1AW");
+    qso.band = QStringLiteral("14");
+    qso.mode = QStringLiteral("CW");
+    qso.timestampUtc = QStringLiteral("2026-06-13T12:05:00Z");
+    qso.rstSent = QStringLiteral("599");
+    qso.rstRcvd = QStringLiteral("579");
+    qso.exchangeSent = QStringLiteral("599 001");
+    qso.exchangeRcvd = QStringLiteral("579 042");
+    qso.serialSent = 1;
+    qso.serialRcvd = 42;
+    qso.contestId = QStringLiteral("KW_UEBUNG");
+    QVERIFY(db.insertQso(qso));
+
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("oe5sos");
+    settings.ownGrid = QStringLiteral("jn67ut");
+
+    AdifExporter exporter(db);
+    const QString actual = exporter.exportContest(QStringLiteral("KW_UEBUNG"), settings);
+
+    QVERIFY(actual.contains(QStringLiteral("<RST_SENT:3>599 ")));
+    QVERIFY(actual.contains(QStringLiteral("<RST_RCVD:3>579 ")));
+    QVERIFY(actual.contains(QStringLiteral("<STX_STRING:7>599 001 ")));
+    QVERIFY(actual.contains(QStringLiteral("<SRX_STRING:7>579 042 ")));
+    // Klein eingetippt, groß exportiert -- ADIF-Rufzeichen und
+    // -Locator sind Großbuchstaben.
+    QVERIFY(actual.contains(QStringLiteral("<STATION_CALLSIGN:6>OE5SOS ")));
+    QVERIFY(actual.contains(QStringLiteral("<OPERATOR:6>OE5SOS ")));
+    QVERIFY(actual.contains(QStringLiteral("<MY_GRIDSQUARE:6>JN67UT ")));
 }
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication

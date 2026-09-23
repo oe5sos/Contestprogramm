@@ -21,6 +21,10 @@ QVector<ShortcutsWindow::Entry> ShortcutsWindow::entries()
     return {
         // The entry row
         {QStringLiteral("Enter"), QStringLiteral("QSO loggen — mit ESM: sendet, was der QSO-Stand verlangt, und loggt am Ende"), QStringLiteral("Log-Eingabezeile")},
+        {QStringLiteral("Frequenz + Enter"),
+         QStringLiteral("Statt eines Rufzeichens eine Zahl: QSY und Bandwechsel. „14045“ sind Kilohertz, "
+                        "„14.045“ Megahertz — ohne CAT der einzige Weg auf ein anderes Band"),
+         QStringLiteral("Log-Eingabezeile")},
         {QStringLiteral("Leertaste"), QStringLiteral("Zum nächsten Feld (Rufzeichen → Nr. → Locator …), Inhalt markiert"), QStringLiteral("Log-Eingabezeile")},
         {QStringLiteral("Tab"), QStringLiteral("Zum nächsten Feld, vom letzten zurück zum Rufzeichen"), QStringLiteral("Log-Eingabezeile")},
         {QStringLiteral("Alt+W"), QStringLiteral("Eingabezeile leeren (Wipe)"), QStringLiteral("überall")},

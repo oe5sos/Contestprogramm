@@ -508,7 +508,15 @@ void TestPanelLayoutManager::freshInstallPlacesPanelsByTheFittingDesignOnce()
     resizeCanvas(manager, QSize(1372, 692));
     QCOMPARE(applied.count(), 2);
     QCOMPARE(rotors->geometry(), QRect(0, 0, 620, 250));
-    QTest::qWait(400);
+    // Deutlich länger als die 300 ms Nachlaufzeit: ein einmaliger
+    // QTimer feuert auf einem überlasteten Rechner später, als er
+    // soll, und 400 ms liegen dafür zu knapp daran. Auf dem
+    // macOS-Läufer von GitHub ist genau das am 2026-09-23 passiert --
+    // die Nachlaufzeit war noch nicht abgelaufen, die dritte
+    // Größenänderung zählte mit, und der Prüfstand sah drei statt
+    // zwei. Gemessen wird hier "nach Ablauf der Nachlaufzeit", nicht
+    // "nach 400 ms".
+    QTest::qWait(1200);
     rotors->trySetGeometry(QRect(40, 40, 620, 250));
     resizeCanvas(manager, QSize(1380, 700));
     QCOMPARE(applied.count(), 2);

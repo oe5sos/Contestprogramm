@@ -81,6 +81,22 @@ void TestLogFileReader::bandLabels()
     QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("70CM")), QStringLiteral("432"));
     QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("144")), QStringLiteral("144"));
     QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("HF")), QString());
+    // Kurzwelle: ein ADIF aus einem anderen Logbuch schreibt "20M",
+    // nicht "14". Bis 2026-09-23 kam hier ein leeres Band heraus und
+    // das QSO landete beim Import ohne Band im Log.
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("20M")), QStringLiteral("14"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("160m")), QStringLiteral("1.8"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("80m")), QStringLiteral("3.5"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("40m")), QStringLiteral("7"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("30m")), QStringLiteral("10"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("17m")), QStringLiteral("18"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("15m")), QStringLiteral("21"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("12m")), QStringLiteral("24"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("10m")), QStringLiteral("28"));
+    // Und die beiden Bänder, deren eigener Name keine ganze Zahl ist --
+    // die fielen an der alten toInt()-Prüfung durch.
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("1.8")), QStringLiteral("1.8"));
+    QCOMPARE(LogFileReader::bandFromLabel(QStringLiteral("3.5")), QStringLiteral("3.5"));
 }
 
 void TestLogFileReader::ediRoundTripThroughTheExporter()

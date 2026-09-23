@@ -29,4 +29,19 @@ QStringList knownBands();
 bool bandRangeHz(const QString& band, qint64& lowHz, qint64& highHz);
 qint64 bandBaseHz(const QString& band);
 
+// Welche Betriebsart an dieser Stelle im Bandplan üblich ist: "CW"
+// unterhalb der Telefoniegrenze des Bandes, sonst "SSB". Leer, wenn
+// das Band unbekannt ist oder keine solche Grenze kennt (UKW und
+// aufwärts: dort steht in jedem Bandsegment beides nebeneinander).
+//
+// Grob, und absichtlich: das Funkgerät sagt seine Betriebsart selbst,
+// sobald CAT hängt (ui/MainWindow.cpp, modeChanged), und dann gilt
+// seine Antwort. Diese Tabelle ist für den Fall, dass keines hängt --
+// dann blieb die Betriebsart bis 2026-09-23 auf SSB stehen, auch auf
+// 14,045 MHz, wo nur CW läuft, und der Rapport wurde mit 59 statt 599
+// vorbelegt. Grenzen nach dem IARU-Region-1-Bandplan; die schmalen
+// Digimode-Abschnitte sind bewusst nicht abgebildet, die hat ein
+// Contest in aller Regel nicht.
+QString usualModeForFrequencyHz(qint64 hz);
+
 } // namespace Contestprogramm

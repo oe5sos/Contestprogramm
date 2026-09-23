@@ -9,12 +9,14 @@
 #include <QSet>
 #include <QString>
 
+class QAction;
 class QCloseEvent;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMoveEvent;
 class QCheckBox;
+class QMenu;
 class QPushButton;
 class QResizeEvent;
 class QTimer;
@@ -82,6 +84,12 @@ public:
     // failed; restartRequested() is emitted whenever the connection was
     // closed.
     bool performRestore(const QString& backupPath, QString* errorOut = nullptr);
+
+    // Das Band, auf dem geloggt wird. Es hat keine eigene Anzeige im
+    // Fenster (siehe den Klassenkommentar): es kommt vom Funkgerät oder
+    // von einer Frequenz im Rufzeichenfeld. Die Fußzeile zeigt es an
+    // der CAT-Plakette, und die Prüfstände fragen hier.
+    QString currentBand() const { return m_currentBand; }
 
 signals:
     // Datei > Sicherung wiederherstellen has put a backup in place of
@@ -408,9 +416,11 @@ private:
     // The transverter between rig and antenna (core/Transverter.h):
     // every rig frequency goes through rfFrequencyHz() before it names
     // a band, and every QSY through rigFrequencyHz(). Loaded from the
-    // settings table with the window, switched by m_transverterCheck.
+    // settings table with the window, switched by m_transverterAction
+    // im ⚙-Menü der obersten Zeile.
     TransverterSetup m_transverter;
-    QCheckBox* m_transverterCheck = nullptr;
+    QAction* m_transverterAction = nullptr;
+    QMenu* m_windowOptionsMenu = nullptr;
     // Set by handleLogRequested() when Enter met an incomplete exchange
     // (first Enter: focus the missing field); cleared by any entry-row
     // edit. A second Enter in that state logs anyway.
@@ -419,8 +429,19 @@ private:
     // one place a rig frequency becomes m_currentBand: the transverter
     // applied, bands outside the contest ignored.
     qint64 currentRfFrequencyHz() const;
+    // Die zuletzt von Hand eingetippte Frequenz auf der Antenne (siehe
+    // tuneToFrequency()). Ohne CAT ist sie die einzige, die es gibt --
+    // ohne sie stünde im Cabrillo-Log die Bandkante statt der Stelle,
+    // an der das QSO wirklich lief. Ein Funkgerät, das seine eigene
+    // Frequenz meldet, löscht sie: seine gilt.
+    qint64 m_typedFrequencyHz = 0;
     void applyRigFrequency(qint64 rigHz);
     void syncTransverterCheck();
+    // Auf eine Frequenz auf der Antenne gehen (Hertz): Funkgerät
+    // mitnehmen, falls verbunden, und das Band im Log umstellen. Der
+    // einzige Weg zu einem anderen Band ohne CAT -- ausgelöst durch
+    // eine Zahl im Rufzeichenfeld, wie bei N1MM und DXLog.
+    void tuneToFrequency(qint64 rfHz);
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not

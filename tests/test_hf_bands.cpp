@@ -351,6 +351,20 @@ void TestHfBands::checkPanelSaysWhetherTheMultiplierIsNew()
     QVERIFY2(text.contains(QStringLiteral("neu")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("noch auf keinem Band")), qPrintable(text));
 
+    // Und die Station selbst: dieselbe, die schon im Log steht, sagt
+    // auf welchem Band sie dort steht. Die Dupe-Pille beantwortet nur
+    // das laufende Band -- auf Kurzwelle zählt dieselbe Station auf
+    // acht Bändern, da ist das die Frage beim Tippen.
+    log->setCallsign(QStringLiteral("DL1ABC"));
+    text = multiplierLabel->text();
+    QVERIFY2(text.contains(QStringLiteral("DL1ABC steht auf 1.8")), qPrintable(text));
+
+    // Eine Station, die noch nirgends steht, behauptet dazu nichts --
+    // nur die Multiplikatorzeile bleibt.
+    log->setCallsign(QStringLiteral("G3ABC"));
+    text = multiplierLabel->text();
+    QVERIFY2(!text.contains(QStringLiteral("G3ABC steht auf")), qPrintable(text));
+
     // Feld leer: Zeile weg.
     log->setCallsign(QString());
     QVERIFY(multiplierLabel->isHidden());
