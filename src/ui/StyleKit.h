@@ -70,6 +70,19 @@ QString kBlueBorder();
 QString kBlueText();
 
 QString kAmberText();
+
+// Der Farbton für ein Band in der Bandzelle des Logs -- leer für ein
+// Band ohne eigenen Ton, dann bleibt der normale Text.
+//
+// Die Töne sind NICHT fest verdrahtet, sondern hängen am Akzentton des
+// gewählten Farbthemas: in Bernstein läuft die Reihe von Bernstein
+// aus, in Grün von Grün aus, und ein späteres Thema bringt seine eigene
+// Reihe mit, ohne dass hier etwas nachgezogen werden muss (Martin,
+// 2026-09-23: "man sollte auch die farbe und das design einfach
+// umschalten können"). Sättigung und Helligkeit kommen ebenfalls aus
+// dem Thema, damit die Zelle nicht im einen Thema leuchtet und im
+// anderen murmelt.
+QString bandTint(const QString& band);
 QString kAmberDim();
 QString kAmberWarn();
 QString kAmberBg();

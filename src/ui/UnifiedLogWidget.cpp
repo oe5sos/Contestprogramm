@@ -56,32 +56,6 @@ constexpr int ColKm = UnifiedLogWidget::ColumnDistanceKm;
 constexpr int ColDeg = UnifiedLogWidget::ColumnBearingDeg;
 constexpr int ColStatus = UnifiedLogWidget::ColumnStatus;
 constexpr int ColBand = UnifiedLogWidget::ColumnBand;
-
-// Eine Farbe je Band für die Bandzelle -- nur der Text, kein
-// Hintergrund, damit die Farbfläche im Rahmen der Hausregel bleibt
-// (StyleKit.h, ~2%). Martins Entscheidung am Blätterpaar vom
-// 2026-09-23: auf Kurzwelle findet der Blick die Farbe schneller als
-// die Zahl. Auf einem Contest mit wenigen Bändern bringt sie nichts und
-// bleibt darum aus -- siehe UnifiedLogWidget::setContestBandCount().
-//
-// Die Töne sind gedämpft (geringe Sättigung, heller Wert) und liegen
-// weit genug auseinander, dass benachbarte Bänder unterscheidbar sind.
-// Ein Band ohne Eintrag behält die normale Textfarbe; geraten wird
-// nicht.
-QColor bandTint(const QString& band)
-{
-    static const QHash<QString, int> kHues{
-        {QStringLiteral("1.8"), 20},  {QStringLiteral("3.5"), 40},  {QStringLiteral("7"), 75},
-        {QStringLiteral("10"), 110},  {QStringLiteral("14"), 145},  {QStringLiteral("18"), 170},
-        {QStringLiteral("21"), 190},  {QStringLiteral("24"), 225},  {QStringLiteral("28"), 265},
-        {QStringLiteral("50"), 300},  {QStringLiteral("70"), 330},
-    };
-    const auto it = kHues.constFind(band.trimmed());
-    if (it == kHues.constEnd()) {
-        return QColor();
-    }
-    return QColor::fromHsl(it.value(), 110, 165);
-}
 constexpr int ColRstSent = UnifiedLogWidget::ColumnRstSent;
 constexpr int ColSerialSent = UnifiedLogWidget::ColumnSerialSent;
 constexpr int ColRstRcvd = UnifiedLogWidget::ColumnRstRcvd;
@@ -914,9 +888,12 @@ private:
             // oben schon abgefangen -- dort schlägt das gedimmte Grau
             // die Bandfarbe, weil "zählt nicht" die wichtigere Aussage
             // ist.
-            const QColor tint = bandTint(record.band);
-            if (tint.isValid()) {
-                return tint;
+            // Der Ton kommt aus dem Farbthema (Style::bandTint), nicht
+            // aus einer festen Tabelle hier -- sonst passte die Zelle
+            // im einen Thema und im anderen nicht.
+            const QString tint = Style::bandTint(record.band);
+            if (!tint.isEmpty()) {
+                return QColor(tint);
             }
         }
 

@@ -1,5 +1,7 @@
 #include "ui/StyleKit.h"
 
+#include <QColor>
+#include <QHash>
 #include <QStringList>
 #include <QWidget>
 
@@ -144,6 +146,38 @@ QString kBlueBorder() { return colorAt(IdxBlueBorder); }
 QString kBlueText() { return colorAt(IdxBlueText); }
 
 QString kAmberText() { return colorAt(IdxAmberText); }
+
+QString bandTint(const QString& band)
+{
+    // Grad Abstand zum Akzentton des Themas, nicht absolute Farbtöne:
+    // das niedrigste Band trägt den Akzentton selbst, die höheren
+    // laufen im Kreis davon weg. Elf Bänder wollen elf unterscheidbare
+    // Töne, also wird der Kreis weit ausgenutzt -- benachbarte Bänder
+    // liegen aber nie dichter als 20 Grad beieinander.
+    static const QHash<QString, int> kOffsets{
+        {QStringLiteral("1.8"), -20},  {QStringLiteral("3.5"), 0},    {QStringLiteral("7"), 35},
+        {QStringLiteral("10"), 70},    {QStringLiteral("14"), 105},   {QStringLiteral("18"), 130},
+        {QStringLiteral("21"), 150},   {QStringLiteral("24"), 185},   {QStringLiteral("28"), 225},
+        {QStringLiteral("50"), 260},   {QStringLiteral("70"), 290},
+    };
+    const auto it = kOffsets.constFind(band.trimmed());
+    if (it == kOffsets.constEnd()) {
+        return QString();
+    }
+    const QColor accent(kAmberText());
+    int hue = accent.hslHue();
+    if (hue < 0) {
+        // Ein grauer Akzent hat keinen Ton -- dann von Bernstein aus.
+        hue = 40;
+    }
+    hue = (hue + it.value() % 360 + 360) % 360;
+    // Gedämpfter als der Akzent (die Zelle soll nicht schreien) und so
+    // hell wie der normale Text, damit sie auf derselben dunklen
+    // Fläche gleich gut lesbar ist.
+    const int saturation = qBound(70, accent.hslSaturation() * 3 / 4, 160);
+    const int lightness = qBound(130, QColor(kTextPrimary()).lightness() - 55, 205);
+    return QColor::fromHsl(hue, saturation, lightness).name();
+}
 QString kAmberDim() { return colorAt(IdxAmberDim); }
 QString kAmberWarn() { return colorAt(IdxAmberWarn); }
 QString kAmberBg() { return colorAt(IdxAmberBg); }

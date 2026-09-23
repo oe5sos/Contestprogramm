@@ -175,24 +175,36 @@ void TestWindowSheet::shortwaveLog()
         minute += 5;
     }
 
-    Style::setActiveTheme(controller.settings().colorTheme);
-    qApp->setStyleSheet(Style::appStyleSheet());
-
-    MainWindow window(controller);
-    window.resize(1680, 1000);
-    window.show();
-    for (int i = 0; i < 40; ++i) {
-        QCoreApplication::processEvents();
-        QTest::qWait(20);
-    }
-    const auto save = [&](const QString& name) {
-        for (int i = 0; i < 20; ++i) { QCoreApplication::processEvents(); QTest::qWait(15); }
+    // Je Thema ein FRISCHES Fenster, nicht dasselbe umgefaerbt: die
+    // Formatvorlagen der Panels werden beim Bauen mit den damals
+    // geltenden Farbwerten zusammengesetzt (siehe ui/StyleKit.cpp und
+    // MainWindow::openSettingsDialog(), das einen Neustart anbietet).
+    // Ein Themenwechsel im laufenden Fenster laesst darum Teile in der
+    // alten Palette stehen -- ein Blatt daraus zeigte etwas, das so nie
+    // jemand zu sehen bekommt.
+    const auto sheetForTheme = [&](ColorTheme theme, const QString& name) {
+        Style::setActiveTheme(theme);
+        qApp->setStyleSheet(Style::appStyleSheet());
+        MainWindow window(controller);
+        window.resize(1680, 1000);
+        window.show();
+        for (int i = 0; i < 40; ++i) {
+            QCoreApplication::processEvents();
+            QTest::qWait(20);
+        }
         const QPixmap shot = window.grab();
         const QString path = outDir + QLatin1Char('/') + name + QStringLiteral(".png");
         QVERIFY(shot.save(path));
         qInfo() << "geschrieben:" << path << shot.size();
     };
-    save(QStringLiteral("contestprogramm-kurzwelle-log"));
+
+    sheetForTheme(ColorTheme::Bernstein, QStringLiteral("contestprogramm-kurzwelle-log"));
+    // Dasselbe Log im zweiten Farbthema: die Bandfarben haengen am
+    // Akzentton (Style::bandTint), also gehoert auch das aufs Blatt.
+    sheetForTheme(ColorTheme::Gruen, QStringLiteral("contestprogramm-kurzwelle-log-gruen"));
+
+    Style::setActiveTheme(ColorTheme::Bernstein);
+    qApp->setStyleSheet(Style::appStyleSheet());
 }
 
 QTEST_MAIN(TestWindowSheet)
