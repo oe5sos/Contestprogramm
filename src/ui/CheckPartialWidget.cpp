@@ -138,6 +138,9 @@ void CheckPartialWidget::setMultiplierStatus(const QString& text)
     // "neu" in Bernstein, alles andere ruhig -- die Farbe trägt hier
     // die eine Aussage, auf die es ankommt.
     QString html = text.toHtmlEscaped();
+    // Ein Zeilenumbruch im Text trennt die beiden Aussagen: oben die
+    // Station, darunter der Multiplikator.
+    html.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
     html.replace(QStringLiteral("neu"),
                  QStringLiteral("<span style='color:%1;'>neu</span>").arg(Style::kAmberText()));
     m_multiplierLabel->setText(QStringLiteral("<span style='color:%1;'>%2</span>")

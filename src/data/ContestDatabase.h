@@ -143,6 +143,12 @@ public:
     // Every contest_id present in the qsos table, active or archived.
     QStringList contestIdsInLog() const;
 
+    // Auf welchen Bändern diese Station in diesem Contest schon im Log
+    // steht -- ungeordnet, ungültige QSOs zählen nicht. Die Frage beim
+    // Tippen auf Kurzwelle: "den hab ich doch schon, aber auf welchem
+    // Band?" Die Dupe-Pille beantwortet nur das laufende Band.
+    QStringList bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const;
+
     // Skeds (core/SkedList.h), one table for every contest, keyed by
     // contest_id like the QSOs. A restart mid-contest keeps them.
     bool insertSked(const QString& contestId, Sked& sked);

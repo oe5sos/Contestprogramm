@@ -2734,34 +2734,61 @@ void MainWindow::refreshMultiplierHint(const QString& grid)
     const ContestSettings settings = m_appController.settings();
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     const QString call = m_unifiedLog ? m_unifiedLog->callsign() : QString();
-    MultiplierTracker& tracker = m_appController.multiplierTracker();
-    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
-    if (!def || key.isEmpty()) {
-        // Kein Multiplikator in den Regeln, oder über diese Station ist
-        // (noch) nichts bekannt -- dann steht dort auch nichts.
-        m_checkPartialWidget->setMultiplierStatus(QString());
-        return;
-    }
 
-    QStringList worked;
-    for (const QString& band : def->bands()) {
-        if (tracker.workedMultipliers(band).contains(key)) {
-            worked << band;
+    QStringList lines;
+
+    // Zuerst die Station selbst: auf welchen Bändern steht SIE schon im
+    // Log. Die Dupe-Pille beantwortet nur das laufende Band, und der
+    // Multiplikator unten ist eine andere Frage -- DL1ABC kann neu sein,
+    // während der Präfix DL längst steht. Auf Kurzwelle, wo dieselbe
+    // Station auf acht Bändern zählt, ist das die Frage beim Tippen.
+    if (!call.isEmpty() && def) {
+        const QStringList worked = m_appController.database().bandsWorkedForCallsign(call, settings.activeContestId);
+        if (!worked.isEmpty()) {
+            // In der Reihenfolge des Contests, nicht in der der
+            // Datenbank.
+            QStringList ordered;
+            for (const QString& band : def->bands()) {
+                if (worked.contains(band)) {
+                    ordered << band;
+                }
+            }
+            for (const QString& band : worked) {
+                if (!ordered.contains(band)) {
+                    ordered << band;
+                }
+            }
+            lines << QStringLiteral("%1 steht auf %2").arg(call.toUpper(), ordered.join(QStringLiteral(", ")));
         }
     }
-    const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
-    QStringList parts;
-    parts << key;
-    if (!m_currentBand.isEmpty()) {
-        parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
-                             : QStringLiteral("auf %1 neu").arg(m_currentBand));
+
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
+    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
+    if (def && !key.isEmpty()) {
+        QStringList worked;
+        for (const QString& band : def->bands()) {
+            if (tracker.workedMultipliers(band).contains(key)) {
+                worked << band;
+            }
+        }
+        const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
+        QStringList parts;
+        parts << key;
+        if (!m_currentBand.isEmpty()) {
+            parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
+                                 : QStringLiteral("auf %1 neu").arg(m_currentBand));
+        }
+        if (!worked.isEmpty()) {
+            parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
+        } else {
+            parts << QStringLiteral("noch auf keinem Band");
+        }
+        lines << parts.join(QStringLiteral(" · "));
     }
-    if (!worked.isEmpty()) {
-        parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
-    } else {
-        parts << QStringLiteral("noch auf keinem Band");
-    }
-    m_checkPartialWidget->setMultiplierStatus(parts.join(QStringLiteral(" · ")));
+
+    // Nichts bekannt -- kein Multiplikator in den Regeln, und die
+    // Station ist neu: dann steht dort auch nichts.
+    m_checkPartialWidget->setMultiplierStatus(lines.join(QLatin1Char('\n')));
 }
 
 void MainWindow::handleReceivedGridChanged(const QString& grid)

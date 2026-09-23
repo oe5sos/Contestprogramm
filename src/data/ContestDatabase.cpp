@@ -534,6 +534,30 @@ int ContestDatabase::archiveContest(const QString& contestId, const QString& arc
     return query.numRowsAffected();
 }
 
+QStringList ContestDatabase::bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const
+{
+    QStringList result;
+    const QString call = callsign.trimmed().toUpper();
+    if (call.isEmpty()) {
+        return result;
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("SELECT DISTINCT band FROM qsos WHERE UPPER(callsign) = ? AND contest_id = ? "
+                                  "AND is_invalid = 0"));
+    query.addBindValue(call);
+    query.addBindValue(contestId);
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        const QString band = query.value(0).toString().trimmed();
+        if (!band.isEmpty()) {
+            result << band;
+        }
+    }
+    return result;
+}
+
 QStringList ContestDatabase::contestIdsInLog() const
 {
     QStringList result;
