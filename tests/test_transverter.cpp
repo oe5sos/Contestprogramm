@@ -5,6 +5,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QAction>
 #include <QCheckBox>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -180,9 +181,12 @@ void TestTransverter::rigFrequencyNamesTheBandThroughTheTransverter()
     // broadcast side) too.
     QVERIFY(controller->transverter().configured());
     QVERIFY(!controller->transverter().active());
-    auto* toggle = window.findChild<QCheckBox*>(QStringLiteral("transverterCheck"));
+    // Seit 2026-09-23 ein Eintrag im ⚙-Menü der obersten Zeile statt
+    // eines Kästchens in einer eigenen Zeile -- Martins Regel, Optionen
+    // gehören unter das Zahnrad rechts oben.
+    auto* toggle = window.findChild<QAction*>(QStringLiteral("transverterCheck"));
     QVERIFY(toggle);
-    QVERIFY(!toggle->isHidden()); // configured: the switch is offered
+    QVERIFY(toggle->isVisible()); // configured: the switch is offered
     QVERIFY(!toggle->isChecked());
     QVERIFY(toggle->text().contains(QStringLiteral("144 → 1296")));
 

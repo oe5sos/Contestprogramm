@@ -9,12 +9,14 @@
 #include <QSet>
 #include <QString>
 
+class QAction;
 class QCloseEvent;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMoveEvent;
 class QCheckBox;
+class QMenu;
 class QPushButton;
 class QResizeEvent;
 class QTimer;
@@ -408,9 +410,11 @@ private:
     // The transverter between rig and antenna (core/Transverter.h):
     // every rig frequency goes through rfFrequencyHz() before it names
     // a band, and every QSY through rigFrequencyHz(). Loaded from the
-    // settings table with the window, switched by m_transverterCheck.
+    // settings table with the window, switched by m_transverterAction
+    // im ⚙-Menü der obersten Zeile.
     TransverterSetup m_transverter;
-    QCheckBox* m_transverterCheck = nullptr;
+    QAction* m_transverterAction = nullptr;
+    QMenu* m_windowOptionsMenu = nullptr;
     // Set by handleLogRequested() when Enter met an incomplete exchange
     // (first Enter: focus the missing field); cleared by any entry-row
     // edit. A second Enter in that state logs anyway.

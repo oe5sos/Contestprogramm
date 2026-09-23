@@ -322,71 +322,75 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
 
-    // Top bar: UTC clock + contest-end countdown, right-aligned, per the
-    // plan's "UTC-Uhr + Countdown oben in der Titelzeile" UI direction
-    // and the design mockup's clock treatment (Main.dc.html). The
-    // countdown half's visibility is a live toggle further down (see
-    // the filter row below); contestEndUtc/countdownVisible themselves
-    // come from ContestSettings via applyClockSettings().
+    // Die oberste Zeile: links der Grid-Filter, rechts das Zahnrad und
+    // die UTC-Uhr mit dem Countdown ("UTC-Uhr + Countdown oben in der
+    // Titelzeile" aus dem Plan, Uhrbehandlung wie im Entwurf
+    // Main.dc.html).
+    //
+    // Bis 2026-09-23 stand darunter eine zweite Zeile mit vier
+    // Kästchen -- Rohdaten, CW-Makros, Countdown, ESM -- und dem
+    // Transverter. Die sind jetzt Einträge im Zahnrad. Martins Regel
+    // dazu steht seit dem 20.09. fest: Optionen gehören rechts oben
+    // unter das ⚙, nicht als Kästchenreihe quer über das Fenster. Was
+    // sie schalten, ist unverändert; nur eine Zeile Höhe gewinnt die
+    // Arbeitsfläche dazu.
     auto* topBarRow = new QWidget(central);
     auto* topBarLayout = new QHBoxLayout(topBarRow);
     topBarLayout->setContentsMargins(0, 0, 0, 0);
-    topBarLayout->addStretch();
-    // Same affordance PanelHeaderBar::setOptionsAffordanceEnabled() gives
-    // individual panels (⚙, Style::iconButtonStyle()) -- "Einstellungen"
-    // used to live only in Datei > Einstellungen..., buried behind the
-    // menu bar. Martin's explicit ask: it must also sit directly on the
-    // window itself. This is the one always-visible strip every layout
-    // (including the map-dominant one) keeps fixed, so it is the natural
-    // permanent home for it, right beside the clock it already anchors.
-    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
-    settingsButton->setFixedSize(24, 22);
-    settingsButton->setCursor(Qt::PointingHandCursor);
-    settingsButton->setToolTip(QStringLiteral("Einstellungen"));
-    settingsButton->setStyleSheet(Style::iconButtonStyle());
-    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettingsDialog);
-    topBarLayout->addWidget(settingsButton);
-    m_utcClockWidget = new UtcClockWidget(topBarRow);
-    topBarLayout->addWidget(m_utcClockWidget);
-    layout->addWidget(topBarRow);
-
-    auto* filterRow = new QWidget(central);
-    auto* filterLayout = new QHBoxLayout(filterRow);
-    filterLayout->setContentsMargins(0, 0, 0, 0);
-    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), filterRow);
+    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), topBarRow);
     filterLabel->setFont(Style::capsFont(filterLabel->font()));
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
-    filterLayout->addWidget(filterLabel);
-    m_gridFilterEdit = new QLineEdit(filterRow);
+    topBarLayout->addWidget(filterLabel);
+    m_gridFilterEdit = new QLineEdit(topBarRow);
     m_gridFilterEdit->setMaximumWidth(120);
     m_gridFilterEdit->setFont(Style::monoFont(m_gridFilterEdit->font(), Style::kFontBody));
-    filterLayout->addWidget(m_gridFilterEdit);
-    auto* rawFeedCheck = new QCheckBox(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"), filterRow);
-    filterLayout->addWidget(rawFeedCheck);
-    // Same visual family as rawFeedCheck above -- two more independent
-    // display toggles, not buried in SettingsDialog since (unlike most
-    // settings there) the operator wants to flip these live, mid-session.
-    auto* cwMacroVisibleCheck = new QCheckBox(QStringLiteral("CW-Makros anzeigen"), filterRow);
+    topBarLayout->addWidget(m_gridFilterEdit);
+    topBarLayout->addStretch();
+
+    // Dasselbe Zahnrad, das PanelHeaderBar::setOptionsAffordanceEnabled()
+    // jedem einzelnen Panel gibt (Style::iconButtonStyle()) -- hier für
+    // das Fenster selbst. "Einstellungen" lag einmal nur unter Datei ›
+    // Einstellungen…, hinter der Menüleiste vergraben; Martin wollte es
+    // ausdrücklich auch auf dem Fenster haben. Diese Zeile ist der eine
+    // immer sichtbare Streifen, den jede Anordnung behält, also gehört
+    // es hierher, neben die Uhr, an der es ohnehin schon hängt.
+    m_windowOptionsMenu = new QMenu(this);
+    m_windowOptionsMenu->setObjectName(QStringLiteral("windowOptionsMenu"));
+
+    auto* rawFeedCheck = m_windowOptionsMenu->addAction(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"));
+    rawFeedCheck->setObjectName(QStringLiteral("optionRawFeed"));
+    rawFeedCheck->setCheckable(true);
+    // Dieselbe Familie wie darüber -- Anzeigeschalter, die der Bediener
+    // mitten im Contest umlegen will und die darum nicht im
+    // Einstellungsfenster liegen.
+    auto* cwMacroVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("CW-Makros anzeigen"));
+    cwMacroVisibleCheck->setObjectName(QStringLiteral("optionCwMacros"));
+    cwMacroVisibleCheck->setCheckable(true);
     cwMacroVisibleCheck->setChecked(m_appController.settings().cwMacroPanelVisible);
-    filterLayout->addWidget(cwMacroVisibleCheck);
-    auto* countdownVisibleCheck = new QCheckBox(QStringLiteral("Contest-Countdown anzeigen"), filterRow);
+    auto* countdownVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("Contest-Countdown anzeigen"));
+    countdownVisibleCheck->setObjectName(QStringLiteral("optionCountdown"));
+    countdownVisibleCheck->setCheckable(true);
     countdownVisibleCheck->setChecked(m_appController.settings().countdownVisible);
-    filterLayout->addWidget(countdownVisibleCheck);
-    // Enter Sends Message (core/EsmPlanner.h) -- flipped live like the
-    // two toggles above; the texts live under Datei > ESM-Texte.
-    auto* esmCheck = new QCheckBox(QStringLiteral("ESM (Enter sendet, CW)"), filterRow);
+    // Enter Sends Message (core/EsmPlanner.h) -- live umschaltbar wie
+    // die beiden darüber; die Texte stehen unter Datei › ESM-Texte.
+    auto* esmCheck = m_windowOptionsMenu->addAction(QStringLiteral("ESM (Enter sendet, CW)"));
+    esmCheck->setObjectName(QStringLiteral("optionEsm"));
+    esmCheck->setCheckable(true);
     esmCheck->setChecked(m_appController.settings().esmEnabled);
-    filterLayout->addWidget(esmCheck);
-    // The transverter switch (core/Transverter.h): shown once a
-    // transverter is set up (Datei > Transverter...), on = the rig's
-    // IF is the band on the antenna.
+
+    // Der Transverterschalter (core/Transverter.h): sichtbar, sobald
+    // einer eingerichtet ist (Datei › Transverter…), an = die
+    // Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne.
+    // Weil er aus der Zeile ins Menü gewandert ist, sagt es zusätzlich
+    // die CAT-Plakette in der Fußzeile, wenn er an ist -- ein
+    // Schalter, der jede Frequenz umdeutet, darf nicht unsichtbar sein.
     m_transverter = TransverterSetup::load(m_appController.database());
     m_appController.setTransverter(m_transverter);
-    m_transverterCheck = new QCheckBox(filterRow);
-    m_transverterCheck->setObjectName(QStringLiteral("transverterCheck"));
-    filterLayout->addWidget(m_transverterCheck);
+    m_transverterAction = m_windowOptionsMenu->addAction(QString());
+    m_transverterAction->setObjectName(QStringLiteral("transverterCheck"));
+    m_transverterAction->setCheckable(true);
     syncTransverterCheck();
-    connect(m_transverterCheck, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_transverterAction, &QAction::toggled, this, [this](bool on) {
         if (m_transverter.enabled == on) {
             return;
         }
@@ -400,8 +404,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         refreshBandmap();
         updateStatusBar();
     });
-    filterLayout->addStretch();
-    layout->addWidget(filterRow);
+
+    m_windowOptionsMenu->addSeparator();
+    auto* windowSettingsAction = m_windowOptionsMenu->addAction(QStringLiteral("Einstellungen…"));
+    windowSettingsAction->setObjectName(QStringLiteral("optionSettings"));
+    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
+    settingsButton->setFixedSize(24, 22);
+    settingsButton->setCursor(Qt::PointingHandCursor);
+    settingsButton->setToolTip(QStringLiteral("Optionen und Einstellungen"));
+    settingsButton->setStyleSheet(Style::iconButtonStyle());
+    connect(settingsButton, &QPushButton::clicked, this, [this, settingsButton]() {
+        m_windowOptionsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+    });
+    topBarLayout->addWidget(settingsButton);
+    m_utcClockWidget = new UtcClockWidget(topBarRow);
+    topBarLayout->addWidget(m_utcClockWidget);
+    layout->addWidget(topBarRow);
 
     // Kern-Welle "movable/resizable/dockable panels": everything below
     // used to be a fixed QVBoxLayout/QSplitter arrangement (entry bar in
@@ -934,21 +954,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.callsignLocatorLookup(), &CallsignLocatorLookup::externalLookupFinished,
             this, &MainWindow::handleExternalCallsignLookupFinished);
     connect(m_gridFilterEdit, &QLineEdit::textChanged, m_unifiedLog, &UnifiedLogWidget::setGridFilter);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(cwMacroVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(cwMacroVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_cwMacroPanelContainer->setVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.cwMacroPanelVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(countdownVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(countdownVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_utcClockWidget->setCountdownVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.countdownVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(esmCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+    connect(esmCheck, &QAction::toggled, this, [this](bool enabled) {
         ContestSettings settings = m_appController.settings();
         settings.esmEnabled = enabled;
         m_appController.setSettings(settings);
@@ -1190,7 +1210,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
     // A proper contest-selection window, per the operator's explicit
     // request, distinct from the combo box buried in SettingsDialog --
     // see ui/ContestPickerDialog.h's class comment for scope.
@@ -2239,6 +2259,12 @@ void MainWindow::updateStatusBar()
     QString catText = rigctldStateText(m_appController.rigctldClient().state());
     if (!m_currentBand.isEmpty()) {
         catText += QStringLiteral(" · %1 %2").arg(m_currentBand, m_currentMode);
+    }
+    // Der Transverter sitzt seit 2026-09-23 im ⚙-Menü und damit außer
+    // Sicht. Ist er an, deutet er jede Frequenz um -- das muss hier
+    // stehen, sonst merkt es niemand.
+    if (m_transverter.active()) {
+        catText += QStringLiteral(" · TRV");
     }
     setStatusBadge(m_rigctldStatusLabel, rigctldOk, QStringLiteral("CAT: %1").arg(catText));
 
@@ -3936,15 +3962,15 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
 
 void MainWindow::syncTransverterCheck()
 {
-    if (!m_transverterCheck) {
+    if (!m_transverterAction) {
         return;
     }
-    const QSignalBlocker blocker(m_transverterCheck);
-    m_transverterCheck->setVisible(m_transverter.configured());
-    m_transverterCheck->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
-    m_transverterCheck->setChecked(m_transverter.active());
-    m_transverterCheck->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
-                                                  "(Datei › Transverter…)"));
+    const QSignalBlocker blocker(m_transverterAction);
+    m_transverterAction->setVisible(m_transverter.configured());
+    m_transverterAction->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
+    m_transverterAction->setChecked(m_transverter.active());
+    m_transverterAction->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
+                                                    "(Datei › Transverter…)"));
 }
 
 void MainWindow::openTransverterDialog()
