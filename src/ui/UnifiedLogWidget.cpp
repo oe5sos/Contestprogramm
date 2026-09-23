@@ -589,6 +589,19 @@ public:
         rebuild();
     }
 
+    // Bandfarbe in der Bandzelle an/aus -- gesetzt von
+    // UnifiedLogWidget::setContestBandCount().
+    void setBandTintEnabled(bool on)
+    {
+        if (m_bandTint == on) {
+            return;
+        }
+        m_bandTint = on;
+        if (!m_rows.isEmpty()) {
+            emit dataChanged(index(0, ColBand), index(m_rows.size() - 1, ColBand));
+        }
+    }
+
     void setGridFilter(const QString& text)
     {
         if (m_gridFilter == text) {
@@ -870,6 +883,20 @@ private:
             }
         }
 
+        if (role == Qt::ForegroundRole && column == ColBand && m_bandTint) {
+            // Nur die Bandzelle, nur der Text. Ein ungültiges QSO ist
+            // oben schon abgefangen -- dort schlägt das gedimmte Grau
+            // die Bandfarbe, weil "zählt nicht" die wichtigere Aussage
+            // ist.
+            // Der Ton kommt aus dem Farbthema (Style::bandTint), nicht
+            // aus einer festen Tabelle hier -- sonst passte die Zelle
+            // im einen Thema und im anderen nicht.
+            const QString tint = Style::bandTint(record.band);
+            if (!tint.isEmpty()) {
+                return QColor(tint);
+            }
+        }
+
         if (role != Qt::DisplayRole) {
             if (column == ColStatus && record.isInvalid) {
                 // UNGÜLTIG pill -- red, the same warning family DUPE
@@ -1020,6 +1047,7 @@ private:
     ChatFeedModel* m_onKst = nullptr;
     ChatFeedModel* m_cluster = nullptr;
     QString m_gridFilter;
+    bool m_bandTint = false;
     QVector<RowRef> m_rows;
     int m_dividerRow = -1;
 };
@@ -1587,9 +1615,19 @@ void UnifiedLogWidget::applyEntryRowWidths()
     }
     const int rowHeight = m_feedTable->verticalHeader()->defaultSectionSize();
     const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
-    if (dxLog && m_entryRowBlanks.size() == 2) {
+    // Die QSO-Nummer ist die einzige leere Zelle, die es hier noch
+    // gibt: die Bandzelle trägt seit 2026-09-23 einen echten Wert und
+    // steht in m_entryBandLabel (siehe rebuildEntryRowLayout()). Vorher
+    // stand hier eine Prüfung auf genau zwei Platzhalter -- die traf
+    // seitdem nie mehr zu, und damit folgte in den Vollspalten keine
+    // der beiden Zellen mehr der angepassten Spaltenbreite: die
+    // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
+    // schmaler oder breiter wurde.
+    if (dxLog && !m_entryRowBlanks.isEmpty()) {
         m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
-        m_entryRowBlanks.at(1)->setFixedSize(columnWidthFor(ColBand), rowHeight);
+    }
+    if (m_entryBandLabel) {
+        m_entryBandLabel->setFixedSize(columnWidthFor(ColBand), rowHeight);
     }
     m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
@@ -1716,8 +1754,13 @@ void UnifiedLogWidget::setCurrentBand(const QString& band)
     }
 }
 
-void UnifiedLogWidget::setContestHasSeveralBands(bool several)
+void UnifiedLogWidget::setContestBandCount(int bandCount)
 {
+    // Ab vier Bändern trägt die Bandzelle ihre Farbe (siehe
+    // bandTint()); darunter bleibt sie im normalen Textton.
+    m_feedModel->setBandTintEnabled(bandCount > 3);
+
+    const bool several = bandCount > 1;
     if (m_bandColumnWanted == several) {
         return;
     }
@@ -2269,6 +2312,7 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
             QStringLiteral("color: %1; background: transparent; border-right: 1px solid %2; padding: 0 %3px;")
                 .arg(Style::kTextPrimary(), Style::kBorder())
                 .arg(kEntryRowHPadding));
+        band->setObjectName(QLatin1String(kEntryBandLabelObjectName));
         band->setFixedSize(columnWidthFor(ColBand), rowHeight);
         m_entryRowLayout->addWidget(band);
         m_entryBandLabel = band;

@@ -19,6 +19,7 @@
 #include "data/QsoRecord.h"
 #include "models/ChatFeedModel.h"
 #include "models/LogTableModel.h"
+#include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
 using namespace Contestprogramm;
@@ -66,6 +67,7 @@ private slots:
     void logEntryRowPositionSettingRoundTripsThroughDatabase();
     void dupeHistoryRowRendersAsDupePill();
     void narrowPanelFitsTheColumnsAndTheEntryRowFollows();
+    void bandColoursAppearOnlyOnAManyBandContest();
     void aNewlyLoggedQsoScrollsIntoView();
     void serialsReadAsThreeDigitsEverywhere();
     void dupeDetailReplacesTheLastQsoLine();
@@ -855,14 +857,63 @@ void TestUnifiedLogWidget::dxLogFullColumnsShowsSplitColumnsInDxLogOrder()
     // Und sobald der Contest mehrere Bänder hat, ist sie auch kompakt
     // zu sehen -- ohne sie stünden auf Kurzwelle QSOs von acht Bändern
     // untereinander, ohne dass eines sagt, welches.
-    widget.setContestHasSeveralBands(true);
+    widget.setContestBandCount(2);
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
     // Auch nach einem erneuten setViewMode() -- das läuft bei jedem
     // CAT-Takt und holte die Spalte sonst sofort wieder weg.
     widget.setViewMode(ContestSettings::LogViewMode::Compact);
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
-    widget.setContestHasSeveralBands(false);
+    widget.setContestBandCount(1);
     QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnBand));
+}
+
+// Die Bandfarbe in der Bandzelle: ab vier Bändern an, darunter aus --
+// auf einem Zweibandcontest sagt sie nichts (Martins Entscheidung am
+// Blätterpaar, 2026-09-23). Gefärbt wird nur der Text der einen Zelle,
+// und ein ungültiges QSO bleibt gedimmt: "zählt nicht" ist die
+// wichtigere Aussage.
+void TestUnifiedLogWidget::bandColoursAppearOnlyOnAManyBandContest()
+{
+    UnifiedLogWidget widget;
+    LogTableModel logModel;
+    widget.setLogModel(&logModel);
+    widget.resize(1300, 400);
+
+    QsoRecord onTwenty = makeLoggedRecord(1, QStringLiteral("W1AAA"));
+    onTwenty.band = QStringLiteral("14");
+    QsoRecord onForty = makeLoggedRecord(2, QStringLiteral("JA2BBB"));
+    onForty.band = QStringLiteral("7");
+    QsoRecord scratched = makeLoggedRecord(3, QStringLiteral("PY3CCC"));
+    scratched.band = QStringLiteral("21");
+    scratched.isInvalid = true;
+    logModel.setRecords({onTwenty, onForty, scratched});
+    QCoreApplication::processEvents();
+
+    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(feedTable);
+    const auto bandColour = [&](int row) {
+        return feedTable->model()
+            ->index(row, UnifiedLogWidget::ColumnBand)
+            .data(Qt::ForegroundRole)
+            .value<QColor>();
+    };
+
+    // Zwei Bänder: keine Farbe.
+    widget.setContestBandCount(2);
+    QVERIFY(!bandColour(0).isValid());
+
+    // Sechs Bänder: 20 m und 40 m tragen verschiedene Farben.
+    widget.setContestBandCount(6);
+    QVERIFY(bandColour(0).isValid());
+    QVERIFY(bandColour(1).isValid());
+    QVERIFY(bandColour(0) != bandColour(1));
+
+    // Das ungültige QSO bleibt grau, trotz Band.
+    QCOMPARE(bandColour(2), QColor(Style::kTextInactive()));
+
+    // Und wieder aus.
+    widget.setContestBandCount(3);
+    QVERIFY(!bandColour(0).isValid());
 }
 
 // Log-panel ⚙ "Eingabezeile: Oben"/"Eingabezeile: Unten" (see
@@ -985,6 +1036,21 @@ void TestUnifiedLogWidget::narrowPanelFitsTheColumnsAndTheEntryRowFollows()
     QCoreApplication::processEvents();
     QCOMPARE(feedTable->columnWidth(UnifiedLogWidget::ColumnCall), 115);
     QCOMPARE(callsign->width(), 115);
+
+    // Und die Bandzelle genauso: sie trägt seit 2026-09-23 einen
+    // echten Wert statt eines Strichs, und die Stelle, die die
+    // Eingabezeile nachzieht, hatte sie dabei verloren -- in den
+    // Vollspalten folgte weder sie noch die QSO-Nummer der
+    // angepassten Breite, und die Zeile verrutschte gegen die Tabelle.
+    widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
+    widget.resize(620, 400);
+    QCoreApplication::processEvents();
+    auto* bandCell = widget.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kEntryBandLabelObjectName));
+    QVERIFY(bandCell);
+    QCOMPARE(bandCell->width(), feedTable->columnWidth(UnifiedLogWidget::ColumnBand));
+    widget.resize(1300, 400);
+    QCoreApplication::processEvents();
+    QCOMPARE(bandCell->width(), feedTable->columnWidth(UnifiedLogWidget::ColumnBand));
 }
 
 // The newest QSO must be on screen after logging -- the operator's own

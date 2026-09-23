@@ -277,7 +277,7 @@ private slots:
     void visibleRangeIsClamped();
     void zoomStepsGrowBeyondVhfRanges();
     void optionsMenuOffersRangePresets();
-    void fitToWindowDefaultsTrueAndRoundTrips();
+    void mapIsRoundByDefaultAndRoundTrips();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
     void clickingEmptyAreaDoesNotEmitCandidateActivated();
@@ -393,18 +393,21 @@ void TestMapWidgetLive::zoomStepsGrowBeyondVhfRanges()
     QCOMPARE(widget.visibleRangeKm(), 20000.0); // am Anschlag
 }
 
-void TestMapWidgetLive::fitToWindowDefaultsTrueAndRoundTrips()
+void TestMapWidgetLive::mapIsRoundByDefaultAndRoundTrips()
 {
-    // Default true -- fit-to-window (ellipses allowed) is the default
-    // behaviour per Martin's own request, not an opt-in.
+    // Bis 2026-09-23 war "Fläche füllen" die Vorgabe (auf Martins
+    // frühere Bitte hin). Am Blätterpaar hat er sich für die runde
+    // Scheibe entschieden, und das ist auch das sachlich richtige:
+    // angepasst werden die Entfernungsringe zu Ellipsen, und damit
+    // stimmt der abgelesene Winkel nicht mehr. Umschaltbar bleibt es.
     MapWidget widget;
-    QVERIFY(widget.fitToWindowEnabled());
-
-    widget.setFitToWindowEnabled(false);
     QVERIFY(!widget.fitToWindowEnabled());
 
     widget.setFitToWindowEnabled(true);
     QVERIFY(widget.fitToWindowEnabled());
+
+    widget.setFitToWindowEnabled(false);
+    QVERIFY(!widget.fitToWindowEnabled());
 }
 
 void TestMapWidgetLive::agingEnabledDefaultsTrueAndRoundTrips()

@@ -6,9 +6,15 @@
 // zeigt es das ganze Fenster: Panelaufteilung, Kopfzeilen, Leerzustaende,
 // Statuszeile.
 //
-// Zwei Blaetter: das Fenster, wie es startet, und dasselbe Fenster mit
-// runder statt an den Rahmen angepasster Karte -- eine Entscheidung, die
-// man nur am Bild trifft.
+// Drei Blaetter, jedes in wirklicher Groesse (Hausregel): das Fenster
+// wie es startet, dasselbe mit "Flaeche fuellen" statt runder Scheibe
+// (die Einstellung gibt es weiter im Karten-Zahnrad, also gehoert sie
+// aufs Blatt), und das Kurzwellen-Log mit seinen sechs Baendern.
+//
+// Die drei Gestaltungsfragen vom 2026-09-23 -- runde Karte,
+// bernsteinfarbenes Profil-Abzeichen, Bandfarbe im Log -- sind
+// entschieden und stehen jetzt im Programm; die Varianten, die dieses
+// Werkzeug dafuer kurzzeitig selbst gebaut hat, sind wieder raus.
 //
 // Ziel ist SHEET_DIR, sonst das Temp-Verzeichnis (wie beim Kartenblatt),
 // damit dieses Werkzeug im normalen Durchlauf einfach mitlaeuft.
@@ -33,6 +39,7 @@ class TestWindowSheet : public QObject {
     Q_OBJECT
 private slots:
     void render();
+    void shortwaveLog();
 };
 
 void TestWindowSheet::render()
@@ -108,12 +115,96 @@ void TestWindowSheet::render()
     };
     save(QStringLiteral("contestprogramm-hauptfenster"));
 
+    // Die runde Scheibe ist die Vorgabe; "Flaeche fuellen" bleibt im
+    // Karten-Zahnrad erreichbar und gehoert darum weiter aufs Blatt.
     if (auto* map = window.findChild<MapWidget*>()) {
-        map->setFitToWindowEnabled(false);
-        save(QStringLiteral("contestprogramm-hauptfenster-runde-karte"));
+        map->setFitToWindowEnabled(true);
+        save(QStringLiteral("contestprogramm-hauptfenster-flaeche-fuellen"));
     } else {
         qWarning("MapWidget nicht gefunden");
     }
+}
+
+
+// Das Kurzwellen-Uebungslog: sechs Baender untereinander, also die
+// Ansicht, in der Bandspalte und Bandfarbe ueberhaupt etwas sagen. Das
+// VHF-Fenster oben zeigt das nicht.
+void TestWindowSheet::shortwaveLog()
+{
+    QString outDir = qEnvironmentVariable("SHEET_DIR");
+    if (outDir.isEmpty()) {
+        outDir = QDir::tempPath();
+    }
+    QVERIFY(QDir().mkpath(outDir));
+
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+
+    AppController controller;
+    QString error;
+    QVERIFY2(controller.openDatabase(data.filePath(QStringLiteral("kw.sqlite")), &error), qPrintable(error));
+
+    ContestSettings settings = controller.settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("KW_UEBUNG");
+    controller.setSettings(settings);
+
+    struct Seed { const char* call; const char* band; const char* mode; int serial; };
+    static const Seed seeds[] = {
+        {"W1AAA", "14", "CW", 1},   {"JA2BBB", "14", "CW", 2},  {"PY3CCC", "21", "SSB", 3},
+        {"VK4DDD", "21", "SSB", 4}, {"ZS5EEE", "28", "SSB", 5}, {"UA6FFF", "7", "CW", 6},
+        {"LU7GGG", "7", "CW", 7},   {"K8HHH", "3.5", "CW", 8},  {"OH9III", "1.8", "CW", 9},
+        {"VE2JJJ", "14", "SSB", 10},
+    };
+    int minute = 0;
+    for (const Seed& seed : seeds) {
+        QsoRecord r;
+        r.callsign = QString::fromLatin1(seed.call);
+        r.band = QString::fromLatin1(seed.band);
+        r.mode = QString::fromLatin1(seed.mode);
+        r.timestampUtc = QDateTime::currentDateTimeUtc().addSecs(-60 * (60 - minute)).toString(Qt::ISODate);
+        r.serialSent = seed.serial;
+        r.serialRcvd = seed.serial + 30;
+        r.rstSent = r.mode == QStringLiteral("CW") ? QStringLiteral("599") : QStringLiteral("59");
+        r.rstRcvd = r.rstSent;
+        r.exchangeSent = QStringLiteral("%1 %2").arg(r.rstSent).arg(seed.serial, 3, 10, QLatin1Char('0'));
+        r.exchangeRcvd = QStringLiteral("%1 %2").arg(r.rstRcvd).arg(seed.serial + 30, 3, 10, QLatin1Char('0'));
+        r.contestId = settings.activeContestId;
+        controller.database().insertQso(r);
+        minute += 5;
+    }
+
+    // Je Thema ein FRISCHES Fenster, nicht dasselbe umgefaerbt: die
+    // Formatvorlagen der Panels werden beim Bauen mit den damals
+    // geltenden Farbwerten zusammengesetzt (siehe ui/StyleKit.cpp und
+    // MainWindow::openSettingsDialog(), das einen Neustart anbietet).
+    // Ein Themenwechsel im laufenden Fenster laesst darum Teile in der
+    // alten Palette stehen -- ein Blatt daraus zeigte etwas, das so nie
+    // jemand zu sehen bekommt.
+    const auto sheetForTheme = [&](ColorTheme theme, const QString& name) {
+        Style::setActiveTheme(theme);
+        qApp->setStyleSheet(Style::appStyleSheet());
+        MainWindow window(controller);
+        window.resize(1680, 1000);
+        window.show();
+        for (int i = 0; i < 40; ++i) {
+            QCoreApplication::processEvents();
+            QTest::qWait(20);
+        }
+        const QPixmap shot = window.grab();
+        const QString path = outDir + QLatin1Char('/') + name + QStringLiteral(".png");
+        QVERIFY(shot.save(path));
+        qInfo() << "geschrieben:" << path << shot.size();
+    };
+
+    sheetForTheme(ColorTheme::Bernstein, QStringLiteral("contestprogramm-kurzwelle-log"));
+    // Dasselbe Log im zweiten Farbthema: die Bandfarben haengen am
+    // Akzentton (Style::bandTint), also gehoert auch das aufs Blatt.
+    sheetForTheme(ColorTheme::Gruen, QStringLiteral("contestprogramm-kurzwelle-log-gruen"));
+
+    Style::setActiveTheme(ColorTheme::Bernstein);
+    qApp->setStyleSheet(Style::appStyleSheet());
 }
 
 QTEST_MAIN(TestWindowSheet)

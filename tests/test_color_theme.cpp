@@ -4,7 +4,11 @@
 
 #include <QtTest>
 
+#include "core/BandUtils.h"
 #include "core/ColorTheme.h"
+#include "ui/StyleKit.h"
+
+#include <QColor>
 
 using namespace Contestprogramm;
 
@@ -20,6 +24,7 @@ private slots:
     void removedThemesFallBackToBernstein();
     void bernsteinIsFirstInDisplayOrder();
     void everyThemeHasANonEmptyDisplayName();
+    void bandColoursFollowTheChosenTheme();
 };
 
 void TestColorTheme::everyThemeRoundTripsThroughItsStorageKey()
@@ -75,6 +80,51 @@ void TestColorTheme::everyThemeHasANonEmptyDisplayName()
     for (ColorTheme theme : allColorThemes()) {
         QVERIFY(!colorThemeDisplayName(theme).isEmpty());
     }
+}
+
+// Die Bandfarben im Log hängen am Akzentton des Themas, nicht an einer
+// festen Tabelle -- Martin, 2026-09-23: "man sollte auch die farbe und
+// das design einfach umschalten können". Ein Thema zu wechseln muss
+// also auch sie mitnehmen.
+void TestColorTheme::bandColoursFollowTheChosenTheme()
+{
+    const QStringList bands = knownBands();
+    QVERIFY(bands.size() > 5);
+
+    QHash<ColorTheme, QStringList> perTheme;
+    for (ColorTheme theme : allColorThemes()) {
+        Style::setActiveTheme(theme);
+        QStringList tints;
+        for (const QString& band : bands) {
+            const QString tint = Style::bandTint(band);
+            if (tint.isEmpty()) {
+                continue; // Mikrowellenbänder tragen keinen eigenen Ton
+            }
+            const QColor colour(tint);
+            QVERIFY2(colour.isValid(), qPrintable(band + QStringLiteral(": ") + tint));
+            // Lesbar auf den dunklen Flächen dieses Programms, in
+            // jedem Thema: nicht fast schwarz und nicht fast weiß.
+            QVERIFY2(colour.lightness() >= 120 && colour.lightness() <= 215,
+                      qPrintable(QStringLiteral("%1 %2 L=%3").arg(band, tint).arg(colour.lightness())));
+            tints << tint;
+        }
+        QVERIFY(tints.size() >= 6);
+        // Benachbarte Bänder sind auseinanderzuhalten.
+        for (int i = 1; i < tints.size(); ++i) {
+            QVERIFY2(tints.at(i) != tints.at(i - 1), qPrintable(tints.at(i)));
+        }
+        perTheme.insert(theme, tints);
+    }
+
+    // Und das eigentliche: zwei Themen ergeben zwei Reihen.
+    QVERIFY(perTheme.value(ColorTheme::Bernstein) != perTheme.value(ColorTheme::Gruen));
+    qInfo() << "Bernstein:" << perTheme.value(ColorTheme::Bernstein);
+    qInfo() << "Gruen:" << perTheme.value(ColorTheme::Gruen);
+
+    // Ein Band ohne eigenen Ton behält die normale Textfarbe.
+    Style::setActiveTheme(ColorTheme::Bernstein);
+    QVERIFY(Style::bandTint(QStringLiteral("10368")).isEmpty());
+    QVERIFY(Style::bandTint(QString()).isEmpty());
 }
 
 QTEST_APPLESS_MAIN(TestColorTheme)

@@ -284,7 +284,15 @@ private:
     bool m_showRings = true;
     bool m_showSpokes = true;
     bool m_showAging = true;
-    bool m_fitToWindow = true;
+    // Aus: die Scheibe ist ein Kreis. Angepasst füllt sie zwar die
+    // Fläche, aber die Entfernungsringe werden dabei zu Ellipsen, und
+    // damit stimmt der abgelesene Winkel nicht mehr -- eine Station auf
+    // 45° sitzt auf dem Schirm woanders. Bei einer Karte, deren Zweck
+    // das Ablesen von Richtungen ist, wiegt das schwerer als die
+    // ungenutzte Breite links und rechts (Martins Entscheidung am
+    // Blätterpaar, 2026-09-23). Über das ⚙ der Karte weiterhin
+    // umschaltbar.
+    bool m_fitToWindow = false;
     bool m_showRotor1Heading = true;
     bool m_showRotor2Heading = true;
     bool m_showHorizon = true;
