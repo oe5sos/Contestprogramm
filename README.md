@@ -176,6 +176,31 @@ Danach: *Datei › Log prüfen…*, dann *Datei › EDI exportieren…* (eine Da
 je Band); der ÖVSV-Roboter nimmt die Logs etwa vier Tage nach Contestende
 an.
 
+## Kurzwelle ausprobieren
+
+Das Programm ist für VHF/UHF gebaut, kann aber Kurzwelle. Für einen
+Probelauf reicht das mitgelieferte Übungslog:
+
+1. Eine **Länderliste** besorgen und laden: `cty.dat` von
+   [country-files.com](https://www.country-files.com/), dann *Datei ›
+   Länderliste laden (cty.dat)…*. Ohne sie steht keine Station auf der
+   Karte und ein Länder-Multiplikator zählt nicht — der Startcheck sagt
+   es auch.
+2. *Datei › Contest wählen…* → **Kurzwelle – Übungslog** (RST +
+   laufende Nummer, 1,8 bis 28 MHz). Wer andere Regeln will: *Datei ›
+   Contest-Regeln…* — Bänder, Tauschfelder, Wertung, Nummernkreis,
+   Multiplikator und Dupe-Regel stehen dort alle zur Wahl.
+3. Band wechseln: die Frequenz ins **Rufzeichenfeld** tippen und Enter.
+   `14045` sind Kilohertz, `14.045` Megahertz. Hängt ein Funkgerät
+   dran, geht es mit; hängt keines dran, ist das der einzige Weg auf
+   ein anderes Band. Die Betriebsart kommt dann aus dem Bandplan (CW
+   unten, SSB oben), die Frequenz steht im exportierten Log.
+4. Rotor auf Kurzwelle: *Einstellungen › Band-Zuordnung › Übrige
+   Bänder*.
+5. Hinterher: *Datei › Cabrillo exportieren…* (fragt einmal nach
+   Kategorie, Leistung und so weiter) oder *Datei › ADIF exportieren…*
+   fürs eigene Logbuch.
+
 ## Abgleich mit N1MM Logger+ und DXLog.net
 
 Beide sind Closed Source; übernommen wurden Verhalten und Dateiformate
