@@ -1270,7 +1270,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // itself is a database that writes every QSO at once and copies
     // itself every minute). Same handlers the entries further down had;
     // they moved up here.
-    QAction* newLogAction = fileMenu->addAction(QStringLiteral("&Neues Log beginnen (altes archivieren)..."));
+    QAction* newLogAction = fileMenu->addAction(QStringLiteral("&Neues Log beginnen (altes bleibt im Archiv)..."));
     newLogAction->setObjectName(QStringLiteral("newLogAction"));
     connect(newLogAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern (Kopie)"));
@@ -3587,16 +3587,35 @@ void MainWindow::archiveActiveContest()
     for (int n = 2; existing.contains(archiveId); ++n) {
         archiveId = QStringLiteral("%1@%2-%3").arg(contestId, lastDate).arg(n);
     }
-    const auto answer = QMessageBox::question(
-        this, QStringLiteral("Contestprogramm"),
-        QStringLiteral("%1 QSOs des Contests \"%2\" werden unter \"%3\" archiviert.\n\n"
-                       "Danach beginnt das Log leer: Seriennummern ab 001, keine Dupes gegen die alten QSOs, "
-                       "ein leerer EDI-Export. Die alten QSOs bleiben in der Datenbank (Locator-Gedächtnis, "
-                       "Sicherungen) -- aber EDI/ADIF des alten Logs vorher exportieren!\n\nJetzt archivieren?")
+    // Martin, 2026-09-23: "werde ich gefragt, ob ich das alte löschen
+    // mag. ich sagte nein, aber die logs bleiben bestehen." Genau das
+    // war der Fehler -- nicht in der Mechanik, im Text. Die Frage hieß
+    // "Jetzt archivieren?" mit Ja/Nein, und "archivieren" las sich wie
+    // "wegwerfen". Er wollte ein leeres Log und die alten QSOs behalten
+    // -- also genau das, was Ja getan hätte.
+    //
+    // Jetzt steht in der ersten Zeile, was der Menüpunkt verspricht,
+    // und auf dem Knopf steht die Handlung statt "Ja". Dass nichts
+    // gelöscht wird, kommt vor allem anderen.
+    QMessageBox box(QMessageBox::Question, QStringLiteral("Contestprogramm"),
+                    QStringLiteral("Neues Log beginnen?"), QMessageBox::NoButton, this);
+    box.setInformativeText(
+        QStringLiteral("Gelöscht wird nichts: die %1 QSOs des Contests „%2“ wandern ins Archiv „%3“ und "
+                       "bleiben in der Datenbank -- für das Locator-Gedächtnis, die Sicherungen und einen "
+                       "späteren Export.\n\n"
+                       "Danach beginnt das Log leer: Seriennummern ab 001, keine Dupes gegen die alten QSOs.\n\n"
+                       "EDI oder ADIF des alten Logs vorher exportieren -- der Export kennt danach nur noch "
+                       "das leere Log.")
             .arg(records.size())
-            .arg(contestId, archiveId),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+            .arg(contestId, archiveId));
+    QPushButton* startButton = box.addButton(QStringLiteral("Neues Log beginnen"), QMessageBox::AcceptRole);
+    box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
+    box.setDefaultButton(startButton);
+    box.exec();
+    if (box.clickedButton() != startButton) {
+        // Ohne Rückmeldung sähe ein Abbruch genauso aus wie ein Fehler.
+        statusBar()->showMessage(QStringLiteral("Abgebrochen -- das Log läuft weiter, nichts wurde verschoben."),
+                                  6000);
         return;
     }
     QString error;
