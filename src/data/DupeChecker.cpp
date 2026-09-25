@@ -1,6 +1,7 @@
 #include "data/DupeChecker.h"
 
 #include "data/ContestDatabase.h"
+#include "core/CallsignPrefix.h"
 
 #include <QSqlError>
 #include <QSqlQuery>
@@ -41,8 +42,14 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
     // rule choice.
     conditions << QStringLiteral("is_invalid = 0");
 
-    if (dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive)) {
-        conditions << QStringLiteral("UPPER(TRIM(callsign)) = UPPER(TRIM(:callsign))");
+    // Rufzeichen: nach dem GRUNDRUFZEICHEN (IARU R1 GC 2023, 1.2 --
+    // S50AAA/P und DL/S50AAA sind dieselbe Station wie S50AAA). SQL
+    // filtert nur grob vor (enthaelt das Grundrufzeichen), entschieden
+    // wird unten mit baseCallsign() auf beiden Seiten.
+    const bool byCall = dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive);
+    const QString base = baseCallsign(callsign);
+    if (byCall) {
+        conditions << QStringLiteral("UPPER(callsign) LIKE :callpat");
     }
     if (dupeScope.contains(QStringLiteral("band"), Qt::CaseInsensitive)) {
         conditions << QStringLiteral("UPPER(TRIM(band)) = UPPER(TRIM(:band))");
@@ -51,14 +58,15 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
         conditions << QStringLiteral("UPPER(TRIM(mode)) = UPPER(TRIM(:mode))");
     }
 
-    const QString sql = QStringLiteral("SELECT id FROM qsos WHERE %1 ORDER BY id ASC LIMIT 1")
+    const QString sql = QStringLiteral("SELECT id, callsign FROM qsos WHERE %1 ORDER BY id ASC")
                             .arg(conditions.join(QStringLiteral(" AND ")));
 
     QSqlQuery query(m_database.db());
     query.prepare(sql);
     query.bindValue(QStringLiteral(":contest_id"), contestId);
-    if (dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive)) {
-        query.bindValue(QStringLiteral(":callsign"), callsign);
+    if (byCall) {
+        query.bindValue(QStringLiteral(":callpat"),
+                        QStringLiteral("%") + base + QStringLiteral("%"));
     }
     if (dupeScope.contains(QStringLiteral("band"), Qt::CaseInsensitive)) {
         query.bindValue(QStringLiteral(":band"), band);
@@ -77,10 +85,12 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
         m_lastError = query.lastError().text();
         return std::nullopt;
     }
-    if (!query.next()) {
-        return std::nullopt;
+    while (query.next()) {
+        if (!byCall || baseCallsign(query.value(1).toString()) == base) {
+            return query.value(0).toInt();
+        }
     }
-    return query.value(0).toInt();
+    return std::nullopt;
 }
 
 } // namespace Contestprogramm

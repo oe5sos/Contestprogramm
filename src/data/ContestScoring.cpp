@@ -32,21 +32,36 @@ const BandScore* ContestScore::band(const QString& band) const
     return nullptr;
 }
 
-int qsoDistancePoints(const QsoRecord& record, const QString& ownGrid)
+int qsoDistanceKm(const QsoRecord& record, const QString& ownGrid)
 {
+    if (!isFullLocator(record.gridSquare)) {
+        return -1;
+    }
     double km = -1.0;
     if (record.distanceKm) {
         km = *record.distanceKm;
-    } else if (isValidGridSquare(ownGrid) && isValidGridSquare(record.gridSquare)) {
-        km = calculateDistanceKm(ownGrid, record.gridSquare);
+    } else if (isFullLocator(ownGrid)) {
+        km = iaruQrbKm(ownGrid, record.gridSquare);
     }
-    if (km < 0.0) {
+    return km < 0.0 ? -1 : static_cast<int>(std::floor(km));
+}
+
+int qsoDistancePoints(const QsoRecord& record, const QString& ownGrid)
+{
+    // Unvollstaendig = 0 Punkte: ohne empfangene Nummer ist das QSO nach
+    // 1.9.1 nicht ausgetauscht (alle Definitionen mit distance_km haben
+    // Nummer UND Locator im Austausch).
+    if (!record.serialRcvd) {
+        return 0;
+    }
+    const int km = qsoDistanceKm(record, ownGrid);
+    if (km < 0) {
         return 0;
     }
     // IARU Region 1 rule, verbatim: "the calculated distance in
     // kilometres will be truncated to an integer value and 1 km will be
     // added" -- so 187.4 km scores 188, and a same-square contact 1.
-    return static_cast<int>(std::floor(km)) + 1;
+    return km + 1;
 }
 
 int qsoPoints(const QsoRecord& record, const QString& ownGrid, const QString& scoring)
@@ -103,14 +118,17 @@ ContestScore computeContestScore(const QVector<QsoRecord>& records,
         if (isValidGridSquare(record.gridSquare)) {
             squaresByBand[record.band].insert(largeSquare(record.gridSquare));
         }
-        // ODX is always the longest distance, whatever the scoring rule.
-        const int km = qsoDistancePoints(record, ownGrid);
-        if (km > score.odxKm) {
+        // ODX is always the longest distance, whatever the scoring rule
+        // -- in kilometres, not points (EDI CODXC carries the distance).
+        const int km = qsoDistanceKm(record, ownGrid);
+        // ">=" beim ersten: ein QSO im eigenen Feld hat 0 km und ist,
+        // wenn es das einzige auf dem Band ist, trotzdem dessen ODX.
+        if (km >= 0 && (score.odxCall.isEmpty() || km > score.odxKm)) {
             score.odxKm = km;
             score.odxCall = record.callsign.trimmed().toUpper();
             score.odxGrid = record.gridSquare.trimmed().toUpper();
         }
-        if (km > result.odxKm) {
+        if (km >= 0 && (result.odxCall.isEmpty() || km > result.odxKm)) {
             result.odxKm = km;
             result.odxCall = score.odxCall;
             result.odxGrid = score.odxGrid;

@@ -98,4 +98,25 @@ QString wpxPrefix(const QString& callsign)
     return prefixOfPart(designator);
 }
 
+QString baseCallsign(const QString& callsign)
+{
+    QStringList parts;
+    for (const QString& raw : callsign.trimmed().toUpper().split(QLatin1Char('/'), Qt::SkipEmptyParts)) {
+        const QString part = raw.trimmed();
+        if (!part.isEmpty()) {
+            parts.append(part);
+        }
+    }
+    while (parts.size() > 1 && isOperatingSuffix(parts.last())) {
+        parts.removeLast();
+    }
+    QString best;
+    for (const QString& part : parts) {
+        if (part.size() > best.size()) {
+            best = part;
+        }
+    }
+    return best;
+}
+
 } // namespace Contestprogramm

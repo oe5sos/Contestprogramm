@@ -187,9 +187,20 @@ QString EdiExporter::exportBand(const QString& contestId,
     std::stable_sort(all.begin(), all.end(), earlierThan);
 
     // TDate spans the whole contest, not just this band's activity --
-    // the two band files of one entry must agree on it.
+    // the two band files of one entry must agree on it. REG1TEST: the
+    // CONTEST's first and last day, so the contest window wins (from the
+    // definition's schedule, or the operator's contest end); only
+    // without one do the QSO dates stand in. Vorher kam bei jemandem,
+    // der nur am Samstag funkte, "20261003;20261003" heraus
+    // (Pruefbericht 2026-09-25).
     QString tDate;
-    if (!all.isEmpty()) {
+    const ContestWindow window = effectiveContestWindow(
+        definition.schedule(), settings.contestEndUtc,
+        all.isEmpty() ? QDateTime::currentDateTimeUtc() : parseTimestamp(all.first().timestampUtc));
+    if (window.isValid()) {
+        tDate = window.startUtc.date().toString(QStringLiteral("yyyyMMdd")) + QLatin1Char(';')
+              + window.endUtc.date().toString(QStringLiteral("yyyyMMdd"));
+    } else if (!all.isEmpty()) {
         const QDate first = parseTimestamp(all.first().timestampUtc).date();
         const QDate last = parseTimestamp(all.last().timestampUtc).date();
         tDate = first.toString(QStringLiteral("yyyyMMdd")) + QLatin1Char(';') + last.toString(QStringLiteral("yyyyMMdd"));

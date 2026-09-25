@@ -22,6 +22,9 @@ QsoRecord makeQso(const QString& call, const QString& band, const QString& grid,
     r.timestampUtc = QStringLiteral("2026-10-03T14:01:00Z");
     r.gridSquare = grid;
     r.distanceKm = km;
+    // Eine empfangene Nummer gehoert zu jedem vollstaendigen QSO; ohne sie
+    // zaehlt es 0 Punkte (IARU R1 GC 2023, 1.9.1, seit 2026-09-25).
+    r.serialRcvd = 1;
     r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
     return r;
 }
@@ -104,7 +107,7 @@ void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
                       QStringLiteral("distance_km"));
     text = visibleText(widget);
     QVERIFY2(text.contains(QStringLiteral("Punkte 4 815 (144: 4 814 · 432: 1)")), qPrintable(text)); // 4613 + 201 (truncated + 1 each), grouped; same-square QSO floor of 1
-    QVERIFY2(text.contains(QStringLiteral("ODX 4 613 km (DL1ABC · JN58SD)")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("ODX 4 612 km (DL1ABC · JN58SD)")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("Felder 3 (144: 2 · 432: 1)")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("(beste 3 (14z))")), qPrintable(text));
 

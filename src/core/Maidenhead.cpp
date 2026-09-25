@@ -268,6 +268,30 @@ QString gridSquareFromLatLon(double lat, double lon)
 // NereusSDR addition (2026-08-07), carried forward unchanged: the callers
 // of the helpers above need a cheap "is this even a locator" check
 // before spending the maths.
+bool isFullLocator(const QString& gridSquare)
+{
+    return gridSquare.trimmed().size() == 6 && isValidGridSquare(gridSquare);
+}
+
+double iaruQrbKm(const QString& grid1, const QString& grid2)
+{
+    if (!isValidGridSquare(grid1) || !isValidGridSquare(grid2)) {
+        return -1.0;
+    }
+    double lat1 = 0, lon1 = 0, lat2 = 0, lon2 = 0;
+    calculateLatLonFromGridSquare(grid1.trimmed(), lat1, lon1);
+    calculateLatLonFromGridSquare(grid2.trimmed(), lat2, lon2);
+    // Mittelpunktswinkel (Haversine, in Grad) mal 111,2 km je Grad.
+    const double p1 = DegreesToRadians(lat1);
+    const double p2 = DegreesToRadians(lat2);
+    const double dp = DegreesToRadians(lat2 - lat1);
+    const double dl = DegreesToRadians(lon2 - lon1);
+    const double a = sin(dp / 2) * sin(dp / 2) + cos(p1) * cos(p2) * sin(dl / 2) * sin(dl / 2);
+    const double centralDeg = 2.0 * atan2(sqrt(a), sqrt(1.0 - a)) * 180.0 / M_PI;
+    constexpr double kKmPerDegree = 111.2;   // IARU R1 GC 2023, 1.10.1
+    return centralDeg * kKmPerDegree;
+}
+
 bool isValidGridSquare(const QString& gridSquare)
 {
     const QString g = gridSquare.trimmed().toUpper();

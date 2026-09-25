@@ -94,6 +94,13 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             grid.isEmpty() ? QStringLiteral("Kein eigener Locator — ohne ihn keine Entfernungen, keine Punkte.")
                            : QStringLiteral("„%1“ ist kein gültiger Locator.").arg(grid),
             QStringLiteral("own_grid"));
+    } else if (!isFullLocator(grid)) {
+        // IARU R1 GC 2023, 1.9.1: der vollstaendige, sechsstellige
+        // Locator gehoert in den Austausch; mit "JN67" gibt es weder
+        // brauchbare Entfernungen noch ein gueltiges PWWLo.
+        add(Level::Error, kGroupStation, QStringLiteral("Locator"),
+            QStringLiteral("„%1“ ist nur vierstellig — der Contest verlangt den sechsstelligen Locator.").arg(grid),
+            QStringLiteral("own_grid"));
     } else if (ctx.useExactOwnLocation) {
         if (ctx.ownExactLatitude == 0.0 && ctx.ownExactLongitude == 0.0) {
             add(Level::Warning, kGroupStation, QStringLiteral("Locator"),

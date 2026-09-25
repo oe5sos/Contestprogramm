@@ -2495,7 +2495,7 @@ void MainWindow::handleLogRequested()
     record.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     record.gridSquare = gridRcvd;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
-        record.distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
+        record.distanceKm = iaruQrbKm(settings.ownGrid, gridRcvd);   // Wertungsentfernung, IARU R1 GC 2023 1.10.1
         record.bearingDeg = bearingIfApart(*record.distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
     if (const qint64 rfHz = currentRfFrequencyHz(); rfHz > 0) {
@@ -2907,7 +2907,7 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     std::optional<double> distanceKm;
     std::optional<double> bearingDeg;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
-        distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
+        distanceKm = iaruQrbKm(settings.ownGrid, gridRcvd);   // Wertungsentfernung, wie beim Loggen
         bearingDeg = bearingIfApart(*distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
 

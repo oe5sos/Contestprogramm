@@ -287,10 +287,11 @@ bool EdiExportDialog::exportNow()
 {
     m_writtenFiles.clear();
 
-    if (m_settings.ownCallsign.trimmed().isEmpty() || !isValidGridSquare(m_settings.ownGrid)) {
+    if (m_settings.ownCallsign.trimmed().isEmpty() || !isFullLocator(m_settings.ownGrid)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                             QStringLiteral("Eigenes Rufzeichen und Locator müssen in den Einstellungen "
-                                            "gesetzt sein -- ohne PCall/PWWLo ist ein EDI-Log wertlos."));
+                             QStringLiteral("Eigenes Rufzeichen und der sechsstellige Locator müssen in den "
+                                            "Einstellungen gesetzt sein -- ohne PCall/PWWLo ist ein EDI-Log "
+                                            "wertlos, und mit nur vier Stellen (JN67) auch."));
         return false;
     }
 

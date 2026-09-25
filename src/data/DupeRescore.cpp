@@ -1,4 +1,5 @@
 #include "data/DupeRescore.h"
+#include "core/CallsignPrefix.h"
 
 #include "data/QsoRecord.h"
 
@@ -36,7 +37,7 @@ QVector<DupeFlagChange> recomputeDupeFlags(const QVector<QsoRecord>& records, co
         QStringList parts;
         for (const QString& scope : dupeScope) {
             if (scope == QStringLiteral("callsign")) {
-                parts << record->callsign.trimmed().toUpper();
+                parts << baseCallsign(record->callsign);   // IARU R1 GC 2023, 1.2: /P, DL/ ... = dieselbe Station
             } else if (scope == QStringLiteral("band")) {
                 parts << record->band.trimmed().toUpper();
             } else if (scope == QStringLiteral("mode")) {
