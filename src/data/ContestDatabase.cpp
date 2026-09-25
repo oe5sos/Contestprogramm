@@ -1,4 +1,5 @@
 #include "data/ContestDatabase.h"
+#include "core/Maidenhead.h"
 
 #include <QSet>
 #include <QSqlError>
@@ -458,6 +459,60 @@ bool ContestDatabase::updateQsoExchangeRcvd(int id, const QString& exchangeRcvd,
     }
     ++m_qsoWriteCounter;
     return true;
+}
+
+int ContestDatabase::recomputeDistances(const QString& contestId, const QString& ownGrid,
+                                        QString* errorOut)
+{
+    if (!isValidGridSquare(ownGrid)) {
+        return 0;
+    }
+    QSqlQuery select(m_db);
+    select.prepare(QStringLiteral("SELECT id, grid_square FROM qsos WHERE contest_id = :contest_id"));
+    select.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!select.exec()) {
+        m_lastError = select.lastError().text();
+        if (errorOut) { *errorOut = m_lastError; }
+        return -1;
+    }
+    struct Row { int id; QString grid; };
+    QVector<Row> rows;
+    while (select.next()) {
+        rows.append({select.value(0).toInt(), select.value(1).toString()});
+    }
+    m_db.transaction();
+    int changed = 0;
+    for (const Row& row : rows) {
+        QVariant distance{QMetaType(QMetaType::Double)};
+        QVariant bearing{QMetaType(QMetaType::Double)};
+        if (isValidGridSquare(row.grid)) {
+            const double km = iaruQrbKm(ownGrid, row.grid);
+            distance = km;
+            // Im selben Feld gibt es keine Richtung (vgl. bearingIfApart
+            // in MainWindow.cpp) -- unbekannt statt erfundener 180 Grad.
+            if (km >= 0.5) {
+                bearing = calculateBearingInDegrees(ownGrid, row.grid);
+            }
+        }
+        QSqlQuery update(m_db);
+        update.prepare(QStringLiteral(
+            "UPDATE qsos SET distance_km = :distance_km, bearing_deg = :bearing_deg WHERE id = :id"));
+        update.bindValue(QStringLiteral(":distance_km"), distance);
+        update.bindValue(QStringLiteral(":bearing_deg"), bearing);
+        update.bindValue(QStringLiteral(":id"), row.id);
+        if (!update.exec()) {
+            m_db.rollback();
+            m_lastError = update.lastError().text();
+            if (errorOut) { *errorOut = m_lastError; }
+            return -1;
+        }
+        ++changed;
+    }
+    m_db.commit();
+    if (changed > 0) {
+        ++m_qsoWriteCounter;
+    }
+    return changed;
 }
 
 bool ContestDatabase::setQsoInvalid(int id, bool invalid, QString* errorOut)

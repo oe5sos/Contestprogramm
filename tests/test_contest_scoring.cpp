@@ -17,6 +17,9 @@ QsoRecord makeQso(const QString& call, const QString& band, const QString& grid,
     r.timestampUtc = QStringLiteral("2026-10-03T14:01:00Z");
     r.gridSquare = grid;
     r.distanceKm = km;
+    // Eine empfangene Nummer gehoert zu jedem vollstaendigen QSO; ohne sie
+    // zaehlt es 0 Punkte (IARU R1 GC 2023, 1.9.1, seit 2026-09-25).
+    r.serialRcvd = 1;
     r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
     return r;
 }
@@ -109,7 +112,9 @@ void TestContestScoring::sumsPerBandInDefinitionOrderWithOdxAndSquares()
     QCOMPARE(b144->largeSquares, 2); // JN58 + JN88
     QCOMPARE(b144->odxCall, QStringLiteral("OE3XYZ"));
     QCOMPARE(b144->odxGrid, QStringLiteral("JN88TC"));
-    QCOMPARE(b144->odxKm, 215);
+    // ODX ist die ENTFERNUNG (ganze km, abgeschnitten), nicht die Punkte
+    // (km + 1) -- EDI CODXC traegt die Entfernung (seit 2026-09-25).
+    QCOMPARE(b144->odxKm, 214);
 
     const BandScore* b432 = score.band(QStringLiteral("432"));
     QVERIFY(b432);
@@ -121,7 +126,7 @@ void TestContestScoring::sumsPerBandInDefinitionOrderWithOdxAndSquares()
     QCOMPARE(score.points, qint64(188 + 215 + 201 + 1 + 301));
     QCOMPARE(score.odxCall, QStringLiteral("HB9ZZZ"));
     QCOMPARE(score.odxBand, QStringLiteral("1296"));
-    QCOMPARE(score.odxKm, 301);
+    QCOMPARE(score.odxKm, 300);
     QVERIFY(!score.band(QStringLiteral("70")));
 }
 
@@ -137,7 +142,7 @@ void TestContestScoring::qsoCountRuleScoresOnePointPerQso()
     QCOMPARE(score.validQsos, 1);
     QCOMPARE(score.dupes, 1);
     // ODX stays a distance whatever the rule.
-    QCOMPARE(score.odxKm, 188);
+    QCOMPARE(score.odxKm, 187);
 }
 
 void TestContestScoring::definitionParsesAndRoundTripsTheScoringKey()

@@ -55,6 +55,20 @@ double calculateBearingInDegrees(const QString& gridSquare1,
 // two letters, two digits, optionally two more letters.
 bool isValidGridSquare(const QString& gridSquare);
 
+// Ein vollstaendiger, sechsstelliger Locator (JN67VV). Die IARU-R1-
+// Regeln verlangen ihn im Austausch (GC 2023, 1.9.1: "the complete QTH
+// locator (6 digit)"); ein vierstelliger reicht fuer die Wertung nicht.
+bool isFullLocator(const QString& gridSquare);
+
+// Die Entfernung FUER DIE WERTUNG, nach IARU R1 VHF+ (GC 2023) 1.10.1:
+// Mittelpunkt jedes Locatorfelds, Kugelgeometrie, und "for the
+// conversion from degrees to kilometres a factor of 111.2 should be
+// used". Nicht dasselbe wie calculateDistanceKm (Erdradius 6371 km, fuer
+// Karte und Anzeige) -- der Unterschied ist klein, reicht aber, damit
+// jede ~15. Verbindung einen Punkt zu wenig beansprucht. -1 ohne zwei
+// gueltige Locatoren.
+double iaruQrbKm(const QString& grid1, const QString& grid2);
+
 // Inverse of calculateLatLonFromGridSquare: the 6-character square
 // containing the given position. Longitude is positive east.
 QString gridSquareFromLatLon(double lat, double lon);

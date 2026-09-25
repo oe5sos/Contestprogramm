@@ -190,7 +190,7 @@ void TestEdiExporter::exportsGoldenBandFile()
         QStringLiteral("CDXCs=0;0;1"),
         QStringLiteral("CDXCB=0"),
         QStringLiteral("CToSc=403"),
-        QStringLiteral("CODXC=OE3XYZ;JN88TC;215"),
+        QStringLiteral("CODXC=OE3XYZ;JN88TC;214"),   // Entfernung, nicht Punkte
         QStringLiteral("[Remarks]"),
         QStringLiteral("Created by Contestprogramm"),
         QStringLiteral("[QSORecords;3]"),
@@ -241,7 +241,7 @@ void TestEdiExporter::secondBandGetsItsOwnFileAndSharedDates()
     QVERIFY(file432.contains(QStringLiteral("261004;0630;OE5XYZ;1;59;002;59;001;;JN67UT;1;;N;;\r\n")));
     QVERIFY(!file432.contains(QStringLiteral("DL1ABC")));
     QVERIFY(file432.contains(QStringLiteral("CQSOP=1\r\n")));
-    QVERIFY(file432.contains(QStringLiteral("CODXC=OE5XYZ;JN67UT;1\r\n")));
+    QVERIFY(file432.contains(QStringLiteral("CODXC=OE5XYZ;JN67UT;0\r\n")));
     QVERIFY(!file144.contains(QStringLiteral("OE5XYZ")));
 }
 
@@ -270,7 +270,7 @@ void TestEdiExporter::invalidQsoIsLeftOutEverywhere()
     const QString file144 = exporter.exportBand(definition.id(), QStringLiteral("144"), definition, feuerkogelSettings(),
                                                 sampleStation());
     QVERIFY(!file144.contains(QStringLiteral("OE9ZZZ")));
-    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;188\r\n")));
+    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;187\r\n")));
 }
 
 void TestEdiExporter::stationInfoRoundTripsThroughTheDatabase()

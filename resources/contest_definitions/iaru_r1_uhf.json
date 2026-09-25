@@ -1,7 +1,7 @@
 {
   "id": "IARU_R1_UHF",
-  "name": "IARU Region 1 UHF/Microwave Contest (432 MHz + 1,3 GHz, Oktober)",
-  "bands": ["432", "1296"],
+  "name": "IARU Region 1 UHF/Microwave Contest (432 MHz bis 10 GHz, Oktober)",
+  "bands": ["432", "1296", "2320", "3400", "5760", "10368"],
   "dupe_scope": ["callsign", "band"],
   "scoring": "distance_km",
   "serial_scope": "band",

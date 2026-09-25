@@ -122,6 +122,15 @@ public:
     // MultiplierTracker/CabrilloExporter/AdifExporter for where
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
+
+    // Entfernung und Richtung aller QSOs eines Logs neu aus `ownGrid`
+    // (2026-09-25): wer mit dem Heim-Locator loggt und dann auf den
+    // Portabelstandort umstellt, bekam sonst die alten Entfernungen in
+    // die Wertung und ins EDI, obwohl PWWLo schon den neuen Locator
+    // zeigte. Entfernung nach iaruQrbKm (IARU R1 GC 2023, 1.10.1).
+    // Gibt die Zahl der geaenderten QSOs zurueck, -1 bei einem Fehler.
+    int recomputeDistances(const QString& contestId, const QString& ownGrid,
+                           QString* errorOut = nullptr);
     // The dupe flag as data/DupeRescore.h recomputes it after a
     // correction; the flag set at logging time is DupeChecker's.
     bool setQsoDupe(int id, bool dupe, QString* errorOut = nullptr);

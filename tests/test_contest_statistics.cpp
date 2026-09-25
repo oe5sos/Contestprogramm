@@ -16,6 +16,9 @@ QsoRecord makeQso(const QString& call, const QString& band, const QString& time,
     r.timestampUtc = QStringLiteral("2026-10-03T%1:00Z").arg(time);
     r.gridSquare = grid;
     r.distanceKm = km;
+    // Eine empfangene Nummer gehoert zu jedem vollstaendigen QSO; ohne sie
+    // zaehlt es 0 Punkte (IARU R1 GC 2023, 1.9.1, seit 2026-09-25).
+    r.serialRcvd = 1;
     r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
     return r;
 }

@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "core/Maidenhead.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -242,6 +243,14 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
 
 void AppController::setSettings(const ContestSettings& settings)
 {
+    // Neuer eigener Locator: das LAUFENDE Log neu vermessen (nur dieses --
+    // aeltere Logs wurden an anderen Standorten gefuehrt und behalten ihre
+    // Entfernungen). Siehe ContestDatabase::recomputeDistances.
+    const QString oldGrid = m_settings.ownGrid.trimmed().toUpper();
+    const QString newGrid = settings.ownGrid.trimmed().toUpper();
+    if (newGrid != oldGrid && isValidGridSquare(newGrid) && !settings.activeContestId.isEmpty()) {
+        m_database.recomputeDistances(settings.activeContestId, newGrid);
+    }
     m_settings = settings;
     m_settings.saveTo(m_database);
     applyNetworkSettings();

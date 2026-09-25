@@ -31,7 +31,15 @@ QString stamp(const QDateTime& utc)
 
 bool ContestWindow::contains(const QDateTime& utc) const
 {
-    return isValid() && utc.isValid() && utc >= startUtc && utc <= endUtc;
+    if (!isValid() || !utc.isValid()) {
+        return false;
+    }
+    // Auf die Minute abgeschnitten, wie das EDI sie fuehrt: ein QSO um
+    // 14:00:30 am Sonntag steht dort als 1400 und gilt fuer den Robot
+    // noch als im Contest -- hier galt es vorher als "ausserhalb".
+    QDateTime minute = utc.toUTC();
+    minute.setTime(QTime(minute.time().hour(), minute.time().minute()));
+    return minute >= startUtc && minute <= endUtc;
 }
 
 qint64 ContestWindow::distanceSecs(const QDateTime& utc) const

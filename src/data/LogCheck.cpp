@@ -1,4 +1,5 @@
 #include "data/LogCheck.h"
+#include "core/CallsignPrefix.h"
 
 #include "app/ContestSettings.h"
 #include "core/BandUtils.h"
@@ -290,7 +291,7 @@ LogCheckResult checkLog(const QVector<QsoRecord>& records, const LogCheckContext
         if (!record->isDupe && !context.dupeScope.isEmpty()) {
             QStringList keyParts;
             for (const QString& scope : context.dupeScope) {
-                if (scope == QStringLiteral("callsign")) { keyParts << call; }
+                if (scope == QStringLiteral("callsign")) { keyParts << baseCallsign(call); }
                 else if (scope == QStringLiteral("band")) { keyParts << record->band; }
                 else if (scope == QStringLiteral("mode")) { keyParts << mode; }
             }

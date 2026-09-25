@@ -31,4 +31,15 @@ namespace Contestprogramm {
 // unbrauchbares Rufzeichen ergibt einen leeren Präfix.
 QString wpxPrefix(const QString& callsign);
 
+// Das Grundrufzeichen fuer die Dupe-Pruefung, IARU R1 VHF+-Regeln
+// (GC 2023) 1.2: "Added prefix and/or suffix do not generate different
+// call sign (i.e. S50AAA/p or DL/S50AAA are the same call sign as
+// S50AAA)." Betriebszusaetze weg (wie bei wpxPrefix), von den uebrigen
+// Teilen der laengste -- bei Gleichstand der erste:
+//   S50AAA/P -> S50AAA, DL/S50AAA -> S50AAA, 9A/OE5SOS/P -> OE5SOS,
+//   N8BJQ/9 -> N8BJQ.
+// Nur zum VERGLEICHEN. Geloggt und exportiert wird immer das Rufzeichen,
+// wie es ueber Funk ausgetauscht wurde (Regel 1.9.1).
+QString baseCallsign(const QString& callsign);
+
 } // namespace Contestprogramm
