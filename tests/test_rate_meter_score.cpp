@@ -75,6 +75,7 @@ private slots:
     void paintsInBothLayouts();
     void prefixBasisCountsPrefixesAndNoneHidesTheTile();
     void dxccTileSaysWhenTheCountryListIsMissing();
+    void paintsWithoutAMultiplierTile();
 };
 
 void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
@@ -218,6 +219,37 @@ void TestRateMeterScore::prefixBasisCountsPrefixesAndNoneHidesTheTile()
 // Mit der Grundlage "dxcc" und ohne geladene Länderliste zeigt die
 // Kachel einen Strich mit dem Grund dahinter -- eine Null wäre dort
 // eine Behauptung.
+// Ohne Multiplikator liefert readings() fünf Kacheln statt sechs --
+// die Kachel entfällt ganz, weil eine Null dort keine Aussage wäre.
+// Gezeichnet wurden aber bis zu sechs, und damit griff das Zeichnen
+// daneben: das Programm brach beim Start ab (2026-09-27 live gesehen).
+// Der Prüfstand darüber hat das nicht gefunden, weil er nur den Text
+// las und nie in dieser Einstellung gezeichnet hat.
+void TestRateMeterScore::paintsWithoutAMultiplierTile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("nomult.sqlite")), QStringLiteral("rate_meter_nomult")));
+    for (int i = 0; i < 6; ++i) {
+        QsoRecord r = makeQso(QStringLiteral("DL%1ABC").arg(i), QStringLiteral("144"), QStringLiteral("JN58SD"), 300.0);
+        r.timestampUtc = QDateTime::currentDateTimeUtc().addSecs(-i * 900).toString(Qt::ISODate);
+        QVERIFY(db.insertQso(r));
+    }
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("IARU_R1_VHF_UHF"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("144"), QStringLiteral("432")},
+                      QStringLiteral("distance_km"), QStringLiteral("none"));
+
+    // Dieselben Größen wie oben -- die großen tragen sechs Kacheln,
+    // und genau dort schlug es fehl.
+    for (const QSize& size : {QSize(90, 40), QSize(270, 130), QSize(270, 260), QSize(400, 300), QSize(700, 130),
+                              QSize(900, 130), QSize(900, 200), QSize(620, 420)}) {
+        QVERIFY2(distinctColours(widget, size) > 12,
+                  qPrintable(QStringLiteral("%1x%2").arg(size.width()).arg(size.height())));
+    }
+}
+
 void TestRateMeterScore::dxccTileSaysWhenTheCountryListIsMissing()
 {
     QTemporaryDir dir;

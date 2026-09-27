@@ -527,7 +527,14 @@ void RateMeterWidget::paintTiles(QPainter& g, const QRect& area) const
     const QVector<Reading> all = readings();
     const int columns = std::clamp((area.width() - kTileGap) / (kTileMinWidth + kTileGap), 1, 3);
     const int rowsAfforded = std::max(1, (area.height() - kTileGap) / (kTileMinHeight + kTileGap));
-    const int count = std::min(kMaxTiles, columns * rowsAfforded);
+    // An der Liste geklemmt, nicht nur an kMaxTiles: readings() liefert
+    // fünf Kacheln statt sechs, wenn der Contest keinen Multiplikator
+    // führt -- die Kachel entfällt dann ganz, weil eine Null dort keine
+    // Aussage wäre. Ohne diese Klemme griff das Zeichnen daneben und
+    // das Programm brach ab (2026-09-27 beim Start mit einem solchen
+    // Contest gesehen). Eine Kachelzahl darf nie aus einer anderen
+    // Quelle stammen als die Kacheln selbst.
+    const int count = std::min({kMaxTiles, columns * rowsAfforded, static_cast<int>(all.size())});
     const int rows = (count + columns - 1) / columns;
     const double w = (area.width() - (columns + 1) * kTileGap) / double(columns);
     const double h = (area.height() - (rows + 1) * kTileGap) / double(rows);
@@ -592,6 +599,12 @@ void RateMeterWidget::paintStrip(QPainter& g, const QRect& full) const
 {
     const Ink ink{font()};
     const QVector<Reading> all = readings();
+    // Die ersten fünf schreibt readings() bedingungslos; die sechste
+    // (der Multiplikator) kann fehlen. Sollte sich das je ändern, hört
+    // der Streifen hier auf, statt daneben zu greifen.
+    if (all.size() < 5) {
+        return;
+    }
     const Reading& qsos = all.at(0);
     const Reading& points = all.at(1);
     const Reading& tenMin = all.at(2);
