@@ -36,6 +36,7 @@ private slots:
     void modeMenuSwitchesTheModeAndTheReport();
     void loggingFollowsTheChosenBand();
     void rigctldModeCommandIsWellFormed();
+    void serialsAndDupesFollowTheBand();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -153,6 +154,54 @@ void TestBandModeOhneGeraet::rigctldModeCommandIsWellFormed()
 {
     QCOMPARE(RigctldClient::setModeCommand(QStringLiteral("USB")), QByteArray("M USB 0\n"));
     QCOMPARE(RigctldClient::setModeCommand(QStringLiteral("cw")), QByteArray("M CW 0\n"));
+}
+
+// Auf UKW laufen die eigenen Nummern je Band ab 001 und ein Dupe gilt
+// je Band (IARU R1). Wer das Band von Hand wechselt, muss also beides
+// mitbekommen -- sonst sendet er auf 432 die Nummer von 144 weiter und
+// hält eine Station für einen Dupe, die auf diesem Band neu ist.
+void TestBandModeOhneGeraet::serialsAndDupesFollowTheBand()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("band_nr.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* preview = window.findChild<QLabel*>(QStringLiteral("sentExchangePreview"));
+    QVERIFY(preview);
+
+    const auto logQso = [&](const QString& call) {
+        log->setCallsign(call);
+        log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("001"));
+        log->setExchangeFieldValue(QStringLiteral("grid"), QStringLiteral("JN58SD"));
+        emit log->logRequested();
+    };
+
+    // Zwei QSOs auf 144: die eigene Nummer läuft auf 001, 002, dann 003.
+    QCOMPARE(window.currentBand(), QStringLiteral("144"));
+    QVERIFY2(preview->text().contains(QStringLiteral("001")), qPrintable(preview->text()));
+    logQso(QStringLiteral("DL1ABC"));
+    logQso(QStringLiteral("OE3XYZ"));
+    QVERIFY2(preview->text().contains(QStringLiteral("003")), qPrintable(preview->text()));
+
+    // Band gewechselt: auf 432 fängt die eigene Nummer wieder bei 001 an.
+    window.findChild<QAction*>(QStringLiteral("bandAction_432"))->trigger();
+    QCOMPARE(window.currentBand(), QStringLiteral("432"));
+    QVERIFY2(preview->text().contains(QStringLiteral("001")), qPrintable(preview->text()));
+
+    // Und dieselbe Station ist auf dem anderen Band KEIN Dupe ...
+    log->setCallsign(QStringLiteral("DL1ABC"));
+    QVERIFY(!log->dupeIndicatorActive());
+
+    // ... auf ihrem eigenen dagegen schon.
+    window.findChild<QAction*>(QStringLiteral("bandAction_144"))->trigger();
+    log->setCallsign(QString());
+    log->setCallsign(QStringLiteral("DL1ABC"));
+    QVERIFY(log->dupeIndicatorActive());
+    QVERIFY2(preview->text().contains(QStringLiteral("003")), qPrintable(preview->text()));
 }
 
 int main(int argc, char* argv[])
