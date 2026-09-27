@@ -9,6 +9,7 @@
 #include <QIntValidator>
 #include <QLineEdit>
 #include <QLinearGradient>
+#include <QInputDialog>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -759,6 +760,39 @@ void RotorWidget::showOptionsPopup()
     addStyleAction(RotorDialStyle::LinearScale, QStringLiteral("Skala (linear)"));
     addStyleAction(RotorDialStyle::PartialArc, QStringLiteral("Rotor-Box (Bogen)"));
     addStyleAction(RotorDialStyle::Digital, QStringLiteral("Digital (Zahlen)"));
+
+    // Die zweite Antenne an diesem Rotor. Martin, 2026-09-27: "ich
+    // möchte bei den rotoren eine option haben, ob und in welche
+    // richtung die zweite antenne versetzt steht ... dies soll in der
+    // taskleiste einzustellen sein", und auf die Rückfrage: "wenn es
+    // nur eine richtung gibt, dann kein versatz, wenn es 2 richtungen
+    // gibt, dann versatz". Richtung 1 ist also immer die Rotorstellung
+    // selbst; nur die zweite hat einen Versatz.
+    //
+    // Die Einstellung gab es schon, aber nur im Einstellungsfenster --
+    // mitten im Contest ist das zu weit weg.
+    menu->addSeparator();
+    QAction* secondAction = menu->addAction(QStringLiteral("Zweite Antenne"));
+    secondAction->setCheckable(true);
+    secondAction->setChecked(m_secondAntennaEnabled);
+    connect(secondAction, &QAction::triggered, this, [this](bool on) {
+        setSecondAntenna(on, m_secondAntennaOffsetDeg);
+        emit secondAntennaRequested(on, m_secondAntennaOffsetDeg);
+    });
+    QAction* offsetAction = menu->addAction(
+        QStringLiteral("Versatz der zweiten Antenne: %1°…").arg(m_secondAntennaOffsetDeg, 0, 'f', 0));
+    offsetAction->setEnabled(m_secondAntennaEnabled);
+    connect(offsetAction, &QAction::triggered, this, [this]() {
+        bool ok = false;
+        const int chosen = QInputDialog::getInt(this, QStringLiteral("Zweite Antenne"),
+                                                 QStringLiteral("Versatz gegen die Rotorstellung, in Grad:"),
+                                                 qRound(m_secondAntennaOffsetDeg), -180, 180, 1, &ok);
+        if (!ok) {
+            return;
+        }
+        setSecondAntenna(m_secondAntennaEnabled, chosen);
+        emit secondAntennaRequested(m_secondAntennaEnabled, chosen);
+    });
 
     // Der lange Weg zum aktuellen Ziel -- nur wenn es eines gibt und es
     // weit genug weg ist, dass die Gegenrichtung überhaupt eine Frage

@@ -2026,6 +2026,27 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // one too -- via applyRotorWidgetSettings(), the exact same
             // round trip SettingsDialog's "Rotor-Anzeige" combo already
             // goes through in openSettingsDialog().
+            // Die zweite Antenne dieses Rotors, aus seinem eigenen ⚙.
+            // Welcher Slot das ist, sagt der Zeiger: die beiden
+            // RotorWidget-Instanzen gehören MainWindow, das Widget
+            // selbst kennt seine Slotnummer nicht.
+            connect(widget, &RotorWidget::secondAntennaRequested, widget,
+                    [this, widget](bool enabled, double offsetDeg) {
+                ContestSettings settings = m_appController.settings();
+                if (widget == m_rotor1Widget) {
+                    settings.rotor1SecondAntennaEnabled = enabled;
+                    settings.rotor1SecondAntennaOffsetDeg = offsetDeg;
+                } else if (widget == m_rotor2Widget) {
+                    settings.rotor2SecondAntennaEnabled = enabled;
+                    settings.rotor2SecondAntennaOffsetDeg = offsetDeg;
+                } else {
+                    return;
+                }
+                m_appController.setSettings(settings);
+                // Dieselbe Runde wie beim Anzeigestil darunter: die
+                // Karte zeichnet ihre Kegel aus denselben Werten.
+                applyRotorWidgetSettings();
+            });
             connect(widget, &RotorWidget::dialStyleRequested, widget, [this](RotorDialStyle style) {
                 ContestSettings settings = m_appController.settings();
                 if (settings.rotorDialStyle == style) {
