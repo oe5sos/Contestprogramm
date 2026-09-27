@@ -2049,6 +2049,20 @@ bool UnifiedLogWidget::selectHistoryQso(int qsoId)
     return false;
 }
 
+bool UnifiedLogWidget::returnToEntryRow()
+{
+    // Ein offener Zelleneditor ist ein eigenes Widget IM Tabellenfeld.
+    // Steht der Fokus dort, gehört die Taste ihm -- dort heißt Escape
+    // "Korrektur verwerfen". (QAbstractItemView::state() wäre die
+    // direkte Frage, ist aber geschützt.)
+    const QWidget* focused = QApplication::focusWidget();
+    if (focused && focused != m_feedTable && m_feedTable->isAncestorOf(focused)) {
+        return false;
+    }
+    m_callsignEdit->setFocus();
+    return true;
+}
+
 void UnifiedLogWidget::resetForNextEntry()
 {
     m_callsignEdit->clear();

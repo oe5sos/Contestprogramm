@@ -36,6 +36,7 @@ private slots:
     void deletingFreesTheCallsignForANewQso();
     void deletedQsoIsOutOfTheExports();
     void cursorOnTheRowAndTheDeleteKey();
+    void escapeBringsTheCursorBackToTheEntryRow();
 };
 
 namespace {
@@ -200,6 +201,34 @@ void TestQsoLoeschen::cursorOnTheRowAndTheDeleteKey()
         QCOMPARE(left.size(), 1);
         QCOMPARE(left.first().callsign, QStringLiteral("OE3XYZ"));
     }
+}
+
+// Wer zum Löschen in die Liste fährt, muss auch wieder heraus. Tucnak:
+// "ESC: Always brings you back to the QSO input line". Ohne das hätte
+// das Löschen von heute ein Loch in den Arbeitsfluss gerissen.
+void TestQsoLoeschen::escapeBringsTheCursorBackToTheEntryRow()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("zurueck.sqlite"));
+    QVERIFY(controller);
+    QVERIFY(insertQso(*controller, QStringLiteral("DL1ABC"), 1) > 0);
+
+    MainWindow window(*controller);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+
+    table->setFocus();
+    QVERIFY(table->hasFocus());
+    QVERIFY(log->returnToEntryRow());
+
+    // Der Fokus steht wieder im Rufzeichenfeld: tippen landet dort.
+    QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("OE1XYZ"));
+    QCOMPARE(log->callsign(), QStringLiteral("OE1XYZ"));
 }
 
 int main(int argc, char* argv[])
