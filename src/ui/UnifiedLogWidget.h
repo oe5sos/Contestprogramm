@@ -248,6 +248,14 @@ public:
     // den Text der Pille zu lesen.
     bool dupeIndicatorActive() const { return m_dupe; }
 
+    // Zurück in die Eingabezeile -- Tucnaks Regel: "ESC: Always brings
+    // you back to the QSO input line". Nötig geworden mit dem Löschen
+    // (2026-09-27): wer zum Löschen in die Liste fährt, musste sonst
+    // zurückklicken. Läuft gerade eine Korrektur in einer Zelle, bleibt
+    // die Taste bei ihr -- dort heißt Escape "verwerfen", und das ist
+    // die nähere Bedeutung. Gibt zurück, ob der Fokus gesetzt wurde.
+    bool returnToEntryRow();
+
     // Eine Warnung über dem zuletzt geloggten QSO -- heute: der
     // getippte Locator passt nicht zu dem, unter dem diese Station
     // bekannt ist (Tucnaks "cross control couple callsign - locator").

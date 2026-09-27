@@ -1302,6 +1302,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* stopShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     stopShortcut->setContext(Qt::WindowShortcut);
     connect(stopShortcut, &QShortcut::activated, m_cwMacroPanel, &CwMacroPanel::stopRequested);
+    // Und zurück in die Eingabezeile -- Tucnaks Regel für dieselbe
+    // Taste. Seit es das Löschen in der Liste gibt (2026-09-27), führt
+    // ein Weg aus der Eingabe heraus, und es braucht einen zurück.
+    // Zusammen heißt Escape damit: "sei still und lass mich
+    // weitertippen".
+    connect(stopShortcut, &QShortcut::activated, this, [this]() {
+        if (m_unifiedLog) {
+            m_unifiedLog->returnToEntryRow();
+        }
+    });
     // Alt+W wipes the entry row (N1MM+'s "Wipe"): a busted call or a
     // station that went away, gone with one chord instead of field by
     // field.
