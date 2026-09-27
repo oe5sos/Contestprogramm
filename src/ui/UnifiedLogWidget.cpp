@@ -269,11 +269,25 @@ QString operatingModeStatusText(ContestSettings::OperatingMode mode)
 // this is that same kBorder colour, one thin line on the trailing edge
 // of each field, everywhere the table itself would have a column
 // boundary.
+// Der waagrechte Abstand vom Trennstrich zum Text -- EINE Zahl für
+// die ganze Eingabezeile. Vorher hatten die Beschriftungen 10 und die
+// Eingabefelder 0: dieselbe Zeile war in sich uneinheitlich eingerückt,
+// und das fiel neben der Tabelle darüber auf.
+constexpr int kEntryRowHPadding = 6;
+
 QString flatFieldStyle(bool autoFilled)
 {
-    return QStringLiteral("QLineEdit { background: transparent; border: none; border-right: 1px solid %1;"
-                           " padding: 0; color: %2; }")
-        .arg(Style::kBorder(), autoFilled ? Style::kTextSecondary() : Style::kTextPrimary());
+    // border-radius: 0 ist kein Beiwerk: die App-Vorlage gibt jedem
+    // QLineEdit einen Eckenradius (ui/StyleKit.cpp), und der biegt den
+    // Trennstrich rechts zu einem runden Bogen, der kürzer ist als die
+    // Zeile hoch. Neben den geraden, durchgehenden Gitterlinien der
+    // Tabelle darüber sah die Eingabezeile damit aus wie etwas
+    // anderes -- Martin, 2026-09-27: "es soll wie die darüber
+    // aussehen, nichts extra. quasi wie bei excel."
+    return QStringLiteral("QLineEdit { background: transparent; border: none; border-radius: 0;"
+                           " border-right: 1px solid %1; padding: 0 %3px; color: %2; }")
+        .arg(Style::kBorder(), autoFilled ? Style::kTextSecondary() : Style::kTextPrimary())
+        .arg(kEntryRowHPadding);
 }
 
 // The entry row's dupe indicator -- now a plain QLabel styled exactly
@@ -306,7 +320,6 @@ QString dupePillStyle()
 // proportioned panel next to it. What remains here is genuinely
 // independent of the table: horizontal cell padding and the DXLog-style
 // status line's own height.
-constexpr int kEntryRowHPadding = 10; // matches m_feedTable's own default QTableView cell padding
 // Not related to the entry row's own layout (added for the DXLog-style
 // status line, see setOperatingMode()'s doc comment) -- a slim single-
 // text-line strip, narrower than PanelHeaderBar's own 30px
@@ -1820,6 +1833,13 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     m_exchangeEditsByKey.clear();
 
     auto* host = new QWidget(m_entryRow);
+    // Ohne das trägt dieser Behälter den App-Hintergrund aus der
+    // Basisregel "QWidget { background: ... }" (ui/StyleKit.cpp) und
+    // liegt damit sichtbar dunkler als die Zeile, in der er steht --
+    // die Tauschfelder sahen aus wie Eingabekästen statt wie Zellen.
+    // Martin, 2026-09-27: "es soll wie die darüber aussehen, nichts
+    // extra. quasi wie bei excel."
+    host->setStyleSheet(QStringLiteral("background: transparent;"));
     auto* hostLayout = new QHBoxLayout(host);
     hostLayout->setContentsMargins(0, 0, 0, 0);
     hostLayout->setSpacing(0);
