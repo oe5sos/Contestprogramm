@@ -123,6 +123,28 @@ public:
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
 
+    // Das Suffix, das ein gelöschtes QSO an seiner Contest-Kennung
+    // trägt. Ein Log "IARU_R1_VHF_UHF" hat seinen Papierkorb also unter
+    // "IARU_R1_VHF_UHF@geloescht".
+    static QString deletedBinSuffix() { return QStringLiteral("@geloescht"); }
+
+    // Ein QSO aus dem Log nehmen: es verschwindet aus der Liste, aus
+    // der Wertung, aus der Dupe-Prüfung und aus jedem Export. Gelöscht
+    // wird es dabei NICHT -- es wandert unter die Papierkorb-Kennung
+    // (siehe deletedBinSuffix()), genau wie N1MM ein gelöschtes QSO in
+    // eine eigene Datei legt statt es wegzuwerfen. Damit bleibt es für
+    // das Locator-Gedächtnis, die Sicherungen und ein Rückgängig
+    // erhalten.
+    //
+    // Martin, 2026-09-27: "fehler sollen einfach und schnell geändert
+    // und gelöscht werden". Das Markieren als ungültig
+    // (setQsoInvalid) bleibt daneben bestehen: es lässt das QSO im Log
+    // sichtbar stehen, was bei einem strittigen QSO das Richtige ist.
+    bool deleteQso(int id, QString* errorOut = nullptr);
+
+    // Die Umkehrung, für das Rückgängig gleich nach dem Löschen.
+    bool undeleteQso(int id, QString* errorOut = nullptr);
+
     // Entfernung und Richtung aller QSOs eines Logs neu aus `ownGrid`
     // (2026-09-25): wer mit dem Heim-Locator loggt und dann auf den
     // Portabelstandort umstellt, bekam sonst die alten Entfernungen in
@@ -157,6 +179,19 @@ public:
     // Tippen auf Kurzwelle: "den hab ich doch schon, aber auf welchem
     // Band?" Die Dupe-Pille beantwortet nur das laufende Band.
     QStringList bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const;
+
+    // Jedes Rufzeichen, das in DIESER Datenbank schon einmal gearbeitet
+    // wurde, samt zuletzt gehörtem Locator -- über alle Contests
+    // hinweg, also auch die archivierten. Ungültige QSOs und der
+    // Papierkorb zählen nicht.
+    //
+    // Martin, 2026-09-27: "bekannte rufzeichen aus ukw contest logs und
+    // auch qrz, aber insbesondere ehemalige logs bei ukw sind primär".
+    // Genau die standen der Vorschlagsliste bis dahin nicht zur
+    // Verfügung: sie kannte nur den laufenden Contest, die importierte
+    // Locator-Liste und die SCP-Datei. Wer jedes Jahr vom selben Berg
+    // fährt, trifft aber jedes Jahr dieselben Stationen.
+    QHash<QString, QString> allWorkedCallsigns() const;
 
     // Skeds (core/SkedList.h), one table for every contest, keyed by
     // contest_id like the QSOs. A restart mid-contest keeps them.

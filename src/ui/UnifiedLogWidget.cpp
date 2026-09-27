@@ -18,8 +18,10 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPainter>
 #include <QPen>
+#include <QShortcut>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
@@ -267,11 +269,25 @@ QString operatingModeStatusText(ContestSettings::OperatingMode mode)
 // this is that same kBorder colour, one thin line on the trailing edge
 // of each field, everywhere the table itself would have a column
 // boundary.
+// Der waagrechte Abstand vom Trennstrich zum Text -- EINE Zahl für
+// die ganze Eingabezeile. Vorher hatten die Beschriftungen 10 und die
+// Eingabefelder 0: dieselbe Zeile war in sich uneinheitlich eingerückt,
+// und das fiel neben der Tabelle darüber auf.
+constexpr int kEntryRowHPadding = 6;
+
 QString flatFieldStyle(bool autoFilled)
 {
-    return QStringLiteral("QLineEdit { background: transparent; border: none; border-right: 1px solid %1;"
-                           " padding: 0; color: %2; }")
-        .arg(Style::kBorder(), autoFilled ? Style::kTextSecondary() : Style::kTextPrimary());
+    // border-radius: 0 ist kein Beiwerk: die App-Vorlage gibt jedem
+    // QLineEdit einen Eckenradius (ui/StyleKit.cpp), und der biegt den
+    // Trennstrich rechts zu einem runden Bogen, der kürzer ist als die
+    // Zeile hoch. Neben den geraden, durchgehenden Gitterlinien der
+    // Tabelle darüber sah die Eingabezeile damit aus wie etwas
+    // anderes -- Martin, 2026-09-27: "es soll wie die darüber
+    // aussehen, nichts extra. quasi wie bei excel."
+    return QStringLiteral("QLineEdit { background: transparent; border: none; border-radius: 0;"
+                           " border-right: 1px solid %1; padding: 0 %3px; color: %2; }")
+        .arg(Style::kBorder(), autoFilled ? Style::kTextSecondary() : Style::kTextPrimary())
+        .arg(kEntryRowHPadding);
 }
 
 // The entry row's dupe indicator -- now a plain QLabel styled exactly
@@ -304,7 +320,6 @@ QString dupePillStyle()
 // proportioned panel next to it. What remains here is genuinely
 // independent of the table: horizontal cell padding and the DXLog-style
 // status line's own height.
-constexpr int kEntryRowHPadding = 10; // matches m_feedTable's own default QTableView cell padding
 // Not related to the entry row's own layout (added for the DXLog-style
 // status line, see setOperatingMode()'s doc comment) -- a slim single-
 // text-line strip, narrower than PanelHeaderBar's own 30px
@@ -1278,6 +1293,50 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // see eventFilter().
     m_feedTable->viewport()->installEventFilter(this);
     connect(m_feedTable, &QTableView::clicked, this, &UnifiedLogWidget::handleFeedRowClicked);
+
+    // Löschen: Rechtsklick auf die Zeile oder die Entf-Taste. Martin,
+    // 2026-09-27: "fehler sollen einfach und schnell geändert und
+    // gelöscht werden" -- also ohne Umweg über ein Menü am Fensterrand.
+    // N1MM macht es genauso (Rechtsklick > Delete Contact, Strg+D).
+    m_feedTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_feedTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        const QModelIndex index = m_feedTable->indexAt(pos);
+        const int qsoId = index.isValid() ? m_feedModel->historyQsoIdForRow(index.row()) : -1;
+        if (qsoId < 0) {
+            return; // eine Spot-/Chat-Zeile ist kein QSO
+        }
+        QMenu menu(m_feedTable);
+        QAction* deleteAction = menu.addAction(QStringLiteral("QSO löschen"));
+        // Rückschritt, nicht QKeySequence::Delete: auf einer
+        // MacBook-Tastatur gibt es keine eigene Entf-Taste, die Taste
+        // mit dem Pfeil ist Rückschritt, und Entf käme nur über
+        // fn+Rückschritt (Martin, 2026-09-27: "bei mac gibt es keine
+        // entf taste"). Gebunden sind unten beide; im Menü steht die,
+        // die er wirklich hat.
+        deleteAction->setShortcut(QKeySequence(Qt::Key_Backspace));
+        QAction* invalidAction = menu.addAction(QStringLiteral("Als ungültig markieren"));
+        invalidAction->setToolTip(QStringLiteral("Bleibt im Log stehen, zählt aber nicht -- für ein strittiges QSO"));
+        QAction* chosen = menu.exec(m_feedTable->viewport()->mapToGlobal(pos));
+        if (chosen == deleteAction) {
+            emit historyDeleteRequested(qsoId);
+        } else if (chosen == invalidAction) {
+            emit historyInvalidToggleRequested(qsoId);
+        }
+    });
+    // Beide Tasten, und nur solange die Log-Liste den Fokus hat -- beim
+    // Tippen in der Eingabezeile löscht Rückschritt weiter Zeichen.
+    const auto deleteSelectedRow = [this]() {
+        const QModelIndex index = m_feedTable->currentIndex();
+        const int qsoId = index.isValid() ? m_feedModel->historyQsoIdForRow(index.row()) : -1;
+        if (qsoId >= 0) {
+            emit historyDeleteRequested(qsoId);
+        }
+    };
+    for (const QKeySequence& key : {QKeySequence(Qt::Key_Backspace), QKeySequence(QKeySequence::Delete)}) {
+        auto* shortcut = new QShortcut(key, m_feedTable);
+        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(shortcut, &QShortcut::activated, this, deleteSelectedRow);
+    }
     connect(m_feedModel, &UnifiedFeedModel::rebuilt, this, &UnifiedLogWidget::rebuildFeedRows);
     connect(m_feedModel, &UnifiedFeedModel::historyCallsignEditRequested, this, &UnifiedLogWidget::historyCallsignEditRequested);
     connect(m_feedModel, &UnifiedFeedModel::historyExchangeRcvdEditRequested, this, &UnifiedLogWidget::historyExchangeRcvdEditRequested);
@@ -1633,6 +1692,7 @@ void UnifiedLogWidget::applyEntryRowWidths()
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
     const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
                                 : columnWidthFor(ColExchSent);
+    m_sentExchangeLabel->setObjectName(QStringLiteral("sentExchangePreview"));
     m_sentExchangeLabel->setFixedSize(sentWidth, rowHeight);
     // The cells of columns that gave way (see kGiveWayOrder) go with
     // them, so the row keeps lining up with the table.
@@ -1784,6 +1844,13 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     m_exchangeEditsByKey.clear();
 
     auto* host = new QWidget(m_entryRow);
+    // Ohne das trägt dieser Behälter den App-Hintergrund aus der
+    // Basisregel "QWidget { background: ... }" (ui/StyleKit.cpp) und
+    // liegt damit sichtbar dunkler als die Zeile, in der er steht --
+    // die Tauschfelder sahen aus wie Eingabekästen statt wie Zellen.
+    // Martin, 2026-09-27: "es soll wie die darüber aussehen, nichts
+    // extra. quasi wie bei excel."
+    host->setStyleSheet(QStringLiteral("background: transparent;"));
     auto* hostLayout = new QHBoxLayout(host);
     hostLayout->setContentsMargins(0, 0, 0, 0);
     hostLayout->setSpacing(0);
@@ -2384,6 +2451,15 @@ void UnifiedLogWidget::syncEntryRowWidth()
     m_entryRow->resize(m_entryRow->sizeHint());
 }
 
+void UnifiedLogWidget::setEntryWarning(const QString& text)
+{
+    if (m_entryWarning == text) {
+        return;
+    }
+    m_entryWarning = text;
+    updateStatusLine();
+}
+
 void UnifiedLogWidget::updateStatusLine()
 {
     // LogTableModel keeps its own ascending (oldest-first, ORDER BY id
@@ -2400,6 +2476,14 @@ void UnifiedLogWidget::updateStatusLine()
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
         m_lastQsoLabel->setText(m_dupeDetail);
+    } else if (!m_entryWarning.isEmpty()) {
+        // Der getippte Locator widerspricht dem, unter dem die Station
+        // bekannt ist. Bernstein wie beim Dupe: es ist keine Sperre,
+        // sondern ein Hinweis -- vielleicht ist sie umgezogen, dann
+        // stimmt der neue.
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
+        m_lastQsoLabel->setText(m_entryWarning);
     } else if (!m_dxInfoLine.isEmpty()) {
         // Während ein Rufzeichen dasteht, zählt, was über diese Station
         // bekannt ist -- Land, Richtung, Entfernung, Sonne dort (siehe

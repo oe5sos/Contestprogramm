@@ -356,6 +356,20 @@ qint64 frequencyFromEntry(const QString& text)
     return bandLabelForFrequencyHz(asMhz).isEmpty() ? 0 : asMhz;
 }
 
+// Die Rückrichtung zu contestModeForRigctldMode(): SSB heißt am Gerät
+// USB oder LSB, und welches davon, sagt das Band -- unter 10 MHz LSB,
+// darüber USB, wie es auf allen Bändern üblich ist. Auf UKW ist es
+// immer USB.
+QString rigctldModeForContestMode(const QString& contestMode, const QString& band)
+{
+    const QString mode = contestMode.trimmed().toUpper();
+    if (mode == QStringLiteral("SSB")) {
+        const qint64 baseHz = bandBaseHz(band);
+        return (baseHz > 0 && baseHz < 10000000LL) ? QStringLiteral("LSB") : QStringLiteral("USB");
+    }
+    return mode;
+}
+
 void setStatusBadge(QLabel* label, bool ok, const QString& text)
 {
     label->setText(text);
@@ -392,6 +406,41 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* topBarRow = new QWidget(central);
     auto* topBarLayout = new QHBoxLayout(topBarRow);
     topBarLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Band und Betriebsart, sichtbar und anklickbar. Sie hatten seit
+    // dem Umbau auf CAT keine eigene Bedienung mehr -- die Frequenz des
+    // Funkgeräts bestimmte beides. Martin, 2026-09-27: "alles muss auch
+    // ohne verbindung zum funkgerät passieren", und die UKW-Conteste
+    // sind der Hauptfall. Ohne Gerät stand das Log sonst für immer auf
+    // dem ersten Band des Contests.
+    //
+    // Tucnak, der UKW-Logger in Europa, macht es genauso: ein Bandmenü
+    // auf Alt+B und je Band eine Taste. Hier Alt+B und Alt+M für die
+    // beiden Menüs, dazu Strg+1…9 für die Bänder des Contests in ihrer
+    // Reihenfolge.
+    m_bandButton = new QPushButton(topBarRow);
+    m_bandButton->setObjectName(QStringLiteral("bandButton"));
+    m_bandButton->setCursor(Qt::PointingHandCursor);
+    m_bandButton->setToolTip(QStringLiteral("Band wählen (Alt+B, oder Strg+1…9)"));
+    m_bandButton->setStyleSheet(Style::iconButtonStyle());
+    m_bandButton->setFont(Style::monoFont(m_bandButton->font(), Style::kFontBody));
+    m_bandMenu = new QMenu(this);
+    m_bandMenu->setObjectName(QStringLiteral("bandMenu"));
+    m_bandButton->setMenu(m_bandMenu);
+    topBarLayout->addWidget(m_bandButton);
+
+    m_modeButton = new QPushButton(topBarRow);
+    m_modeButton->setObjectName(QStringLiteral("modeButton"));
+    m_modeButton->setCursor(Qt::PointingHandCursor);
+    m_modeButton->setToolTip(QStringLiteral("Betriebsart wählen (Alt+M)"));
+    m_modeButton->setStyleSheet(Style::iconButtonStyle());
+    m_modeButton->setFont(Style::monoFont(m_modeButton->font(), Style::kFontBody));
+    m_modeMenu = new QMenu(this);
+    m_modeMenu->setObjectName(QStringLiteral("modeMenu"));
+    m_modeButton->setMenu(m_modeMenu);
+    topBarLayout->addWidget(m_modeButton);
+    topBarLayout->addSpacing(12);
+
     auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), topBarRow);
     filterLabel->setFont(Style::capsFont(filterLabel->font()));
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
@@ -999,6 +1048,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);
+    connect(m_unifiedLog, &UnifiedLogWidget::historyDeleteRequested, this, &MainWindow::handleHistoryDeleteRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyTimeEditRequested, this, &MainWindow::handleHistoryTimeEditRequested);
     // The five-minute log backup (AppController's LogBackup) reports
     // into the status bar: a written copy briefly, a failure for longer
@@ -1080,6 +1130,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             // above.
             m_currentMode = contestMode;
             m_unifiedLog->setCurrentMode(contestMode);
+            syncBandModeControls();
             updateStatusBar();
         }
     });
@@ -1255,6 +1306,25 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             m_appController.rigctldClient().setKeyerSpeed(m_appController.settings().cwSpeedWpm);
         }
     });
+    // Alt+B / Alt+M öffnen die beiden Menüs der obersten Zeile -- wie
+    // Tucnaks Alt+B, damit die Hand die Eingabezeile nicht verlassen
+    // muss.
+    auto* bandMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_B), this);
+    connect(bandMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_bandButton && m_bandButton->isEnabled()) {
+            m_bandButton->showMenu();
+        }
+    });
+    auto* modeMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_M), this);
+    connect(modeMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_modeButton && m_modeButton->isEnabled()) {
+            m_modeButton->showMenu();
+        }
+    });
+
+    auto* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    connect(undoShortcut, &QShortcut::activated, this, &MainWindow::undoLastDelete);
+
     auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
     wipeShortcut->setContext(Qt::WindowShortcut);
     connect(wipeShortcut, &QShortcut::activated, this, [this]() {
@@ -1718,6 +1788,7 @@ void MainWindow::applyActiveContestDefinition()
         m_unifiedLog->setExchangeFields(def->exchangeFields());
         m_unifiedLog->setContestBandCount(def->bands().size());
         m_unifiedLog->setCurrentBand(m_currentBand);
+        rebuildBandModeControls();
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
@@ -1955,6 +2026,27 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // one too -- via applyRotorWidgetSettings(), the exact same
             // round trip SettingsDialog's "Rotor-Anzeige" combo already
             // goes through in openSettingsDialog().
+            // Die zweite Antenne dieses Rotors, aus seinem eigenen ⚙.
+            // Welcher Slot das ist, sagt der Zeiger: die beiden
+            // RotorWidget-Instanzen gehören MainWindow, das Widget
+            // selbst kennt seine Slotnummer nicht.
+            connect(widget, &RotorWidget::secondAntennaRequested, widget,
+                    [this, widget](bool enabled, double offsetDeg) {
+                ContestSettings settings = m_appController.settings();
+                if (widget == m_rotor1Widget) {
+                    settings.rotor1SecondAntennaEnabled = enabled;
+                    settings.rotor1SecondAntennaOffsetDeg = offsetDeg;
+                } else if (widget == m_rotor2Widget) {
+                    settings.rotor2SecondAntennaEnabled = enabled;
+                    settings.rotor2SecondAntennaOffsetDeg = offsetDeg;
+                } else {
+                    return;
+                }
+                m_appController.setSettings(settings);
+                // Dieselbe Runde wie beim Anzeigestil darunter: die
+                // Karte zeichnet ihre Kegel aus denselben Werten.
+                applyRotorWidgetSettings();
+            });
             connect(widget, &RotorWidget::dialStyleRequested, widget, [this](RotorDialStyle style) {
                 ContestSettings settings = m_appController.settings();
                 if (settings.rotorDialStyle == style) {
@@ -2817,6 +2909,7 @@ void MainWindow::refreshMultiplierHint(const QString& grid)
 void MainWindow::handleReceivedGridChanged(const QString& grid)
 {
     refreshDxInfoLine();
+    refreshLocatorCrossCheck(grid);
     const ContestSettings settings = m_appController.settings();
     if (!isValidGridSquare(settings.ownGrid) || !isValidGridSquare(grid)) {
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);
@@ -2825,6 +2918,65 @@ void MainWindow::handleReceivedGridChanged(const QString& grid)
     const double distanceKm = calculateDistanceKm(settings.ownGrid, grid);
     m_unifiedLog->setEntryDistanceBearing(distanceKm,
                                            bearingIfApart(distanceKm, calculateBearingInDegrees(settings.ownGrid, grid)));
+}
+
+// Tucnaks "cross control couple callsign - locator": der getippte
+// Locator gegen den, unter dem diese Station bekannt ist. Auf UKW ist
+// der Locator der Austausch -- ein Tippfehler darin kostet das QSO bei
+// der Auswertung, und er fällt sonst niemandem auf.
+//
+// Gewarnt wird, nicht gesperrt: eine Station kann umgezogen sein oder
+// von einem anderen Standort fahren, dann stimmt der neue Locator. Und
+// nur ab vier Zeichen, sonst meldet sich die Zeile schon beim Tippen
+// des zweiten.
+void MainWindow::refreshLocatorCrossCheck(const QString& typedGrid)
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    const QString typed = typedGrid.trimmed().toUpper();
+    const QString call = m_unifiedLog->callsign().trimmed().toUpper();
+    if (call.isEmpty() || typed.size() < 4) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    const QString known = knownGridForCallsign(call);
+    if (known.isEmpty()) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    // Auf der Länge vergleichen, die beide haben: wer JN58SD kennt und
+    // JN58 tippt, hat keinen Widerspruch getippt, sondern weniger.
+    const int length = std::min(typed.size(), known.size());
+    if (typed.left(length) == known.left(length)) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    m_unifiedLog->setEntryWarning(
+        QStringLiteral("%1 ist bekannt als %2 — getippt: %3").arg(call, known, typed));
+}
+
+// Der Locator, unter dem eine Station bekannt ist -- in derselben
+// Reihenfolge, die handleCallsignLookupRequested() für das Vorbelegen
+// benutzt, aber ohne den Netzweg: dieser hier läuft bei jedem
+// Tastendruck.
+QString MainWindow::knownGridForCallsign(const QString& callsign) const
+{
+    const ContestSettings settings = m_appController.settings();
+    if (const auto known = m_appController.database().knownExchangeForCallsign(callsign, settings.activeContestId)) {
+        if (!known->gridSquare.trimmed().isEmpty()) {
+            return known->gridSquare.trimmed().toUpper();
+        }
+    }
+    if (const auto earlier = m_appController.database().lastKnownGridForCallsign(callsign)) {
+        if (!earlier->trimmed().isEmpty()) {
+            return earlier->trimmed().toUpper();
+        }
+    }
+    if (const auto local = m_appController.callsignLocatorLookup().lookupLocal(callsign)) {
+        return local->trimmed().toUpper();
+    }
+    return QString();
 }
 
 void MainWindow::handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign)
@@ -2934,6 +3086,68 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     refreshMultiplierAndFeedScores();
     refreshMapWidget();
     refreshSuggestionPanel();
+}
+
+// Löschen ohne Rückfrage, dafür mit Rückgängig: eine Nachfrage bei
+// jedem Griff wäre genau die Bremse, die Martin nicht will
+// (2026-09-27, "einfach und schnell"). Das QSO landet im Papierkorb
+// (ContestDatabase::deleteQso), nicht im Müll -- wie N1MM es in eine
+// eigene Datei legt.
+void MainWindow::handleHistoryDeleteRequested(int qsoId)
+{
+    const auto record = m_appController.database().qsoById(qsoId);
+    if (!record) {
+        return;
+    }
+    QString error;
+    if (!m_appController.database().deleteQso(qsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht gelöscht werden:\n%1").arg(error));
+        return;
+    }
+    m_lastDeletedQsoId = qsoId;
+    refreshAfterLogChange();
+    statusBar()->showMessage(
+        QStringLiteral("%1 gelöscht (Nr. %2) — Strg+Z macht es rückgängig")
+            .arg(record->callsign,
+                  record->serialSent ? QString::number(*record->serialSent) : Style::unknownDash()),
+        15000);
+}
+
+void MainWindow::undoLastDelete()
+{
+    if (m_lastDeletedQsoId < 0) {
+        statusBar()->showMessage(QStringLiteral("Nichts zurückzunehmen."), 4000);
+        return;
+    }
+    QString error;
+    if (!m_appController.database().undeleteQso(m_lastDeletedQsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht zurückgeholt werden:\n%1").arg(error));
+        return;
+    }
+    const auto record = m_appController.database().qsoById(m_lastDeletedQsoId);
+    m_lastDeletedQsoId = -1;
+    refreshAfterLogChange();
+    statusBar()->showMessage(record ? QStringLiteral("%1 ist wieder im Log.").arg(record->callsign)
+                                     : QStringLiteral("QSO ist wieder im Log."),
+                              6000);
+}
+
+// Alles, was den Log-Inhalt liest, nach einer Änderung an ihm -- die
+// Reihenfolge, die handleHistoryInvalidToggleRequested() schon
+// verwendet, plus die Liste selbst (ein gelöschtes QSO verschwindet
+// aus ihr, ein ungültiges nicht).
+void MainWindow::refreshAfterLogChange()
+{
+    refreshLogTable();
+    rescoreDupes();
+    recheckDupeIndicator();
+    refreshMultiplierAndFeedScores();
+    refreshMapWidget();
+    refreshSuggestionPanel();
+    reloadCheckPartialSources();
+    updateStatusBar();
 }
 
 void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
@@ -3296,7 +3510,24 @@ void MainWindow::reloadCheckPartialSources()
         }
     }
     m_checkPartialIndex.setLogCalls(logCalls);
-    m_checkPartialIndex.setHistoryCalls(m_appController.database().allImportedLocators());
+
+    // Die Historie: erst die importierte/zwischengespeicherte
+    // Locator-Liste, darüber die eigenen früheren Logs. Die eigenen
+    // gewinnen bei einem Widerspruch -- Martin, 2026-09-27:
+    // "insbesondere ehemalige logs bei ukw sind primär die benchmark".
+    // Wer jedes Jahr vom selben Berg fährt, trifft jedes Jahr dieselben
+    // Stationen; bis dahin kannte die Vorschlagsliste sie nicht.
+    QHash<QString, QString> history = m_appController.database().allImportedLocators();
+    const QHash<QString, QString> worked = m_appController.database().allWorkedCallsigns();
+    for (auto it = worked.constBegin(); it != worked.constEnd(); ++it) {
+        // Ein leerer Locator aus dem eigenen Log darf einen bekannten
+        // aus der Liste nicht löschen -- das Rufzeichen zählt trotzdem.
+        if (it.value().isEmpty() && history.contains(it.key())) {
+            continue;
+        }
+        history.insert(it.key(), it.value());
+    }
+    m_checkPartialIndex.setHistoryCalls(history);
 
     // The SCP list is loaded once from the remembered path; a missing
     // or unreadable file just leaves that source empty (and the panel's
@@ -4079,6 +4310,7 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     if (m_unifiedLog) {
         m_unifiedLog->setCurrentBand(m_currentBand);
     }
+    syncBandModeControls();
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other
@@ -4093,6 +4325,117 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
 // Auf eine Frequenz gehen: das Funkgerät mitnehmen, wenn eines hängt,
 // und in jedem Fall das Band im Log umstellen -- ohne CAT ist das der
 // einzige Weg dorthin.
+// Band und Betriebsart von Hand: beides geht auch ohne Funkgerät, und
+// mit einem geht es ans Gerät -- sonst überschriebe dessen nächster
+// Abfragetakt die Wahl innerhalb einer Sekunde wieder.
+void MainWindow::chooseBand(const QString& band)
+{
+    if (band.isEmpty() || band == m_currentBand) {
+        return;
+    }
+    const qint64 baseHz = bandBaseHz(band);
+    if (m_appController.rigctldClient().isConnected() && baseHz > 0) {
+        // Auf die untere Bandkante; von dort dreht der Bediener weiter.
+        // Durch den Transverter, wie überall sonst.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(baseHz));
+    }
+    m_currentBand = band;
+    m_typedFrequencyHz = 0; // die Bandkante ist keine gemessene Frequenz
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(band);
+    }
+    syncOn4kstRoomForCurrentBand();
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    refreshBandmap();
+    syncBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Band %1").arg(band), 3000);
+}
+
+void MainWindow::chooseMode(const QString& mode)
+{
+    if (mode.isEmpty() || mode == m_currentMode) {
+        return;
+    }
+    if (m_appController.rigctldClient().isConnected()) {
+        m_appController.rigctldClient().setMode(rigctldModeForContestMode(mode, m_currentBand));
+    }
+    m_currentMode = mode;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentMode(mode);
+    }
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    syncBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Betriebsart %1").arg(mode), 3000);
+}
+
+void MainWindow::rebuildBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+
+    m_bandMenu->clear();
+    qDeleteAll(m_bandShortcuts);
+    m_bandShortcuts.clear();
+    const QStringList bands = def ? def->bands() : knownBands();
+    int index = 0;
+    for (const QString& band : bands) {
+        QAction* action = m_bandMenu->addAction(band);
+        action->setObjectName(QStringLiteral("bandAction_%1").arg(band));
+        action->setCheckable(true);
+        action->setChecked(band == m_currentBand);
+        connect(action, &QAction::triggered, this, [this, band]() { chooseBand(band); });
+        // Strg+1…9 in der Reihenfolge des Contests -- kürzer als jedes
+        // Menü und unabhängig davon, welche Bänder er führt.
+        if (index < 9) {
+            action->setShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)));
+            auto* shortcut = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)), this);
+            connect(shortcut, &QShortcut::activated, this, [this, band]() { chooseBand(band); });
+            m_bandShortcuts.append(shortcut);
+        }
+        ++index;
+    }
+    m_bandButton->setEnabled(!bands.isEmpty());
+
+    m_modeMenu->clear();
+    const QStringList modes = def && !def->modes().isEmpty()
+        ? def->modes()
+        : QStringList{QStringLiteral("SSB"), QStringLiteral("CW"), QStringLiteral("FM")};
+    for (const QString& mode : modes) {
+        QAction* action = m_modeMenu->addAction(mode);
+        action->setObjectName(QStringLiteral("modeAction_%1").arg(mode));
+        action->setCheckable(true);
+        action->setChecked(mode == m_currentMode);
+        connect(action, &QAction::triggered, this, [this, mode]() { chooseMode(mode); });
+    }
+    m_modeButton->setEnabled(modes.size() > 1);
+    syncBandModeControls();
+}
+
+// Nur nachziehen, was sich am Stand geändert hat -- kein Neubau der
+// Menüs. Ein Neubau löscht die Aktionen, und genau eine davon
+// verarbeitet in diesem Moment ihren eigenen Klick: das wäre ein
+// Zugriff auf Gelöschtes. Gebaut wird nur beim Contestwechsel.
+void MainWindow::syncBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    m_bandButton->setText(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand);
+    m_modeButton->setText(m_currentMode.isEmpty() ? Style::unknownDash() : m_currentMode);
+    for (QAction* action : m_bandMenu->actions()) {
+        action->setChecked(action->text() == m_currentBand);
+    }
+    for (QAction* action : m_modeMenu->actions()) {
+        action->setChecked(action->text() == m_currentMode);
+    }
+}
+
 void MainWindow::tuneToFrequency(qint64 rfHz)
 {
     const QString bandLabel = bandLabelForFrequencyHz(rfHz);

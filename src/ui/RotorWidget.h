@@ -185,6 +185,16 @@ signals:
     // wires RotctldClient's signals into a freshly created widget.
     void dialStyleRequested(RotorDialStyle style);
 
+    // Aus dem ⚙ dieses Rotors: zweite Antenne an/aus und ihr Versatz.
+    // Martin, 2026-09-27: "ich möchte bei den rotoren eine option
+    // haben, ob und in welche richtung die zweite antenne versetzt
+    // steht ... dies soll in der taskleiste einzustellen sein." Die
+    // Einstellung gab es schon, aber nur im Einstellungsfenster --
+    // mitten im Contest ist das zu weit weg. MainWindow schreibt sie
+    // in ContestSettings und schiebt sie an Karte und Rotorscheibe
+    // zurück, dieselbe Runde wie beim Anzeigestil darüber.
+    void secondAntennaRequested(bool enabled, double offsetDeg);
+
     // A click (single OR double) inside the dial ring, at the bearing
     // under the cursor -- operator, 2026-09-14, first asking for
     // double-click ("dies haben wir bei longpath", Longpath's own

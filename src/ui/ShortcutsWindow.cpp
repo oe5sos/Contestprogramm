@@ -34,6 +34,11 @@ QVector<ShortcutsWindow::Entry> ShortcutsWindow::entries()
         {QStringLiteral("Esc"), QStringLiteral("CW-Sendung stoppen"), QStringLiteral("überall")},
         {QStringLiteral("Bild ↑ / Bild ↓"), QStringLiteral("CW-Tempo +2 / −2 WpM (geht als KEYSPD ans Funkgerät)"), QStringLiteral("überall")},
         // Corrections
+        {QStringLiteral("⌫ (Rückschritt)"), QStringLiteral("QSO löschen — es wandert in den Papierkorb, nicht in den Müll; Strg+Z holt es zurück. Entf tut dasselbe, die gibt es auf der MacBook-Tastatur aber nur als fn+⌫"), QStringLiteral("Log-Historie")},
+        {QStringLiteral("Rechtsklick"), QStringLiteral("QSO löschen oder als ungültig markieren (ungültig bleibt sichtbar und zählt nicht)"), QStringLiteral("Log-Historie")},
+        {QStringLiteral("Strg+Z"), QStringLiteral("Das zuletzt gelöschte QSO zurückholen"), QStringLiteral("überall")},
+        {QStringLiteral("Alt+B / Alt+M"), QStringLiteral("Band- bzw. Betriebsart-Menü öffnen — geht auch ohne Funkgerät"), QStringLiteral("überall")},
+        {QStringLiteral("Strg+1 … Strg+9"), QStringLiteral("Direkt auf das 1. bis 9. Band des Contests wechseln"), QStringLiteral("überall")},
         {QStringLiteral("Doppelklick / Enter"), QStringLiteral("Eintrag korrigieren: Rufzeichen, Nr./Locator, Zeit — Dupes werden danach neu berechnet"), QStringLiteral("Log-Historie")},
         {QStringLiteral("Klick auf die Status-Spalte"), QStringLiteral("QSO „ungültig“ markieren statt löschen (und wieder gültig)"), QStringLiteral("Log-Historie")},
         // Targets

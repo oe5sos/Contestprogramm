@@ -160,6 +160,12 @@ QByteArray RigctldClient::setFrequencyCommand(qint64 hz)
     return QStringLiteral("F %1\n").arg(hz).toLatin1();
 }
 
+QByteArray RigctldClient::setModeCommand(const QString& mode)
+{
+    // "M USB 0" -- Betriebsart und Durchlass, 0 = Vorgabe des Geräts.
+    return QStringLiteral("M %1 0\n").arg(mode.trimmed().toUpper()).toLatin1();
+}
+
 QByteArray RigctldClient::setPttCommand(bool active)
 {
     return QStringLiteral("T %1\n").arg(active ? 1 : 0).toLatin1();
@@ -172,6 +178,18 @@ void RigctldClient::setFrequency(qint64 hz)
         return;
     }
     send(setFrequencyCommand(hz), Pending::Report);
+}
+
+void RigctldClient::setMode(const QString& mode)
+{
+    if (mode.trimmed().isEmpty()) {
+        return;
+    }
+    if (!isConnected()) {
+        emit errorOccurred(QStringLiteral("CAT rig is not connected"));
+        return;
+    }
+    send(setModeCommand(mode), Pending::Report);
 }
 
 void RigctldClient::setPtt(bool active)
