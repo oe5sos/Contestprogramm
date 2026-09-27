@@ -244,6 +244,9 @@ public:
     // shows instead of "Letzter QSO" -- which earlier QSO this duplicates
     // (number, UTC time, band), composed by MainWindow.
     void setDupeIndicator(bool isDupe, const QString& detail = QString());
+    // Steht die DUPE-Pille gerade? Die Prüfstände fragen hier, statt
+    // den Text der Pille zu lesen.
+    bool dupeIndicatorActive() const { return m_dupe; }
 
     // The exchange this program would send right now (own grid + next
     // serial) -- shown read-only in the "Ges." field on the right of
@@ -456,6 +459,13 @@ signals:
     // logging... you don't") -- marking invalid is the real equivalent
     // (Ctrl+X in DXLog.net's own UI).
     void historyInvalidToggleRequested(int qsoId);
+
+    // Eine geloggte Zeile soll aus dem Log verschwinden -- Entf-Taste
+    // oder Rechtsklick > Löschen. Was "löschen" heißt, entscheidet
+    // MainWindow (ContestDatabase::deleteQso legt das QSO in den
+    // Papierkorb, nicht in den Müll); dieses Widget meldet nur den
+    // Wunsch, wie bei jeder anderen Korrektur auch.
+    void historyDeleteRequested(int qsoId);
 
     // Chat quick-send row (operator, 2026-09-12: during a quiet spell
     // "wenig qso beim rufen" wants to leave a chat message "mit wenig

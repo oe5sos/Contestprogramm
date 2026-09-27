@@ -589,6 +589,77 @@ int ContestDatabase::archiveContest(const QString& contestId, const QString& arc
     return query.numRowsAffected();
 }
 
+namespace {
+
+// "IARU_R1_VHF_UHF" <-> "IARU_R1_VHF_UHF@geloescht"
+QString binIdFor(const QString& contestId)
+{
+    return contestId + ContestDatabase::deletedBinSuffix();
+}
+
+QString contestIdFromBin(const QString& binId)
+{
+    const QString suffix = ContestDatabase::deletedBinSuffix();
+    return binId.endsWith(suffix) ? binId.left(binId.size() - suffix.size()) : QString();
+}
+
+} // namespace
+
+bool ContestDatabase::deleteQso(int id, QString* errorOut)
+{
+    const auto record = qsoById(id);
+    if (!record) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("QSO %1 gibt es nicht").arg(id);
+        }
+        return false;
+    }
+    if (!contestIdFromBin(record->contestId).isEmpty()) {
+        return true; // liegt schon im Papierkorb
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET contest_id = :bin WHERE id = :id"));
+    query.bindValue(QStringLiteral(":bin"), binIdFor(record->contestId));
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
+bool ContestDatabase::undeleteQso(int id, QString* errorOut)
+{
+    const auto record = qsoById(id);
+    if (!record) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("QSO %1 gibt es nicht").arg(id);
+        }
+        return false;
+    }
+    const QString original = contestIdFromBin(record->contestId);
+    if (original.isEmpty()) {
+        return true; // liegt gar nicht im Papierkorb
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET contest_id = :contest WHERE id = :id"));
+    query.bindValue(QStringLiteral(":contest"), original);
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
 QStringList ContestDatabase::bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const
 {
     QStringList result;

@@ -18,8 +18,10 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPainter>
 #include <QPen>
+#include <QShortcut>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QResizeEvent>
@@ -1278,6 +1280,39 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // see eventFilter().
     m_feedTable->viewport()->installEventFilter(this);
     connect(m_feedTable, &QTableView::clicked, this, &UnifiedLogWidget::handleFeedRowClicked);
+
+    // Löschen: Rechtsklick auf die Zeile oder die Entf-Taste. Martin,
+    // 2026-09-27: "fehler sollen einfach und schnell geändert und
+    // gelöscht werden" -- also ohne Umweg über ein Menü am Fensterrand.
+    // N1MM macht es genauso (Rechtsklick > Delete Contact, Strg+D).
+    m_feedTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_feedTable, &QTableView::customContextMenuRequested, this, [this](const QPoint& pos) {
+        const QModelIndex index = m_feedTable->indexAt(pos);
+        const int qsoId = index.isValid() ? m_feedModel->historyQsoIdForRow(index.row()) : -1;
+        if (qsoId < 0) {
+            return; // eine Spot-/Chat-Zeile ist kein QSO
+        }
+        QMenu menu(m_feedTable);
+        QAction* deleteAction = menu.addAction(QStringLiteral("QSO löschen"));
+        deleteAction->setShortcut(QKeySequence::Delete);
+        QAction* invalidAction = menu.addAction(QStringLiteral("Als ungültig markieren"));
+        invalidAction->setToolTip(QStringLiteral("Bleibt im Log stehen, zählt aber nicht -- für ein strittiges QSO"));
+        QAction* chosen = menu.exec(m_feedTable->viewport()->mapToGlobal(pos));
+        if (chosen == deleteAction) {
+            emit historyDeleteRequested(qsoId);
+        } else if (chosen == invalidAction) {
+            emit historyInvalidToggleRequested(qsoId);
+        }
+    });
+    auto* deleteShortcut = new QShortcut(QKeySequence::Delete, m_feedTable);
+    deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(deleteShortcut, &QShortcut::activated, this, [this]() {
+        const QModelIndex index = m_feedTable->currentIndex();
+        const int qsoId = index.isValid() ? m_feedModel->historyQsoIdForRow(index.row()) : -1;
+        if (qsoId >= 0) {
+            emit historyDeleteRequested(qsoId);
+        }
+    });
     connect(m_feedModel, &UnifiedFeedModel::rebuilt, this, &UnifiedLogWidget::rebuildFeedRows);
     connect(m_feedModel, &UnifiedFeedModel::historyCallsignEditRequested, this, &UnifiedLogWidget::historyCallsignEditRequested);
     connect(m_feedModel, &UnifiedFeedModel::historyExchangeRcvdEditRequested, this, &UnifiedLogWidget::historyExchangeRcvdEditRequested);

@@ -164,6 +164,11 @@ private slots:
     void handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign);
     void handleHistoryExchangeRcvdEditRequested(int qsoId, const QString& newText);
     void handleHistoryInvalidToggleRequested(int qsoId);
+    // Ein QSO aus dem Log nehmen (ContestDatabase::deleteQso -- es
+    // wandert in den Papierkorb, nicht in den Müll) und die Umkehrung.
+    void handleHistoryDeleteRequested(int qsoId);
+    void undoLastDelete();
+    void refreshAfterLogChange();
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void restoreBackup();
@@ -445,6 +450,11 @@ private:
     // an der das QSO wirklich lief. Ein Funkgerät, das seine eigene
     // Frequenz meldet, löscht sie: seine gilt.
     qint64 m_typedFrequencyHz = 0;
+    // Das zuletzt gelöschte QSO, für Strg+Z. Gelöscht wird ohne
+    // Rückfrage -- Martin will es schnell (2026-09-27) -- und genau
+    // darum muss ein Griff daneben in einem Tastendruck zurückzunehmen
+    // sein. -1: nichts zurückzunehmen.
+    int m_lastDeletedQsoId = -1;
     void applyRigFrequency(qint64 rigHz);
     void syncTransverterCheck();
     // Auf eine Frequenz auf der Antenne gehen (Hertz): Funkgerät
@@ -461,6 +471,9 @@ private:
     // Baut die beiden Menüs aus dem laufenden Contest und schreibt den
     // aktuellen Stand auf die Knöpfe.
     void rebuildBandModeControls();
+    // Nur den Stand nachziehen (Knopftexte, Häkchen) -- ohne die Menüs
+    // neu zu bauen, siehe die Begründung an der Umsetzung.
+    void syncBandModeControls();
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not

@@ -1048,6 +1048,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);
+    connect(m_unifiedLog, &UnifiedLogWidget::historyDeleteRequested, this, &MainWindow::handleHistoryDeleteRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyTimeEditRequested, this, &MainWindow::handleHistoryTimeEditRequested);
     // The five-minute log backup (AppController's LogBackup) reports
     // into the status bar: a written copy briefly, a failure for longer
@@ -1129,7 +1130,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             // above.
             m_currentMode = contestMode;
             m_unifiedLog->setCurrentMode(contestMode);
-            rebuildBandModeControls();
+            syncBandModeControls();
             updateStatusBar();
         }
     });
@@ -1320,6 +1321,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             m_modeButton->showMenu();
         }
     });
+
+    auto* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    connect(undoShortcut, &QShortcut::activated, this, &MainWindow::undoLastDelete);
 
     auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
     wipeShortcut->setContext(Qt::WindowShortcut);
@@ -3003,6 +3007,68 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     refreshSuggestionPanel();
 }
 
+// Löschen ohne Rückfrage, dafür mit Rückgängig: eine Nachfrage bei
+// jedem Griff wäre genau die Bremse, die Martin nicht will
+// (2026-09-27, "einfach und schnell"). Das QSO landet im Papierkorb
+// (ContestDatabase::deleteQso), nicht im Müll -- wie N1MM es in eine
+// eigene Datei legt.
+void MainWindow::handleHistoryDeleteRequested(int qsoId)
+{
+    const auto record = m_appController.database().qsoById(qsoId);
+    if (!record) {
+        return;
+    }
+    QString error;
+    if (!m_appController.database().deleteQso(qsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht gelöscht werden:\n%1").arg(error));
+        return;
+    }
+    m_lastDeletedQsoId = qsoId;
+    refreshAfterLogChange();
+    statusBar()->showMessage(
+        QStringLiteral("%1 gelöscht (Nr. %2) — Strg+Z macht es rückgängig")
+            .arg(record->callsign,
+                  record->serialSent ? QString::number(*record->serialSent) : Style::unknownDash()),
+        15000);
+}
+
+void MainWindow::undoLastDelete()
+{
+    if (m_lastDeletedQsoId < 0) {
+        statusBar()->showMessage(QStringLiteral("Nichts zurückzunehmen."), 4000);
+        return;
+    }
+    QString error;
+    if (!m_appController.database().undeleteQso(m_lastDeletedQsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht zurückgeholt werden:\n%1").arg(error));
+        return;
+    }
+    const auto record = m_appController.database().qsoById(m_lastDeletedQsoId);
+    m_lastDeletedQsoId = -1;
+    refreshAfterLogChange();
+    statusBar()->showMessage(record ? QStringLiteral("%1 ist wieder im Log.").arg(record->callsign)
+                                     : QStringLiteral("QSO ist wieder im Log."),
+                              6000);
+}
+
+// Alles, was den Log-Inhalt liest, nach einer Änderung an ihm -- die
+// Reihenfolge, die handleHistoryInvalidToggleRequested() schon
+// verwendet, plus die Liste selbst (ein gelöschtes QSO verschwindet
+// aus ihr, ein ungültiges nicht).
+void MainWindow::refreshAfterLogChange()
+{
+    refreshLogTable();
+    rescoreDupes();
+    recheckDupeIndicator();
+    refreshMultiplierAndFeedScores();
+    refreshMapWidget();
+    refreshSuggestionPanel();
+    reloadCheckPartialSources();
+    updateStatusBar();
+}
+
 void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
 {
     const auto current = m_appController.database().qsoById(qsoId);
@@ -4146,7 +4212,7 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     if (m_unifiedLog) {
         m_unifiedLog->setCurrentBand(m_currentBand);
     }
-    rebuildBandModeControls();
+    syncBandModeControls();
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other
@@ -4184,7 +4250,7 @@ void MainWindow::chooseBand(const QString& band)
     refreshSentExchangePreview();
     recheckDupeIndicator();
     refreshBandmap();
-    rebuildBandModeControls();
+    syncBandModeControls();
     updateStatusBar();
     statusBar()->showMessage(QStringLiteral("Band %1").arg(band), 3000);
 }
@@ -4203,7 +4269,7 @@ void MainWindow::chooseMode(const QString& mode)
     }
     refreshSentExchangePreview();
     recheckDupeIndicator();
-    rebuildBandModeControls();
+    syncBandModeControls();
     updateStatusBar();
     statusBar()->showMessage(QStringLiteral("Betriebsart %1").arg(mode), 3000);
 }
@@ -4236,7 +4302,6 @@ void MainWindow::rebuildBandModeControls()
         }
         ++index;
     }
-    m_bandButton->setText(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand);
     m_bandButton->setEnabled(!bands.isEmpty());
 
     m_modeMenu->clear();
@@ -4250,8 +4315,27 @@ void MainWindow::rebuildBandModeControls()
         action->setChecked(mode == m_currentMode);
         connect(action, &QAction::triggered, this, [this, mode]() { chooseMode(mode); });
     }
-    m_modeButton->setText(m_currentMode.isEmpty() ? Style::unknownDash() : m_currentMode);
     m_modeButton->setEnabled(modes.size() > 1);
+    syncBandModeControls();
+}
+
+// Nur nachziehen, was sich am Stand geändert hat -- kein Neubau der
+// Menüs. Ein Neubau löscht die Aktionen, und genau eine davon
+// verarbeitet in diesem Moment ihren eigenen Klick: das wäre ein
+// Zugriff auf Gelöschtes. Gebaut wird nur beim Contestwechsel.
+void MainWindow::syncBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    m_bandButton->setText(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand);
+    m_modeButton->setText(m_currentMode.isEmpty() ? Style::unknownDash() : m_currentMode);
+    for (QAction* action : m_bandMenu->actions()) {
+        action->setChecked(action->text() == m_currentBand);
+    }
+    for (QAction* action : m_modeMenu->actions()) {
+        action->setChecked(action->text() == m_currentMode);
+    }
 }
 
 void MainWindow::tuneToFrequency(qint64 rfHz)

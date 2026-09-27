@@ -123,6 +123,28 @@ public:
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
 
+    // Das Suffix, das ein gelöschtes QSO an seiner Contest-Kennung
+    // trägt. Ein Log "IARU_R1_VHF_UHF" hat seinen Papierkorb also unter
+    // "IARU_R1_VHF_UHF@geloescht".
+    static QString deletedBinSuffix() { return QStringLiteral("@geloescht"); }
+
+    // Ein QSO aus dem Log nehmen: es verschwindet aus der Liste, aus
+    // der Wertung, aus der Dupe-Prüfung und aus jedem Export. Gelöscht
+    // wird es dabei NICHT -- es wandert unter die Papierkorb-Kennung
+    // (siehe deletedBinSuffix()), genau wie N1MM ein gelöschtes QSO in
+    // eine eigene Datei legt statt es wegzuwerfen. Damit bleibt es für
+    // das Locator-Gedächtnis, die Sicherungen und ein Rückgängig
+    // erhalten.
+    //
+    // Martin, 2026-09-27: "fehler sollen einfach und schnell geändert
+    // und gelöscht werden". Das Markieren als ungültig
+    // (setQsoInvalid) bleibt daneben bestehen: es lässt das QSO im Log
+    // sichtbar stehen, was bei einem strittigen QSO das Richtige ist.
+    bool deleteQso(int id, QString* errorOut = nullptr);
+
+    // Die Umkehrung, für das Rückgängig gleich nach dem Löschen.
+    bool undeleteQso(int id, QString* errorOut = nullptr);
+
     // Entfernung und Richtung aller QSOs eines Logs neu aus `ownGrid`
     // (2026-09-25): wer mit dem Heim-Locator loggt und dann auf den
     // Portabelstandort umstellt, bekam sonst die alten Entfernungen in
