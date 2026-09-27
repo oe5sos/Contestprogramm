@@ -17,6 +17,8 @@
 #include "app/ContestSettings.h"
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
+#include <QTableView>
+
 #include "ui/MainWindow.h"
 #include "ui/UnifiedLogWidget.h"
 
@@ -33,6 +35,7 @@ private slots:
     void undeleteBringsItBack();
     void deletingFreesTheCallsignForANewQso();
     void deletedQsoIsOutOfTheExports();
+    void cursorOnTheRowAndTheDeleteKey();
 };
 
 namespace {
@@ -162,6 +165,41 @@ void TestQsoLoeschen::deletedQsoIsOutOfTheExports()
     const QVector<QsoRecord> records = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
     QCOMPARE(records.size(), 1);
     QCOMPARE(records.first().callsign, QStringLiteral("OE3XYZ"));
+}
+
+// Martin, 2026-09-27: "mit cursor hinfahren und delete taste" -- und
+// dazu: "bei mac gibt es keine entf taste". Auf der MacBook-Tastatur
+// ist die Taste mit dem Pfeil Rückschritt; Entf gibt es nur als
+// fn+Rückschritt. Gebunden sind darum beide, und beide wirken auf die
+// Zeile, auf der der Cursor steht.
+void TestQsoLoeschen::cursorOnTheRowAndTheDeleteKey()
+{
+    for (const Qt::Key key : {Qt::Key_Backspace, Qt::Key_Delete}) {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        auto controller = makeController(dir, QStringLiteral("taste.sqlite"));
+        QVERIFY(controller);
+        QVERIFY(insertQso(*controller, QStringLiteral("DL1ABC"), 1) > 0);
+        QVERIFY(insertQso(*controller, QStringLiteral("OE3XYZ"), 2) > 0);
+
+        MainWindow window(*controller);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+        QVERIFY(table);
+
+        // Hinfahren: auf die erste geloggte Zeile.
+        table->setFocus();
+        table->setCurrentIndex(table->model()->index(0, UnifiedLogWidget::ColumnCall));
+        QCOMPARE(table->model()->index(0, UnifiedLogWidget::ColumnCall).data().toString(),
+                  QStringLiteral("DL1ABC"));
+
+        // Und drücken.
+        QTest::keyClick(table, key);
+        const QVector<QsoRecord> left = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+        QCOMPARE(left.size(), 1);
+        QCOMPARE(left.first().callsign, QStringLiteral("OE3XYZ"));
+    }
 }
 
 int main(int argc, char* argv[])

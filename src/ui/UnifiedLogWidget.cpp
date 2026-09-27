@@ -1307,7 +1307,13 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
         }
         QMenu menu(m_feedTable);
         QAction* deleteAction = menu.addAction(QStringLiteral("QSO löschen"));
-        deleteAction->setShortcut(QKeySequence::Delete);
+        // Rückschritt, nicht QKeySequence::Delete: auf einer
+        // MacBook-Tastatur gibt es keine eigene Entf-Taste, die Taste
+        // mit dem Pfeil ist Rückschritt, und Entf käme nur über
+        // fn+Rückschritt (Martin, 2026-09-27: "bei mac gibt es keine
+        // entf taste"). Gebunden sind unten beide; im Menü steht die,
+        // die er wirklich hat.
+        deleteAction->setShortcut(QKeySequence(Qt::Key_Backspace));
         QAction* invalidAction = menu.addAction(QStringLiteral("Als ungültig markieren"));
         invalidAction->setToolTip(QStringLiteral("Bleibt im Log stehen, zählt aber nicht -- für ein strittiges QSO"));
         QAction* chosen = menu.exec(m_feedTable->viewport()->mapToGlobal(pos));
@@ -1317,15 +1323,20 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
             emit historyInvalidToggleRequested(qsoId);
         }
     });
-    auto* deleteShortcut = new QShortcut(QKeySequence::Delete, m_feedTable);
-    deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(deleteShortcut, &QShortcut::activated, this, [this]() {
+    // Beide Tasten, und nur solange die Log-Liste den Fokus hat -- beim
+    // Tippen in der Eingabezeile löscht Rückschritt weiter Zeichen.
+    const auto deleteSelectedRow = [this]() {
         const QModelIndex index = m_feedTable->currentIndex();
         const int qsoId = index.isValid() ? m_feedModel->historyQsoIdForRow(index.row()) : -1;
         if (qsoId >= 0) {
             emit historyDeleteRequested(qsoId);
         }
-    });
+    };
+    for (const QKeySequence& key : {QKeySequence(Qt::Key_Backspace), QKeySequence(QKeySequence::Delete)}) {
+        auto* shortcut = new QShortcut(key, m_feedTable);
+        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(shortcut, &QShortcut::activated, this, deleteSelectedRow);
+    }
     connect(m_feedModel, &UnifiedFeedModel::rebuilt, this, &UnifiedLogWidget::rebuildFeedRows);
     connect(m_feedModel, &UnifiedFeedModel::historyCallsignEditRequested, this, &UnifiedLogWidget::historyCallsignEditRequested);
     connect(m_feedModel, &UnifiedFeedModel::historyExchangeRcvdEditRequested, this, &UnifiedLogWidget::historyExchangeRcvdEditRequested);
