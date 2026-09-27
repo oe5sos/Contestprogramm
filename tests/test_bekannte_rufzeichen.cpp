@@ -36,6 +36,7 @@ private slots:
     void earlierContestsAreKnownCallsigns();
     void checkPanelOffersCallsignsFromEarlierLogs();
     void aDifferentLocatorForAKnownStationIsFlagged();
+    void aDeletedQsoStopsTeachingItsLocator();
 };
 
 namespace {
@@ -157,6 +158,35 @@ void TestBekannteRufzeichen::aDifferentLocatorForAKnownStationIsFlagged()
     const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
     QCOMPARE(qsos.size(), 1);
     QCOMPARE(qsos.first().gridSquare, QStringLiteral("JN68QQ"));
+}
+
+// Ein gelöschtes QSO ist gelöscht, weil es ein Fehler war -- oft
+// genau deshalb, weil der Locator nicht stimmte. Es darf danach weder
+// den Locator vorschlagen noch gegen den richtigen warnen.
+void TestBekannteRufzeichen::aDeletedQsoStopsTeachingItsLocator()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("vergessen.sqlite")), QStringLiteral("vergessen")));
+
+    insertQso(db, QStringLiteral("IARU_R1_VHF_UHF@2025-10-05"), QStringLiteral("DL1ABC"),
+              QStringLiteral("JN58SD"), QStringLiteral("2025-10-05T12:00:00Z"));
+    const QVector<QsoRecord> stored = db.qsosForContest(QStringLiteral("IARU_R1_VHF_UHF@2025-10-05"));
+    QCOMPARE(stored.size(), 1);
+
+    // Solange es im Log steht, ist es das Gedächtnis.
+    QCOMPARE(db.lastKnownGridForCallsign(QStringLiteral("DL1ABC")).value_or(QString()), QStringLiteral("JN58SD"));
+    QVERIFY(db.allWorkedCallsigns().contains(QStringLiteral("DL1ABC")));
+
+    // Gelöscht zählt es nicht mehr -- beide Wege sehen das gleich.
+    QVERIFY(db.deleteQso(stored.first().id));
+    QVERIFY(!db.lastKnownGridForCallsign(QStringLiteral("DL1ABC")).has_value());
+    QVERIFY(!db.allWorkedCallsigns().contains(QStringLiteral("DL1ABC")));
+
+    // Zurückgeholt zählt es wieder.
+    QVERIFY(db.undeleteQso(stored.first().id));
+    QCOMPARE(db.lastKnownGridForCallsign(QStringLiteral("DL1ABC")).value_or(QString()), QStringLiteral("JN58SD"));
 }
 
 int main(int argc, char* argv[])

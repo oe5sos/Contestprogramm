@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QPushButton>
 #include <QStandardPaths>
@@ -71,6 +72,7 @@ private slots:
     void aQsoInTheOwnSquareHasNoBearing();
     void invalidQsosLeaveTheCounts();
     void typingADupeNamesTheEarlierQsoWithNumberAndUtcTime();
+    void theDupeAppearsWhileTypingNotOnlyAfterwards();
 };
 
 void TestLogCorrections::correctedCallsignRescoresTheDupeFlags()
@@ -402,6 +404,41 @@ void TestLogCorrections::invalidQsosLeaveTheCounts()
 
 // The dupe reply (2026-09-21): the log panel's status line names the
 // earlier QSO -- number, UTC time, band -- and that row is selected.
+// "dupe solle sofort mit uhrzeit angezeigt werden" (Martin,
+// 2026-09-27). Der Prüfstand darunter setzt das Rufzeichen in einem
+// Stück; dieser tippt es Zeichen für Zeichen, wie am Contestabend --
+// die Meldung muss mit dem letzten Buchstaben dastehen, ohne Enter und
+// ohne Wartezeit. Seit die Felder beim Tippen in Großbuchstaben
+// umwandeln (2026-09-27), läuft der getippte Weg obendrein anders als
+// der gesetzte.
+void TestLogCorrections::theDupeAppearsWhileTypingNotOnlyAfterwards()
+{
+    QTemporaryDir dir;
+    auto controller = makeController(dir, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    logQso(log, QStringLiteral("OE5AOO"), QStringLiteral("991"), QStringLiteral("JN78CG"));
+
+    auto* lastQso = window.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kLastQsoLabelObjectName));
+    QVERIFY(lastQso);
+    QVERIFY(log->returnToEntryRow());
+    QWidget* callsign = QApplication::focusWidget();
+    QVERIFY(callsign);
+
+    // Klein getippt -- die Dupe-Prüfung darf daran nicht scheitern.
+    QTest::keyClicks(callsign, QStringLiteral("oe5ao"));
+    QVERIFY2(!lastQso->text().startsWith(QStringLiteral("DUPE")), qPrintable(lastQso->text()));
+    QTest::keyClicks(callsign, QStringLiteral("o"));
+    QVERIFY2(lastQso->text().startsWith(QStringLiteral("DUPE: OE5AOO schon geloggt als Nr. 001 um")),
+              qPrintable(lastQso->text()));
+    QVERIFY2(lastQso->text().endsWith(QStringLiteral("auf 144")), qPrintable(lastQso->text()));
+}
+
 void TestLogCorrections::typingADupeNamesTheEarlierQsoWithNumberAndUtcTime()
 {
     QTemporaryDir dir;

@@ -817,12 +817,20 @@ bool ContestDatabase::backupTo(const QString& path, QString* errorOut)
 std::optional<QString> ContestDatabase::lastKnownGridForCallsign(const QString& callsign) const
 {
     QSqlQuery query(m_db);
+    // Der Papierkorb zählt nicht: ein gelöschtes QSO ist gelöscht, weil
+    // es ein Fehler war -- oft genau deshalb, weil der Locator nicht
+    // stimmte. Würde es hier weiter zählen, schlüge das Programm den
+    // falschen Locator weiter vor und warnte obendrein gegen den
+    // richtigen (siehe MainWindow::refreshLocatorCrossCheck).
+    // allWorkedCallsigns() lässt ihn aus demselben Grund aus.
     query.prepare(QStringLiteral(
         "SELECT grid_square FROM qsos "
         "WHERE UPPER(TRIM(callsign)) = UPPER(TRIM(:callsign)) AND is_invalid = 0 "
+        "AND contest_id NOT LIKE :bin "
         "AND grid_square IS NOT NULL AND TRIM(grid_square) != '' "
         "ORDER BY timestamp_utc DESC LIMIT 1"));
     query.bindValue(QStringLiteral(":callsign"), callsign);
+    query.bindValue(QStringLiteral(":bin"), QStringLiteral("%") + deletedBinSuffix());
     if (!query.exec() || !query.next()) {
         return std::nullopt;
     }

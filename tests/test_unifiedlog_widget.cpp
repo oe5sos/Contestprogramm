@@ -68,6 +68,7 @@ private slots:
     void dupeHistoryRowRendersAsDupePill();
     void narrowPanelFitsTheColumnsAndTheEntryRowFollows();
     void bandColoursAppearOnlyOnAManyBandContest();
+    void callsignAndLocatorShowUppercaseWhileTyping();
     void aNewlyLoggedQsoScrollsIntoView();
     void serialsReadAsThreeDigitsEverywhere();
     void dupeDetailReplacesTheLastQsoLine();
@@ -1141,6 +1142,45 @@ void TestUnifiedLogWidget::dupeDetailReplacesTheLastQsoLine()
     widget.setDupeIndicator(false);
     QVERIFY(lastQso->text().startsWith(QStringLiteral("Letzter QSO: OE5AOO")));
     QVERIFY(pill->text().isEmpty());
+}
+
+// Martin, 2026-09-27, mit Bildschirmfoto: im Feld stand "oe5abd", eine
+// Zeile darüber im Log "OE5ABD". Gespeichert wurde immer schon groß --
+// callsign() und die Locator-Felder rufen toUpper auf --, angezeigt
+// beim Tippen nicht. N1MM und DXLog wandeln sofort um.
+void TestUnifiedLogWidget::callsignAndLocatorShowUppercaseWhileTyping()
+{
+    UnifiedLogWidget widget;
+    widget.setExchangeFields(rstSerialGridFields());
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+    QLineEdit* callsign = findEditByPlaceholder(widget, QStringLiteral("Callsign"));
+    QVERIFY(callsign);
+    callsign->setFocus();
+    QTest::keyClicks(callsign, QStringLiteral("oe5abd"));
+    QCOMPARE(callsign->text(), QStringLiteral("OE5ABD"));
+    QCOMPARE(widget.callsign(), QStringLiteral("OE5ABD"));
+    // Der Cursor bleibt, wo er war -- sonst schriebe man rückwärts.
+    QCOMPARE(callsign->cursorPosition(), 6);
+
+    // Weitertippen hängt hinten an, statt vorne einzufügen.
+    QTest::keyClicks(callsign, QStringLiteral("/p"));
+    QCOMPARE(callsign->text(), QStringLiteral("OE5ABD/P"));
+
+    // Dasselbe für den Locator.
+    QLineEdit* grid = findEditByPlaceholder(widget, QStringLiteral("Grid"));
+    QVERIFY(grid);
+    grid->setFocus();
+    QTest::keyClicks(grid, QStringLiteral("jn58sd"));
+    QCOMPARE(grid->text(), QStringLiteral("JN58SD"));
+
+    // Die Nummer bleibt unangetastet -- dort gibt es nichts umzuwandeln.
+    QLineEdit* serial = findEditByPlaceholder(widget, QStringLiteral("Serial"));
+    QVERIFY(serial);
+    serial->setFocus();
+    QTest::keyClicks(serial, QStringLiteral("042"));
+    QCOMPARE(serial->text(), QStringLiteral("042"));
 }
 
 // Not QTEST_APPLESS_MAIN: UnifiedLogWidget is a QWidget subclass, which

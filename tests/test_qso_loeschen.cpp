@@ -17,6 +17,7 @@
 #include "app/ContestSettings.h"
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
+#include <QLabel>
 #include <QTableView>
 
 #include "ui/MainWindow.h"
@@ -37,6 +38,7 @@ private slots:
     void deletedQsoIsOutOfTheExports();
     void cursorOnTheRowAndTheDeleteKey();
     void escapeBringsTheCursorBackToTheEntryRow();
+    void deletingTheLastQsoGivesItsNumberBack();
 };
 
 namespace {
@@ -229,6 +231,50 @@ void TestQsoLoeschen::escapeBringsTheCursorBackToTheEntryRow()
     // Der Fokus steht wieder im Rufzeichenfeld: tippen landet dort.
     QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("OE1XYZ"));
     QCOMPARE(log->callsign(), QStringLiteral("OE1XYZ"));
+}
+
+// Was das Löschen an der eigenen laufenden Nummer ändert. Sie ist
+// MAX(serial_sent) + 1 über das laufende Log: wer das letzte QSO
+// löscht, bekommt dessen Nummer wieder. Das ist so gewollt -- ein
+// versehentliches Enter soll keine Lücke hinterlassen --, und wer
+// mittendrin löscht, ändert an der Zählung nichts.
+//
+// Wichtig ist, dass die Eingabezeile es auch zeigt: sie zeigte weiter
+// die alte, schon vergebene Nummer, bis refreshAfterLogChange() die
+// Vorschau mit neu berechnet hat.
+void TestQsoLoeschen::deletingTheLastQsoGivesItsNumberBack()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("nummer.sqlite"));
+    QVERIFY(controller);
+    const int first = insertQso(*controller, QStringLiteral("DL1ABC"), 1);
+    const int second = insertQso(*controller, QStringLiteral("OE3XYZ"), 2);
+    const int third = insertQso(*controller, QStringLiteral("HB9QQQ"), 3);
+    QVERIFY(first > 0 && second > 0 && third > 0);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* preview = window.findChild<QLabel*>(QStringLiteral("sentExchangePreview"));
+    QVERIFY(preview);
+    QVERIFY2(preview->text().contains(QStringLiteral("004")), qPrintable(preview->text()));
+
+    // Das letzte weg: seine Nummer wird wieder vergeben, und die
+    // Eingabezeile sagt es sofort.
+    emit log->historyDeleteRequested(third);
+    QCOMPARE(controller->database().nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF"), QString()), 3);
+    QVERIFY2(preview->text().contains(QStringLiteral("003")), qPrintable(preview->text()));
+
+    // Eines mittendrin weg: an der Zählung ändert das nichts.
+    emit log->historyDeleteRequested(first);
+    QCOMPARE(controller->database().nextSerialForContest(QStringLiteral("IARU_R1_VHF_UHF"), QString()), 3);
+    QVERIFY2(preview->text().contains(QStringLiteral("003")), qPrintable(preview->text()));
+
+    // Und zurückgeholt zählt es wieder mit. Über den Slot-Namen, weil
+    // das Rückgängig an Strg+Z hängt und keine öffentliche Methode ist.
+    QVERIFY(QMetaObject::invokeMethod(&window, "undoLastDelete"));
+    QCOMPARE(controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF")).size(), 2);
 }
 
 int main(int argc, char* argv[])

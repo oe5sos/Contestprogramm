@@ -3164,6 +3164,13 @@ void MainWindow::undoLastDelete()
 void MainWindow::refreshAfterLogChange()
 {
     refreshLogTable();
+    // Die nächste eigene Nummer ist MAX(serial_sent) + 1 über das
+    // laufende Log (ContestDatabase::nextSerialForContest). Wer das
+    // letzte QSO löscht, bekommt dessen Nummer wieder -- richtig so,
+    // ein versehentliches Enter soll keine Lücke hinterlassen. Ohne
+    // diese Zeile stand in der Eingabezeile aber weiter die alte,
+    // schon vergebene Nummer.
+    refreshSentExchangePreview();
     rescoreDupes();
     recheckDupeIndicator();
     refreshMultiplierAndFeedScores();

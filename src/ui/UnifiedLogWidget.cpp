@@ -275,6 +275,29 @@ QString operatingModeStatusText(ContestSettings::OperatingMode mode)
 // und das fiel neben der Tabelle darüber auf.
 constexpr int kEntryRowHPadding = 6;
 
+// Beim Tippen gleich in Großbuchstaben anzeigen. Gespeichert wurde
+// schon immer groß (callsign() und die Locator-Felder rufen toUpper
+// auf) -- im Feld stand aber, was getippt wurde, und damit zeigte die
+// Eingabezeile etwas anderes an als eine Zeile weiter oben im Log
+// (Martin am 2026-09-27 mit Bildschirmfoto: "oe5abd" im Feld, "OE5ABD"
+// in der Liste). N1MM und DXLog wandeln ebenfalls sofort um.
+//
+// Ohne Signalsperre: die zweite Runde durch textChanged findet Text ==
+// Großtext vor und hört sofort auf, und die Mitleser bekommen dadurch
+// obendrein den endgültigen Wert zu sehen.
+void upshiftWhileTyping(QLineEdit* edit)
+{
+    QObject::connect(edit, &QLineEdit::textChanged, edit, [edit](const QString& text) {
+        const QString upper = text.toUpper();
+        if (upper == text) {
+            return;
+        }
+        const int cursor = edit->cursorPosition();
+        edit->setText(upper);
+        edit->setCursorPosition(cursor);
+    });
+}
+
 QString flatFieldStyle(bool autoFilled)
 {
     // border-radius: 0 ist kein Beiwerk: die App-Vorlage gibt jedem
@@ -1116,6 +1139,7 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // font at all).
     m_callsignEdit->setFont(Style::monoFont(m_callsignEdit->font(), Style::kFontBody));
     m_callsignEdit->setStyleSheet(flatFieldStyle(false));
+    upshiftWhileTyping(m_callsignEdit);
     m_callsignEdit->setFrame(false);
     m_callsignEdit->setTextMargins(kEntryRowHPadding, 0, kEntryRowHPadding, 0);
     // DXLog.net's real model (dxlog.net/docs/index.php/Main_Window,
@@ -1881,6 +1905,7 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
             edit->setMaxLength(2);
         } else if (field.type == QStringLiteral("grid6")) {
             edit->setMaxLength(6);
+            upshiftWhileTyping(edit);
         } else if (field.type == QStringLiteral("rst")) {
             edit->setMaxLength(4); // "59"/"599", occasionally "5NN" etc.
         }
