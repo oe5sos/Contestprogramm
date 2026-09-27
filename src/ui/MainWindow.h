@@ -573,6 +573,12 @@ private:
     QLabel* m_rigctldStatusLabel = nullptr;
     QLabel* m_on4kstStatusLabel = nullptr;
     QLabel* m_clusterStatusLabel = nullptr;
+    // Wann zuletzt gesichert wurde -- fest in der Fußzeile, nicht als
+    // Meldung, die nach fünf Sekunden weg ist. Martin, 2026-09-27:
+    // "automatische speicherung immer wieder". Sie lief auch vorher,
+    // aber zu sehen war sie nur, wenn sie scheiterte; zwischen zwei
+    // Kopien wusste niemand, ob überhaupt noch eine kommt.
+    QLabel* m_backupStatusLabel = nullptr;
     QLabel* m_gridRadiusLabel = nullptr;
     // Rough tropo-ducting indicator (WeatherClient) -- plain readout
     // label, not a connect/disconnect badge, same treatment as

@@ -996,6 +996,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_rigctldStatusLabel = makeStatusBadge(this);
     m_on4kstStatusLabel = makeStatusBadge(this);
     m_clusterStatusLabel = makeStatusBadge(this);
+    m_backupStatusLabel = makeStatusBadge(this);
+    m_backupStatusLabel->setObjectName(QStringLiteral("backupStatus"));
+    setStatusBadge(m_backupStatusLabel, false, QStringLiteral("Gesichert: %1").arg(Style::unknownDash()));
+    m_backupStatusLabel->setToolTip(
+        QStringLiteral("Jedes QSO steht sofort in der Datenbank. Zusätzlich wird jede Minute eine vollständige "
+                        "Kopie abgelegt (Datei › Sicherungen)."));
     m_gridRadiusLabel = new QLabel(this);
     m_gridRadiusLabel->setFont(Style::monoFont(m_gridRadiusLabel->font(), Style::kFontSmall));
     m_gridRadiusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
@@ -1007,6 +1013,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     statusBar()->addPermanentWidget(m_rigctldStatusLabel);
     statusBar()->addPermanentWidget(m_on4kstStatusLabel);
     statusBar()->addPermanentWidget(m_clusterStatusLabel);
+    statusBar()->addPermanentWidget(m_backupStatusLabel);
     statusBar()->addPermanentWidget(m_gridRadiusLabel);
     statusBar()->addPermanentWidget(m_weatherStatusLabel);
     statusBar()->addPermanentWidget(m_modeToggleButton);
@@ -1054,10 +1061,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // into the status bar: a written copy briefly, a failure for longer
     // -- a modal box every five minutes would be worse than the fault.
     if (LogBackup* backup = m_appController.logBackup()) {
-        connect(backup, &LogBackup::backupWritten, this, [this](const QString& path) {
-            statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(QFileInfo(path).fileName()), 5000);
+        connect(backup, &LogBackup::backupWritten, this, [this](const QString& /*path*/) {
+            // Fest in der Fußzeile statt als Meldung: eine Meldung ist
+            // nach fünf Sekunden weg und streitet sich obendrein mit
+            // der Dupe-Meldung um dieselbe Zeile.
+            setStatusBadge(m_backupStatusLabel, true,
+                            QStringLiteral("Gesichert: %1")
+                                .arg(QDateTime::currentDateTimeUtc().time().toString(QStringLiteral("HH:mm"))));
         });
         connect(backup, &LogBackup::backupFailed, this, [this](const QString& error) {
+            setStatusBadge(m_backupStatusLabel, false, QStringLiteral("Sicherung: Fehler"));
             statusBar()->showMessage(QStringLiteral("Log-Sicherung fehlgeschlagen: %1").arg(error), 20000);
         });
     }
