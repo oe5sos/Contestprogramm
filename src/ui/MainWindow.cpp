@@ -356,6 +356,20 @@ qint64 frequencyFromEntry(const QString& text)
     return bandLabelForFrequencyHz(asMhz).isEmpty() ? 0 : asMhz;
 }
 
+// Die Rückrichtung zu contestModeForRigctldMode(): SSB heißt am Gerät
+// USB oder LSB, und welches davon, sagt das Band -- unter 10 MHz LSB,
+// darüber USB, wie es auf allen Bändern üblich ist. Auf UKW ist es
+// immer USB.
+QString rigctldModeForContestMode(const QString& contestMode, const QString& band)
+{
+    const QString mode = contestMode.trimmed().toUpper();
+    if (mode == QStringLiteral("SSB")) {
+        const qint64 baseHz = bandBaseHz(band);
+        return (baseHz > 0 && baseHz < 10000000LL) ? QStringLiteral("LSB") : QStringLiteral("USB");
+    }
+    return mode;
+}
+
 void setStatusBadge(QLabel* label, bool ok, const QString& text)
 {
     label->setText(text);
@@ -392,6 +406,41 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* topBarRow = new QWidget(central);
     auto* topBarLayout = new QHBoxLayout(topBarRow);
     topBarLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Band und Betriebsart, sichtbar und anklickbar. Sie hatten seit
+    // dem Umbau auf CAT keine eigene Bedienung mehr -- die Frequenz des
+    // Funkgeräts bestimmte beides. Martin, 2026-09-27: "alles muss auch
+    // ohne verbindung zum funkgerät passieren", und die UKW-Conteste
+    // sind der Hauptfall. Ohne Gerät stand das Log sonst für immer auf
+    // dem ersten Band des Contests.
+    //
+    // Tucnak, der UKW-Logger in Europa, macht es genauso: ein Bandmenü
+    // auf Alt+B und je Band eine Taste. Hier Alt+B und Alt+M für die
+    // beiden Menüs, dazu Strg+1…9 für die Bänder des Contests in ihrer
+    // Reihenfolge.
+    m_bandButton = new QPushButton(topBarRow);
+    m_bandButton->setObjectName(QStringLiteral("bandButton"));
+    m_bandButton->setCursor(Qt::PointingHandCursor);
+    m_bandButton->setToolTip(QStringLiteral("Band wählen (Alt+B, oder Strg+1…9)"));
+    m_bandButton->setStyleSheet(Style::iconButtonStyle());
+    m_bandButton->setFont(Style::monoFont(m_bandButton->font(), Style::kFontBody));
+    m_bandMenu = new QMenu(this);
+    m_bandMenu->setObjectName(QStringLiteral("bandMenu"));
+    m_bandButton->setMenu(m_bandMenu);
+    topBarLayout->addWidget(m_bandButton);
+
+    m_modeButton = new QPushButton(topBarRow);
+    m_modeButton->setObjectName(QStringLiteral("modeButton"));
+    m_modeButton->setCursor(Qt::PointingHandCursor);
+    m_modeButton->setToolTip(QStringLiteral("Betriebsart wählen (Alt+M)"));
+    m_modeButton->setStyleSheet(Style::iconButtonStyle());
+    m_modeButton->setFont(Style::monoFont(m_modeButton->font(), Style::kFontBody));
+    m_modeMenu = new QMenu(this);
+    m_modeMenu->setObjectName(QStringLiteral("modeMenu"));
+    m_modeButton->setMenu(m_modeMenu);
+    topBarLayout->addWidget(m_modeButton);
+    topBarLayout->addSpacing(12);
+
     auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), topBarRow);
     filterLabel->setFont(Style::capsFont(filterLabel->font()));
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
@@ -1080,6 +1129,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             // above.
             m_currentMode = contestMode;
             m_unifiedLog->setCurrentMode(contestMode);
+            rebuildBandModeControls();
             updateStatusBar();
         }
     });
@@ -1255,6 +1305,22 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             m_appController.rigctldClient().setKeyerSpeed(m_appController.settings().cwSpeedWpm);
         }
     });
+    // Alt+B / Alt+M öffnen die beiden Menüs der obersten Zeile -- wie
+    // Tucnaks Alt+B, damit die Hand die Eingabezeile nicht verlassen
+    // muss.
+    auto* bandMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_B), this);
+    connect(bandMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_bandButton && m_bandButton->isEnabled()) {
+            m_bandButton->showMenu();
+        }
+    });
+    auto* modeMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_M), this);
+    connect(modeMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_modeButton && m_modeButton->isEnabled()) {
+            m_modeButton->showMenu();
+        }
+    });
+
     auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
     wipeShortcut->setContext(Qt::WindowShortcut);
     connect(wipeShortcut, &QShortcut::activated, this, [this]() {
@@ -1718,6 +1784,7 @@ void MainWindow::applyActiveContestDefinition()
         m_unifiedLog->setExchangeFields(def->exchangeFields());
         m_unifiedLog->setContestBandCount(def->bands().size());
         m_unifiedLog->setCurrentBand(m_currentBand);
+        rebuildBandModeControls();
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
@@ -4079,6 +4146,7 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     if (m_unifiedLog) {
         m_unifiedLog->setCurrentBand(m_currentBand);
     }
+    rebuildBandModeControls();
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other
@@ -4093,6 +4161,99 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
 // Auf eine Frequenz gehen: das Funkgerät mitnehmen, wenn eines hängt,
 // und in jedem Fall das Band im Log umstellen -- ohne CAT ist das der
 // einzige Weg dorthin.
+// Band und Betriebsart von Hand: beides geht auch ohne Funkgerät, und
+// mit einem geht es ans Gerät -- sonst überschriebe dessen nächster
+// Abfragetakt die Wahl innerhalb einer Sekunde wieder.
+void MainWindow::chooseBand(const QString& band)
+{
+    if (band.isEmpty() || band == m_currentBand) {
+        return;
+    }
+    const qint64 baseHz = bandBaseHz(band);
+    if (m_appController.rigctldClient().isConnected() && baseHz > 0) {
+        // Auf die untere Bandkante; von dort dreht der Bediener weiter.
+        // Durch den Transverter, wie überall sonst.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(baseHz));
+    }
+    m_currentBand = band;
+    m_typedFrequencyHz = 0; // die Bandkante ist keine gemessene Frequenz
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(band);
+    }
+    syncOn4kstRoomForCurrentBand();
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    refreshBandmap();
+    rebuildBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Band %1").arg(band), 3000);
+}
+
+void MainWindow::chooseMode(const QString& mode)
+{
+    if (mode.isEmpty() || mode == m_currentMode) {
+        return;
+    }
+    if (m_appController.rigctldClient().isConnected()) {
+        m_appController.rigctldClient().setMode(rigctldModeForContestMode(mode, m_currentBand));
+    }
+    m_currentMode = mode;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentMode(mode);
+    }
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    rebuildBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Betriebsart %1").arg(mode), 3000);
+}
+
+void MainWindow::rebuildBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+
+    m_bandMenu->clear();
+    qDeleteAll(m_bandShortcuts);
+    m_bandShortcuts.clear();
+    const QStringList bands = def ? def->bands() : knownBands();
+    int index = 0;
+    for (const QString& band : bands) {
+        QAction* action = m_bandMenu->addAction(band);
+        action->setObjectName(QStringLiteral("bandAction_%1").arg(band));
+        action->setCheckable(true);
+        action->setChecked(band == m_currentBand);
+        connect(action, &QAction::triggered, this, [this, band]() { chooseBand(band); });
+        // Strg+1…9 in der Reihenfolge des Contests -- kürzer als jedes
+        // Menü und unabhängig davon, welche Bänder er führt.
+        if (index < 9) {
+            action->setShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)));
+            auto* shortcut = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)), this);
+            connect(shortcut, &QShortcut::activated, this, [this, band]() { chooseBand(band); });
+            m_bandShortcuts.append(shortcut);
+        }
+        ++index;
+    }
+    m_bandButton->setText(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand);
+    m_bandButton->setEnabled(!bands.isEmpty());
+
+    m_modeMenu->clear();
+    const QStringList modes = def && !def->modes().isEmpty()
+        ? def->modes()
+        : QStringList{QStringLiteral("SSB"), QStringLiteral("CW"), QStringLiteral("FM")};
+    for (const QString& mode : modes) {
+        QAction* action = m_modeMenu->addAction(mode);
+        action->setObjectName(QStringLiteral("modeAction_%1").arg(mode));
+        action->setCheckable(true);
+        action->setChecked(mode == m_currentMode);
+        connect(action, &QAction::triggered, this, [this, mode]() { chooseMode(mode); });
+    }
+    m_modeButton->setText(m_currentMode.isEmpty() ? Style::unknownDash() : m_currentMode);
+    m_modeButton->setEnabled(modes.size() > 1);
+}
+
 void MainWindow::tuneToFrequency(qint64 rfHz)
 {
     const QString bandLabel = bandLabelForFrequencyHz(rfHz);

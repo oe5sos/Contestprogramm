@@ -11,6 +11,7 @@
 
 class QAction;
 class QCloseEvent;
+class QShortcut;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
@@ -421,6 +422,15 @@ private:
     TransverterSetup m_transverter;
     QAction* m_transverterAction = nullptr;
     QMenu* m_windowOptionsMenu = nullptr;
+    // Band und Betriebsart als sichtbare Bedienung in der obersten
+    // Zeile -- der einzige Weg dorthin, solange kein Funkgerät hängt
+    // (Martin, 2026-09-27). Die Menüs werden bei jedem Contestwechsel
+    // aus dessen Bändern/Betriebsarten neu gebaut.
+    QPushButton* m_bandButton = nullptr;
+    QPushButton* m_modeButton = nullptr;
+    QMenu* m_bandMenu = nullptr;
+    QMenu* m_modeMenu = nullptr;
+    QVector<QShortcut*> m_bandShortcuts;
     // Set by handleLogRequested() when Enter met an incomplete exchange
     // (first Enter: focus the missing field); cleared by any entry-row
     // edit. A second Enter in that state logs anyway.
@@ -442,6 +452,15 @@ private:
     // einzige Weg zu einem anderen Band ohne CAT -- ausgelöst durch
     // eine Zahl im Rufzeichenfeld, wie bei N1MM und DXLog.
     void tuneToFrequency(qint64 rfHz);
+    // Band bzw. Betriebsart von Hand wählen. Hängt ein Funkgerät dran,
+    // wird es mitgenommen (QSY auf die Bandkante, Betriebsart gesetzt)
+    // -- sonst überschriebe sein nächster Abfragetakt die Wahl sofort
+    // wieder. Ohne Gerät gilt sie einfach im Log.
+    void chooseBand(const QString& band);
+    void chooseMode(const QString& mode);
+    // Baut die beiden Menüs aus dem laufenden Contest und schreibt den
+    // aktuellen Stand auf die Knöpfe.
+    void rebuildBandModeControls();
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not

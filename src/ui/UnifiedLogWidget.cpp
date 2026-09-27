@@ -1633,6 +1633,7 @@ void UnifiedLogWidget::applyEntryRowWidths()
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
     const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
                                 : columnWidthFor(ColExchSent);
+    m_sentExchangeLabel->setObjectName(QStringLiteral("sentExchangePreview"));
     m_sentExchangeLabel->setFixedSize(sentWidth, rowHeight);
     // The cells of columns that gave way (see kGiveWayOrder) go with
     // them, so the row keeps lining up with the table.
