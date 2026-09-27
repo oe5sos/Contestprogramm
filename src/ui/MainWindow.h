@@ -169,6 +169,10 @@ private slots:
     void handleHistoryDeleteRequested(int qsoId);
     void undoLastDelete();
     void refreshAfterLogChange();
+    // Der getippte Locator gegen den bekannten (Tucnaks
+    // "cross control couple callsign - locator").
+    void refreshLocatorCrossCheck(const QString& typedGrid);
+    QString knownGridForCallsign(const QString& callsign) const;
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void restoreBackup();

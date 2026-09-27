@@ -248,6 +248,14 @@ public:
     // den Text der Pille zu lesen.
     bool dupeIndicatorActive() const { return m_dupe; }
 
+    // Eine Warnung über dem zuletzt geloggten QSO -- heute: der
+    // getippte Locator passt nicht zu dem, unter dem diese Station
+    // bekannt ist (Tucnaks "cross control couple callsign - locator").
+    // Sie steht über der Info-Zeile, aber unter der DUPE-Meldung: ein
+    // Dupe ist die härtere Aussage. Leer blendet sie aus.
+    void setEntryWarning(const QString& text);
+    QString entryWarning() const { return m_entryWarning; }
+
     // The exchange this program would send right now (own grid + next
     // serial) -- shown read-only in the "Ges." field on the right of
     // the entry row (dim/amber, per the approved mockup).
@@ -725,6 +733,7 @@ private:
     // derselben Zeile wie "Letzter QSO", hinter dem Dupe-Hinweis: die
     // Nummer eines Doppels ist dringender als die Sonne am anderen Ende.
     QString m_dxInfoLine;
+    QString m_entryWarning;
 
     // The entry row's Time cell -- a live-ticking clock (HH:mm UTC,
     // matching LogTableModel::ColumnTime's own format exactly) rather

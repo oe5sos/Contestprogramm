@@ -829,6 +829,38 @@ std::optional<QString> ContestDatabase::lastKnownGridForCallsign(const QString& 
     return query.value(0).toString().trimmed().toUpper();
 }
 
+QHash<QString, QString> ContestDatabase::allWorkedCallsigns() const
+{
+    QHash<QString, QString> result;
+    QSqlQuery query(m_db);
+    // Nach der Zeit sortiert, damit der zuletzt gehörte Locator
+    // gewinnt: eine Station, die umgezogen ist, steht mit dem neuen
+    // Quadrat da, nicht mit dem von vorletztem Jahr.
+    query.prepare(QStringLiteral("SELECT callsign, grid_square FROM qsos WHERE is_invalid = 0 "
+                                  "AND contest_id NOT LIKE :bin ORDER BY timestamp_utc"));
+    // Das Muster aus der Konstanten, nicht abgeschrieben -- sonst
+    // driften die beiden auseinander.
+    query.bindValue(QStringLiteral(":bin"), QStringLiteral("%") + deletedBinSuffix());
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        const QString call = query.value(0).toString().trimmed().toUpper();
+        if (call.isEmpty()) {
+            continue;
+        }
+        const QString grid = query.value(1).toString().trimmed().toUpper();
+        // Ein leerer Locator darf einen bekannten nicht überschreiben --
+        // auf Kurzwelle tauscht niemand einen, und das Rufzeichen soll
+        // trotzdem in die Liste.
+        if (grid.isEmpty() && result.contains(call)) {
+            continue;
+        }
+        result.insert(call, grid);
+    }
+    return result;
+}
+
 QHash<QString, QString> ContestDatabase::allImportedLocators() const
 {
     QHash<QString, QString> result;

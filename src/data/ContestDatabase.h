@@ -180,6 +180,19 @@ public:
     // Band?" Die Dupe-Pille beantwortet nur das laufende Band.
     QStringList bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const;
 
+    // Jedes Rufzeichen, das in DIESER Datenbank schon einmal gearbeitet
+    // wurde, samt zuletzt gehörtem Locator -- über alle Contests
+    // hinweg, also auch die archivierten. Ungültige QSOs und der
+    // Papierkorb zählen nicht.
+    //
+    // Martin, 2026-09-27: "bekannte rufzeichen aus ukw contest logs und
+    // auch qrz, aber insbesondere ehemalige logs bei ukw sind primär".
+    // Genau die standen der Vorschlagsliste bis dahin nicht zur
+    // Verfügung: sie kannte nur den laufenden Contest, die importierte
+    // Locator-Liste und die SCP-Datei. Wer jedes Jahr vom selben Berg
+    // fährt, trifft aber jedes Jahr dieselben Stationen.
+    QHash<QString, QString> allWorkedCallsigns() const;
+
     // Skeds (core/SkedList.h), one table for every contest, keyed by
     // contest_id like the QSOs. A restart mid-contest keeps them.
     bool insertSked(const QString& contestId, Sked& sked);

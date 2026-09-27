@@ -2420,6 +2420,15 @@ void UnifiedLogWidget::syncEntryRowWidth()
     m_entryRow->resize(m_entryRow->sizeHint());
 }
 
+void UnifiedLogWidget::setEntryWarning(const QString& text)
+{
+    if (m_entryWarning == text) {
+        return;
+    }
+    m_entryWarning = text;
+    updateStatusLine();
+}
+
 void UnifiedLogWidget::updateStatusLine()
 {
     // LogTableModel keeps its own ascending (oldest-first, ORDER BY id
@@ -2436,6 +2445,14 @@ void UnifiedLogWidget::updateStatusLine()
         m_lastQsoLabel->setStyleSheet(
             QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
         m_lastQsoLabel->setText(m_dupeDetail);
+    } else if (!m_entryWarning.isEmpty()) {
+        // Der getippte Locator widerspricht dem, unter dem die Station
+        // bekannt ist. Bernstein wie beim Dupe: es ist keine Sperre,
+        // sondern ein Hinweis -- vielleicht ist sie umgezogen, dann
+        // stimmt der neue.
+        m_lastQsoLabel->setStyleSheet(
+            QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
+        m_lastQsoLabel->setText(m_entryWarning);
     } else if (!m_dxInfoLine.isEmpty()) {
         // Während ein Rufzeichen dasteht, zählt, was über diese Station
         // bekannt ist -- Land, Richtung, Entfernung, Sonne dort (siehe

@@ -2888,6 +2888,7 @@ void MainWindow::refreshMultiplierHint(const QString& grid)
 void MainWindow::handleReceivedGridChanged(const QString& grid)
 {
     refreshDxInfoLine();
+    refreshLocatorCrossCheck(grid);
     const ContestSettings settings = m_appController.settings();
     if (!isValidGridSquare(settings.ownGrid) || !isValidGridSquare(grid)) {
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);
@@ -2896,6 +2897,65 @@ void MainWindow::handleReceivedGridChanged(const QString& grid)
     const double distanceKm = calculateDistanceKm(settings.ownGrid, grid);
     m_unifiedLog->setEntryDistanceBearing(distanceKm,
                                            bearingIfApart(distanceKm, calculateBearingInDegrees(settings.ownGrid, grid)));
+}
+
+// Tucnaks "cross control couple callsign - locator": der getippte
+// Locator gegen den, unter dem diese Station bekannt ist. Auf UKW ist
+// der Locator der Austausch -- ein Tippfehler darin kostet das QSO bei
+// der Auswertung, und er fällt sonst niemandem auf.
+//
+// Gewarnt wird, nicht gesperrt: eine Station kann umgezogen sein oder
+// von einem anderen Standort fahren, dann stimmt der neue Locator. Und
+// nur ab vier Zeichen, sonst meldet sich die Zeile schon beim Tippen
+// des zweiten.
+void MainWindow::refreshLocatorCrossCheck(const QString& typedGrid)
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    const QString typed = typedGrid.trimmed().toUpper();
+    const QString call = m_unifiedLog->callsign().trimmed().toUpper();
+    if (call.isEmpty() || typed.size() < 4) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    const QString known = knownGridForCallsign(call);
+    if (known.isEmpty()) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    // Auf der Länge vergleichen, die beide haben: wer JN58SD kennt und
+    // JN58 tippt, hat keinen Widerspruch getippt, sondern weniger.
+    const int length = std::min(typed.size(), known.size());
+    if (typed.left(length) == known.left(length)) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    m_unifiedLog->setEntryWarning(
+        QStringLiteral("%1 ist bekannt als %2 — getippt: %3").arg(call, known, typed));
+}
+
+// Der Locator, unter dem eine Station bekannt ist -- in derselben
+// Reihenfolge, die handleCallsignLookupRequested() für das Vorbelegen
+// benutzt, aber ohne den Netzweg: dieser hier läuft bei jedem
+// Tastendruck.
+QString MainWindow::knownGridForCallsign(const QString& callsign) const
+{
+    const ContestSettings settings = m_appController.settings();
+    if (const auto known = m_appController.database().knownExchangeForCallsign(callsign, settings.activeContestId)) {
+        if (!known->gridSquare.trimmed().isEmpty()) {
+            return known->gridSquare.trimmed().toUpper();
+        }
+    }
+    if (const auto earlier = m_appController.database().lastKnownGridForCallsign(callsign)) {
+        if (!earlier->trimmed().isEmpty()) {
+            return earlier->trimmed().toUpper();
+        }
+    }
+    if (const auto local = m_appController.callsignLocatorLookup().lookupLocal(callsign)) {
+        return local->trimmed().toUpper();
+    }
+    return QString();
 }
 
 void MainWindow::handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign)
@@ -3429,7 +3489,24 @@ void MainWindow::reloadCheckPartialSources()
         }
     }
     m_checkPartialIndex.setLogCalls(logCalls);
-    m_checkPartialIndex.setHistoryCalls(m_appController.database().allImportedLocators());
+
+    // Die Historie: erst die importierte/zwischengespeicherte
+    // Locator-Liste, darüber die eigenen früheren Logs. Die eigenen
+    // gewinnen bei einem Widerspruch -- Martin, 2026-09-27:
+    // "insbesondere ehemalige logs bei ukw sind primär die benchmark".
+    // Wer jedes Jahr vom selben Berg fährt, trifft jedes Jahr dieselben
+    // Stationen; bis dahin kannte die Vorschlagsliste sie nicht.
+    QHash<QString, QString> history = m_appController.database().allImportedLocators();
+    const QHash<QString, QString> worked = m_appController.database().allWorkedCallsigns();
+    for (auto it = worked.constBegin(); it != worked.constEnd(); ++it) {
+        // Ein leerer Locator aus dem eigenen Log darf einen bekannten
+        // aus der Liste nicht löschen -- das Rufzeichen zählt trotzdem.
+        if (it.value().isEmpty() && history.contains(it.key())) {
+            continue;
+        }
+        history.insert(it.key(), it.value());
+    }
+    m_checkPartialIndex.setHistoryCalls(history);
 
     // The SCP list is loaded once from the remembered path; a missing
     // or unreadable file just leaves that source empty (and the panel's
