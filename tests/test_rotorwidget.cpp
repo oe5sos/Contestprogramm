@@ -352,7 +352,10 @@ void TestRotorWidgetOptionsPopup::aFarTargetAddsTheLongPathEntry()
     // Ohne Ziel bleibt das Menü, wie es war.
     QMenu* menu = openOptionsMenu(widget);
     QVERIFY(menu);
-    QCOMPARE(menu->actions().size(), 4);
+    // Vier Anzeigestile, dann ein Trenner und die beiden Einträge für
+    // die zweite Antenne (2026-09-27) -- der lange Weg kommt erst mit
+    // einem weiten Ziel dazu.
+    QCOMPARE(menu->actions().size(), 7);
     // Schließen UND abräumen lassen: das Menü löscht sich per
     // WA_DeleteOnClose, aber erst über die Ereignisschleife -- sonst
     // findet findChild() unten noch das alte.
@@ -383,7 +386,8 @@ void TestRotorWidgetOptionsPopup::clickingOptionsButtonOpensMenuWithFourStyleEnt
     RotorWidget widget(QStringLiteral("2m"));
     QMenu* menu = openOptionsMenu(widget);
     QVERIFY(menu);
-    QCOMPARE(menu->actions().size(), 4);
+    // Vier Anzeigestile, Trenner, zweite Antenne an/aus, ihr Versatz.
+    QCOMPARE(menu->actions().size(), 7);
     // Same labels as SettingsDialog's own "Rotor-Anzeige" combo, in the
     // same order (RotorDialStyle::FullCompass/LinearScale/PartialArc/
     // Digital).
@@ -391,6 +395,17 @@ void TestRotorWidgetOptionsPopup::clickingOptionsButtonOpensMenuWithFourStyleEnt
     QCOMPARE(menu->actions().at(1)->text(), QStringLiteral("Skala (linear)"));
     QCOMPARE(menu->actions().at(2)->text(), QStringLiteral("Rotor-Box (Bogen)"));
     QCOMPARE(menu->actions().at(3)->text(), QStringLiteral("Digital (Zahlen)"));
+
+    // Die zweite Antenne: aus, und der Versatz darum nicht anwählbar --
+    // ein Versatz ohne zweite Richtung ergibt nichts (Martin,
+    // 2026-09-27: "wenn es nur eine richtung gibt, dann kein versatz").
+    QVERIFY(menu->actions().at(4)->isSeparator());
+    QCOMPARE(menu->actions().at(5)->text(), QStringLiteral("Zweite Antenne"));
+    QVERIFY(menu->actions().at(5)->isCheckable());
+    QVERIFY(!menu->actions().at(5)->isChecked());
+    QVERIFY2(menu->actions().at(6)->text().startsWith(QStringLiteral("Versatz der zweiten Antenne")),
+              qPrintable(menu->actions().at(6)->text()));
+    QVERIFY(!menu->actions().at(6)->isEnabled());
 }
 
 void TestRotorWidgetOptionsPopup::currentStyleStartsCheckedInTheMenu()
