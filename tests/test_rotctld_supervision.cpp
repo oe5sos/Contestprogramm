@@ -139,7 +139,14 @@ void TestRotctldSupervision::startsAfterTheClientFailsAndFollowsTheSettings()
     // that -- not the settings save itself -- starts our rotctld.
     QTRY_VERIFY_WITH_TIMEOUT(controller.rotctldRunning(1), 5000);
     QVERIFY(!controller.rotctldRunning(2));
-    QTRY_VERIFY_WITH_TIMEOUT(!readArgs(argsFile).isEmpty(), 3000);
+    // 8 s wie bei der Gerätewechsel-Prüfung weiter unten, nicht 3: hier
+    // wartet der Prüfstand darauf, dass ein frisch gestarteter Prozess
+    // seine Aufrufzeile in eine Datei schreibt. Auf einem ausgelasteten
+    // Rechner dauert das länger als drei Sekunden -- am 2026-09-27
+    // gemessen: "4100 ms would have been sufficient". Gemessen wird
+    // hier "der Prozess schreibt seine Argumente", nicht "er tut es
+    // binnen drei Sekunden".
+    QTRY_VERIFY_WITH_TIMEOUT(!readArgs(argsFile).isEmpty(), 8000);
     const QString args = readArgs(argsFile);
     QVERIFY2(args.contains(QStringLiteral("-m 601")), qPrintable(args));
     QVERIFY2(args.contains(QStringLiteral("-r /dev/tty.fake-A")), qPrintable(args));
