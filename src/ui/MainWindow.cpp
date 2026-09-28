@@ -1526,7 +1526,47 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
         {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
         {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
     };
+    // Panels als eigene Fenster ablösen -- Martin, 2026-09-28: "schön
+    // wäre es, ein windows zu haben, wo ich alle windows auch aber auch
+    // rausziehen kann um platz zu sparen. das haben wir bei longpath
+    // auch erledigt." Dort heißt das Menü "Containers"; die Bedienung
+    // ist dieselbe, samt "Zurück über das ✕ am Fenster".
+    auto* ablösenMenu = windowMenu->addMenu(QStringLiteral("Als eigenes &Fenster"));
+    ablösenMenu->setObjectName(QStringLiteral("floatPanelsMenu"));
+    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = ablösenMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("float_%1").arg(entry.id));
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id](bool floating) {
+            m_panelLayoutManager->setPanelFloating(id, floating);
+        });
+        // Beim Aufklappen den Stand nachziehen -- ein Panel kann auch
+        // über das ✕ seines Fensters zurückgedockt sein.
+        connect(ablösenMenu, &QMenu::aboutToShow, this, [this, action, id = entry.id]() {
+            if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+                QSignalBlocker blocker(action);
+                action->setChecked(panel->isFloating());
+            }
+        });
+    }
+    ablösenMenu->addSeparator();
+    QAction* alleAblösen = ablösenMenu->addAction(QStringLiteral("Alle ablösen"));
+    alleAblösen->setObjectName(QStringLiteral("floatAllPanels"));
+    connect(alleAblösen, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, true);
+        }
+    });
+    QAction* alleAndocken = ablösenMenu->addAction(QStringLiteral("Alle wieder andocken"));
+    alleAndocken->setObjectName(QStringLiteral("dockAllPanels"));
+    connect(alleAndocken, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, false);
+        }
+    });
+
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
         QAction* action = panelsMenu->addAction(entry.label);

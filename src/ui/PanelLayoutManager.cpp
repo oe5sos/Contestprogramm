@@ -166,6 +166,11 @@ PanelContainerWidget* PanelLayoutManager::registerPanel(const QString& id, const
             it.value().desiredGeometry = rect;
         }
     });
+    container->setDockTarget(m_canvas);
+    connect(container, &PanelContainerWidget::floatingChanged, this, [this, id](bool) {
+        // Auch der Rückweg über das ✕ des Fensters gehört gemerkt.
+        saveLayout(id);
+    });
     container->installEventFilter(this);
 
     PanelEntry entry;
@@ -232,6 +237,25 @@ void PanelLayoutManager::loadLayoutForPanel(const QString& id, PanelContainerWid
     // uses for ContainerWidget::deserialize() + setLocked().
     container->trySetGeometry(QRect(x, y, w, h));
     container->setLocked(parts[4].compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0);
+
+    // War es abgelöst, kommt es abgelöst zurück -- an derselben Stelle
+    // auf dem Schirm. Wer ein Panel auf den zweiten Bildschirm legt,
+    // will es dort beim nächsten Start wiederfinden.
+    if (parts.size() >= 10 && parts[5] == QStringLiteral("float")) {
+        bool fxOk = false;
+        bool fyOk = false;
+        bool fwOk = false;
+        bool fhOk = false;
+        const int fx = parts[6].toInt(&fxOk);
+        const int fy = parts[7].toInt(&fyOk);
+        const int fw = parts[8].toInt(&fwOk);
+        const int fh = parts[9].toInt(&fhOk);
+        container->setDockTarget(m_canvas);
+        container->setFloating(true);
+        if (fxOk && fyOk && fwOk && fhOk) {
+            container->setGeometry(QRect(fx, fy, fw, fh));
+        }
+    }
 }
 
 void PanelLayoutManager::finalizeInitialLayout()
@@ -327,6 +351,27 @@ void PanelLayoutManager::clampPanelsToCanvas()
 // Die gewollte Lage eines Panels; ohne gemerkte die aktuelle (ein
 // Panel, das nie durch registerPanel gegangen ist, gibt es nicht --
 // die Rückfallebene ist reine Vorsicht).
+void PanelLayoutManager::setPanelFloating(const QString& id, bool floating)
+{
+    const auto it = m_panels.find(id);
+    if (it == m_panels.end() || !it.value().container) {
+        return;
+    }
+    PanelContainerWidget* container = it.value().container;
+    if (container->isFloating() == floating) {
+        return;
+    }
+    container->setDockTarget(m_canvas);
+    container->setFloating(floating);
+    saveLayout(id);
+}
+
+bool PanelLayoutManager::isPanelFloating(const QString& id) const
+{
+    const auto it = m_panels.constFind(id);
+    return it != m_panels.constEnd() && it.value().container && it.value().container->isFloating();
+}
+
 bool PanelLayoutManager::applyTransientGeometry(PanelContainerWidget* container, const QRect& rect)
 {
     if (!container) {
@@ -399,13 +444,26 @@ void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
 namespace {
 QString serializeGeometry(const PanelContainerWidget* container)
 {
-    const QRect g = container->geometry();
-    return QStringLiteral("%1|%2|%3|%4|%5")
-        .arg(g.x())
-        .arg(g.y())
-        .arg(g.width())
-        .arg(g.height())
-        .arg(container->isLocked() ? QStringLiteral("true") : QStringLiteral("false"));
+    // Bei einem abgelösten Panel ist geometry() die Lage AUF DEM SCHIRM,
+    // nicht die in der Fläche -- die merkt sich das Panel selbst für den
+    // Rückweg. Gespeichert wird also beides: die Lage in der Fläche
+    // (damit ein Andocken dort landet, wo es herkam) und dahinter, dass
+    // es abgelöst ist, mit seiner Fensterlage.
+    const QRect g = container->isFloating() ? container->dockedGeometry() : container->geometry();
+    QString wert = QStringLiteral("%1|%2|%3|%4|%5")
+                       .arg(g.x())
+                       .arg(g.y())
+                       .arg(g.width())
+                       .arg(g.height())
+                       .arg(container->isLocked() ? QStringLiteral("true") : QStringLiteral("false"));
+    // Feld 6 aufwärts: abgelöst und wo. Ältere Stände haben es nicht --
+    // loadLayoutForPanel() kommt damit zurecht (parts.size() < 5 ist die
+    // einzige harte Grenze), also bleibt eine alte Datenbank lesbar.
+    if (container->isFloating()) {
+        const QRect f = container->geometry();
+        wert += QStringLiteral("|float|%1|%2|%3|%4").arg(f.x()).arg(f.y()).arg(f.width()).arg(f.height());
+    }
+    return wert;
 }
 } // namespace
 

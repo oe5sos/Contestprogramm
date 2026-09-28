@@ -164,6 +164,13 @@ public:
     // layout ist auch wieder anders geworden").
     bool applyTransientGeometry(PanelContainerWidget* container, const QRect& rect);
 
+    // Ein Panel als eigenes Fenster ablösen oder wieder andocken --
+    // siehe PanelContainerWidget::setFloating(). Der Zustand wird
+    // gemerkt: ein abgelöstes Panel ist beim nächsten Start wieder
+    // abgelöst, an derselben Stelle auf dem Schirm.
+    void setPanelFloating(const QString& id, bool floating);
+    bool isPanelFloating(const QString& id) const;
+
 protected:
     // Watches canvas() for QEvent::Resize -- see clampPanelsToCanvas()'s
     // own comment for why the clamp has to live here rather than in

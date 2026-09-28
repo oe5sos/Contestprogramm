@@ -136,6 +136,54 @@ bool PanelContainerWidget::trySetGeometry(const QRect& rect)
     return true;
 }
 
+void PanelContainerWidget::setFloating(bool floating)
+{
+    if (m_floating == floating) {
+        return;
+    }
+    if (floating) {
+        // Die Lage in der Fläche merken, damit der Rückweg dort landet,
+        // wo das Panel herkam.
+        m_dockedGeometry = geometry();
+        if (!m_dockTarget) {
+            m_dockTarget = parentWidget();
+        }
+        const QPoint aufDemSchirm = mapToGlobal(QPoint(0, 0));
+        setParent(nullptr);
+        setWindowFlag(Qt::Window, true);
+        setWindowTitle(m_id);
+        // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
+        move(aufDemSchirm);
+        resize(m_dockedGeometry.size());
+        show();
+        raise();
+        activateWindow();
+    } else {
+        setWindowFlag(Qt::Window, false);
+        setParent(m_dockTarget);
+        if (m_dockedGeometry.isValid()) {
+            setGeometry(m_dockedGeometry);
+        }
+        show();
+        raise();
+    }
+    m_floating = floating;
+    emit floatingChanged(m_floating);
+}
+
+void PanelContainerWidget::closeEvent(QCloseEvent* event)
+{
+    if (m_floating) {
+        // Nicht schließen, sondern andocken. Ein Panel, das man
+        // wegklicken kann und das dann nirgends mehr steht, wäre eine
+        // Falle -- der Bediener sucht es im Fenster und findet es nicht.
+        event->ignore();
+        setFloating(false);
+        return;
+    }
+    QWidget::closeEvent(event);
+}
+
 void PanelContainerWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
