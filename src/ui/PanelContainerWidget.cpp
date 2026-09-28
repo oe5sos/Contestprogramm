@@ -16,6 +16,7 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
                                             bool contentHasOwnChrome, QWidget* parent)
     : QWidget(parent)
     , m_id(id)
+    , m_title(title)
     , m_contentHasOwnChrome(contentHasOwnChrome)
     , m_content(content)
 {
@@ -151,7 +152,7 @@ void PanelContainerWidget::setFloating(bool floating)
         const QPoint aufDemSchirm = mapToGlobal(QPoint(0, 0));
         setParent(nullptr);
         setWindowFlag(Qt::Window, true);
-        setWindowTitle(m_id);
+        setWindowTitle(m_title.isEmpty() ? m_id : m_title);
         // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
         move(aufDemSchirm);
         resize(m_dockedGeometry.size());
@@ -207,6 +208,7 @@ void PanelContainerWidget::beginDrag(const QPoint& globalPos)
     m_dragging = true;
     raise();
     m_dragStartOffset = globalPos - pos();
+    m_lastDragGlobal = globalPos;
 }
 
 void PanelContainerWidget::updateDrag(const QPoint& globalPos)
@@ -214,6 +216,7 @@ void PanelContainerWidget::updateDrag(const QPoint& globalPos)
     if (!m_dragging) {
         return;
     }
+    m_lastDragGlobal = globalPos;
     QPoint newPos = globalPos - m_dragStartOffset;
     // Clamped to the parent canvas -- same overlay-docked behavior as
     // ContainerWidget::updateDrag()'s non-floating branch.
@@ -234,6 +237,17 @@ void PanelContainerWidget::endDrag()
         return;
     }
     m_dragging = false;
+    // Wo der Zeiger losgelassen wurde -- daran hängt, ob das Panel in
+    // den Seitenbereich fällt. Martin, 2026-09-28: "karte verbindungen
+    // kann ich aber nicht reinziehen." Über das Menü ging es schon; mit
+    // der Maus hineinziehen ist der Weg, den er erwartet, und den
+    // Longpath auch anbietet.
+    // Die zuletzt GEMELDETE Zeigerposition, nicht QCursor::pos(): bei
+    // einem von außen eingespeisten Zug (Bedienungshilfen, meine eigene
+    // Live-Prüfung) steht der Zeiger beim Loslassen schon wieder am
+    // Ausgangspunkt -- das Panel wäre dann nie im Seitenbereich
+    // gelandet, obwohl es dort losgelassen wurde.
+    emit dragFinished(m_lastDragGlobal);
     emit geometryEdited();
 }
 

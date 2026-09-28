@@ -57,6 +57,7 @@
 #include "ui/PanelContainerWidget.h"
 #include "ui/PanelHeaderBar.h"
 #include "ui/PanelLayoutManager.h"
+#include "ui/SideAreaWidget.h"
 #include "ui/ProfileRail.h"
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
@@ -973,7 +974,49 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                 &MainWindow::showChatOptionsPopup);
     }
 
+    // Der Seitenbereich: eine schmale Leiste, dahinter teilen sich
+    // mehrere Panels ein Fenster. Martin, 2026-09-28: "ich möchte wie
+    // bei longpath eine leiste haben, wo mehrere fenster untergebracht
+    // sind, welches ich mit klicken öffne" -- dort ist das
+    // SideAreaWindow (Zweig feature/seitenbereich), und die Bedienung
+    // ist hier dieselbe: Klick auf ein inaktives Symbol zeigt dessen
+    // Panel, Klick auf das aktive klappt zu.
+    //
+    // Ohne Vorgabe im kompakten Entwurf, wie der Chat: die Fläche ist
+    // dort voll. Eingeschaltet wird er über Fenster > Panels.
+    m_sideArea = new SideAreaWidget(this);
+    connect(m_sideArea, &SideAreaWidget::removeRequested, this, [this](const QString& id) {
+        takePanelOutOfSideArea(id);
+    });
+    // Welche Seite oben liegt und ob der Bereich zugeklappt ist, gehört
+    // zur Lage dazu -- sonst steht nach dem Neustart eine andere Seite
+    // vorne als beim Beenden.
+    connect(m_sideArea, &SideAreaWidget::activeChanged, this, [this](const QString&) { saveSideAreaState(); });
+    connect(m_sideArea, &SideAreaWidget::collapsedChanged, this, [this](bool) { saveSideAreaState(); });
+    m_panelLayoutManager->registerPanel(QStringLiteral("sidearea"), QStringLiteral("Seitenbereich"),
+                                         m_sideArea, /*contentHasOwnChrome=*/false,
+                                         QRect(1100, 78, 340, 600));
+
+    // Ein Panel, das über dem Seitenbereich losgelassen wird, fällt
+    // hinein. Martin, 2026-09-28: "karte verbindungen kann ich aber
+    // nicht reinziehen" -- über das Menü ging es schon, aber ziehen ist
+    // der Weg, den man erwartet (und den Longpath anbietet).
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
+                               QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
+                               QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
+                               QStringLiteral("skeds"), QStringLiteral("chat")}) {
+        if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+            connect(panel, &PanelContainerWidget::dragFinished, this,
+                    [this, id](const QPoint& globalPos) { dropPanelIfOverSideArea(id, globalPos); });
+        }
+    }
+
     m_panelLayoutManager->finalizeInitialLayout();
+
+    // Erst jetzt, wo jedes Panel seine gespeicherte Lage hat: die
+    // gemerkte Lage merkt sich beim Hineinlegen genau diese Geometrie
+    // als Zuhause für den Rückweg.
+    restoreSideAreaState();
 
     // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
     // -- Longpath's own ProfileRail sits at the very left, full window
@@ -1566,6 +1609,28 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             m_panelLayoutManager->setPanelFloating(entry.id, false);
         }
     });
+
+    // Panels in den Seitenbereich legen -- dort teilen sie sich ein
+    // Fenster, und man klickt zwischen ihnen um, statt sie nebeneinander
+    // zu quetschen. Genau dafür ist er da (siehe SideAreaWidget).
+    auto* seitenbereichMenu = windowMenu->addMenu(QStringLiteral("In den &Seitenbereich"));
+    seitenbereichMenu->setObjectName(QStringLiteral("sideAreaMenu"));
+    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = seitenbereichMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("side_%1").arg(entry.id));
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id, label = entry.label](bool hinein) {
+            if (hinein) {
+                putPanelIntoSideArea(id, label);
+            } else {
+                takePanelOutOfSideArea(id);
+            }
+        });
+        connect(seitenbereichMenu, &QMenu::aboutToShow, this, [this, action, id = entry.id]() {
+            QSignalBlocker blocker(action);
+            action->setChecked(m_sideArea && m_sideArea->hasPage(id));
+        });
+    }
 
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
@@ -2601,6 +2666,124 @@ void MainWindow::showChatOptionsPopup()
     connect(reichweite, &QAction::triggered, this, &MainWindow::openSettingsDialog);
 
     menu->exec(QCursor::pos());
+}
+
+// Wurde das Panel über dem Seitenbereich losgelassen? Dann fällt es
+// hinein. Der Titel kommt aus dem Menü-Eintrag desselben Panels, damit
+// in der Leiste dasselbe Kürzel steht wie überall sonst.
+void MainWindow::dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || id == QStringLiteral("sidearea")) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (!bereichPanel || bereichPanel->isHidden()) {
+        return; // ein versteckter Bereich fängt nichts auf
+    }
+    const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+    if (!bereichAufDemSchirm.contains(globalPos)) {
+        return;
+    }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel || m_sideArea->hasPage(id)) {
+        return;
+    }
+    putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
+}
+
+// Der Seitenbereich überlebt den Neustart. Ohne das lag nach jedem
+// Start wieder alles auf der Fläche, und man müsste Chat, Skeds und
+// Karte jedes Mal von Hand hineinlegen -- genau die Handgriffe, die
+// der Bereich einem abnehmen soll.
+void MainWindow::saveSideAreaState()
+{
+    if (!m_sideArea || m_restoringSideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    db.setSettingValue(QStringLiteral("panel.sidearea.pages"), m_sideArea->pageIds().join(QLatin1Char(',')));
+    db.setSettingValue(QStringLiteral("panel.sidearea.active"), m_sideArea->activeId());
+    db.setSettingValue(QStringLiteral("panel.sidearea.collapsed"),
+                       m_sideArea->isCollapsed() ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
+void MainWindow::restoreSideAreaState()
+{
+    if (!m_sideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    const QString raw = db.settingValue(QStringLiteral("panel.sidearea.pages"));
+    if (raw.isEmpty()) {
+        return;
+    }
+    // Während des Wiederherstellens nicht zurückschreiben: addPage()
+    // setzt jede Seite kurz aktiv, das würde die gespeicherte aktive
+    // Seite unterwegs überschreiben.
+    m_restoringSideArea = true;
+    for (const QString& id : raw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+        if (!panel) {
+            continue; // eine Kennung, die es nicht mehr gibt, wird still übergangen
+        }
+        putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
+    }
+    const QString active = db.settingValue(QStringLiteral("panel.sidearea.active"));
+    if (!active.isEmpty() && m_sideArea->hasPage(active)) {
+        m_sideArea->setActive(active);
+    }
+    if (db.settingValue(QStringLiteral("panel.sidearea.collapsed")) == QStringLiteral("1")) {
+        m_sideArea->setCollapsed(true);
+    }
+    m_restoringSideArea = false;
+}
+
+// Ein Panel in den Seitenbereich legen: es verlässt die Fläche und
+// wird eine Seite im Bereich. Der Behälter wandert mit -- samt Kopfzeile,
+// Schloss und ⚙, damit dort dieselben Handgriffe gelten wie draußen.
+void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
+{
+    if (!m_sideArea || id == QStringLiteral("sidearea")) {
+        return; // der Bereich kann nicht in sich selbst
+    }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel || m_sideArea->hasPage(id)) {
+        return;
+    }
+    // Ein abgelöstes Panel erst wieder andocken -- sonst zöge man ein
+    // Fenster in eine Seite, und der Rückweg wäre unklar.
+    if (panel->isFloating()) {
+        m_panelLayoutManager->setPanelFloating(id, false);
+    }
+    m_sideAreaHomeGeometry.insert(id, panel->geometry());
+    m_sideArea->addPage(id, title, panel);
+    // Der Bereich selbst soll sichtbar sein, sonst legt man etwas in
+    // ein verstecktes Panel.
+    m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
+    saveSideAreaState();
+    statusBar()->showMessage(QStringLiteral("%1 liegt jetzt im Seitenbereich").arg(title), 4000);
+}
+
+// Und zurück auf die Fläche, an die Stelle, von der es kam.
+void MainWindow::takePanelOutOfSideArea(const QString& id)
+{
+    if (!m_sideArea || !m_sideArea->hasPage(id)) {
+        return;
+    }
+    QWidget* content = m_sideArea->takePage(id);
+    auto* panel = qobject_cast<PanelContainerWidget*>(content);
+    if (!panel) {
+        return;
+    }
+    panel->setParent(m_panelLayoutManager->canvas());
+    const QRect zuhause = m_sideAreaHomeGeometry.value(id);
+    if (zuhause.isValid()) {
+        panel->trySetGeometry(zuhause);
+    }
+    panel->show();
+    panel->raise();
+    m_sideAreaHomeGeometry.remove(id);
+    saveSideAreaState();
 }
 
 QString MainWindow::on4kstRoomValueForBand(const QString& band)
