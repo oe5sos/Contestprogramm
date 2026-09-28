@@ -27,6 +27,7 @@ namespace Contestprogramm {
 class AppController;
 class ContestDefinition;
 class BandmapWidget;
+class ChatPanelWidget;
 class OnlineScoreboard;
 class CheckPartialWidget;
 class ContestRulesEditor;
@@ -416,6 +417,10 @@ private:
     // is only ever reached via the signal/function-pointer connect()
     // below, never QMetaObject::invokeMethod.
     void showLogViewOptionsPopup();
+    // Das ⚙ des Chat-Panels: Raum, Anwesenheit, CQ, Filter, Reichweite
+    // -- siehe die Umsetzung. Q_INVOKABLE, damit der Prüfstand es rufen
+    // kann, ohne den ⚙-Knopf zu treffen.
+    Q_INVOKABLE void showChatOptionsPopup();
 
     AppController& m_appController;
 
@@ -508,6 +513,9 @@ private:
     // a 15 s timer for the age-out.
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
+    // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
+    // ChatPanelWidget's Klassenkommentar.
+    ChatPanelWidget* m_chatPanel = nullptr;
     void refreshBandmap();
     // Online scoreboard (core/OnlineScoreboard.h): config follows the
     // settings/contest, records follow the log.

@@ -210,6 +210,30 @@ struct ContestSettings {
     // an operator who prefers it, just no longer the initial value.
     LogEntryRowPosition logEntryRowPosition = LogEntryRowPosition::Bottom;
 
+    // Die laufende Nummer ganz links im Log ("das wievielte QSO war
+    // das?"). Standardmäßig an -- Martin, 2026-09-28: "es ist keine
+    // chronologische nmer vorhanden."
+    //
+    // Abschaltbar, weil DXLog.net das genau so löst und die Begründung
+    // auf Martins Conteste passt: "Hides the QSO numbers on the left,
+    // useful for serial number contests so wrong serials don't get
+    // sent" (dxlog.net/docs, Main Window). Auf UKW fängt die GESENDETE
+    // Nummer je Band wieder bei 001 an, die laufende nicht -- wer die
+    // falsche Spalte abliest, sendet die falsche Nummer.
+    bool logShowRunningNumber = true;
+
+    // Die Bänder, die in DIESEM Contest wirklich gefahren werden --
+    // leer heißt „alle, die der Contest kennt". Martin, 2026-09-28:
+    // "beim start des contest soll ich dies ggf. zusätzlich anführen,
+    // sprich ich muss gefragt werden. standard nicht."
+    //
+    // Der IARU-R1-Contest kennt sieben Bänder, gefahren wird meist
+    // eines. Daran hängt, ob die Bandspalte im Log überhaupt einen
+    // Unterschied zeigt. Gefragt wird beim Beginn eines neuen Logs
+    // (MainWindow::archiveActiveContest()), vorbelegt mit dem Band, auf
+    // dem gerade gearbeitet wird -- also standardmäßig genau eines.
+    QStringList activeBands;
+
     // CW F-key macro templates (Kern-Welle 2), sent via
     // RigctldClient::sendMorse() after CwMacroPanel substitutes
     // {call}/{exchange}. A simple macro panel, not a full keyer -- see

@@ -189,6 +189,10 @@ public:
     static constexpr const char* kStatusLineObjectName = "unifiedLogStatusLine";
     static constexpr const char* kLastQsoLabelObjectName = "unifiedLogLastQsoLabel";
     static constexpr const char* kOperatingModeLabelObjectName = "unifiedLogOperatingModeLabel";
+    // Der Hinweis, dass ein Grid-Filter Zeilen aus der Liste nimmt --
+    // siehe setGridFilter(). Ohne ihn sieht ein gefiltertes Log aus wie
+    // ein verlorenes.
+    static constexpr const char* kFilterNoticeObjectName = "unifiedLogFilterNotice";
     // The chat quick-send row (see chatMessageSendRequested's own doc
     // comment below) -- same objectName-as-test-hook convention as the
     // rest of this list.
@@ -198,6 +202,21 @@ public:
     static constexpr const char* kAwayToggleButtonObjectName = "unifiedLogAwayToggleButton";
 
     explicit UnifiedLogWidget(QWidget* parent = nullptr);
+    // Nicht leer: steht beim Beenden noch ein Zelleneditor offen (eine
+    // begonnene Korrektur), dann committet Qt ihn beim Fokusverlust --
+    // und dieses Signal erreicht MainWindow, dessen Destruktor laengst
+    // gelaufen ist. Qt bricht das mit einem QFATAL ab ("Called object is
+    // not of the correct type (class destructor may have already run)").
+    // Gefunden 2026-09-28 am Prueftstand test_durchgang_tastatur, als der
+    // Tabulator zum ersten Mal eine naechste Zelle offen stehen liess.
+    ~UnifiedLogWidget() override;
+
+    // Bricht eine begonnene Zellenkorrektur ab, ohne sie abzuschicken.
+    // MainWindow ruft das als Erstes in seinem Destruktor: sonst
+    // committet ein offener Editor beim Verstecken des Fensters noch
+    // einmal, und das Signal läuft in einen MainWindow, dessen
+    // Destruktor schon durch ist -- Qt bricht das mit einem QFATAL ab.
+    void closeCellEditors();
 
     // Non-owning; the caller (MainWindow, via AppController) keeps these
     // alive for as long as this widget exists -- same ownership pattern
@@ -206,7 +225,6 @@ public:
     // both are available; a null chat model simply omits the "Spots &
     // Chat" section below the log history.
     void setLogModel(LogTableModel* model);
-    void setChatModels(ChatFeedModel* onKst, ChatFeedModel* cluster);
 
     // Tears down and rebuilds the entry row's per-contest exchange
     // sub-fields, one labelled value cell per entry in `fields` (same
@@ -405,6 +423,12 @@ public:
     // see UnifiedFeedModel::rebuild()) or the entry row's own fields/
     // styling.
     void setEntryRowPosition(ContestSettings::LogEntryRowPosition position);
+
+    // Die laufende Nummer links ein- oder ausblenden -- siehe
+    // ContestSettings::logShowRunningNumber für das Warum (DXLog.net
+    // löst es genauso).
+    void setRunningNumberVisible(bool visible);
+    bool runningNumberVisible() const { return m_runningNumberVisible; }
     ContestSettings::LogEntryRowPosition entryRowPosition() const { return m_entryRowPosition; }
 
     // Places `text` into the chat quick-send field, focused and fully
@@ -443,10 +467,6 @@ signals:
     // Info-Zeile soll mitlaufen, während getippt wird.
     void callsignTyped(const QString& callsign);
 
-    // A not-yet-worked spot/chat candidate row was clicked -- same
-    // signal shape (and the same MainWindow::handleCandidateActivated
-    // consumer) ChatFeedView::candidateActivated used.
-    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
 
     // A logged history row's Call cell / Exch Emp. cell was hand-edited
     // in place (double-click or Enter/F2 on the cell, DXLog.net-style --
@@ -572,7 +592,6 @@ private:
     void rebuildExchangeCell(const QMap<QString, QString>& previousValues);
     void applyDistanceColumnsVisibility();
     void configureFeedColumns();
-    void applyDividerSpan();
     // Caps m_feedTable's own maximum height to exactly its current row
     // content when the entry row sits at the Bottom (so the entry row
     // touches the table's own last row directly, no trailing blank
@@ -654,6 +673,20 @@ private:
     // setLogModel(), and called directly by setOperatingMode()/
     // setLogModel() itself.
     void updateStatusLine();
+    // Sagt an, dass ein Grid-Filter gesetzt ist und wie viele QSOs er
+    // übrig lässt -- siehe kFilterNoticeObjectName.
+    void updateFilterNotice(const QString& text);
+    // Nach einem Tabulator im Zelleneditor weiter zur naechsten
+    // KORRIGIERBAREN Zelle -- Zeit, Call und Nr./Grid sind es, alles
+    // dazwischen nicht (siehe UnifiedFeedModel::flags()). Qt springt von
+    // sich aus nur eine Spalte weiter und macht dort nichts auf, wenn
+    // die nicht bearbeitbar ist; dann hoert das Korrigieren nach einer
+    // Zelle auf. Martin, 2026-09-28: "reicht dort der tabulator" -- er
+    // reicht zum Speichern, und ab jetzt traegt er auch weiter, "quasi
+    // wie bei excel" (sein Wort zur Eingabezeile, dieselbe Erwartung).
+    // `direction` ist +1 fuer Tab, -1 fuer Shift+Tab; am Zeilenende geht
+    // es in die naechste bzw. vorige Zeile.
+    void editNextCorrectableCell(const QModelIndex& from, int direction);
 
     // The entry row -- a plain widget (an EntryRowFrame, see the .cpp),
     // NOT a QTableView/QAbstractItemModel of any kind (see the class
@@ -693,8 +726,12 @@ private:
     QWidget* m_statusLine = nullptr;
     QLabel* m_lastQsoLabel = nullptr;
     QLabel* m_operatingModeLabel = nullptr;
+    QLabel* m_filterNoticeLabel = nullptr;
     ContestSettings::OperatingMode m_operatingMode = ContestSettings::OperatingMode::SearchAndPounce;
     ContestSettings::LogViewMode m_viewMode = ContestSettings::LogViewMode::Compact;
+    // Siehe setRunningNumberVisible() / ContestSettings::
+    // logShowRunningNumber.
+    bool m_runningNumberVisible = true;
     // Bottom by default -- matches ContestSettings::logEntryRowPosition's
     // own default (see its doc comment for why Top stopped making sense
     // once the feed table's row order became chronologically ascending).

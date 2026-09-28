@@ -566,17 +566,25 @@ protected:
 
 } // namespace
 
-// The freely-resettable "feed" model: logged history (proxying
-// LogTableModel, chronologically ascending/oldest-first -- matching
-// DXLog.net's own real order, see rebuild()'s own comment), a quiet
-// divider row, then not-yet-worked spot/chat
-// candidates from both ChatFeedModel instances. Rebuilt in full
-// (beginResetModel/endResetModel) on every underlying modelReset --
-// safe here specifically because this model holds no live editor
-// widgets, only display cells and PillDelegate-painted pills. The entry
-// row (m_entryRow, a plain QWidget -- see UnifiedLogWidget.h's class
-// comment) is not part of this model, or any model, at all any more, so
-// this model's frequent resets have nothing left to threaten.
+// Das frei zurücksetzbare Modell der Log-Liste: die geloggten QSOs, in
+// der Zeitfolge aufsteigend (ältestes zuerst -- DXLog.nets eigene
+// Reihenfolge, siehe rebuild()). Sonst nichts.
+//
+// Bis 2026-09-28 hingen hier zusätzlich eine Trennzeile und darunter
+// die noch nicht gearbeiteten Spots aus ON4KST und Cluster. Das ist
+// raus: bei leerem Log füllten sie die ganze Liste mit Zeilen ohne
+// Nummer, Band und Zeit, die wie kaputte QSOs aussahen (Martin,
+// 2026-09-28, mit Bild: "nach neuem log beginnen erscheint dies"). N1MM
+// und DXLog.net halten ihr Log-Fenster ebenso frei davon. Die Spots
+// stehen weiter in Bandmap, Karte und Zielvorschlag, und der Chat
+// ohnehin -- verloren geht nichts, es steht nur nicht mehr im Log.
+//
+// Vollständig neu gebaut (beginResetModel/endResetModel) bei jedem
+// modelReset darunter -- hier unbedenklich, weil dieses Modell keine
+// lebenden Editor-Widgets hält, nur Anzeigezellen und die vom
+// PillDelegate gezeichneten Pillen. Die Eingabezeile (m_entryRow, ein
+// schlichtes QWidget) gehört zu gar keinem Modell, die häufigen
+// Rücksetzungen können ihr also nichts anhaben.
 class UnifiedFeedModel : public QAbstractTableModel {
     Q_OBJECT
 
@@ -608,24 +616,6 @@ public:
         rebuild();
     }
 
-    void setChatModels(ChatFeedModel* onKst, ChatFeedModel* cluster)
-    {
-        if (m_onKst) {
-            disconnect(m_onKst, nullptr, this, nullptr);
-        }
-        if (m_cluster) {
-            disconnect(m_cluster, nullptr, this, nullptr);
-        }
-        m_onKst = onKst;
-        m_cluster = cluster;
-        if (m_onKst) {
-            connect(m_onKst, &QAbstractItemModel::modelReset, this, &UnifiedFeedModel::rebuild);
-        }
-        if (m_cluster) {
-            connect(m_cluster, &QAbstractItemModel::modelReset, this, &UnifiedFeedModel::rebuild);
-        }
-        rebuild();
-    }
 
     // Bandfarbe in der Bandzelle an/aus -- gesetzt von
     // UnifiedLogWidget::setContestBandCount().
@@ -660,8 +650,6 @@ public:
         const RowRef& ref = m_rows.at(index.row());
         switch (ref.kind) {
         case RowKind::History: return historyData(ref.sourceRow, index.column(), role);
-        case RowKind::Divider: return dividerData(index.column(), role);
-        case RowKind::Candidate: return candidateData(ref, index.column(), role);
         }
         return QVariant();
     }
@@ -674,35 +662,12 @@ public:
         return columnHeaderText(section);
     }
 
-    // -1 when no chat models are set yet (no divider row at all).
-    int dividerRow() const { return m_dividerRow; }
 
     // Logged-QSO rows only (everything above the divider) -- what
     // UnifiedLogWidget::rebuildFeedRows() watches to scroll a newly
     // logged QSO into view.
-    int historyRowCount() const { return m_dividerRow >= 0 ? m_dividerRow : m_rows.size(); }
+    int historyRowCount() const { return m_rows.size(); }
 
-    bool candidateInfoForRow(int row, QString* callsign, QString* grid, qint64* freqHz) const
-    {
-        if (row < 0 || row >= m_rows.size()) {
-            return false;
-        }
-        const RowRef& ref = m_rows.at(row);
-        if (ref.kind != RowKind::Candidate || !ref.chatModel) {
-            return false;
-        }
-        const SpotCandidate& candidate = ref.chatModel->candidateAt(ref.sourceRow);
-        if (callsign) {
-            *callsign = candidate.callsign;
-        }
-        if (grid) {
-            *grid = candidate.grid;
-        }
-        if (freqHz) {
-            *freqHz = candidate.freqHz;
-        }
-        return true;
-    }
 
     // The QSO's real database id for a History row at `row`, or -1 if
     // `row` is not a History row (Divider/Candidate) or out of range --
@@ -815,7 +780,6 @@ public slots:
     {
         beginResetModel();
         m_rows.clear();
-        m_dividerRow = -1;
 
         if (m_logModel) {
             // Chronological ascending (oldest first, growing downward) --
@@ -837,16 +801,19 @@ public slots:
                         continue;
                     }
                 }
-                m_rows.append({RowKind::History, r, nullptr});
+                m_rows.append({RowKind::History, r});
             }
         }
 
-        if (m_onKst && m_cluster) {
-            m_dividerRow = m_rows.size();
-            m_rows.append({RowKind::Divider, -1, nullptr});
-            appendCandidates(m_onKst);
-            appendCandidates(m_cluster);
-        }
+        // Seit 2026-09-28 stehen hier NUR noch geloggte QSOs. Die Spots
+        // aus ON4KST und Cluster hingen bis dahin unter einer Trennzeile
+        // in derselben Liste -- und bei leerem Log füllten sie die ganze
+        // Liste mit Zeilen ohne Nummer, Band und Zeit, die wie kaputte
+        // QSOs aussahen (Martin, 2026-09-28, mit Bild: "nach neuem log
+        // beginnen erscheint dies"). N1MM und DXLog.net halten ihr
+        // Log-Fenster ebenfalls frei davon; die Spots stehen dort in
+        // Bandmap und Spot-Fenster. Hier genauso: Bandmap, Karte und die
+        // Zielvorschläge zeigen sie weiter, der Chat ohnehin.
 
         endResetModel();
         emit rebuilt();
@@ -865,19 +832,12 @@ signals:
     void historyTimeEditRequested(int qsoId, const QString& newText);
 
 private:
-    enum class RowKind { History, Divider, Candidate };
+    enum class RowKind { History };
     struct RowRef {
         RowKind kind;
         int sourceRow = -1;
-        ChatFeedModel* chatModel = nullptr; // Candidate rows only
     };
 
-    void appendCandidates(ChatFeedModel* model)
-    {
-        for (int r = 0; r < model->rowCount(); ++r) {
-            m_rows.append({RowKind::Candidate, r, model});
-        }
-    }
 
     QVariant historyData(int sourceRow, int column, int role) const
     {
@@ -968,7 +928,23 @@ private:
         // dash, not "0" -- HAUSSTIL rule 7 -- for the (today
         // unreachable, since every logged QSO gets a serial) case where
         // it was never set.
-        case ColSerial: return record.serialSent ? paddedSerial(*record.serialSent) : Style::unknownDash();
+        // Die CHRONOLOGISCHE Nummer: das wievielte QSO dieses Logs das
+        // ist, 1 aufwärts. Martin, 2026-09-28: "es ist keine
+        // chronologische nmer vorhanden."
+        //
+        // Bis dahin stand hier die GESENDETE Contest-Nummer
+        // (record.serialSent). Das war zweimal falsch: sie steht schon
+        // im gesendeten Austausch daneben ("59 001 JN67VV"), und in der
+        // Ansicht DXLog-Vollspalten hätte sie mit der eigenen Spalte
+        // "Nr. gesendet" (ColSerialSent) buchstäblich dasselbe gezeigt.
+        // Und sie ist auf UKW gar nicht chronologisch: die laufende
+        // Nummer fängt je Band wieder bei 001 an (IARU R1), also stünde
+        // nach einem Bandwechsel wieder eine 1 in der Liste.
+        //
+        // LogTableModel ist aufsteigend sortiert (ältestes QSO zuerst,
+        // siehe rebuild()), sourceRow ist also schon die Position in der
+        // Zeitfolge.
+        case ColSerial: return paddedSerial(sourceRow + 1);
         case ColTime: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnTime));
         case ColCall: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnCallsign));
         // "Exch Ges." / "Exch Emp." == what we sent / what we received,
@@ -1003,91 +979,12 @@ private:
         }
     }
 
-    QVariant dividerData(int column, int role) const
-    {
-        if (column != ColTime) {
-            return QVariant();
-        }
-        if (role == Qt::DisplayRole) {
-            return QString::fromUtf8("Spots & Chat — noch nicht gearbeitet");
-        }
-        if (role == Qt::ForegroundRole) {
-            return QColor(Style::kTextScale());
-        }
-        if (role == Qt::FontRole) {
-            return Style::capsFont(QFont());
-        }
-        return QVariant();
-    }
 
-    QVariant candidateData(const RowRef& ref, int column, int role) const
-    {
-        if (!ref.chatModel) {
-            return QVariant();
-        }
-        const SpotCandidate& candidate = ref.chatModel->candidateAt(ref.sourceRow);
-
-        if (role == Qt::DisplayRole) {
-            switch (column) {
-            case ColCall: return candidate.callsign;
-            // The candidate's own grid, previewed in the "Nr./Grid"
-            // column (ColExchRcvd is always hidden now -- see
-            // setViewMode()'s own comment -- so this is the one visible
-            // received-exchange column in either mode) -- it is
-            // literally the exchange-grid value this contact would send
-            // if worked. Zeit/Exch-Ges. stay blank: SpotCandidate
-            // carries no logged timestamp slot, and nothing has been
-            // sent yet.
-            case ColSerialGridRcvd: return candidate.grid;
-            case ColKm: return ref.chatModel->data(ref.chatModel->index(ref.sourceRow, ChatFeedModel::ColumnDistanceKm));
-            case ColDeg: return ref.chatModel->data(ref.chatModel->index(ref.sourceRow, ChatFeedModel::ColumnBearingDeg));
-            default: return QVariant();
-            }
-        }
-
-        const bool worked = ref.chatModel
-                                 ->data(ref.chatModel->index(ref.sourceRow, ChatFeedModel::ColumnCallsign), ChatFeedModel::DupeRole)
-                                 .toBool();
-        if (role == Qt::ForegroundRole && worked) {
-            // Dimmed, per ChatFeedModel's own DupeRole convention (only
-            // reachable here when the raw-feed toggle is on -- filtered
-            // mode already excludes worked candidates entirely).
-            return QColor(Style::kTextInactive());
-        }
-
-        if (column == ColStatus) {
-            // KST/CLU source pill, replacing the old separate
-            // "ON4KST"/"Cluster" panel headers -- amber/blue, the same
-            // named families this row's own autofill tint (amber) and
-            // MapWidget's spotted-station colour (kBlueBg, see
-            // MapWidget::markerColor/gridLabelColor) already establish,
-            // not an invented one-off colour. The backgrounds
-            // (kAmberBg/kInsetBg) are likewise both existing named
-            // StyleKit tokens, not new hex literals.
-            const bool isKst = (ref.chatModel == m_onKst);
-            if (role == kPillTextRole) {
-                return isKst ? QStringLiteral("KST") : QStringLiteral("CLU");
-            }
-            if (role == kPillBgRole) {
-                return isKst ? Style::kAmberBg() : Style::kInsetBg();
-            }
-            if (role == kPillFgRole) {
-                return isKst ? Style::kAmberText() : Style::kBlueBg();
-            }
-            if (role == kPillBorderRole) {
-                return isKst ? Style::kAmberDim() : Style::kBlueBorder();
-            }
-        }
-        return QVariant();
-    }
 
     LogTableModel* m_logModel = nullptr;
-    ChatFeedModel* m_onKst = nullptr;
-    ChatFeedModel* m_cluster = nullptr;
     QString m_gridFilter;
     bool m_bandTint = false;
     QVector<RowRef> m_rows;
-    int m_dividerRow = -1;
 };
 
 UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
@@ -1255,6 +1152,20 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     statusLineLayout->addWidget(m_lastQsoLabel);
     statusLineLayout->addStretch(1);
 
+    // Ein gesetzter Grid-Filter wirft Log-Zeilen aus der Liste. Das ist
+    // gewollt -- aber es muss dastehen: Martin hatte am 2026-09-28 ein
+    // "#" im Filterfeld und sah ein Log ohne ein einziges QSO. Ohne
+    // diesen Hinweis sieht ein gefiltertes Log aus wie ein verlorenes.
+    // Bernstein wie die Dupe-Meldung: etwas, das den Blick verdient,
+    // aber kein Fehler.
+    m_filterNoticeLabel = new QLabel(m_statusLine);
+    m_filterNoticeLabel->setObjectName(QLatin1String(kFilterNoticeObjectName));
+    m_filterNoticeLabel->setFont(Style::capsFont(m_filterNoticeLabel->font()));
+    m_filterNoticeLabel->setStyleSheet(
+        QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
+    m_filterNoticeLabel->hide();
+    statusLineLayout->addWidget(m_filterNoticeLabel);
+
     // Amber, matching m_sentExchangeLabel's own "a value worth the
     // operator's attention" treatment just above, not a state-badge
     // colour (this is plain read-only status text, not a clickable
@@ -1311,6 +1222,62 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // visible column set changes.
     m_feedTable->setItemDelegateForColumn(ColStatus, new PillDelegate(m_feedTable));
     m_feedTable->setItemDelegateForColumn(ColSerialGridRcvd, new SerialGridDelegate(m_feedTable));
+
+    // Der Tabulator soll weitertragen: Qt schliesst den Editor mit dem
+    // Hinweis EditNextItem/EditPreviousItem und rueckt genau eine Spalte
+    // weiter -- ist die nicht bearbeitbar (und das sind die meisten,
+    // siehe UnifiedFeedModel::flags()), macht es dort gar nichts auf,
+    // und das Korrigieren endet nach einer Zelle. Also selbst zur
+    // naechsten korrigierbaren Zelle weiter. Verzoegert um einen
+    // Durchlauf, weil die Ansicht ihren eigenen Sprung erst nach diesem
+    // Signal macht und ihn sonst gleich wieder ueberschreiben wuerde.
+    const auto tabulatorTraegtWeiter = [this](QAbstractItemDelegate* delegate) {
+        if (!delegate) {
+            return;
+        }
+        connect(delegate, &QAbstractItemDelegate::closeEditor, this,
+                [this](QWidget* editor, QAbstractItemDelegate::EndEditHint hint) {
+                    const int richtung = hint == QAbstractItemDelegate::EditNextItem
+                                             ? 1
+                                             : (hint == QAbstractItemDelegate::EditPreviousItem ? -1 : 0);
+                    if (richtung == 0) {
+                        // Mit Return abgeschlossen (SubmitModelCache):
+                        // die Korrektur ist fertig, also zurück in die
+                        // Eingabezeile -- dort entsteht das nächste QSO.
+                        // Martin, 2026-09-28: "nach einer änderung muss
+                        // wieder zur nächsten zeile im contest spring."
+                        // Beim Abbrechen mit Esc (RevertModelCache)
+                        // genauso: wer abbricht, will weiterloggen.
+                        // Nur der Tabulator bleibt in der Tabelle, der
+                        // ist zum Weiterkorrigieren da.
+                        if (hint == QAbstractItemDelegate::SubmitModelCache
+                            || hint == QAbstractItemDelegate::RevertModelCache) {
+                            QTimer::singleShot(0, this, [this]() { focusCallsign(); });
+                        }
+                        return;
+                    }
+                    if (!editor) {
+                        return;
+                    }
+                    // Nicht currentIndex() fragen: die Ansicht hat ihren
+                    // eigenen Sprung um eine Spalte schon gemacht, wenn
+                    // dieses Signal ankommt. Der Editor selbst liegt
+                    // genau auf seiner Zelle -- also von dort ablesen,
+                    // solange er noch steht (geloescht wird er erst
+                    // danach).
+                    const QModelIndex von = m_feedTable->indexAt(editor->geometry().center());
+                    if (!von.isValid()) {
+                        return;
+                    }
+                    const int zeile = von.row();
+                    const int spalte = von.column();
+                    QTimer::singleShot(0, m_feedTable, [this, zeile, spalte, richtung]() {
+                        editNextCorrectableCell(m_feedModel->index(zeile, spalte), richtung);
+                    });
+                });
+    };
+    tabulatorTraegtWeiter(m_feedTable->itemDelegate());
+    tabulatorTraegtWeiter(m_feedTable->itemDelegateForColumn(ColSerialGridRcvd));
     // The table's viewport gets its real width only when the layout
     // runs AFTER this widget's own resizeEvent() -- so the column fit
     // (fitColumnsToViewport()) listens to the viewport's own resize,
@@ -1502,6 +1469,24 @@ QWidget* UnifiedLogWidget::buildFieldCell(QWidget* parent, QWidget* valueWidget,
     return cell;
 }
 
+// Siehe die Erklaerung an der Deklaration: einen offenen Zelleneditor
+// beim Beenden nicht mehr committen lassen. Die Tabelle vom Modell zu
+// trennen schliesst jeden Editor, ohne ihn abzuschicken.
+UnifiedLogWidget::~UnifiedLogWidget()
+{
+    closeCellEditors();
+}
+
+void UnifiedLogWidget::closeCellEditors()
+{
+    // reset() räumt die offenen Zelleneditoren der Ansicht weg, ohne sie
+    // vorher abzuschicken -- genau das Gegenteil dessen, was ein
+    // Fokusverlust tut.
+    if (m_feedTable) {
+        m_feedTable->reset();
+    }
+}
+
 void UnifiedLogWidget::configureFeedColumns()
 {
     m_columnWidths.resize(ColCount);
@@ -1514,6 +1499,20 @@ void UnifiedLogWidget::configureFeedColumns()
 
 int UnifiedLogWidget::columnWidthFor(int col) const
 {
+    // Die Breite, die die TABELLE wirklich hat -- nicht die, die
+    // fitColumnsToViewport() zuletzt ausgerechnet hat. Beides sollte
+    // dasselbe sein, war es aber nicht überall: auf dem CI-Mac (Qt
+    // 6.8.3) saß das Rufzeichenfeld der Eingabezeile in der Ansicht
+    // DXLog-Vollspalten 6 px links von seiner Spalte, lokal (Qt 6.11.1)
+    // stimmte es. Eine zweite Rechnung neben der Wahrheit driftet
+    // irgendwann -- also gar nicht erst zwei Rechnungen führen.
+    // m_columnWidths bleibt als Rückfall, solange die Tabelle ihre
+    // Breiten noch nicht hat (Spalte versteckt, oder vor dem ersten
+    // Layout: columnWidth() gibt dann 0 zurück).
+    const int echt = m_feedTable ? m_feedTable->columnWidth(col) : 0;
+    if (echt > 0) {
+        return echt;
+    }
     return m_columnWidths.value(col, kColumnWidths[col]);
 }
 
@@ -1620,6 +1619,15 @@ bool UnifiedLogWidget::columnWantedByViewMode(int col) const
     const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
     switch (col) {
     case ColSerial:
+        // Die laufende Nummer steht in BEIDEN Ansichten: sie ist die
+        // Orientierung im Log ("das wievielte QSO war das?"), keine
+        // Feinheit der Vollspalten. Martin, 2026-09-28: "es ist keine
+        // chronologische nmer vorhanden." Sie doppelt auch nichts mehr
+        // -- siehe data(), wo ColSerial seit heute die Position in der
+        // Zeitfolge trägt und nicht die gesendete Contest-Nummer.
+        // Abschaltbar wie in DXLog.net, siehe
+        // ContestSettings::logShowRunningNumber.
+        return m_runningNumberVisible;
     case ColRstSent:
     case ColSerialSent:
         return dxLog;
@@ -1706,7 +1714,7 @@ void UnifiedLogWidget::applyEntryRowWidths()
     // der beiden Zellen mehr der angepassten Spaltenbreite: die
     // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
     // schmaler oder breiter wurde.
-    if (dxLog && !m_entryRowBlanks.isEmpty()) {
+    if (!m_entryRowBlanks.isEmpty() && !m_feedTable->isColumnHidden(ColSerial)) {
         m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
     }
     if (m_entryBandLabel) {
@@ -1774,11 +1782,6 @@ void UnifiedLogWidget::setLogModel(LogTableModel* model)
     }
     m_feedModel->setLogModel(model);
     updateStatusLine();
-}
-
-void UnifiedLogWidget::setChatModels(ChatFeedModel* onKst, ChatFeedModel* cluster)
-{
-    m_feedModel->setChatModels(onKst, cluster);
 }
 
 void UnifiedLogWidget::setExchangeFields(const QVector<ContestDefinition::ExchangeField>& fields)
@@ -2101,6 +2104,29 @@ void UnifiedLogWidget::resetForNextEntry()
     applyRstDefaults();
     setDupeIndicator(false);
     setEntryDistanceBearing(std::nullopt, std::nullopt);
+    // Die Eingabezeile wieder auf die Spaltenbreiten nageln -- aber
+    // einen Ereignisdurchlauf SPÄTER, nicht jetzt.
+    //
+    // Mit dem eben geloggten QSO ist die Tabelle um eine Zeile
+    // gewachsen. Ihre Spalten passen sich erst im nächsten
+    // Layout-Durchlauf an (der Rollbalken kann erscheinen, der Viewport
+    // wird schmaler, fitColumnsToViewport() rechnet neu) -- wer hier
+    // sofort abgleicht, nagelt die Zeile auf Breiten fest, die gleich
+    // nicht mehr gelten. Genau daran sind vier Anläufe gescheitert: ein
+    // Abgleich an dieser Stelle, in rebuildExchangeCell() und in
+    // setViewMode() machte es nicht besser, zum Teil schlechter.
+    //
+    // Ohne das stand nach jedem geloggten QSO in der Ansicht
+    // DXLog-Vollspalten das Rufzeichenfeld 6 px links von seiner Spalte
+    // (x=179 statt 185). Gefunden 2026-09-28 mit dem Rüttel-Prüfstand
+    // (tests/test_ruetteln.cpp), unabhängig davon auch vom CI-Mac
+    // gemeldet -- Martin: "ich komme immer sofort auf fehler und du zu
+    // selten."
+    QTimer::singleShot(0, this, [this]() {
+        if (m_entryRowLayoutBuilt) {
+            applyEntryRowWidths();
+        }
+    });
     m_callsignEdit->setFocus();
 }
 
@@ -2111,7 +2137,19 @@ void UnifiedLogWidget::applyKnownExchange(const QString& gridSquare, const std::
         if (!edit) {
             continue;
         }
-        if (field.type == QStringLiteral("grid6") && !gridSquare.isEmpty() && edit->text().isEmpty()) {
+        // Nur ein SECHSSTELLIGER Vorschlag darf in ein grid6-Feld. Ein
+        // vierstelliger Locator ist gültig, aber für eine UKW-Einreichung
+        // zu grob -- und im Feld sieht er fertig aus, sodass ein Return
+        // ihn logt. Solche stehen wirklich in alten Logs: in
+        // logbuch-sandbox/logbook.adi (9271 QSOs) ist "JN17" einer von
+        // ihnen, und Datei > Listen laden > "Locator aus alten Logs"
+        // nimmt sie mit -- zu Recht, für Check Partial und als grobe
+        // Peilung taugen sie. Nur vorschlagen darf man sie nicht: ein
+        // leeres Feld fragt nach, ein halb gefülltes nicht.
+        // Selbst tippen kann der Bediener natürlich, was er will.
+        const bool grobeAngabe = gridSquare.size() < 6;
+        if (field.type == QStringLiteral("grid6") && !gridSquare.isEmpty() && !grobeAngabe
+            && edit->text().isEmpty()) {
             edit->setText(gridSquare);
             setFieldAutoFilled(edit, true);
         }
@@ -2150,12 +2188,104 @@ bool UnifiedLogWidget::hasUnsentContent() const
 void UnifiedLogWidget::setGridFilter(const QString& text)
 {
     m_feedModel->setGridFilter(text);
+    updateFilterNotice(text);
+}
+
+// Wie viele QSOs der Filter übrig lässt -- und dass überhaupt einer
+// gesetzt ist. Martin, 2026-09-28: ein "#" im Filterfeld, und das Log
+// sah aus, als wäre es weg. Es war nur gefiltert, aber das stand
+// nirgends.
+void UnifiedLogWidget::editNextCorrectableCell(const QModelIndex& from, int direction)
+{
+    if (!m_feedTable || !m_feedModel || !from.isValid() || direction == 0) {
+        return;
+    }
+    QHeaderView* header = m_feedTable->horizontalHeader();
+    // Sichtbare Spalten in der Reihenfolge, in der sie DASTEHEN -- die
+    // Ansicht "DXLog-Vollspalten" ordnet sie per moveSection() um, also
+    // waere die logische Reihenfolge hier die falsche.
+    QVector<int> sichtbar;
+    for (int v = 0; v < header->count(); ++v) {
+        const int logisch = header->logicalIndex(v);
+        if (!header->isSectionHidden(logisch)) {
+            sichtbar.append(logisch);
+        }
+    }
+    if (sichtbar.isEmpty()) {
+        return;
+    }
+    int pos = sichtbar.indexOf(from.column());
+    if (pos < 0) {
+        pos = direction > 0 ? -1 : sichtbar.size();
+    }
+    int zeile = from.row();
+    // Hoechstens einmal durch das ganze Log -- eine Notbremse, falls
+    // gar keine Zelle mehr korrigierbar ist (leeres Log, nur Kandidaten).
+    const int maxSchritte = sichtbar.size() * (m_feedModel->rowCount() + 1) + 1;
+    for (int schritt = 0; schritt < maxSchritte; ++schritt) {
+        pos += direction;
+        if (pos >= sichtbar.size()) {
+            pos = 0;
+            ++zeile;
+        } else if (pos < 0) {
+            pos = sichtbar.size() - 1;
+            --zeile;
+        }
+        if (zeile < 0 || zeile >= m_feedModel->rowCount()) {
+            return; // oben oder unten angekommen: hier hoert es auf
+        }
+        const QModelIndex ziel = m_feedModel->index(zeile, sichtbar.at(pos));
+        if (ziel.isValid() && (m_feedModel->flags(ziel) & Qt::ItemIsEditable)) {
+            m_feedTable->setCurrentIndex(ziel);
+            m_feedTable->scrollTo(ziel);
+            m_feedTable->edit(ziel);
+            return;
+        }
+    }
+}
+
+void UnifiedLogWidget::updateFilterNotice(const QString& text)
+{
+    if (!m_filterNoticeLabel) {
+        return;
+    }
+    const QString filter = text.trimmed();
+    if (filter.isEmpty()) {
+        m_filterNoticeLabel->hide();
+        return;
+    }
+    const int gesamt = m_logModel ? m_logModel->rowCount() : 0;
+    int sichtbar = 0;
+    for (int row = 0; row < m_feedModel->rowCount(); ++row) {
+        if (m_feedModel->historyQsoIdForRow(row) >= 0) {
+            ++sichtbar;
+        }
+    }
+    m_filterNoticeLabel->setText(
+        QStringLiteral("Grid-Filter „%1“: %2 von %3 QSOs").arg(filter).arg(sichtbar).arg(gesamt));
+    m_filterNoticeLabel->show();
 }
 
 void UnifiedLogWidget::setOperatingMode(ContestSettings::OperatingMode mode)
 {
     m_operatingMode = mode;
     updateStatusLine();
+}
+
+void UnifiedLogWidget::setRunningNumberVisible(bool visible)
+{
+    if (m_runningNumberVisible == visible) {
+        return;
+    }
+    m_runningNumberVisible = visible;
+    // Den vorhandenen Weg gehen statt einen zweiten zu bauen:
+    // setViewMode() teilt die Spalten neu ein (und liest dabei
+    // m_runningNumberVisible), fitColumnsToViewport() passt die Breiten
+    // an, rebuildEntryRowLayout() zieht die Eingabezeile nach, damit
+    // beide in einer Flucht bleiben.
+    m_entryRowLayoutBuilt = false; // erzwingt den Neuaufbau der Zeile
+    setViewMode(m_viewMode);
+    fitColumnsToViewport();
 }
 
 void UnifiedLogWidget::setEntryRowPosition(ContestSettings::LogEntryRowPosition position)
@@ -2264,7 +2394,11 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
     m_viewMode = mode;
     const bool dxLog = (mode == ContestSettings::LogViewMode::DxLogFullColumns);
 
-    m_feedTable->setColumnHidden(ColSerial, !dxLog);
+    // Die laufende Nummer steht in BEIDEN Ansichten -- sie ist die
+    // Orientierung im Log ("das wievielte QSO war das?"), nicht ein
+    // Feinheit der Vollspalten-Ansicht. Martin, 2026-09-28: "es ist
+    // keine chronologische nmer vorhanden."
+    m_feedTable->setColumnHidden(ColSerial, !m_runningNumberVisible);
     // Die Bandspalte hängt nicht nur an der Ansicht: ein Contest mit
     // mehreren Bändern zeigt sie auch kompakt (siehe
     // setContestHasSeveralBands()). Ohne dieses ODER holte der nächste
@@ -2401,10 +2535,14 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
         m_entryRowBlanks.append(label);
     };
 
-    if (dxLog) {
-        // QSO#: not yet assigned for an in-progress entry -- blank
-        // (Time, Band and Km/° below are different: die sind bekannt,
-        // bevor geloggt wird).
+    // Die Zelle der laufenden Nummer -- leer, denn das QSO gibt es noch
+    // nicht (Zeit, Band und km/° darunter sind anders: die sind bekannt,
+    // bevor geloggt wird). Sie hängt an der SICHTBARKEIT der Spalte,
+    // nicht mehr an der Ansicht: seit die Nummer auch kompakt dasteht,
+    // fehlte der Eingabezeile hier eine Zelle, und dadurch rutschte die
+    // ganze Zeile um eine Spalte nach links gegen die Tabelle -- Martin,
+    // 2026-09-28, mit Bild: "sollte alles in einer reihe sein".
+    if (!m_feedTable->isColumnHidden(ColSerial)) {
         addBlank(columnWidthFor(ColSerial));
     }
     // Die Bandzelle, wo die Spalte steht: sie trägt das Band, auf dem
@@ -2580,28 +2718,18 @@ void UnifiedLogWidget::handleFeedRowClicked(const QModelIndex& index)
         return;
     }
     if (index.column() == ColStatus) {
-        // A History row's Status cell, clicked -- toggle its invalid
-        // flag (see UnifiedLogWidget.h's historyInvalidToggleRequested
-        // doc comment). historyQsoIdForRow() returns -1 for a
-        // Divider/Candidate row's Status cell, so this is a no-op there
-        // (those rows carry no pill to click in the first place).
+        // Die Status-Zelle einer Log-Zeile, angeklickt: die Gültigkeit
+        // umschalten (siehe historyInvalidToggleRequested in
+        // UnifiedLogWidget.h).
         const int qsoId = m_feedModel->historyQsoIdForRow(index.row());
         if (qsoId >= 0) {
             emit historyInvalidToggleRequested(qsoId);
         }
-        return;
-    }
-    QString callsignValue;
-    QString grid;
-    qint64 freqHz = 0;
-    if (m_feedModel->candidateInfoForRow(index.row(), &callsignValue, &grid, &freqHz)) {
-        emit candidateActivated(callsignValue, grid, freqHz);
     }
 }
 
 void UnifiedLogWidget::rebuildFeedRows()
 {
-    applyDividerSpan();
     syncFeedTableHeight();
     // A newly logged QSO must be on screen -- the operator's own 7-QSO
     // log (2026-09-21) sat scrolled to the top, the newest row hidden
@@ -2656,14 +2784,6 @@ void UnifiedLogWidget::syncFeedTableHeight()
     m_feedTable->setMaximumHeight(QWIDGETSIZE_MAX);
 }
 
-void UnifiedLogWidget::applyDividerSpan()
-{
-    m_feedTable->clearSpans();
-    const int row = m_feedModel->dividerRow();
-    if (row >= 0) {
-        m_feedTable->setSpan(row, 0, 1, ColCount);
-    }
-}
 
 void UnifiedLogWidget::setFieldAutoFilled(QLineEdit* field, bool autoFilled)
 {

@@ -37,6 +37,7 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
+#include "ui/ChatPanelWidget.h"
 #include "ui/CabrilloExportDialog.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
@@ -81,6 +82,7 @@
 #include <QHash>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -446,6 +448,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
     topBarLayout->addWidget(filterLabel);
     m_gridFilterEdit = new QLineEdit(topBarRow);
+    m_gridFilterEdit->setObjectName(QStringLiteral("gridFilter"));
     m_gridFilterEdit->setMaximumWidth(120);
     m_gridFilterEdit->setFont(Style::monoFont(m_gridFilterEdit->font(), Style::kFontBody));
     topBarLayout->addWidget(m_gridFilterEdit);
@@ -635,7 +638,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_logModel = new LogTableModel(this);
     m_unifiedLog = new UnifiedLogWidget(this);
     m_unifiedLog->setLogModel(m_logModel);
-    m_unifiedLog->setChatModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
         /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
@@ -943,6 +945,34 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
                                          /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
 
+    // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
+    // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
+    // sie sind dort heraus (siehe UnifiedFeedModel::rebuild()), und
+    // damit war der Chatverlauf nirgends mehr zu sehen: man konnte
+    // senden und bekam die Antwort nicht. Das ist dieser Ort, ein
+    // eigenes Panel wie in N1MM und DXLog.net.
+    m_chatPanel = new ChatPanelWidget(this);
+    m_chatPanel->setFeedModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
+    connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
+    connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
+    PanelContainerWidget* chatContainer =
+        // Im großen Entwurf unten rechts, neben den Skeds. Im KOMPAKTEN
+    // (dem 13"-Layout, das Martin fährt) bewusst OHNE Vorgabe, also
+    // zunächst versteckt: dort ist die Fläche vollständig belegt --
+    // Rotoren, Karte, Nächstes Ziel, Rate, Log, Bandmap teilen sich
+    // 1372x793 ohne Lücke. Jede Vorgabe läge unter einem anderen Panel,
+    // und ein Panel, das man erst hervorziehen muss, ist schlechter als
+    // eines, das man über Fenster > Panels bewusst einschaltet und
+    // hinlegt, wo man es haben will. Das Profil merkt sich die Lage
+    // dann.
+    m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
+                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
+    // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
+    if (chatContainer && chatContainer->headerBar()) {
+        connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showChatOptionsPopup);
+    }
+
     m_panelLayoutManager->finalizeInitialLayout();
 
     // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
@@ -1051,7 +1081,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignTyped, this, &MainWindow::refreshDxInfoLine);
-    connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);
@@ -1497,7 +1526,47 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
         {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
         {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
     };
+    // Panels als eigene Fenster ablösen -- Martin, 2026-09-28: "schön
+    // wäre es, ein windows zu haben, wo ich alle windows auch aber auch
+    // rausziehen kann um platz zu sparen. das haben wir bei longpath
+    // auch erledigt." Dort heißt das Menü "Containers"; die Bedienung
+    // ist dieselbe, samt "Zurück über das ✕ am Fenster".
+    auto* ablösenMenu = windowMenu->addMenu(QStringLiteral("Als eigenes &Fenster"));
+    ablösenMenu->setObjectName(QStringLiteral("floatPanelsMenu"));
+    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = ablösenMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("float_%1").arg(entry.id));
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id](bool floating) {
+            m_panelLayoutManager->setPanelFloating(id, floating);
+        });
+        // Beim Aufklappen den Stand nachziehen -- ein Panel kann auch
+        // über das ✕ seines Fensters zurückgedockt sein.
+        connect(ablösenMenu, &QMenu::aboutToShow, this, [this, action, id = entry.id]() {
+            if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+                QSignalBlocker blocker(action);
+                action->setChecked(panel->isFloating());
+            }
+        });
+    }
+    ablösenMenu->addSeparator();
+    QAction* alleAblösen = ablösenMenu->addAction(QStringLiteral("Alle ablösen"));
+    alleAblösen->setObjectName(QStringLiteral("floatAllPanels"));
+    connect(alleAblösen, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, true);
+        }
+    });
+    QAction* alleAndocken = ablösenMenu->addAction(QStringLiteral("Alle wieder andocken"));
+    alleAndocken->setObjectName(QStringLiteral("dockAllPanels"));
+    connect(alleAndocken, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, false);
+        }
+    });
+
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
         QAction* action = panelsMenu->addAction(entry.label);
@@ -1702,7 +1771,11 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     QRect r = m_rotorRowContainer->geometry();
     r.setWidth(targetWidth);
     r.moveLeft(std::max(kMargin, (canvasWidth - targetWidth) / 2));
-    m_rotorRowContainer->trySetGeometry(r);
+    // Bewusst ueber applyTransientGeometry(): das Mittigstellen in einem
+    // schmalen Fenster ist eine Anzeigeanpassung, nicht der Wunsch des
+    // Bedieners -- siehe dort. Sonst bleibt das Panel nach dem
+    // Wiedervergroessern in der Mitte stehen.
+    m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, r);
 
     // Below the two-dial floor, trySetGeometry() just clamped the width
     // back up past what x above was centered for -- re-center once more
@@ -1712,7 +1785,7 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     if (m_rotorRowContainer->width() != targetWidth) {
         QRect corrected = m_rotorRowContainer->geometry();
         corrected.moveLeft(std::max(kMargin, (canvasWidth - corrected.width()) / 2));
-        m_rotorRowContainer->trySetGeometry(corrected);
+        m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, corrected);
     }
 }
 
@@ -1741,7 +1814,24 @@ void MainWindow::saveWindowGeometry() {
     m_appController.database().setSettingValue(QStringLiteral("MainWindowGeometry"), QString::fromUtf8(geometry.toBase64()));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Nicht mehr = default: steht beim Beenden noch eine Zellenkorrektur
+    // offen, dann verliert ihr Editor beim Verstecken des Fensters den
+    // Fokus und committet ein letztes Mal -- mitten in der Zerstörung.
+    // Das Signal landet dann in handleHistoryCallsignEditRequested() &
+    // Co., deren Objekt es nicht mehr gibt, und Qt bricht mit einem
+    // QFATAL ab ("Called object is not of the correct type (class
+    // destructor may have already run)"). Gefunden 2026-09-28 am
+    // Prüfstand test_durchgang_tastatur, mit dem Rückverfolger bis in
+    // QAbstractItemView::commitData hinein. Also zuerst die Leitungen
+    // kappen, dann den Editor wegräumen -- beides, damit auch ein
+    // anderer, hier noch nicht bedachter Weg nicht mehr ankommt.
+    if (m_unifiedLog != nullptr) {
+        disconnect(m_unifiedLog, nullptr, this, nullptr);
+        m_unifiedLog->closeCellEditors();
+    }
+}
 
 const ContestDefinition* MainWindow::findContestDefinition(const QString& contestId) const
 {
@@ -1817,7 +1907,13 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
-        m_unifiedLog->setContestBandCount(def->bands().size());
+        // Nicht alle Bänder, die der Contest KENNT, sondern die, auf
+        // denen wirklich gefahren wird (ContestSettings::activeBands --
+        // leer heißt alle). Daran hängt die Bandspalte im Log: eine
+        // Spalte, in der überall dasselbe steht, sagt nichts.
+        const QStringList gefahren = m_appController.settings().activeBands;
+        const int bandZahl = gefahren.isEmpty() ? def->bands().size() : gefahren.size();
+        m_unifiedLog->setContestBandCount(bandZahl);
         m_unifiedLog->setCurrentBand(m_currentBand);
         rebuildBandModeControls();
         // The score rows (km per band, ODX) need the own locator and the
@@ -2407,6 +2503,106 @@ void MainWindow::handleAwayToggled(bool away)
     }
 }
 
+// Alles, was sich am Chat einstellen lässt, an einer Stelle -- Martin,
+// 2026-09-28: "der chat sollte auch optionen haben. wie zb wechsel des
+// bandes usw.! alle möglichkeiten sollten dort änderbar sein."
+//
+// Was ON4KST hergibt, steht im Klassenkommentar von On4kstClient: die
+// Räume ("/CHAT 50|144|GHZ|EME|HF"), Abwesend/Zurück ("/AWAY", "/BACK")
+// und der CQ-Ruf. Dazu kommt, was dieses Panel selbst kann: das
+// Filtern, das sonst nur in der Kopfzeile sichtbar ist.
+void MainWindow::showChatOptionsPopup()
+{
+    if (!m_chatPanel) {
+        return;
+    }
+    auto* menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    On4kstClient& client = m_appController.on4kstClient();
+    const bool angemeldet = client.isLoggedIn();
+
+    // --- Raum ---------------------------------------------------------
+    // Der Raum folgt sonst dem Band (syncOn4kstRoomForCurrentBand()).
+    // Hier lässt er sich von Hand setzen: wer auf 144 arbeitet, aber im
+    // Mikrowellenraum mitlesen will, kann das.
+    auto* raumMenu = menu->addMenu(QStringLiteral("Chatraum"));
+    raumMenu->setEnabled(angemeldet);
+    struct Raum {
+        const char* wert;
+        const char* name;
+    };
+    static const Raum raeume[] = {
+        {"50", "50 MHz"}, {"144", "144 / 432 MHz"}, {"GHZ", "Mikrowelle (ab 1296)"},
+        {"EME", "EME"},   {"HF", "Kurzwelle"},
+    };
+    for (const Raum& raum : raeume) {
+        const QString wert = QString::fromLatin1(raum.wert);
+        QAction* eintrag = raumMenu->addAction(QString::fromUtf8(raum.name));
+        eintrag->setObjectName(QStringLiteral("chatRoom_%1").arg(wert));
+        eintrag->setCheckable(true);
+        eintrag->setChecked(m_currentOn4kstRoom == wert);
+        connect(eintrag, &QAction::triggered, this, [this, wert]() {
+            m_appController.on4kstClient().switchRoom(wert);
+            m_currentOn4kstRoom = wert;
+            statusBar()->showMessage(QStringLiteral("ON4KST: Raum %1").arg(wert), 4000);
+        });
+    }
+    // Und zurück auf "folgt dem Band" -- das ist der Normalfall.
+    QAction* demBandFolgen = raumMenu->addAction(QStringLiteral("dem Band folgen"));
+    demBandFolgen->setObjectName(QStringLiteral("chatRoomFollowBand"));
+    connect(demBandFolgen, &QAction::triggered, this, [this]() {
+        m_currentOn4kstRoom.clear(); // erzwingt den Wechsel beim nächsten Abgleich
+        syncOn4kstRoomForCurrentBand();
+    });
+
+    menu->addSeparator();
+
+    // --- Anwesenheit --------------------------------------------------
+    QAction* abwesend = menu->addAction(QStringLiteral("Als abwesend melden"));
+    abwesend->setObjectName(QStringLiteral("chatAwayAction"));
+    abwesend->setEnabled(angemeldet);
+    connect(abwesend, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendAway();
+        statusBar()->showMessage(QStringLiteral("ON4KST: als abwesend gemeldet"), 4000);
+    });
+    QAction* zurueck = menu->addAction(QStringLiteral("Wieder da"));
+    zurueck->setObjectName(QStringLiteral("chatBackAction"));
+    zurueck->setEnabled(angemeldet);
+    connect(zurueck, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendBack();
+        statusBar()->showMessage(QStringLiteral("ON4KST: wieder da"), 4000);
+    });
+
+    menu->addSeparator();
+
+    // --- CQ -----------------------------------------------------------
+    QAction* cq = menu->addAction(QStringLiteral("CQ rufen"));
+    cq->setObjectName(QStringLiteral("chatCqAction"));
+    cq->setEnabled(angemeldet);
+    connect(cq, &QAction::triggered, this, &MainWindow::handleCqDraftRequested);
+
+    menu->addSeparator();
+
+    // --- Was das Panel selbst kann -------------------------------------
+    QAction* alle = menu->addAction(QStringLiteral("Alle Zeilen zeigen (auch unerreichbare)"));
+    alle->setObjectName(QStringLiteral("chatShowAllAction"));
+    alle->setCheckable(true);
+    alle->setChecked(m_chatPanel->showsAll());
+    // Das Filtern ist gewollt (Martin, 2026-09-28: "alles was mich nicht
+    // erreicht ... möchte ich gefiltert haben um nicht 1000 unnötige
+    // chat zu sehen"). Dieser Schalter ist für den Fall, dass man doch
+    // einmal nachsehen will, was weggefiltert wurde.
+    connect(alle, &QAction::triggered, this, [this](bool checked) { m_chatPanel->setShowAll(checked); });
+
+    QAction* reichweite = menu->addAction(QStringLiteral("Reichweite ändern…"));
+    reichweite->setObjectName(QStringLiteral("chatRadiusAction"));
+    // Die Reichweite ist DAS Kriterium des Filters -- sie gehört
+    // erreichbar, wo gefiltert wird, nicht nur in den Einstellungen.
+    connect(reichweite, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    menu->exec(QCursor::pos());
+}
+
 QString MainWindow::on4kstRoomValueForBand(const QString& band)
 {
     if (band == QStringLiteral("1296")) {
@@ -2495,6 +2691,9 @@ void MainWindow::updateStatusBar()
     // their own doc comments), so calling them unconditionally here
     // needs no dirty-check.
     m_unifiedLog->setOperatingMode(settings.operatingMode);
+    // VOR setViewMode(): dort wird die Spalte ein- bzw. ausgeblendet,
+    // und setRunningNumberVisible() ruft setViewMode() ohnehin selbst.
+    m_unifiedLog->setRunningNumberVisible(settings.logShowRunningNumber);
     m_unifiedLog->setViewMode(settings.logViewMode);
     m_unifiedLog->setEntryRowPosition(settings.logEntryRowPosition);
 }
@@ -3270,6 +3469,24 @@ void MainWindow::showLogViewOptionsPopup()
 
     menu->addSeparator();
 
+    // Die laufende Nummer links, abschaltbar -- so löst es DXLog.net,
+    // und die Begründung dort passt auf die UKW-Conteste: "Hides the
+    // QSO numbers on the left, useful for serial number contests so
+    // wrong serials don't get sent". Auf UKW fängt die GESENDETE Nummer
+    // je Band wieder bei 001 an, die laufende nicht.
+    QAction* runningNumberAction = menu->addAction(QStringLiteral("Laufende Nummer (QSO#)"));
+    runningNumberAction->setObjectName(QStringLiteral("logRunningNumberAction"));
+    runningNumberAction->setCheckable(true);
+    runningNumberAction->setChecked(m_appController.settings().logShowRunningNumber);
+    connect(runningNumberAction, &QAction::triggered, this, [this](bool checked) {
+        m_unifiedLog->setRunningNumberVisible(checked);
+        ContestSettings settings = m_appController.settings();
+        settings.logShowRunningNumber = checked;
+        m_appController.setSettings(settings);
+    });
+
+    menu->addSeparator();
+
     // Eingabezeile Oben/Unten -- see ContestSettings::LogEntryRowPosition's
     // own doc comment for the operator request this answers. Same
     // "act on yourself first, then persist, then resync" pattern as
@@ -3989,6 +4206,45 @@ void MainWindow::archiveActiveContest()
                        "das leere Log.")
             .arg(records.size())
             .arg(contestId, archiveId));
+    // Und in derselben Frage: auf welchen Bändern wird gefahren?
+    // Martin, 2026-09-28: "beim start des contest soll ich dies ggf.
+    // zusätzlich anführen, sprich ich muss gefragt werden. standard
+    // nicht." Der IARU-R1-Contest kennt sieben Bänder, gefahren wird
+    // meist eines -- und eine Bandspalte, in der überall dasselbe
+    // steht, sagt nichts.
+    //
+    // Bewusst IN diesem Dialog, nicht als zweiter danach: ein zweiter
+    // modaler Dialog im selben Ablauf bleibt in jedem Prüfstand stehen,
+    // der den ersten wegklickt, und hängt damit die CI auf (so schon
+    // einmal passiert, siehe den Linux-Hänger vom 2026-09-09). Und für
+    // den Bediener ist eine Frage besser als zwei.
+    QList<QCheckBox*> bandBoxes;
+    const ContestDefinition* startDef = findContestDefinition(contestId);
+    if (startDef && startDef->bands().size() >= 2) {
+        auto* gruppe = new QGroupBox(QStringLiteral("Bänder in diesem Contest"), &box);
+        gruppe->setObjectName(QStringLiteral("newLogBandGroup"));
+        auto* gruppenLayout = new QVBoxLayout(gruppe);
+        auto* hinweis = new QLabel(
+            QStringLiteral("Nur die angekreuzten bekommen im Log eine eigene Spalte und eine eigene "
+                           "Auswertung. Bleibt es bei einem, spart sich das Log die Spalte."),
+            gruppe);
+        hinweis->setWordWrap(true);
+        gruppenLayout->addWidget(hinweis);
+        const QStringList bisher = m_appController.settings().activeBands;
+        for (const QString& band : startDef->bands()) {
+            auto* kasten = new QCheckBox(QStringLiteral("%1 MHz").arg(band), gruppe);
+            kasten->setObjectName(QStringLiteral("newLogBand_%1").arg(band));
+            // Vorbelegt: was zuletzt galt -- und beim ersten Mal genau
+            // das Band, auf dem gerade gearbeitet wird. Also eines.
+            kasten->setChecked(bisher.isEmpty() ? (band == m_currentBand) : bisher.contains(band));
+            gruppenLayout->addWidget(kasten);
+            bandBoxes.append(kasten);
+        }
+        if (auto* grid = qobject_cast<QGridLayout*>(box.layout())) {
+            grid->addWidget(gruppe, grid->rowCount(), 0, 1, grid->columnCount());
+        }
+    }
+
     QPushButton* startButton = box.addButton(QStringLiteral("Neues Log beginnen"), QMessageBox::AcceptRole);
     box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
     box.setDefaultButton(startButton);
@@ -4005,6 +4261,20 @@ void MainWindow::archiveActiveContest()
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                              QStringLiteral("Archivieren fehlgeschlagen:\n%1").arg(error));
         return;
+    }
+    // Die Bandwahl aus dem Dialog übernehmen. Keines angekreuzt heißt
+    // nicht "gar keines": dann gelten wieder alle, sonst ließe sich
+    // nichts mehr sinnvoll loggen.
+    if (!bandBoxes.isEmpty()) {
+        QStringList gewaehlt;
+        for (QCheckBox* kasten : bandBoxes) {
+            if (kasten->isChecked()) {
+                gewaehlt << kasten->objectName().mid(QStringLiteral("newLogBand_").size());
+            }
+        }
+        ContestSettings settings = m_appController.settings();
+        settings.activeBands = gewaehlt;
+        m_appController.setSettings(settings);
     }
     // Everything that reads the active contest's QSOs, same sequence
     // openContestPicker() uses after a contest switch.

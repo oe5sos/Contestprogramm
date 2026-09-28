@@ -91,6 +91,32 @@ public:
     bool isLocked() const { return m_locked; }
     void setLocked(bool locked);
 
+    // Das Panel aus der Fläche herauslösen: es wird ein eigenes Fenster
+    // mit dem Panelnamen im Titel, das man auf einen zweiten Bildschirm
+    // schieben kann. Martin, 2026-09-28: "schön wäre es, ein windows zu
+    // haben, wo ich alle windows auch aber auch rausziehen kann um
+    // platz zu sparen. das haben wir bei longpath auch erledigt."
+    //
+    // Longpath löst das mit einem eigenen FloatingContainer, der das
+    // Panel übernimmt (aus Thetis portiert, samt RX-Quellen und
+    // Makro-Sichtbarkeit). Hier genügt das Panel selbst: es wechselt
+    // seinen Elternteil zwischen Fläche und "kein Elternteil" und ist
+    // dann ein Fenster. Ein Teil weniger, und der Inhalt zieht mit --
+    // Text, Fokus und laufende Eingaben bleiben unangetastet.
+    //
+    // Der Rückweg: nochmal herauslösen aufheben, oder das Fenster
+    // schließen (closeEvent dockt an statt zu verschwinden -- ein Panel,
+    // das sich wegklicken lässt und dann nirgends mehr steht, wäre eine
+    // Falle).
+    void setFloating(bool floating);
+    bool isFloating() const { return m_floating; }
+    // Die Fläche, in die zurückgedockt wird -- der Elternteil, den das
+    // Panel beim Herauslösen hatte.
+    void setDockTarget(QWidget* canvas) { m_dockTarget = canvas; }
+    // Die Lage in der Fläche -- gilt auch, während das Panel abgelöst
+    // ist (dann ist geometry() die Lage auf dem Schirm).
+    QRect dockedGeometry() const { return m_floating ? m_dockedGeometry : geometry(); }
+
     // Applies `rect` (clamped to the minimum size above) unless this
     // panel is locked, in which case it is a no-op and this returns
     // false -- the one gate every drag/resize/programmatic move funnels
@@ -113,7 +139,17 @@ signals:
     // for a programmatic trySetGeometry() call, e.g. from layout
     // restore) -- PanelLayoutManager saves the layout on this.
     void geometryEdited();
+    // Nach JEDEM erfolgreichen trySetGeometry() -- auch dem
+    // programmatischen (Laden, Entwurf, Profil, fremder Aufrufer).
+    // PanelLayoutManager merkt sich daran die gewollte Lage des Panels.
+    // Ein Ereignisfilter genuegt dafuer nicht: ein noch nicht gezeigtes
+    // Widget bekommt von Qt gar kein Move/Resize (nur
+    // WA_PendingResizeEvent), und genau so laufen die Pruefstaende.
+    void geometryApplied(const QRect& rect);
     void lockedChanged(bool locked);
+    // Nach dem Herauslösen oder Andocken -- PanelLayoutManager merkt
+    // sich beides.
+    void floatingChanged(bool floating);
     // Emitted on the mouse press that starts a drag or resize --
     // PanelLayoutManager bumps this panel to the front of its persisted
     // z-order on this signal. The container already raise()s itself
@@ -123,6 +159,9 @@ signals:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    // Ein herausgelöstes Panel, dessen Fenster geschlossen wird, dockt
+    // wieder an -- es verschwindet nicht. Siehe setFloating().
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void buildChromelessOverlay();
@@ -138,6 +177,9 @@ private:
 
     QString m_id;
     bool m_locked = false;
+    bool m_floating = false;
+    QWidget* m_dockTarget = nullptr;
+    QRect m_dockedGeometry; // Lage in der Fläche, für den Rückweg
     bool m_contentHasOwnChrome;
     QWidget* m_content = nullptr;
 

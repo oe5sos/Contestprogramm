@@ -40,6 +40,13 @@ using namespace Contestprogramm;
 // rendering (DUPE/NEU on the entry row) is covered alongside the pill
 // test, since both read the same PillTextRole/PillBgRole/... roles (see
 // UnifiedLogWidget.h).
+// Seit 2026-09-28 stehen in der Log-Liste NUR noch geloggte QSOs. Zwei
+// Prüfstände von hier sind damit gegenstandslos und entfernt (nicht
+// umgeschrieben): clickToFillFromSpotRowEmitsCandidateActivated und
+// sourcePillDistinguishesKstFromCluster prüften Spot-Zeilen IN der
+// Liste. Die Spots stehen jetzt in Bandmap, Karte und Zielvorschlag --
+// siehe UnifiedFeedModel::rebuild() für Martins Befund und warum N1MM
+// und DXLog.net es ebenso halten.
 class TestUnifiedLogWidget : public QObject
 {
     Q_OBJECT
@@ -50,9 +57,7 @@ private slots:
     void spaceAndTabBothSkipRstField();
     void rstAutoDefaultsPerModeAndStaysOverridable();
     void exchangeFieldsSupportMoreThanOneSubField();
-    void clickToFillFromSpotRowEmitsCandidateActivated();
     void dupeStatusRendersAsPill();
-    void sourcePillDistinguishesKstFromCluster();
     void historyRowCallAndSerialGridRcvdAreEditableInPlace();
     void historyRowStatusClickTogglesInvalid();
     void invalidQsoRendersAsUngueltigPillAndDimmed();
@@ -342,47 +347,6 @@ void TestUnifiedLogWidget::exchangeFieldsSupportMoreThanOneSubField()
     QCOMPARE(received.value(QStringLiteral("name")), QStringLiteral("Eva"));
 }
 
-// Clicking a not-yet-worked spot/chat candidate row in the feed table
-// must fill the entry row exactly like today's click-to-fill did (see
-// MainWindow::handleCandidateActivated) -- driven directly through the
-// same private slot a real QTableView::clicked would invoke, matching
-// this project's established "drive the tested state-changing entry
-// point directly, not the UI chrome that triggers it" approach (see
-// tests/test_panellayoutmanager.cpp's own class comment for the same
-// reasoning applied to PanelContainerWidget's drag/resize signals).
-void TestUnifiedLogWidget::clickToFillFromSpotRowEmitsCandidateActivated()
-{
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    ContestDatabase db;
-    QVERIFY(db.open(dir.filePath(QStringLiteral("unifiedlog_click.sqlite")), QStringLiteral("unifiedlog_click")));
-    DupeChecker dupeChecker(db);
-    GeoFilter geoFilter; // default radius/no own grid -- classify() always inRange for this test
-
-    ChatFeedModel onKst(geoFilter, dupeChecker);
-    ChatFeedModel cluster(geoFilter, dupeChecker);
-    onKst.addCandidate(makeCandidate(QStringLiteral("DL3ABC"), QStringLiteral("JN58XX"), QStringLiteral("on4kst")));
-
-    UnifiedLogWidget widget;
-    widget.setChatModels(&onKst, &cluster);
-
-    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
-    QVERIFY(feedTable);
-    QVERIFY(feedTable->model());
-    // Row 0 is the "Spots & Chat" divider (both chat models are set, so
-    // it always appears); row 1 is the one on4kst candidate.
-    QCOMPARE(feedTable->model()->rowCount(), 2);
-    const QModelIndex candidateIndex = feedTable->model()->index(1, UnifiedLogWidget::ColumnCall);
-
-    QSignalSpy activatedSpy(&widget, &UnifiedLogWidget::candidateActivated);
-    QMetaObject::invokeMethod(&widget, "handleFeedRowClicked", Q_ARG(QModelIndex, candidateIndex));
-
-    QCOMPARE(activatedSpy.count(), 1);
-    const QList<QVariant> args = activatedSpy.constFirst();
-    QCOMPARE(args.at(0).toString(), QStringLiteral("DL3ABC"));
-    QCOMPARE(args.at(1).toString(), QStringLiteral("JN58XX"));
-    QCOMPARE(args.at(2).toLongLong(), qint64(144300000));
-}
 
 // The entry row's own dupe indicator (mockup E: a real QLabel, objectName
 // UnifiedLogWidget::kStatusPillObjectName -- see UnifiedLogWidget.h's
@@ -415,43 +379,6 @@ void TestUnifiedLogWidget::dupeStatusRendersAsPill()
     QVERIFY(pill->text().isEmpty());
 }
 
-// KST (on4kst) vs. CLU (cluster) source pill -- replacing the old
-// separate "ON4KST"/"Cluster" panel headers -- must land on the row
-// that actually came from that source, not just "some" pill on every
-// candidate row.
-void TestUnifiedLogWidget::sourcePillDistinguishesKstFromCluster()
-{
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    ContestDatabase db;
-    QVERIFY(db.open(dir.filePath(QStringLiteral("unifiedlog_pill.sqlite")), QStringLiteral("unifiedlog_pill")));
-    DupeChecker dupeChecker(db);
-    GeoFilter geoFilter;
-
-    ChatFeedModel onKst(geoFilter, dupeChecker);
-    ChatFeedModel cluster(geoFilter, dupeChecker);
-    onKst.addCandidate(makeCandidate(QStringLiteral("DL3ABC"), QStringLiteral("JN58XX"), QStringLiteral("on4kst")));
-    cluster.addCandidate(makeCandidate(QStringLiteral("HB9XYZ"), QStringLiteral("JN47AA"), QStringLiteral("cluster")));
-
-    UnifiedLogWidget widget;
-    widget.setChatModels(&onKst, &cluster);
-
-    auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
-    QVERIFY(feedTable);
-    QAbstractItemModel* model = feedTable->model();
-    QVERIFY(model);
-    // Row 0: divider. Row 1: the on4kst candidate. Row 2: the cluster
-    // candidate (see UnifiedFeedModel::rebuild()'s append order).
-    QCOMPARE(model->rowCount(), 3);
-
-    const QModelIndex kstStatus = model->index(1, UnifiedLogWidget::ColumnStatus);
-    const QModelIndex cluStatus = model->index(2, UnifiedLogWidget::ColumnStatus);
-    QCOMPARE(model->data(kstStatus, UnifiedLogWidget::PillTextRole).toString(), QStringLiteral("KST"));
-    QCOMPARE(model->data(cluStatus, UnifiedLogWidget::PillTextRole).toString(), QStringLiteral("CLU"));
-    // Different colour families too (amber vs. blue), not just different text.
-    QVERIFY(model->data(kstStatus, UnifiedLogWidget::PillFgRole).toString()
-            != model->data(cluStatus, UnifiedLogWidget::PillFgRole).toString());
-}
 
 // DXLog.net's real scope for editing an already-logged QSO
 // (dxlog.net/docs/index.php/Menu_Edit, verified for this task): the
@@ -564,23 +491,15 @@ void TestUnifiedLogWidget::historyRowStatusClickTogglesInvalid()
     QCOMPARE(toggleSpy.count(), 1);
     QCOMPARE(toggleSpy.constFirst().at(0).toInt(), 7);
 
-    // Clicking Status on a Candidate row (not History) must not emit
-    // this -- only a logged QSO can be marked invalid. Reuses the same
-    // click-to-fill fixture shape as clickToFillFromSpotRowEmitsCandidateActivated().
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    ContestDatabase db;
-    QVERIFY(db.open(dir.filePath(QStringLiteral("unifiedlog_status_click.sqlite")), QStringLiteral("unifiedlog_status_click")));
-    DupeChecker dupeChecker(db);
-    GeoFilter geoFilter;
-    ChatFeedModel onKst(geoFilter, dupeChecker);
-    ChatFeedModel cluster(geoFilter, dupeChecker);
-    onKst.addCandidate(makeCandidate(QStringLiteral("DL3ABC"), QStringLiteral("JN58XX"), QStringLiteral("on4kst")));
-    widget.setChatModels(&onKst, &cluster);
-    // Row 0: history. Row 1: divider. Row 2: the on4kst candidate.
-    const QModelIndex candidateStatusIndex = feedTable->model()->index(2, UnifiedLogWidget::ColumnStatus);
+    // Und eine Zeile, die es gar nicht gibt, loest nichts aus -- seit
+    // 2026-09-28 stehen in dieser Liste nur noch geloggte QSOs, also
+    // gibt es hinter dem einen QSO nichts mehr (vorher standen dort
+    // Trennzeile und Spot-Zeilen, und der Pruefstand stellte sicher,
+    // dass deren Status-Zelle keinen Gueltigkeits-Umschalter ausloest).
+    QCOMPARE(feedTable->model()->rowCount(), 1);
+    const QModelIndex hinterDemEnde = feedTable->model()->index(1, UnifiedLogWidget::ColumnStatus);
     QSignalSpy secondToggleSpy(&widget, &UnifiedLogWidget::historyInvalidToggleRequested);
-    QMetaObject::invokeMethod(&widget, "handleFeedRowClicked", Q_ARG(QModelIndex, candidateStatusIndex));
+    QMetaObject::invokeMethod(&widget, "handleFeedRowClicked", Q_ARG(QModelIndex, hinterDemEnde));
     QCOMPARE(secondToggleSpy.count(), 0);
 }
 
@@ -699,17 +618,26 @@ void TestUnifiedLogWidget::viewModeTogglesSerialColumnVisibilityOnly()
 
     auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(feedTable);
-    // Default (Kompakt): hidden.
-    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
-    // Every other column stays visible regardless.
+    // Die laufende Nummer steht seit 2026-09-28 in BEIDEN Ansichten --
+    // Martin: "es ist keine chronologische nmer vorhanden." Sie ist die
+    // Orientierung im Log, keine Feinheit der Vollspalten. Vorher war
+    // sie in Kompakt ausgeblendet, weil sie damals die GESENDETE Nummer
+    // zeigte und die schon im Austausch daneben stand.
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnCall));
+
+    // Was der Umschalter WIRKLICH umschaltet: die aufgeteilten Spalten
+    // RST gesendet / Nr. gesendet.
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 
     widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
     QCOMPARE(widget.viewMode(), ContestSettings::LogViewMode::DxLogFullColumns);
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 
     widget.setViewMode(ContestSettings::LogViewMode::Compact);
-    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 }
 
 // ColumnSerial itself is real per-QSO data (QsoRecord::serialSent, from
@@ -741,8 +669,13 @@ void TestUnifiedLogWidget::serialColumnShowsRealSerialSentOrDash()
     // oldest first (see its own rebuild() comment -- DXLog.net's real
     // order, confirmed 2026-09-11) -- feed row 0 is `withSerial`
     // (logged first), feed row 1 is `withoutSerial` (logged second).
-    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("012"));
-    QVERIFY(model->data(model->index(1, UnifiedLogWidget::ColumnSerial)).toString().contains(QString::fromUtf8("——")));
+    // Seit 2026-09-28 trägt diese Spalte die LAUFENDE Nummer -- das
+    // wievielte QSO des Logs die Zeile ist --, nicht mehr die gesendete
+    // Contest-Nummer (die stand schon im Austausch daneben, und auf UKW
+    // fängt sie je Band wieder bei 001 an). Also 001 und 002, ganz
+    // gleich, welche Nummer gesendet wurde und ob überhaupt eine.
+    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("001"));
+    QCOMPARE(model->data(model->index(1, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("002"));
 }
 
 // ContestSettings::logViewMode persistence -- same
@@ -1024,9 +957,23 @@ void TestUnifiedLogWidget::narrowPanelFitsTheColumnsAndTheEntryRowFollows()
     }
     QVERIFY2(visibleWidth <= feedTable->viewport()->width(),
              qPrintable(QStringLiteral("columns %1 > viewport %2").arg(visibleWidth).arg(feedTable->viewport()->width())));
-    // Shrunk, but never below what the text needs.
-    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnCall) < 115);
-    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnExchangeSent) >= 126);
+    // Was bei 620 px übrig bleiben MUSS: die Spalten, an denen man das
+    // Log liest. Vorher stand hier "die Call-Spalte schrumpft unter
+    // 115" -- das war nur ein Indiz dafür, dass überhaupt angepasst
+    // wird, und seit die laufende Nummer mitläuft (2026-09-28) geht es
+    // ohne Schrumpfen genau auf: es weichen dieselben Spalten wie
+    // vorher (Peilung, gesendeter Austausch, siehe kGiveWayOrder), und
+    // der Rest passt in seiner natürlichen Breite. Die Zusicherung, um
+    // die es geht, steht oben: alles im Viewport, kein Rollbalken.
+    QVERIFY2(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial),
+             "Die laufende Nummer darf auch in einem schmalen Panel nicht verschwinden");
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnCall));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnTime));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialGridRcvd));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnStatus));
+    // Und keine Spalte fällt unter das, was ihr Text braucht.
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnCall) >= 70);
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnSerialGridRcvd) >= 100);
 
     QLineEdit* callsign = findEditByPlaceholder(widget, QStringLiteral("Callsign"));
     QVERIFY(callsign);
@@ -1104,7 +1051,15 @@ void TestUnifiedLogWidget::serialsReadAsThreeDigitsEverywhere()
 
     auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(feedTable);
-    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerial).data().toString(), QStringLiteral("008"));
+    // Die laufende Nummer: erstes QSO des Logs, dreistellig.
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerial).data().toString(), QStringLiteral("001"));
+    // Die GESENDETE Nummer (8) steht in ihrer eigenen Spalte -- seit
+    // 2026-09-28 trägt ColumnSerial die Position im Log, nicht mehr sie.
+    // Dreistellig muss sie trotzdem sein, darum geht es hier.
+    widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerialSent).data().toString(),
+             QStringLiteral("008"));
+    widget.setViewMode(ContestSettings::LogViewMode::Compact);
     QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerialGridRcvd).data().toString(),
              QStringLiteral("004 JN78EG"));
 
