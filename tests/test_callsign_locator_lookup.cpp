@@ -26,6 +26,8 @@ class TestCallsignLocatorLookup : public QObject
 private slots:
     void csvImportValidRowsLand();
     void csvImportSkipsMalformedLinesAndTolerantesHeader();
+    void resultsListFromTheContestRobotIsRead();
+    void semicolonAndTabSeparatedListsAreRead();
     void localLookupServesImportedRow();
     void localLookupServesCachedExternalResult();
     void localLookupMissReturnsNullopt();
@@ -58,6 +60,59 @@ const QString kCsvFixture = QStringLiteral(
 
 } // namespace
 
+// Martin, 2026-09-27: "hierzu bitte alte kontestergebnisse und
+// einrecihungen usw. verwenden ... wichtig jedoch die einreichung der
+// ergebnsise, diese sind treffsicherer". Und das stimmt: der Locator
+// einer Einreichung ist der Standort, VON DEM gefahren wurde -- QRZ
+// kennt nur den Heimatstandort, und auf UKW fährt dieselbe Station vom
+// Berg.
+//
+// Die Zeilen unten stammen wörtlich aus dem CSV-Export des
+// ÖVSV-Auswerteservers (ukwauswertung.oevsv.at, 2025 IARU Region 1 VHF
+// Contest), nur um die hinteren Spalten gekürzt. Rufzeichen steht dort
+// an fünfter, der Locator an sechster Stelle -- die alte Regel
+// "Rufzeichen zuerst" hätte die ganze Datei verworfen.
+void TestCallsignLocatorLookup::resultsListFromTheContestRobotIsRead()
+{
+    const QString results = QStringLiteral(
+        "\"Section\",\"Band\",\"Rank\",\"Rank for prize\",\"Call\",\"WWL\",\"Claimed score\"\n"
+        "\"SO-LP 145 MHz\",\"145 MHz\",\"1\",\"0\",\"OE5DIN\",\"JN78BL\",\"46964\"\n"
+        "\"SO-LP 145 MHz\",\"145 MHz\",\"2\",\"0\",\"OE5MRM/P\",\"JN77GX\",\"24612\"\n"
+        "\"SO-LP 145 MHz\",\"145 MHz\",\"3\",\"0\",\"OE5KAP\",\"JN67VW\",\"14214\"\n");
+
+    const CallsignLocatorLookup::CsvParseResult parsed = CallsignLocatorLookup::parseCsv(results);
+    QCOMPARE(parsed.rows.size(), 3);
+    QCOMPARE(parsed.rows.at(0).callsign, QStringLiteral("OE5DIN"));
+    QCOMPARE(parsed.rows.at(0).grid, QStringLiteral("JN78BL"));
+    // Portabel gefahren: der Zusatz gehört zum Rufzeichen, so steht es
+    // auch im Log der Gegenstation.
+    QCOMPARE(parsed.rows.at(1).callsign, QStringLiteral("OE5MRM/P"));
+    QCOMPARE(parsed.rows.at(1).grid, QStringLiteral("JN77GX"));
+    QCOMPARE(parsed.rows.at(2).callsign, QStringLiteral("OE5KAP"));
+    // Die dritte Spalte ist hier der Rang -- kein Name.
+    QVERIFY2(parsed.rows.at(0).name.isEmpty(), qPrintable(parsed.rows.at(0).name));
+    QCOMPARE(parsed.skipped, 0);
+}
+
+// Dieselbe Liste mit anderen Trennzeichen -- Ergebnislisten kommen je
+// nach Land und Tabellenprogramm mit Semikolon oder Tabulator.
+void TestCallsignLocatorLookup::semicolonAndTabSeparatedListsAreRead()
+{
+    const CallsignLocatorLookup::CsvParseResult semicolon = CallsignLocatorLookup::parseCsv(
+        QStringLiteral("Platz;Rufzeichen;QTH-Locator;Punkte\n"
+                        "1;DL1ABC;JN58SD;12345\n"
+                        "2;OE3XYZ;JN88OA;9876\n"));
+    QCOMPARE(semicolon.rows.size(), 2);
+    QCOMPARE(semicolon.rows.at(0).callsign, QStringLiteral("DL1ABC"));
+    QCOMPARE(semicolon.rows.at(0).grid, QStringLiteral("JN58SD"));
+
+    const CallsignLocatorLookup::CsvParseResult tabbed = CallsignLocatorLookup::parseCsv(
+        QStringLiteral("Call\tLocator\tScore\nHB9QQQ\tJN47AA\t42\n"));
+    QCOMPARE(tabbed.rows.size(), 1);
+    QCOMPARE(tabbed.rows.at(0).callsign, QStringLiteral("HB9QQQ"));
+    QCOMPARE(tabbed.rows.at(0).grid, QStringLiteral("JN47AA"));
+}
+
 void TestCallsignLocatorLookup::csvImportValidRowsLand()
 {
     const CallsignLocatorLookup::CsvParseResult parsed = CallsignLocatorLookup::parseCsv(kCsvFixture);
@@ -73,8 +128,12 @@ void TestCallsignLocatorLookup::csvImportValidRowsLand()
 void TestCallsignLocatorLookup::csvImportSkipsMalformedLinesAndTolerantesHeader()
 {
     const CallsignLocatorLookup::CsvParseResult parsed = CallsignLocatorLookup::parseCsv(kCsvFixture);
-    // header + invalid-grid row + empty-callsign row + one-column row = 4
-    QCOMPARE(parsed.skipped, 4);
+    // Kaputter Locator + leeres Rufzeichen + einspaltige Zeile = 3.
+    // Die Kopfzeile zählt seit 2026-09-27 NICHT mehr als übersprungen:
+    // sie benennt ihre Spalten ("callsign,grid,name"), wird als
+    // Kopfzeile erkannt und ist damit keine kaputte Zeile, sondern
+    // gerade die Auskunft darüber, wo was steht.
+    QCOMPARE(parsed.skipped, 3);
 
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -92,7 +151,7 @@ void TestCallsignLocatorLookup::csvImportSkipsMalformedLinesAndTolerantesHeader(
     const CallsignLocatorLookup::ImportSummary summary = lookup.importCsvFile(csvPath, &error);
     QVERIFY(error.isEmpty());
     QCOMPARE(summary.imported, 2);
-    QCOMPARE(summary.skipped, 4);
+    QCOMPARE(summary.skipped, 3); // die Kopfzeile zaehlt nicht mehr mit, siehe oben
 }
 
 void TestCallsignLocatorLookup::localLookupServesImportedRow()

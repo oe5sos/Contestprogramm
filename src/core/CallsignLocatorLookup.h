@@ -115,10 +115,22 @@ public:
     // isExternalLookupAvailable() is false or `callsign` is empty.
     void lookupExternal(const QString& callsign);
 
-    // CSV import ("callsign,grid[,name]" per line -- N1MM+ "Call History
-    // File" concept). Malformed lines are skipped individually rather
-    // than aborting the whole import; an optional header row is
-    // tolerated for free (see parseCsv's own comment for how).
+    // CSV-Import zweier Sorten (siehe parseCsv):
+    //
+    //   1. Die schlichte Liste "Rufzeichen,Locator[,Name]" je Zeile --
+    //      N1MM+ nennt so etwas "Call History File".
+    //
+    //   2. Eine veröffentlichte ERGEBNISLISTE, wie der ÖVSV-Auswerte-
+    //      server sie ausgibt (ukwauswertung.oevsv.at, "CSV Export" je
+    //      Contest): eine Kopfzeile mit benannten Spalten, darunter je
+    //      Station eine Zeile. Martin, 2026-09-27: "wichtig jedoch die
+    //      einreichung der ergebnsise, diese sind treffsicherer" --
+    //      und das stimmt: der Locator einer Einreichung ist der
+    //      Standort, VON DEM gefahren wurde. QRZ kennt nur den
+    //      Heimatstandort, und auf UKW fährt dieselbe Station vom Berg.
+    //
+    // Kaputte Zeilen werden einzeln übersprungen, nicht der ganze
+    // Import abgebrochen.
     struct ImportSummary {
         int imported = 0;
         int skipped = 0;
@@ -137,15 +149,24 @@ public:
         QVector<CsvRow> rows;
         int skipped = 0;
     };
-    // Pure parse, no file/DB access -- unit-testable directly against a
-    // fixture string. A line is skipped (counted in `skipped`, not
-    // fatal to the rest of the import) when it has fewer than two
-    // comma-separated fields, when the callsign field is empty, or when
-    // the grid field does not pass Maidenhead::isValidGridSquare -- the
-    // last check is also what makes an optional header row
-    // ("callsign,grid,name" or similar) fall out for free: its "grid"
-    // field is not a valid locator either, so it is skipped exactly like
-    // any other malformed line, no special-casing needed.
+    // Reines Parsen, ohne Datei und ohne Datenbank -- gegen eine
+    // Zeichenkette prüfbar.
+    //
+    // Trennzeichen: Komma, Semikolon oder Tabulator, je nachdem, was in
+    // der ersten Zeile am häufigsten vorkommt. Felder dürfen in
+    // Anführungszeichen stehen (der ÖVSV-Export tut das durchgehend).
+    //
+    // Spalten: trägt die erste Zeile Überschriften, die ein Rufzeichen-
+    // und ein Locator-Feld benennen ("Call"/"Callsign"/"Rufzeichen",
+    // "WWL"/"Locator"/"Loc"/"Grid"/"Gridsquare"/"QTH"), werden GENAU
+    // diese beiden Spalten gelesen -- egal, an welcher Stelle sie
+    // stehen. Ohne solche Überschriften bleibt es bei der alten Regel:
+    // Rufzeichen in der ersten, Locator in der zweiten Spalte.
+    //
+    // Übersprungen wird eine Zeile, wenn das Rufzeichen leer ist oder
+    // der Locator nicht durch isValidGridSquare kommt. Das erledigt
+    // auch eine Kopfzeile, die keine bekannte Spalte benennt: ihr
+    // "Locator" ist keiner.
     static CsvParseResult parseCsv(const QString& csvText);
 
     // -- XML parsing, pure, unit-testable without any network I/O --
