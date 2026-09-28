@@ -2819,7 +2819,27 @@ void MainWindow::dragPanelOutOfSideArea(const QString& id, const QPoint& globalP
     const QPoint aufDerFlaeche = flaeche->mapFromGlobal(globalPos) - QPoint(20, 10);
     const QSize groesse = vorherigeGroesse.isValid() && !vorherigeGroesse.isEmpty() ? vorherigeGroesse
                                                                                      : panel->size();
-    panel->trySetGeometry(QRect(aufDerFlaeche, groesse));
+    // Ein GESPERRTES Panel weist trySetGeometry() ab -- und Martins
+    // Panels sind gesperrt. Live gefunden: Skeds kam aus der Leiste,
+    // legte sich aber an seinen alten Platz links oben statt dorthin,
+    // wo losgelassen wurde. Wer ein Panel eigenhändig herauszieht,
+    // verschiebt es absichtlich; das Schloss schützt vor Versehen, und
+    // ein Zug quer über den Schirm ist keines. Es bleibt gesperrt --
+    // nur dieser eine Handgriff geht durch.
+    const bool warGesperrt = panel->isLocked();
+    if (warGesperrt) {
+        panel->setLocked(false);
+    }
+    // Auf der Fläche halten. Sonst hinge ein breites Panel, ganz rechts
+    // abgelegt, zur Hälfte draußen -- die Klemme, die der
+    // Layout-Manager sonst besorgt, greift bei einem gesperrten Panel
+    // nicht.
+    const QPoint gehalten(std::clamp(aufDerFlaeche.x(), 0, std::max(0, flaeche->width() - groesse.width())),
+                          std::clamp(aufDerFlaeche.y(), 0, std::max(0, flaeche->height() - groesse.height())));
+    panel->trySetGeometry(QRect(gehalten, groesse));
+    if (warGesperrt) {
+        panel->setLocked(true);
+    }
     m_panelLayoutManager->revealPanel(id);
     statusBar()->showMessage(QStringLiteral("%1 liegt wieder auf der Fläche")
                                  .arg(panel->title().isEmpty() ? id : panel->title()),

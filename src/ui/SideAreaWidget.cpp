@@ -90,12 +90,17 @@ protected:
 
     void mouseMoveEvent(QMouseEvent* event) override
     {
-        if ((event->buttons() & Qt::LeftButton) && !m_zieht && !m_pressGlobal.isNull()) {
+        if ((event->buttons() & Qt::LeftButton) && !m_pressGlobal.isNull()) {
             const QPoint jetzt = event->globalPosition().toPoint();
-            if ((jetzt - m_pressGlobal).manhattanLength() >= QApplication::startDragDistance()) {
+            if (!m_zieht && (jetzt - m_pressGlobal).manhattanLength() >= QApplication::startDragDistance()) {
                 m_zieht = true;
                 setCursor(Qt::ClosedHandCursor);
             }
+            // JEDE Bewegung merken, nicht nur die, mit der der Zug
+            // begann: sonst steht hier am Ende ein Punkt dicht neben
+            // dem Knopf -- also mitten im Seitenbereich -- und das
+            // Herausziehen gilt als "doch nicht". Live gefunden.
+            m_letzteZugPosition = jetzt;
         }
         QToolButton::mouseMoveEvent(event);
     }
@@ -107,9 +112,18 @@ protected:
             m_pressGlobal = QPoint();
             unsetCursor();
             setDown(false);
-            const QPoint wo = event->globalPosition().toPoint();
+            // Die zuletzt GEMELDETE Zugposition, nicht die beim
+            // Loslassen: bei einem eingespeisten Zug
+            // (Bedienungshilfen, meine eigene Live-Prüfung) steht der
+            // Zeiger beim Loslassen schon wieder am Ausgangspunkt --
+            // das Panel landete dann links in der Leiste statt dort,
+            // wo man es hingezogen hat. Dieselbe Lehre wie bei
+            // PanelContainerWidget::endDrag().
+            const QPoint wo = m_letzteZugPosition.isNull() ? event->globalPosition().toPoint()
+                                                            : m_letzteZugPosition;
             // NICHT an die Basisklasse weitergeben: die würde den Knopf
             // umschalten, und ein Zug wäre zugleich ein Klick.
+            m_letzteZugPosition = QPoint();
             if (onDragOut) {
                 onDragOut(wo);
             }
@@ -139,6 +153,7 @@ private:
     QString m_id;
     QString m_title;
     QPoint m_pressGlobal;
+    QPoint m_letzteZugPosition;
     bool m_zieht = false;
 };
 

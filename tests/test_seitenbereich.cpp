@@ -796,6 +796,13 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
     QVERIFY(manager);
     auto* bereich = window.findChild<SideAreaWidget*>();
     QVERIFY(bereich);
+    // Gesperrt hineinlegen -- so fährt Martin sein Layout, und genau
+    // daran ist das Herausziehen live gescheitert: trySetGeometry()
+    // weist ein gesperrtes Panel ab, es landete an seinem alten Platz
+    // statt dort, wo losgelassen wurde.
+    if (PanelContainerWidget* vorher = manager->panel(QStringLiteral("map"))) {
+        vorher->setLocked(true);
+    }
     QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("map")),
                                Q_ARG(QString, QStringLiteral("Karte / Verbindungen")));
     QCoreApplication::processEvents();
@@ -843,6 +850,29 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
                             .arg(karte->x()).arg(erwartetX)));
     QVERIFY2(std::abs(karte->y() - (zielAufDerFlaeche.y() - 10)) <= 40,
              "Die Karte liegt nicht dort, wo losgelassen wurde");
+    // Und das Schloss ist danach wieder zu: der eine Handgriff ging
+    // durch, die Sperre bleibt.
+    QVERIFY2(karte->isLocked(), "Das Panel ist nach dem Herausziehen nicht mehr gesperrt");
+
+    // Dasselbe mit der Rotorreihe: sie hat ein eigenes Layoutgesetz
+    // (reflowRotorRowForCanvasWidth stellt sie in schmalen Fenstern
+    // mittig) -- live sah es aus, als rutsche sie nach dem
+    // Herausziehen wieder nach links.
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
+                               Q_ARG(QString, QStringLiteral("Rotoren")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("rotorrow")));
+    const QPoint zielRotoren = flaeche->mapToGlobal(QPoint(700, 420));
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
+                               Q_ARG(QPoint, zielRotoren));
+    QCoreApplication::processEvents();
+    PanelContainerWidget* rotoren = manager->panel(QStringLiteral("rotorrow"));
+    QVERIFY(rotoren);
+    qInfo().noquote() << "Rotoren herausgezogen nach" << rotoren->geometry()
+                      << "-- Fläche" << flaeche->size();
+    const int passtRotoren = std::max(0, flaeche->width() - rotoren->width());
+    QVERIFY2(std::abs(rotoren->x() - std::min(700 - 20, passtRotoren)) <= 40,
+             qPrintable(QStringLiteral("Rotoren liegen bei x=%1").arg(rotoren->x())));
 }
 
 int main(int argc, char* argv[])
