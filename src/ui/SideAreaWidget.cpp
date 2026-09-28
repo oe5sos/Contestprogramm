@@ -2,6 +2,7 @@
 
 #include "ui/StyleKit.h"
 
+
 #include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QStackedWidget>

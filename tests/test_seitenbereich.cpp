@@ -43,6 +43,8 @@ private slots:
     void theMenuOffersEveryPanel();
     void aPanelInTheSideAreaKeepsWhatWasTypedInIt();
     void clickingTheRailButtonItselfSwitchesThePage();
+    void clickingTheRailWithRealPanelsInIt();
+    void aPanelPutIntoAHiddenSideAreaDoesNotVanish();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -314,6 +316,132 @@ void TestSeitenbereich::clickingTheRailButtonItselfSwitchesThePage()
     QCoreApplication::processEvents();
     qInfo() << "Klick auf das aktive Symbol -> zugeklappt:" << bereich.isCollapsed();
     QVERIFY2(bereich.isCollapsed(), "Der Klick auf das aktive Symbol hat nicht zugeklappt");
+}
+
+// Und derselbe Klick mit ECHTEN Panels im Bereich, nicht mit nackten
+// QWidgets. Der Unterschied ist nicht theoretisch: live blieb nach dem
+// Klick auf "BA" die Skeds-Seite stehen, obwohl der Prüfstand mit
+// QWidgets grün war.
+void TestSeitenbereich::clickingTheRailWithRealPanelsInIt()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("echt.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("bandmap")),
+                               Q_ARG(QString, QStringLiteral("Bandmap")));
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("skeds")),
+                               Q_ARG(QString, QStringLiteral("Skeds")));
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "im Bereich:" << bereich->pageIds().join(QStringLiteral(", "))
+                      << "| aktiv:" << bereich->activeId();
+    QCOMPARE(bereich->pageIds().size(), 2);
+
+    auto* stack = bereich->findChild<QStackedWidget*>(QLatin1String(SideAreaWidget::kStackObjectName));
+    QVERIFY(stack);
+    PanelContainerWidget* bandmap = manager->panel(QStringLiteral("bandmap"));
+    PanelContainerWidget* skeds = manager->panel(QStringLiteral("skeds"));
+    QVERIFY(bandmap);
+    QVERIFY(skeds);
+
+    // Jetzt der Klick auf den Knopf, wie der Bediener ihn macht.
+    auto* baKnopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_bandmap"));
+    QVERIFY2(baKnopf, "Kein Knopf für die Bandmap in der Leiste");
+    baKnopf->click();
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "nach dem Klick aktiv:" << bereich->activeId()
+                      << "| im Stapel vorne:"
+                      << (stack->currentWidget() == bandmap  ? QStringLiteral("Bandmap")
+                          : stack->currentWidget() == skeds ? QStringLiteral("Skeds")
+                                                             : QStringLiteral("etwas anderes"))
+                      << "| Bandmap sichtbar:" << !bandmap->isHidden()
+                      << "| Skeds sichtbar:" << !skeds->isHidden();
+
+    QCOMPARE(bereich->activeId(), QStringLiteral("bandmap"));
+    QVERIFY2(stack->currentWidget() == bandmap, "Im Stapel steht nicht die Bandmap vorne");
+    // Und das ist das, was man live sieht: das eine Panel steht da, das
+    // andere nicht.
+    QVERIFY2(!bandmap->isHidden(), "Die Bandmap ist versteckt, obwohl sie aktiv ist");
+    QVERIFY2(skeds->isHidden(), "Die Skeds stehen noch da, obwohl die Bandmap aktiv ist");
+
+    // Und jetzt die Zutat, die im Prüfstand fehlte und live immer da
+    // ist: eine Größenänderung der Fläche. Sie lässt den Klemmer über
+    // alle registrierten Panels laufen -- der fasste dabei auch die im
+    // Seitenbereich an und schob das falsche wieder nach vorn.
+    window.resize(1300, 820);
+    QCoreApplication::processEvents();
+    window.resize(1440, 900);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "nach zwei Größenänderungen -- aktiv:" << bereich->activeId()
+                      << "| Bandmap sichtbar:" << !bandmap->isHidden()
+                      << "| Skeds sichtbar:" << !skeds->isHidden()
+                      << "| Bandmap-Lage:" << bandmap->geometry();
+    QCOMPARE(bereich->activeId(), QStringLiteral("bandmap"));
+    QVERIFY2(!bandmap->isHidden(), "Nach der Größenänderung ist die Bandmap verschwunden");
+    QVERIFY2(skeds->isHidden(), "Nach der Größenänderung stehen die Skeds wieder obenauf");
+    QVERIFY2(stack->currentWidget() == bandmap, "Im Stapel steht nicht mehr die Bandmap vorne");
+}
+
+// Live gefunden: Panels, die in den Seitenbereich gelegt wurden, waren
+// spurlos weg. Der Bereich hat auf dem 13"-Layout keine Vorgabe, ist
+// also anfangs versteckt -- und blieb es, während die Panels
+// hineinwanderten. Man sah weder den Bereich noch die Panels.
+void TestSeitenbereich::aPanelPutIntoAHiddenSideAreaDoesNotVanish()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("versteckt.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
+    QVERIFY(bereichPanel);
+
+    // Den Ausgangszustand herstellen: der Bereich ist versteckt, wie auf
+    // dem 13"-Layout.
+    bereichPanel->setVisible(false);
+    QCoreApplication::processEvents();
+    QVERIFY(bereichPanel->isHidden());
+
+    PanelContainerWidget* bandmap = manager->panel(QStringLiteral("bandmap"));
+    QVERIFY(bandmap);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("bandmap")),
+                               Q_ARG(QString, QStringLiteral("Bandmap")));
+    QCoreApplication::processEvents();
+
+    qInfo() << "Bereich sichtbar:" << !bereichPanel->isHidden()
+            << "| Bandmap sichtbar:" << !bandmap->isHidden()
+            << "| Bereich-Lage:" << bereichPanel->geometry();
+
+    QVERIFY2(!bereichPanel->isHidden(),
+             "Der Seitenbereich ist versteckt geblieben -- das hineingelegte Panel ist damit weg");
+    QVERIFY2(!bandmap->isHidden(), "Die Bandmap ist im Seitenbereich verschwunden");
+    // Und er steht auf der Fläche, nicht irgendwo daneben.
+    QWidget* flaeche = bereichPanel->parentWidget();
+    QVERIFY(flaeche);
+    QVERIFY2(bereichPanel->geometry().intersects(QRect(QPoint(0, 0), flaeche->size())),
+             qPrintable(QStringLiteral("Der Bereich liegt bei %1, die Fläche ist %2 groß")
+                            .arg(QString::number(bereichPanel->x()))
+                            .arg(QString::number(flaeche->width()))));
 }
 
 int main(int argc, char* argv[])

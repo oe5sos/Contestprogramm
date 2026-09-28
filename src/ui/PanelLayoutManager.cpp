@@ -322,6 +322,15 @@ void PanelLayoutManager::revealPanel(const QString& id)
     if (!container) {
         return;
     }
+    // Sichtbar machen gehört dazu. "Reveal" hieß bisher nur "nach vorne
+    // und auf die Fläche" -- ein VERSTECKTES Panel blieb versteckt, und
+    // der Aufrufer musste selbst daran denken.
+    //
+    // Live gefunden 2026-09-28: Panels, die in den Seitenbereich gelegt
+    // wurden, waren danach spurlos weg. Der Bereich hat auf dem
+    // 13"-Layout keine Vorgabe, ist also anfangs versteckt -- und blieb
+    // es, während die Panels hineinwanderten.
+    container->setVisible(true);
     raisePanel(id);
     clampPanelToCanvas(container);
 }
@@ -403,6 +412,20 @@ void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
     // leaves locked panels alone too rather than silently unsticking
     // them out from under a lock.
     if (!container || container->isLocked() || !canvasHasRealSize()) {
+        return;
+    }
+    // Nur Panels, die wirklich IN der Fläche liegen. Ein abgelöstes
+    // Panel ist ein eigenes Fenster, und eines im Seitenbereich ist
+    // Kind eines Stapels -- beide hier hineinzuzwingen heißt, ihnen
+    // eine Lage auf der Fläche zu geben, die sie gar nicht haben.
+    //
+    // Härtung, kein belegter Fehler: als im Seitenbereich nach einem
+    // Klick auf "BA" die Skeds-Seite stehen blieb, hielt ich den
+    // Klemmer für die Ursache. Die Gegenprobe sagt nein -- der
+    // Prüfstand bleibt auch OHNE diesen Ausschluss grün. Richtig ist er
+    // trotzdem: ein abgelöstes Fenster oder ein eingelegtes Panel hat
+    // keine Lage auf der Fläche, in die es geklemmt werden könnte.
+    if (container->isFloating() || container->parentWidget() != m_canvas) {
         return;
     }
     const QRect current = container->geometry();
