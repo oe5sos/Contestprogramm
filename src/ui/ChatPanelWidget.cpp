@@ -145,6 +145,28 @@ public:
     }
 
 public slots:
+    // Ob ALLE Zeilen gezeigt werden oder nur die gefilterten.
+    void setShowAll(bool alle)
+    {
+        if (m_alleZeigen == alle) {
+            return;
+        }
+        m_alleZeigen = alle;
+        rebuild();
+    }
+    bool showsAll() const { return m_alleZeigen; }
+    // Wie viele Zeilen insgesamt hereinkamen -- für den Hinweis "x von y".
+    int totalCount() const
+    {
+        int summe = 0;
+        for (ChatFeedModel* modell : {m_onKst, m_cluster}) {
+            if (modell) {
+                summe += modell->lineCount();
+            }
+        }
+        return summe;
+    }
+
     void rebuild()
     {
         beginResetModel();
@@ -153,10 +175,34 @@ public slots:
             if (!modell) {
                 return;
             }
-            // lineCount()/lineAt(), NICHT rowCount(): der Chat zeigt
-            // alles, was hereinkam. rowCount() gäbe nur die Zeilen, die
-            // der Filter für die Vorschläge durchlässt -- siehe
-            // ChatFeedModel::lineAt()'s eigenen Kommentar.
+            // Standardmäßig nur die gefilterten Zeilen. Martin,
+            // 2026-09-28: "alles was mich nicht erreicht bzw. was
+            // absolut nicht funktionieren kann möchte ich gefiltert
+            // haben um nicht 1000 unnötige chat zu sehen." Das Filtern
+            // ist also gewollt -- es soll nur nicht UNSICHTBAR
+            // geschehen: die Kopfzeile sagt, wie viele Zeilen gerade
+            // stehen und wie viele hereinkamen, und über den ⚙ lässt
+            // sich alles zeigen.
+            if (!m_alleZeigen) {
+                for (int r = 0; r < modell->rowCount(); ++r) {
+                    Zeile zeile;
+                    zeile.ausKst = ausKst;
+                    // candidateAt() geht über die SICHTBAREN Zeilen;
+                    // die Entfernung dazu holt lineAt() nicht, also aus
+                    // dem Modell lesen.
+                    zeile.linie.candidate = modell->candidateAt(r);
+                    zeile.linie.worked =
+                        modell->data(modell->index(r, ChatFeedModel::ColumnCallsign), ChatFeedModel::DupeRole)
+                            .toBool();
+                    const QString km = modell->data(modell->index(r, ChatFeedModel::ColumnDistanceKm)).toString();
+                    zeile.linie.distanceKnown = !km.isEmpty() && km != Style::unknownDash();
+                    zeile.linie.distanceKm = km.toDouble();
+                    zeile.linie.bearingDeg =
+                        modell->data(modell->index(r, ChatFeedModel::ColumnBearingDeg)).toString().toDouble();
+                    m_rows.append(zeile);
+                }
+                return;
+            }
             for (int i = 0; i < modell->lineCount(); ++i) {
                 Zeile zeile;
                 zeile.ausKst = ausKst;
@@ -181,6 +227,7 @@ private:
     ChatFeedModel* m_onKst = nullptr;
     ChatFeedModel* m_cluster = nullptr;
     QVector<Zeile> m_rows;
+    bool m_alleZeigen = false;
 };
 
 ChatPanelWidget::ChatPanelWidget(QWidget* parent)
@@ -217,7 +264,10 @@ ChatPanelWidget::ChatPanelWidget(QWidget* parent)
 
     // Neueste Zeile im Blick behalten -- ein Chat, der nicht mitläuft,
     // ist keiner.
-    connect(m_model, &QAbstractItemModel::modelReset, this, [this]() { m_table->scrollToBottom(); });
+    connect(m_model, &QAbstractItemModel::modelReset, this, [this]() {
+        m_table->scrollToBottom();
+        updateStatusLine();
+    });
 
     connect(m_table, &QTableView::doubleClicked, this, [this](const QModelIndex& index) {
         QString callsign;
@@ -249,6 +299,37 @@ void ChatPanelWidget::setFeedModels(ChatFeedModel* onKst, ChatFeedModel* cluster
 
 void ChatPanelWidget::setConnectionStatus(const QString& text)
 {
+    m_connectionText = text;
+    updateStatusLine();
+}
+
+void ChatPanelWidget::setShowAll(bool showAll)
+{
+    m_model->setShowAll(showAll);
+    updateStatusLine();
+}
+
+bool ChatPanelWidget::showsAll() const
+{
+    return m_model->showsAll();
+}
+
+// "ON4KST: verbunden · 12 von 87 Zeilen (gefiltert)" -- damit sichtbar
+// ist, DASS gefiltert wird. Das Filtern selbst ist gewollt, siehe
+// setShowAll().
+void ChatPanelWidget::updateStatusLine()
+{
+    const int gezeigt = m_model->rowCount();
+    const int gesamt = m_model->totalCount();
+    QString text = m_connectionText;
+    if (!text.isEmpty()) {
+        text += QStringLiteral(" · ");
+    }
+    if (m_model->showsAll() || gezeigt == gesamt) {
+        text += QStringLiteral("%1 Zeilen").arg(gesamt);
+    } else {
+        text += QStringLiteral("%1 von %2 Zeilen (gefiltert)").arg(gezeigt).arg(gesamt);
+    }
     m_status->setText(text);
 }
 

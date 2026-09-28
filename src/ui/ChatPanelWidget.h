@@ -48,6 +48,14 @@ public:
     // Was in der Kopfzeile des Panels steht ("ON4KST: verbunden" o. ä.).
     void setConnectionStatus(const QString& text);
 
+    // Alle Zeilen zeigen statt nur der gefilterten. Standard ist
+    // gefiltert -- Martin, 2026-09-28: "alles was mich nicht erreicht
+    // bzw. was absolut nicht funktionieren kann möchte ich gefiltert
+    // haben um nicht 1000 unnötige chat zu sehen." Der Schalter sitzt
+    // im ⚙ des Panelkopfes.
+    void setShowAll(bool showAll);
+    bool showsAll() const;
+
 signals:
     // Der Bediener will diese Station anrufen -- Doppelklick auf eine
     // Zeile. Dieselbe Form, die MainWindow::handleCandidateActivated
@@ -58,12 +66,14 @@ signals:
 
 private:
     void sendCurrentInput();
+    void updateStatusLine();
 
     MergedChatModel* m_model = nullptr;
     QTableView* m_table = nullptr;
     QLineEdit* m_input = nullptr;
     QPushButton* m_sendButton = nullptr;
     QLabel* m_status = nullptr;
+    QString m_connectionText;
 };
 
 } // namespace Contestprogramm

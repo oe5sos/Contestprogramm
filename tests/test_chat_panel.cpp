@@ -147,8 +147,43 @@ void TestChatPanel::theChatShowsWhatCameInFromBothSources()
         qInfo().noquote() << "   " << z;
     }
 
-    QVERIFY2(model->rowCount() >= 4,
-             qPrintable(QStringLiteral("Nur %1 Zeilen im Chat").arg(model->rowCount())));
+    // Standardmäßig GEFILTERT -- Martin, 2026-09-28: "alles was mich
+    // nicht erreicht bzw. was absolut nicht funktionieren kann möchte
+    // ich gefiltert haben um nicht 1000 unnötige chat zu sehen." Es darf
+    // also weniger dastehen, als hereinkam. Was nicht sein darf: dass
+    // man es nicht merkt.
+    auto* status = panel.findChild<QLabel*>(QLatin1String(ChatPanelWidget::kStatusObjectName));
+    QVERIFY(status);
+    qInfo().noquote() << "Kopfzeile:" << status->text();
+    const int gefiltert = model->rowCount();
+    QVERIFY2(gefiltert >= 1, "Der Chat ist ganz leer");
+    if (gefiltert < 4) {
+        QVERIFY2(status->text().contains(QStringLiteral("gefiltert")),
+                 qPrintable(QStringLiteral("Es wird gefiltert, aber die Kopfzeile sagt es nicht: %1")
+                                .arg(status->text())));
+        QVERIFY2(status->text().contains(QStringLiteral("von 4")),
+                 qPrintable(QStringLiteral("Die Kopfzeile nennt nicht, wie viele hereinkamen: %1")
+                                .arg(status->text())));
+    }
+
+    // Und wer nachsehen will, was weggefiltert wurde, kann es -- über
+    // den ⚙. Dann steht alles da.
+    panel.setShowAll(true);
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "mit „alle zeigen“:" << status->text();
+    QCOMPARE(model->rowCount(), 4);
+    zeilen.clear();
+    for (int r2 = 0; r2 < model->rowCount(); ++r2) {
+        QStringList felder;
+        for (int c = 0; c < ChatPanelWidget::ColumnCount; ++c) {
+            felder << model->index(r2, c).data().toString();
+        }
+        zeilen << felder.join(QStringLiteral(" | "));
+    }
+    qInfo().noquote() << "Alle Zeilen:";
+    for (const QString& z : zeilen) {
+        qInfo().noquote() << "   " << z;
+    }
 
     // Älteste oben: die Plauderzeile von vor fünf Minuten steht vor der
     // von vor einer.
@@ -193,6 +228,9 @@ void TestChatPanel::aDoubleClickTakesTheStationOver()
 
     ChatPanelWidget panel;
     panel.setFeedModels(&controller->on4kstFeedModel(), &controller->clusterFeedModel());
+    // Hier geht es um den Doppelklick, nicht um den Filter -- also alles
+    // zeigen, damit die Zeile sicher dasteht.
+    panel.setShowAll(true);
     panel.resize(900, 300);
     panel.show();
     QVERIFY(QTest::qWaitForWindowExposed(&panel));

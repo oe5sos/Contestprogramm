@@ -955,9 +955,30 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_chatPanel->setFeedModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
     connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
-    m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 720, 620, 262),
-                                         QRect(0, 430, 620, 262));
+    PanelContainerWidget* chatContainer =
+        m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
+                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 620, 262),
+                                             QRect(0, 430, 620, 262));
+    // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
+    if (chatContainer && chatContainer->headerBar()) {
+        connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this]() {
+            auto* menu = new QMenu(this);
+            menu->setAttribute(Qt::WA_DeleteOnClose);
+            QAction* alle = menu->addAction(QStringLiteral("Alle Zeilen zeigen (auch unerreichbare)"));
+            alle->setObjectName(QStringLiteral("chatShowAllAction"));
+            alle->setCheckable(true);
+            alle->setChecked(m_chatPanel->showsAll());
+            // Das Filtern ist gewollt (Martin, 2026-09-28: "alles was
+            // mich nicht erreicht ... möchte ich gefiltert haben um
+            // nicht 1000 unnötige chat zu sehen"). Dieser Schalter ist
+            // für den Fall, dass man doch einmal nachsehen will, was
+            // weggefiltert wurde -- die Kopfzeile sagt ohnehin, wie
+            // viele Zeilen es sind.
+            connect(alle, &QAction::triggered, this,
+                    [this](bool checked) { m_chatPanel->setShowAll(checked); });
+            menu->exec(QCursor::pos());
+        });
+    }
 
     m_panelLayoutManager->finalizeInitialLayout();
 
