@@ -1700,7 +1700,7 @@ void UnifiedLogWidget::applyEntryRowWidths()
     // der beiden Zellen mehr der angepassten Spaltenbreite: die
     // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
     // schmaler oder breiter wurde.
-    if (dxLog && !m_entryRowBlanks.isEmpty()) {
+    if (!m_entryRowBlanks.isEmpty() && !m_feedTable->isColumnHidden(ColSerial)) {
         m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
     }
     if (m_entryBandLabel) {
@@ -2498,10 +2498,14 @@ void UnifiedLogWidget::rebuildEntryRowLayout()
         m_entryRowBlanks.append(label);
     };
 
-    if (dxLog) {
-        // QSO#: not yet assigned for an in-progress entry -- blank
-        // (Time, Band and Km/° below are different: die sind bekannt,
-        // bevor geloggt wird).
+    // Die Zelle der laufenden Nummer -- leer, denn das QSO gibt es noch
+    // nicht (Zeit, Band und km/° darunter sind anders: die sind bekannt,
+    // bevor geloggt wird). Sie hängt an der SICHTBARKEIT der Spalte,
+    // nicht mehr an der Ansicht: seit die Nummer auch kompakt dasteht,
+    // fehlte der Eingabezeile hier eine Zelle, und dadurch rutschte die
+    // ganze Zeile um eine Spalte nach links gegen die Tabelle -- Martin,
+    // 2026-09-28, mit Bild: "sollte alles in einer reihe sein".
+    if (!m_feedTable->isColumnHidden(ColSerial)) {
         addBlank(columnWidthFor(ColSerial));
     }
     // Die Bandzelle, wo die Spalte steht: sie trägt das Band, auf dem
