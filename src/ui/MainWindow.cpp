@@ -37,6 +37,7 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
+#include "ui/ChatPanelWidget.h"
 #include "ui/CabrilloExportDialog.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
@@ -943,6 +944,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
                                          /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
+
+    // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
+    // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
+    // sie sind dort heraus (siehe UnifiedFeedModel::rebuild()), und
+    // damit war der Chatverlauf nirgends mehr zu sehen: man konnte
+    // senden und bekam die Antwort nicht. Das ist dieser Ort, ein
+    // eigenes Panel wie in N1MM und DXLog.net.
+    m_chatPanel = new ChatPanelWidget(this);
+    m_chatPanel->setFeedModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
+    connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
+    connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
+    m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
+                                         /*contentHasOwnChrome=*/false, QRect(630, 720, 620, 262),
+                                         QRect(0, 430, 620, 262));
 
     m_panelLayoutManager->finalizeInitialLayout();
 

@@ -209,6 +209,21 @@ void ChatFeedModel::setCurrentRatePerTenMinutes(double ratePerTenMinutes)
     rebuildVisibleRows();
 }
 
+ChatFeedModel::FeedLine ChatFeedModel::lineAt(int index) const
+{
+    FeedLine zeile;
+    if (index < 0 || index >= m_allEntries.size()) {
+        return zeile;
+    }
+    const Entry& eintrag = m_allEntries.at(index);
+    zeile.candidate = eintrag.candidate;
+    zeile.worked = eintrag.worked;
+    zeile.distanceKnown = eintrag.geo.distanceKnown;
+    zeile.distanceKm = eintrag.geo.distanceKm;
+    zeile.bearingDeg = eintrag.geo.bearingDeg;
+    return zeile;
+}
+
 void ChatFeedModel::rebuildVisibleRows()
 {
     beginResetModel();

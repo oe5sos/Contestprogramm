@@ -102,6 +102,26 @@ public:
     void setCurrentRatePerTenMinutes(double ratePerTenMinutes);
 
     const SpotCandidate& candidateAt(int row) const;
+
+    // ALLE Zeilen, die hereingekommen sind -- nicht nur die, die der
+    // Filter durchlässt (siehe rebuildVisibleRows(): außer Reichweite
+    // raus, schon gearbeitet raus, und der Rest noch nach Punktzahl je
+    // nach Tempo).
+    //
+    // Für die Vorschläge ist dieses Filtern richtig: dort soll stehen,
+    // was sich lohnt. Für den CHATVERLAUF ist es falsch -- ein Chat,
+    // aus dem Zeilen verschwinden, ohne dass man erfährt warum, ist
+    // keiner. ChatPanelWidget liest deshalb hierüber. Martin,
+    // 2026-09-28: "erkläre bitte den chat ... was ich sehe".
+    struct FeedLine {
+        SpotCandidate candidate;
+        bool worked = false;
+        bool distanceKnown = false;
+        double distanceKm = 0.0;
+        double bearingDeg = 0.0;
+    };
+    int lineCount() const { return m_allEntries.size(); }
+    FeedLine lineAt(int index) const;
     // The same ChatImportanceScorer value rebuildVisibleRows() already
     // computes per entry (used internally to drive ChatVisibilityPolicy's
     // rate-adaptive threshold), exposed directly for NextTargetSuggester

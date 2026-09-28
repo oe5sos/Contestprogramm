@@ -27,6 +27,7 @@ namespace Contestprogramm {
 class AppController;
 class ContestDefinition;
 class BandmapWidget;
+class ChatPanelWidget;
 class OnlineScoreboard;
 class CheckPartialWidget;
 class ContestRulesEditor;
@@ -508,6 +509,9 @@ private:
     // a 15 s timer for the age-out.
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
+    // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
+    // ChatPanelWidget's Klassenkommentar.
+    ChatPanelWidget* m_chatPanel = nullptr;
     void refreshBandmap();
     // Online scoreboard (core/OnlineScoreboard.h): config follows the
     // settings/contest, records follow the log.
