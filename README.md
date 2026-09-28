@@ -115,7 +115,7 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Bereich | Was | Wo |
 |---|---|---|
 | Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests; die empfangene Nummer wird nie vorbelegt), Locator-Liste, QRZ/HamQTH. Enter loggt aus jedem Feld; fehlt Nummer oder Locator, springt das erste Enter ins leere Feld, ein zweites Enter loggt trotzdem. Geloggte Dupes tragen „DUPE“, ungültige „UNGÜLTIG“; bei einem Dupe sagt die Statuszeile des Panels sofort, als welche Nummer und um wie viel Uhr (UTC) die Station schon im Log steht, und markiert die Zeile. Nummern stehen überall dreistellig (001); der Fokus liegt beim Start im Rufzeichenfeld, das neueste QSO bleibt sichtbar | Panel „Log" |
-| Bekannte Rufzeichen | Vorschläge beim Tippen aus **eigenen früheren Logs** (auch archivierten), der importierten Locator-Liste, `master.scp` und den Cluster/Chat-Feeds — in dieser Reihenfolge, die eigenen Logs zuerst. Passt der getippte Locator nicht zu dem, unter dem die Station bekannt ist, sagt es die Zeile über der Eingabe (gewarnt, nicht gesperrt: sie kann umgezogen sein) | *Check-Panel, Eingabezeile* |
+| Bekannte Rufzeichen | Vorschläge beim Tippen aus **eigenen früheren Logs** (auch archivierten), **eingelesenen Ergebnislisten**, `master.scp` und den Cluster/Chat-Feeds — in dieser Reihenfolge, die eigenen Logs zuerst, QRZ/HamQTH zuletzt. Eine Ergebnisliste nennt den Locator, **von dem gefahren wurde**; QRZ kennt nur den Heimatstandort, und auf UKW ist das selten derselbe Berg. Den CSV-Export gibt es je Contest beim [ÖVSV-Auswerteserver](https://ukwauswertung.oevsv.at) — die Spalten `Call` und `WWL` werden an ihren Überschriften erkannt, gleich an welcher Stelle sie stehen. Passt der getippte Locator nicht zu dem, unter dem die Station bekannt ist, sagt es die Zeile über der Eingabe (gewarnt, nicht gesperrt: sie kann umgezogen sein) | *Check-Panel, Eingabezeile* |
 | Sicherung | Jedes QSO steht sofort in der Datenbank; dazu jede Minute eine vollständige Kopie (400 Stände, optional zusätzlich auf USB). Wann zuletzt gesichert wurde, steht fest in der Fußzeile | *Datei › Sicherungen* |
 | Fehler | QSO löschen mit *⌫* oder Rechtsklick (es wandert in den Papierkorb, *Strg+Z* holt es zurück); als **ungültig** markieren, wenn es sichtbar bleiben soll; Rufzeichen, Nr./Locator und Zeit per Doppelklick korrigieren | *Log-Historie* |
 | Zweite Antenne | Je Rotor im ⚙ des Rotors: **Zweite Antenne** an/aus und ihr **Versatz** gegen die Rotorstellung. Eine Antenne je Rotor braucht keinen Versatz; bei zweien dreht die zweite um diesen Winkel versetzt mit. Karte und Rotorscheibe zeichnen dann beide Richtungen | *Rotor-Panel ⚙* |
@@ -167,11 +167,16 @@ Vorher, zu Hause:
    welches Band).
 3. *Datei › Transverter…*, falls ein Band über einen Transverter läuft;
    der Schalter oben bleibt aus, bis er wirklich dranhängt.
-4. *Datei › Neues Log beginnen (altes bleibt im Archiv)*, damit die Nummern bei 001
+4. *Datei › Listen laden › Ergebnisliste eines Contests (CSV)*: die
+   Einreichungen früherer Conteste vom
+   [ÖVSV-Auswerteserver](https://ukwauswertung.oevsv.at) (je Contest
+   „CSV Export"), am besten von der ältesten zur neuesten. Damit kennt
+   das Programm die Standorte, von denen die Stationen wirklich fahren.
+5. *Datei › Neues Log beginnen (altes bleibt im Archiv)*, damit die Nummern bei 001
    beginnen; *Datei › Locator aus alten Logs übernehmen* für die
    Locator-Vorschläge.
-5. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.
-6. Einmal mit Internet starten, damit die Geländedaten um den Standort
+6. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.
+7. Einmal mit Internet starten, damit die Geländedaten um den Standort
    im Cache liegen (Startcheck: „Geländedaten“).
 
 Am Standort, vor dem ersten CQ: *Datei › Startcheck (bereit?)…* — alles

@@ -1415,6 +1415,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
     QAction* importOldLogsAction = listsMenu->addAction(QStringLiteral("Locator aus alten Logs (EDI/ADIF)..."));
     connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
+    // Die veröffentlichten Ergebnislisten der Contestauswertung. Martin,
+    // 2026-09-27: "wichtig jedoch die einreichung der ergebnsise, diese
+    // sind treffsicherer" -- der Locator einer Einreichung ist der
+    // Standort, VON DEM gefahren wurde, während QRZ den Heimatstandort
+    // kennt. Auf UKW ist das oft nicht derselbe Berg.
+    QAction* importResultsAction = listsMenu->addAction(QStringLiteral("Ergebnisliste eines Contests (CSV)..."));
+    importResultsAction->setObjectName(QStringLiteral("importResultsAction"));
+    connect(importResultsAction, &QAction::triggered, this, &MainWindow::importResultsCsv);
 
     QMenu* backupMenu = fileMenu->addMenu(QStringLiteral("Sicherun&g"));
     QAction* restoreAction = backupMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
@@ -2555,6 +2563,26 @@ void MainWindow::handleLogRequested()
     if (def && !exchangeComplete(*def, exchangeReceived)) {
         if (!m_incompleteExchangeEnterArmed) {
             m_incompleteExchangeEnterArmed = true;
+            // Bevor gemeckert wird: ist der Locator dieser Station
+            // bekannt, gehört er jetzt ins Feld. Martin, 2026-09-28:
+            // "nach eingabe des rufzeichen schon automatisch der
+            // locator im locator ... um einerseits weniger fehler zu
+            // machen und auch schneller zu sein." Das Vorbelegen läuft
+            // sonst 200 ms nach dem letzten Tastendruck -- wer schneller
+            // tippt als das und sofort Enter drückt, kam bis hierher
+            // mit leerem Feld an. Ein QSO ohne Locator zählt auf UKW
+            // null Punkte.
+            const QString known = knownGridForCallsign(callsign);
+            if (!known.isEmpty()) {
+                m_unifiedLog->applyKnownExchange(known, std::nullopt);
+            }
+            // Nochmal fragen: vielleicht ist der Austausch damit schon
+            // vollständig, dann ist nichts mehr zu melden.
+            if (exchangeComplete(*def, m_unifiedLog->exchangeReceived())) {
+                statusBar()->showMessage(
+                    QStringLiteral("Locator %1 aus früheren Logs/Listen eingesetzt — Enter loggt").arg(known), 6000);
+                return;
+            }
             m_unifiedLog->focusFirstEmptyExchangeField();
             statusBar()->showMessage(
                 QStringLiteral("Exchange unvollständig (Nummer/Locator fehlt) — Enter nochmals loggt trotzdem"), 6000);
@@ -3594,6 +3622,51 @@ void MainWindow::refreshCheckPartial()
     }
     const QString fragment = m_unifiedLog->callsign();
     m_checkPartialWidget->setMatches(fragment, m_checkPartialIndex.matches(fragment, m_currentBand));
+}
+
+// Eine veröffentlichte Ergebnisliste einlesen: Rufzeichen und der
+// Locator, von dem die Station gefahren ist. Der ÖVSV-Auswerteserver
+// (ukwauswertung.oevsv.at) gibt sie je Contest als CSV aus, und andere
+// Auswertungen tun Ähnliches -- der Leser erkennt die beiden Spalten
+// an ihren Überschriften, gleich an welcher Stelle sie stehen (siehe
+// CallsignLocatorLookup::parseCsv).
+void MainWindow::importResultsCsv()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Ergebnisliste eines Contests einlesen"), QString(),
+        QStringLiteral("Ergebnislisten (*.csv *.txt);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QString error;
+    const CallsignLocatorLookup::ImportSummary summary =
+        m_appController.callsignLocatorLookup().importCsvFile(path, &error);
+    if (summary.imported == 0 && summary.skipped == 0 && !error.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Datei konnte nicht gelesen werden:\n%1").arg(error));
+        return;
+    }
+    if (summary.imported == 0) {
+        QMessageBox::information(
+            this, QStringLiteral("Contestprogramm"),
+            QStringLiteral("Keine Zeile mit Rufzeichen und Locator gefunden (%1 Zeilen überlesen).\n\n"
+                            "Erwartet wird eine Liste mit Überschriften, in der eine Spalte das Rufzeichen "
+                            "(\"Call\", \"Rufzeichen\") und eine den Locator (\"WWL\", \"Locator\", \"Grid\") "
+                            "benennt -- so gibt sie der ÖVSV-Auswerteserver aus.")
+                .arg(summary.skipped));
+        return;
+    }
+    // Die Vorschlagsliste liest die Tabelle beim nächsten Aufbau; ein
+    // frisch importierter Name soll aber sofort vorgeschlagen werden.
+    reloadCheckPartialSources();
+    QMessageBox::information(
+        this, QStringLiteral("Contestprogramm"),
+        QStringLiteral("%1 Stationen mit Locator übernommen, %2 Zeilen überlesen.\n\n"
+                        "Mehrere Listen nacheinander einlesen geht -- am besten von der ältesten zur "
+                        "neuesten, denn bei einer Station, die inzwischen von einem anderen Berg fährt, "
+                        "gilt die zuletzt eingelesene Liste.")
+            .arg(summary.imported)
+            .arg(summary.skipped));
 }
 
 void MainWindow::importOldLogs()

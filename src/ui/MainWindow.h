@@ -111,6 +111,8 @@ private slots:
     void loadCountryFile();
     QString mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate = nullptr) const;
     void importOldLogs();
+    // Eine veröffentlichte Ergebnisliste (CSV) als Locator-Quelle.
+    void importResultsCsv();
     void archiveActiveContest();
     void refreshCheckPartial();
     void openMultiplierWindow();
