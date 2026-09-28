@@ -1014,8 +1014,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
                                QStringLiteral("skeds"), QStringLiteral("chat")}) {
         if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
-            connect(panel, &PanelContainerWidget::dragFinished, this,
-                    [this, id](const QPoint& globalPos) { dropPanelIfOverSideArea(id, globalPos); });
+            connect(panel, &PanelContainerWidget::dragFinished, this, [this, id](const QPoint& globalPos) {
+                // Beide Richtungen am selben Griff: liegt das Panel
+                // schon im Seitenbereich, holt der Zug es heraus, sonst
+                // legt er es hinein. Martin, 2026-09-28: "ich kann
+                // nichts herausziehen" -- der Leistenknopf ging, aber
+                // gezogen wird am Panelkopf, spiegelbildlich zum
+                // Hineinziehen.
+                if (m_sideArea && m_sideArea->hasPage(id)) {
+                    dragPanelOutOfSideArea(id, globalPos);
+                } else {
+                    dropPanelIfOverSideArea(id, globalPos);
+                }
+            });
         }
     }
 

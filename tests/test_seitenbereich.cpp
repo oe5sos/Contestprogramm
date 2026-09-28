@@ -18,12 +18,14 @@
 #include <QMenu>
 #include <QStackedWidget>
 #include <QTemporaryDir>
+#include <QMouseEvent>
 #include <QToolButton>
 
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
 #include "ui/PanelContainerWidget.h"
+#include "ui/PanelHeaderBar.h"
 #include "ui/PanelLayoutManager.h"
 #include "ui/SideAreaWidget.h"
 #include "ui/StyleKit.h"
@@ -52,6 +54,8 @@ private slots:
     void theActiveRailButtonLooksActive();
     void everyRailButtonCarriesAnIconAndItsName();
     void draggingAPanelOutOfTheRailPutsItBackOnTheCanvas();
+    void aRealMouseDragOnTheRailButtonTakesThePanelOut();
+    void aRealMouseDragOnThePanelHeaderTakesItOutToo();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -873,6 +877,119 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
     const int passtRotoren = std::max(0, flaeche->width() - rotoren->width());
     QVERIFY2(std::abs(rotoren->x() - std::min(700 - 20, passtRotoren)) <= 40,
              qPrintable(QStringLiteral("Rotoren liegen bei x=%1").arg(rotoren->x())));
+}
+
+// Martin, 2026-09-28: "ich kann nichts herausziehen." Der Prüfstand
+// darüber ruft dragPanelOutOfSideArea() selbst auf und beweist damit
+// nur die halbe Strecke -- der Weg von der echten Maus bis dorthin
+// blieb ungeprüft. Dieser hier drückt, bewegt und lässt los, wie eine
+// Hand es täte.
+void TestSeitenbereich::aRealMouseDragOnTheRailButtonTakesThePanelOut()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("echtezug.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("chat")),
+                               Q_ARG(QString, QStringLiteral("Chat")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("chat")));
+
+    auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_chat"));
+    QVERIFY(knopf);
+    QWidget* flaeche = manager->canvas();
+    QVERIFY(flaeche);
+
+    // Drücken, in Schritten nach rechts ziehen, loslassen -- alles als
+    // echte Mausereignisse an die beteiligten Widgets.
+    const QPoint start = knopf->rect().center();
+    QTest::mousePress(knopf, Qt::LeftButton, Qt::NoModifier, start);
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint imKnopf = start + QPoint(i * 60, i * 20);
+        QMouseEvent bewegung(QEvent::MouseMove, QPointF(imKnopf), knopf->mapToGlobal(imKnopf), Qt::NoButton,
+                             Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(knopf, &bewegung);
+    }
+    const QPoint ende = start + QPoint(8 * 60, 8 * 20);
+    QMouseEvent loslassen(QEvent::MouseButtonRelease, QPointF(ende), knopf->mapToGlobal(ende), Qt::LeftButton,
+                          Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(knopf, &loslassen);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "nach echtem Zug -- noch im Bereich:"
+                      << (bereich->hasPage(QStringLiteral("chat")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("chat")),
+             "Ein echter Mauszug am Leistenknopf holt das Panel nicht heraus");
+    PanelContainerWidget* chat = manager->panel(QStringLiteral("chat"));
+    QVERIFY(chat);
+    QCOMPARE(chat->parentWidget(), flaeche);
+    QVERIFY(!chat->isHidden());
+}
+
+// Und derselbe Zug am PANELKOPF, denn das ist die Geste, die man
+// erwartet: hinein zieht man am Kopf, also auch hinaus. Martin,
+// 2026-09-28: "ich kann nichts herausziehen" -- der Leistenknopf ging
+// längst, der Kopf nicht.
+void TestSeitenbereich::aRealMouseDragOnThePanelHeaderTakesItOutToo()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("kopfzug.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("chat")),
+                               Q_ARG(QString, QStringLiteral("Chat")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("chat")));
+
+    PanelContainerWidget* chat = manager->panel(QStringLiteral("chat"));
+    QVERIFY(chat);
+    PanelHeaderBar* kopf = chat->headerBar();
+    QVERIFY(kopf);
+
+    // Am Kopf packen -- links, wo nur die Beschriftung sitzt, nicht auf
+    // Schloss oder Zahnrad.
+    const QPoint start(30, kopf->height() / 2);
+    QTest::mousePress(kopf, Qt::LeftButton, Qt::NoModifier, start);
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint jetzt = start + QPoint(i * 70, i * 25);
+        QMouseEvent bewegung(QEvent::MouseMove, QPointF(jetzt), kopf->mapToGlobal(jetzt), Qt::NoButton,
+                             Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(kopf, &bewegung);
+    }
+    const QPoint ende = start + QPoint(8 * 70, 8 * 25);
+    QMouseEvent loslassen(QEvent::MouseButtonRelease, QPointF(ende), kopf->mapToGlobal(ende), Qt::LeftButton,
+                          Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(kopf, &loslassen);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "Zug am Panelkopf -- noch im Bereich:"
+                      << (bereich->hasPage(QStringLiteral("chat")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("chat")),
+             "Ein Zug am Panelkopf holt das Panel nicht aus dem Seitenbereich");
+    QCOMPARE(chat->parentWidget(), manager->canvas());
+    QVERIFY(!chat->isHidden());
 }
 
 int main(int argc, char* argv[])
