@@ -235,6 +235,12 @@ void PanelContainerWidget::endDrag()
         return;
     }
     m_dragging = false;
+    // Wo der Zeiger losgelassen wurde -- daran hängt, ob das Panel in
+    // den Seitenbereich fällt. Martin, 2026-09-28: "karte verbindungen
+    // kann ich aber nicht reinziehen." Über das Menü ging es schon; mit
+    // der Maus hineinziehen ist der Weg, den er erwartet, und den
+    // Longpath auch anbietet.
+    emit dragFinished(QCursor::pos());
     emit geometryEdited();
 }
 

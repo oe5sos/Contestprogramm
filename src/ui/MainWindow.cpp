@@ -992,6 +992,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                          m_sideArea, /*contentHasOwnChrome=*/false,
                                          QRect(1100, 78, 340, 600));
 
+    // Ein Panel, das über dem Seitenbereich losgelassen wird, fällt
+    // hinein. Martin, 2026-09-28: "karte verbindungen kann ich aber
+    // nicht reinziehen" -- über das Menü ging es schon, aber ziehen ist
+    // der Weg, den man erwartet (und den Longpath anbietet).
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
+                               QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
+                               QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
+                               QStringLiteral("skeds"), QStringLiteral("chat")}) {
+        if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+            connect(panel, &PanelContainerWidget::dragFinished, this,
+                    [this, id](const QPoint& globalPos) { dropPanelIfOverSideArea(id, globalPos); });
+        }
+    }
+
     m_panelLayoutManager->finalizeInitialLayout();
 
     // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
@@ -2642,6 +2656,29 @@ void MainWindow::showChatOptionsPopup()
     connect(reichweite, &QAction::triggered, this, &MainWindow::openSettingsDialog);
 
     menu->exec(QCursor::pos());
+}
+
+// Wurde das Panel über dem Seitenbereich losgelassen? Dann fällt es
+// hinein. Der Titel kommt aus dem Menü-Eintrag desselben Panels, damit
+// in der Leiste dasselbe Kürzel steht wie überall sonst.
+void MainWindow::dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || id == QStringLiteral("sidearea")) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (!bereichPanel || bereichPanel->isHidden()) {
+        return; // ein versteckter Bereich fängt nichts auf
+    }
+    const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+    if (!bereichAufDemSchirm.contains(globalPos)) {
+        return;
+    }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel || m_sideArea->hasPage(id)) {
+        return;
+    }
+    putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
 }
 
 // Ein Panel in den Seitenbereich legen: es verlässt die Fläche und

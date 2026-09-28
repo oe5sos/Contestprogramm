@@ -46,6 +46,7 @@ private slots:
     void clickingTheRailWithRealPanelsInIt();
     void aPanelPutIntoAHiddenSideAreaDoesNotVanish();
     void pressingTheButtonThroughAccessibilityAlsoSwitches();
+    void draggingAPanelOntoTheSideAreaPutsItIn();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -308,6 +309,16 @@ void TestSeitenbereich::clickingTheRailButtonItselfSwitchesThePage()
         // Und der Knopf sieht auch gedrückt aus -- live war er es, ohne
         // dass die Seite wechselte.
         QVERIFY2(knopf->isChecked(), qPrintable(QStringLiteral("Der Knopf %1 sieht nicht gedrückt aus").arg(id)));
+        // Und die anderen sehen NICHT gedrückt aus -- sonst sieht man
+        // der Leiste nicht an, welche Seite gerade vorne ist.
+        for (QToolButton* anderer : bereich.findChildren<QToolButton*>()) {
+            if (anderer == knopf) {
+                continue;
+            }
+            QVERIFY2(!anderer->isChecked(),
+                     qPrintable(QStringLiteral("Nach dem Klick auf %1 sieht auch %2 gedrückt aus")
+                                    .arg(id, anderer->objectName())));
+        }
     }
 
     // Zum Schluss: nochmal auf das aktive, per Knopf -- das klappt zu.
@@ -482,6 +493,66 @@ void TestSeitenbereich::pressingTheButtonThroughAccessibilityAlsoSwitches()
     QVERIFY2(bereich.activeId() == QStringLiteral("bandmap"),
              "Über die Bedienungshilfen gedrückt, und nichts ist passiert");
     QCOMPARE(stack->currentWidget(), a);
+}
+
+// Martin, 2026-09-28: "karte verbindungen kann ich aber nicht
+// reinziehen." Über das Menü ging es schon -- aber ziehen ist der Weg,
+// den man erwartet, und den Longpath auch anbietet. Ein Panel, das über
+// dem Seitenbereich losgelassen wird, fällt hinein; eines, das woanders
+// landet, bleibt wo es ist.
+void TestSeitenbereich::draggingAPanelOntoTheSideAreaPutsItIn()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("ziehen.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
+    QVERIFY(bereichPanel);
+    // Der Bereich muss dastehen, sonst fängt er nichts auf.
+    manager->revealPanel(QStringLiteral("sidearea"));
+    QCoreApplication::processEvents();
+
+    PanelContainerWidget* karte = manager->panel(QStringLiteral("map"));
+    QVERIFY(karte);
+    QVERIFY(!bereich->hasPage(QStringLiteral("map")));
+
+    // Daneben losgelassen: nichts passiert.
+    const QPoint daneben = window.mapToGlobal(QPoint(10, 400));
+    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, daneben));
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "daneben losgelassen -- im Bereich:"
+                      << (bereich->hasPage(QStringLiteral("map")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("map")),
+             "Ein Panel, das NEBEN dem Bereich landet, darf nicht hineinfallen");
+
+    // Mitten auf dem Bereich losgelassen: hinein.
+    const QPoint mittendrin =
+        bereichPanel->mapToGlobal(QPoint(bereichPanel->width() / 2, bereichPanel->height() / 2));
+    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, mittendrin));
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "auf dem Bereich losgelassen -- im Bereich:"
+                      << bereich->pageIds().join(QStringLiteral(", "))
+                      << "| aktiv:" << bereich->activeId();
+    QVERIFY2(bereich->hasPage(QStringLiteral("map")), "Die Karte ist nicht in den Seitenbereich gefallen");
+    QCOMPARE(bereich->activeId(), QStringLiteral("map"));
+
+    // Und in der Leiste steht ihr Kürzel, nicht die interne Kennung.
+    auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_map"));
+    QVERIFY(knopf);
+    qInfo().noquote() << "Kürzel in der Leiste:" << knopf->text() << "| Tooltip:" << knopf->toolTip();
+    QCOMPARE(knopf->toolTip(), QStringLiteral("Karte / Verbindungen"));
 }
 
 int main(int argc, char* argv[])

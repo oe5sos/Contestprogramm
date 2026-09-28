@@ -87,6 +87,8 @@ public:
                           bool contentHasOwnChrome, QWidget* parent = nullptr);
 
     QString id() const { return m_id; }
+    // Der Klartextname ("Bandmap", "Karte / Verbindungen").
+    QString title() const { return m_title; }
 
     bool isLocked() const { return m_locked; }
     void setLocked(bool locked);
@@ -150,6 +152,10 @@ signals:
     // Nach dem Herauslösen oder Andocken -- PanelLayoutManager merkt
     // sich beides.
     void floatingChanged(bool floating);
+    // Ein Zug an der Kopfzeile ist zu Ende; `globalPos` ist die Stelle,
+    // an der losgelassen wurde. MainWindow entscheidet daran, ob das
+    // Panel in den Seitenbereich fällt.
+    void dragFinished(const QPoint& globalPos);
     // Emitted on the mouse press that starts a drag or resize --
     // PanelLayoutManager bumps this panel to the front of its persisted
     // z-order on this signal. The container already raise()s itself

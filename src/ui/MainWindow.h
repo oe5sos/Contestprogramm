@@ -427,6 +427,8 @@ private:
     // zu treffen.
     Q_INVOKABLE void putPanelIntoSideArea(const QString& id, const QString& title);
     Q_INVOKABLE void takePanelOutOfSideArea(const QString& id);
+    // Ein losgelassenes Panel über dem Seitenbereich -- siehe dort.
+    Q_INVOKABLE void dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos);
 
     AppController& m_appController;
 
