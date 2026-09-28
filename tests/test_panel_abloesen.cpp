@@ -92,7 +92,9 @@ void TestPanelAbloesen::aPanelBecomesItsOwnWindowAndComesBack()
     QVERIFY2(bandmap->isWindow(), "Das abgelöste Panel ist kein eigenes Fenster");
     QVERIFY2(bandmap->parentWidget() == nullptr, "Das abgelöste Panel hängt noch in der Fläche");
     qInfo().noquote() << "abgelöst:" << bandmap->windowTitle() << bandmap->geometry();
-    QCOMPARE(bandmap->windowTitle(), QStringLiteral("bandmap"));
+    // Klartext, nicht die interne Kennung -- live sofort aufgefallen:
+    // im Fenstertitel stand "bandmap".
+    QCOMPARE(bandmap->windowTitle(), QStringLiteral("Bandmap"));
 
     // Auf einen anderen Platz schieben -- das ist der Sinn der Sache.
     bandmap->move(200, 150);

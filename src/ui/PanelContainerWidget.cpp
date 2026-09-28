@@ -16,6 +16,7 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
                                             bool contentHasOwnChrome, QWidget* parent)
     : QWidget(parent)
     , m_id(id)
+    , m_title(title)
     , m_contentHasOwnChrome(contentHasOwnChrome)
     , m_content(content)
 {
@@ -151,7 +152,7 @@ void PanelContainerWidget::setFloating(bool floating)
         const QPoint aufDemSchirm = mapToGlobal(QPoint(0, 0));
         setParent(nullptr);
         setWindowFlag(Qt::Window, true);
-        setWindowTitle(m_id);
+        setWindowTitle(m_title.isEmpty() ? m_id : m_title);
         // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
         move(aufDemSchirm);
         resize(m_dockedGeometry.size());

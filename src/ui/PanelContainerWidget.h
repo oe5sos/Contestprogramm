@@ -176,6 +176,11 @@ private:
     void endResize();
 
     QString m_id;
+    // Der Klartextname ("Bandmap", "Karte / Verbindungen") -- steht im
+    // Panelkopf und, wenn das Panel abgelöst ist, im Fenstertitel. Ohne
+    // ihn stand dort die interne Kennung ("bandmap"), was live sofort
+    // auffiel.
+    QString m_title;
     bool m_locked = false;
     bool m_floating = false;
     QWidget* m_dockTarget = nullptr;
