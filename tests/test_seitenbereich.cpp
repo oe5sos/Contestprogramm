@@ -45,6 +45,7 @@ private slots:
     void clickingTheRailButtonItselfSwitchesThePage();
     void clickingTheRailWithRealPanelsInIt();
     void aPanelPutIntoAHiddenSideAreaDoesNotVanish();
+    void pressingTheButtonThroughAccessibilityAlsoSwitches();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -442,6 +443,45 @@ void TestSeitenbereich::aPanelPutIntoAHiddenSideAreaDoesNotVanish()
              qPrintable(QStringLiteral("Der Bereich liegt bei %1, die Fläche ist %2 groß")
                             .arg(QString::number(bereichPanel->x()))
                             .arg(QString::number(flaeche->width()))));
+}
+
+// Der Weg, den die Bedienungshilfen nehmen -- VoiceOver und jede
+// Automatisierung drücken einen ankreuzbaren Knopf, indem sie seinen
+// Zustand setzen. Das ergibt toggled, aber KEIN clicked.
+//
+// Live gefunden 2026-09-28: der Knopf wurde hervorgehoben, die Seite
+// wechselte nicht, und im Mitschrieb der laufenden App stand keine
+// einzige Zeile -- das Signal kam nie an. Mein Prüfstand mit
+// button->click() war grün, weil ein Mausklick BEIDES auslöst.
+void TestSeitenbereich::pressingTheButtonThroughAccessibilityAlsoSwitches()
+{
+    SideAreaWidget bereich;
+    bereich.resize(340, 500);
+    bereich.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&bereich));
+
+    auto* a = new QWidget;
+    auto* b = new QWidget;
+    bereich.addPage(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), a);
+    bereich.addPage(QStringLiteral("skeds"), QStringLiteral("Skeds"), b);
+    QCoreApplication::processEvents();
+    QCOMPARE(bereich.activeId(), QStringLiteral("skeds"));
+
+    auto* stack = bereich.findChild<QStackedWidget*>(QLatin1String(SideAreaWidget::kStackObjectName));
+    QVERIFY(stack);
+    auto* baKnopf = bereich.findChild<QToolButton*>(QStringLiteral("sideRail_bandmap"));
+    QVERIFY(baKnopf);
+
+    // GENAU das, was die Bedienungshilfen tun: den Zustand setzen.
+    // Kein click(), kein Mausereignis.
+    baKnopf->setChecked(true);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "nach setChecked(true) -- aktiv:" << bereich.activeId()
+                      << "| vorne:" << (stack->currentWidget() == a ? "Bandmap" : "Skeds");
+    QVERIFY2(bereich.activeId() == QStringLiteral("bandmap"),
+             "Über die Bedienungshilfen gedrückt, und nichts ist passiert");
+    QCOMPARE(stack->currentWidget(), a);
 }
 
 int main(int argc, char* argv[])

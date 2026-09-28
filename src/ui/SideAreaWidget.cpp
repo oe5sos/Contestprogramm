@@ -3,6 +3,7 @@
 #include "ui/StyleKit.h"
 
 
+
 #include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QStackedWidget>
@@ -12,6 +13,8 @@
 namespace Contestprogramm {
 
 namespace {
+
+
 
 // Ein Knopf in der Leiste. Senkrecht schmal, mit dem Anfang des
 // Panelnamens -- Symbole gibt es in diesem Programm nicht, und ein
@@ -174,7 +177,18 @@ void SideAreaWidget::rebuildRail()
     for (const QString& id : m_order) {
         auto* button = new RailButton(id, m_titles.value(id, id), m_rail);
         button->setChecked(id == m_active && !m_collapsed);
-        connect(button, &QToolButton::clicked, this, [this, id]() { railClicked(id); });
+        // toggled, NICHT clicked: ein ankreuzbarer Knopf, der über die
+        // Bedienungshilfen gedrückt wird (VoiceOver, Automatisierung),
+        // bekommt seinen Zustand direkt gesetzt -- das ergibt toggled,
+        // aber kein clicked. Live gefunden 2026-09-28: der Knopf wurde
+        // hervorgehoben, die Seite wechselte nicht, und im Mitschrieb
+        // stand keine einzige Zeile. Ein Mausklick löst beides aus,
+        // toggled deckt also beide Wege ab.
+        //
+        // Doppelt läuft dabei nichts: updateRailState() setzt den
+        // Zustand mit QSignalBlocker, ein programmatisches Nachziehen
+        // landet also nicht wieder hier.
+        connect(button, &QToolButton::toggled, this, [this, id](bool) { railClicked(id); });
         button->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(button, &QWidget::customContextMenuRequested, this,
                 [this, id](const QPoint&) { emit removeRequested(id); });
