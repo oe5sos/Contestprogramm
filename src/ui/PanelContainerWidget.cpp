@@ -132,6 +132,7 @@ bool PanelContainerWidget::trySetGeometry(const QRect& rect)
     clamped.setWidth(std::max({kMinWidth, contentMinWidth, clamped.width()}));
     clamped.setHeight(std::max(kMinHeight, clamped.height()));
     setGeometry(clamped);
+    emit geometryApplied(clamped);
     return true;
 }
 

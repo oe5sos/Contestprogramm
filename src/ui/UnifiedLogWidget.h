@@ -189,6 +189,10 @@ public:
     static constexpr const char* kStatusLineObjectName = "unifiedLogStatusLine";
     static constexpr const char* kLastQsoLabelObjectName = "unifiedLogLastQsoLabel";
     static constexpr const char* kOperatingModeLabelObjectName = "unifiedLogOperatingModeLabel";
+    // Der Hinweis, dass ein Grid-Filter Zeilen aus der Liste nimmt --
+    // siehe setGridFilter(). Ohne ihn sieht ein gefiltertes Log aus wie
+    // ein verlorenes.
+    static constexpr const char* kFilterNoticeObjectName = "unifiedLogFilterNotice";
     // The chat quick-send row (see chatMessageSendRequested's own doc
     // comment below) -- same objectName-as-test-hook convention as the
     // rest of this list.
@@ -654,6 +658,9 @@ private:
     // setLogModel(), and called directly by setOperatingMode()/
     // setLogModel() itself.
     void updateStatusLine();
+    // Sagt an, dass ein Grid-Filter gesetzt ist und wie viele QSOs er
+    // übrig lässt -- siehe kFilterNoticeObjectName.
+    void updateFilterNotice(const QString& text);
 
     // The entry row -- a plain widget (an EntryRowFrame, see the .cpp),
     // NOT a QTableView/QAbstractItemModel of any kind (see the class
@@ -693,6 +700,7 @@ private:
     QWidget* m_statusLine = nullptr;
     QLabel* m_lastQsoLabel = nullptr;
     QLabel* m_operatingModeLabel = nullptr;
+    QLabel* m_filterNoticeLabel = nullptr;
     ContestSettings::OperatingMode m_operatingMode = ContestSettings::OperatingMode::SearchAndPounce;
     ContestSettings::LogViewMode m_viewMode = ContestSettings::LogViewMode::Compact;
     // Bottom by default -- matches ContestSettings::logEntryRowPosition's

@@ -65,6 +65,20 @@ bool PanelLayoutManager::eventFilter(QObject* watched, QEvent* event)
         }
         clampPanelsToCanvas();
     }
+    // Jede Lageänderung eines Panels, die NICHT vom Klemmer kommt, ist
+    // die neue gewollte Lage -- egal wer sie gesetzt hat: der Bediener
+    // mit der Maus, ein Profil, ein Entwurf oder ein Aufruf von außen.
+    // Ein Engpass statt vieler Stellen, die man einzeln nachziehen
+    // müsste (und von denen ich beim ersten Versuch zwei übersehen
+    // habe).
+    if (!m_clampingNow && (event->type() == QEvent::Move || event->type() == QEvent::Resize)) {
+        for (auto it = m_panels.begin(); it != m_panels.end(); ++it) {
+            if (it.value().container == watched) {
+                it.value().desiredGeometry = it.value().container->geometry();
+                break;
+            }
+        }
+    }
     return QObject::eventFilter(watched, event);
 }
 
@@ -92,17 +106,19 @@ QRect PanelLayoutManager::scaledCompactRect(const QRect& rect, const QSize& canv
 void PanelLayoutManager::applyDesignDefaults()
 {
     const bool large = canvasFitsLargeDesign(m_canvas->size());
-    for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
+    for (auto it = m_panels.begin(); it != m_panels.end(); ++it) {
         PanelContainerWidget* container = it.value().container;
         // Unlock first -- trySetGeometry() is a no-op while locked, and
         // "reset" means the operator wants their panels back where they
         // started, not to stay stuck wherever they were locked.
         container->setLocked(false);
-        if (large || it.value().compactGeometry.isNull()) {
-            container->trySetGeometry(it.value().defaultGeometry);
-        } else {
-            container->trySetGeometry(scaledCompactRect(it.value().compactGeometry, m_canvas->size()));
-        }
+        const QRect ziel = (large || it.value().compactGeometry.isNull())
+            ? it.value().defaultGeometry
+            : scaledCompactRect(it.value().compactGeometry, m_canvas->size());
+        // Der Entwurf sagt, wo das Panel hin soll -- ab jetzt ist das
+        // die gewollte Lage, an der sich der Klemmer orientiert.
+        it.value().desiredGeometry = ziel;
+        container->trySetGeometry(ziel);
         if (!large && it.value().compactGeometry.isNull() && it.key() != QStringLiteral("cwMacroRow")) {
             // No place in the compact design: Fenster > Panels brings it
             // back, at its large-design spot.
@@ -121,9 +137,36 @@ PanelContainerWidget* PanelLayoutManager::registerPanel(const QString& id, const
     // save triggered by ONE panel must not also re-persist every OTHER
     // panel's current geometry (which can be a transient
     // clampPanelsToCanvas() shrink, not a real edit).
-    connect(container, &PanelContainerWidget::geometryEdited, this, [this, id]() { saveLayout(id); });
+    connect(container, &PanelContainerWidget::geometryEdited, this, [this, id]() {
+        // Nur ein echter Griff des Bedieners ändert die gewollte Lage --
+        // geometryEdited kommt genau dafür, nicht für das Zurückklemmen
+        // (siehe PanelEntry::desiredGeometry).
+        const auto it = m_panels.find(id);
+        if (it != m_panels.end() && it.value().container) {
+            it.value().desiredGeometry = it.value().container->geometry();
+        }
+        saveLayout(id);
+    });
     connect(container, &PanelContainerWidget::lockedChanged, this, [this, id](bool) { saveLayout(id); });
     connect(container, &PanelContainerWidget::raiseRequested, this, &PanelLayoutManager::bumpZOrder);
+    // Jede Lageänderung außerhalb des Klemmers ist die neue gewollte
+    // Lage. Zwei Wege, weil keiner allein alles erwischt:
+    //  * geometryApplied deckt jedes programmatische trySetGeometry ab
+    //    (Laden, Entwurf, Profil, fremder Aufrufer) -- auch bei einem
+    //    noch nicht gezeigten Panel, das von Qt kein Move/Resize
+    //    bekommt (so laufen die Prüfstände);
+    //  * der Ereignisfilter deckt Ziehen und Größenziehen ab, die
+    //    move()/resize() direkt rufen (siehe eventFilter()).
+    connect(container, &PanelContainerWidget::geometryApplied, this, [this, id](const QRect& rect) {
+        if (m_clampingNow) {
+            return;
+        }
+        const auto it = m_panels.find(id);
+        if (it != m_panels.end()) {
+            it.value().desiredGeometry = rect;
+        }
+    });
+    container->installEventFilter(this);
 
     PanelEntry entry;
     entry.container = container;
@@ -136,6 +179,10 @@ PanelContainerWidget* PanelLayoutManager::registerPanel(const QString& id, const
     }
 
     loadLayoutForPanel(id, container, defaultGeometry);
+    // Was hier steht -- aus der Datenbank geholt oder die Vorgabe --,
+    // ist die gewollte Lage. Der Klemmer rechnet ab ihr, damit eine
+    // vorübergehend kleinere Fläche sie nicht dauerhaft verschiebt.
+    m_panels[id].desiredGeometry = container->geometry();
     container->show();
     container->raise();
     return container;
@@ -277,6 +324,32 @@ void PanelLayoutManager::clampPanelsToCanvas()
     }
 }
 
+// Die gewollte Lage eines Panels; ohne gemerkte die aktuelle (ein
+// Panel, das nie durch registerPanel gegangen ist, gibt es nicht --
+// die Rückfallebene ist reine Vorsicht).
+bool PanelLayoutManager::applyTransientGeometry(PanelContainerWidget* container, const QRect& rect)
+{
+    if (!container) {
+        return false;
+    }
+    // Derselbe Schutz wie beim Klemmen -- siehe m_clampingNow.
+    const bool vorher = m_clampingNow;
+    m_clampingNow = true;
+    const bool ok = container->trySetGeometry(rect);
+    m_clampingNow = vorher;
+    return ok;
+}
+
+QRect PanelLayoutManager::desiredGeometryFor(PanelContainerWidget* container) const
+{
+    for (auto it = m_panels.constBegin(); it != m_panels.constEnd(); ++it) {
+        if (it.value().container == container) {
+            return it.value().desiredGeometry.isNull() ? container->geometry() : it.value().desiredGeometry;
+        }
+    }
+    return container->geometry();
+}
+
 void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
 {
     // A locked panel is frozen exactly where the operator put it --
@@ -288,7 +361,14 @@ void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
         return;
     }
     const QRect current = container->geometry();
-    QRect clamped = current;
+    // Gerechnet wird ab der GEWOLLTEN Lage, nicht ab der sichtbaren.
+    // Sonst frisst sich jede vorübergehend kleinere Fläche in das
+    // Layout: das Panel wandert nach links oben, und die volle Fläche
+    // holt es nie zurück, weil der Klemmer nie etwas vergrößert. Genau
+    // das ist Martin am 2026-09-28 passiert -- beim Start geht das
+    // Fenster durch Zwischengrößen, und danach stand das Rotor-Panel
+    // links statt rechts.
+    QRect clamped = desiredGeometryFor(container);
     // Shrink first (mirrors PanelContainerWidget::updateResize()'s
     // own min-size floor), then reposition -- a panel that is both
     // too far right/down AND wider/taller than the canvas needs both
@@ -300,6 +380,9 @@ void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
     clamped.moveLeft(std::clamp(clamped.left(), 0, maxX));
     clamped.moveTop(std::clamp(clamped.top(), 0, maxY));
     if (clamped != current) {
+        // Das Setzen unten darf die gewollte Lage nicht überschreiben --
+        // siehe m_clampingNow.
+        m_clampingNow = true;
         // trySetGeometry() only (setGeometry() + the min-size floor
         // it already enforces) -- deliberately NOT geometryEdited(),
         // which would persist this on every single resize tick of a
@@ -309,6 +392,7 @@ void PanelLayoutManager::clampPanelToCanvas(PanelContainerWidget* container)
         // edit; the operator's own next real drag/resize still saves
         // normally through the usual endDrag()/endResize() path.
         container->trySetGeometry(clamped);
+        m_clampingNow = false;
     }
 }
 

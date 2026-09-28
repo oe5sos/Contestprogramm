@@ -113,6 +113,13 @@ signals:
     // for a programmatic trySetGeometry() call, e.g. from layout
     // restore) -- PanelLayoutManager saves the layout on this.
     void geometryEdited();
+    // Nach JEDEM erfolgreichen trySetGeometry() -- auch dem
+    // programmatischen (Laden, Entwurf, Profil, fremder Aufrufer).
+    // PanelLayoutManager merkt sich daran die gewollte Lage des Panels.
+    // Ein Ereignisfilter genuegt dafuer nicht: ein noch nicht gezeigtes
+    // Widget bekommt von Qt gar kein Move/Resize (nur
+    // WA_PendingResizeEvent), und genau so laufen die Pruefstaende.
+    void geometryApplied(const QRect& rect);
     void lockedChanged(bool locked);
     // Emitted on the mouse press that starts a drag or resize --
     // PanelLayoutManager bumps this panel to the front of its persisted

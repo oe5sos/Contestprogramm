@@ -446,6 +446,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
     topBarLayout->addWidget(filterLabel);
     m_gridFilterEdit = new QLineEdit(topBarRow);
+    m_gridFilterEdit->setObjectName(QStringLiteral("gridFilter"));
     m_gridFilterEdit->setMaximumWidth(120);
     m_gridFilterEdit->setFont(Style::monoFont(m_gridFilterEdit->font(), Style::kFontBody));
     topBarLayout->addWidget(m_gridFilterEdit);
@@ -1702,7 +1703,11 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     QRect r = m_rotorRowContainer->geometry();
     r.setWidth(targetWidth);
     r.moveLeft(std::max(kMargin, (canvasWidth - targetWidth) / 2));
-    m_rotorRowContainer->trySetGeometry(r);
+    // Bewusst ueber applyTransientGeometry(): das Mittigstellen in einem
+    // schmalen Fenster ist eine Anzeigeanpassung, nicht der Wunsch des
+    // Bedieners -- siehe dort. Sonst bleibt das Panel nach dem
+    // Wiedervergroessern in der Mitte stehen.
+    m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, r);
 
     // Below the two-dial floor, trySetGeometry() just clamped the width
     // back up past what x above was centered for -- re-center once more
@@ -1712,7 +1717,7 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     if (m_rotorRowContainer->width() != targetWidth) {
         QRect corrected = m_rotorRowContainer->geometry();
         corrected.moveLeft(std::max(kMargin, (canvasWidth - corrected.width()) / 2));
-        m_rotorRowContainer->trySetGeometry(corrected);
+        m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, corrected);
     }
 }
 

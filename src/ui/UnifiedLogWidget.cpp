@@ -1255,6 +1255,20 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     statusLineLayout->addWidget(m_lastQsoLabel);
     statusLineLayout->addStretch(1);
 
+    // Ein gesetzter Grid-Filter wirft Log-Zeilen aus der Liste. Das ist
+    // gewollt -- aber es muss dastehen: Martin hatte am 2026-09-28 ein
+    // "#" im Filterfeld und sah ein Log ohne ein einziges QSO. Ohne
+    // diesen Hinweis sieht ein gefiltertes Log aus wie ein verlorenes.
+    // Bernstein wie die Dupe-Meldung: etwas, das den Blick verdient,
+    // aber kein Fehler.
+    m_filterNoticeLabel = new QLabel(m_statusLine);
+    m_filterNoticeLabel->setObjectName(QLatin1String(kFilterNoticeObjectName));
+    m_filterNoticeLabel->setFont(Style::capsFont(m_filterNoticeLabel->font()));
+    m_filterNoticeLabel->setStyleSheet(
+        QStringLiteral("color: %1; background: transparent;").arg(Style::kAmberWarn()));
+    m_filterNoticeLabel->hide();
+    statusLineLayout->addWidget(m_filterNoticeLabel);
+
     // Amber, matching m_sentExchangeLabel's own "a value worth the
     // operator's attention" treatment just above, not a state-badge
     // colour (this is plain read-only status text, not a clickable
@@ -2150,6 +2164,33 @@ bool UnifiedLogWidget::hasUnsentContent() const
 void UnifiedLogWidget::setGridFilter(const QString& text)
 {
     m_feedModel->setGridFilter(text);
+    updateFilterNotice(text);
+}
+
+// Wie viele QSOs der Filter übrig lässt -- und dass überhaupt einer
+// gesetzt ist. Martin, 2026-09-28: ein "#" im Filterfeld, und das Log
+// sah aus, als wäre es weg. Es war nur gefiltert, aber das stand
+// nirgends.
+void UnifiedLogWidget::updateFilterNotice(const QString& text)
+{
+    if (!m_filterNoticeLabel) {
+        return;
+    }
+    const QString filter = text.trimmed();
+    if (filter.isEmpty()) {
+        m_filterNoticeLabel->hide();
+        return;
+    }
+    const int gesamt = m_logModel ? m_logModel->rowCount() : 0;
+    int sichtbar = 0;
+    for (int row = 0; row < m_feedModel->rowCount(); ++row) {
+        if (m_feedModel->historyQsoIdForRow(row) >= 0) {
+            ++sichtbar;
+        }
+    }
+    m_filterNoticeLabel->setText(
+        QStringLiteral("Grid-Filter „%1“: %2 von %3 QSOs").arg(filter).arg(sichtbar).arg(gesamt));
+    m_filterNoticeLabel->show();
 }
 
 void UnifiedLogWidget::setOperatingMode(ContestSettings::OperatingMode mode)
