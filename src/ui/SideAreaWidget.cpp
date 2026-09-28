@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -125,7 +126,17 @@ protected:
             // umschalten, und ein Zug wäre zugleich ein Klick.
             m_letzteZugPosition = QPoint();
             if (onDragOut) {
-                onDragOut(wo);
+                // VERZÖGERT, nicht sofort: onDragOut nimmt das Panel aus
+                // dem Bereich, dabei baut rebuildRail() die Knöpfe neu
+                // -- auch DIESEN, dessen mouseReleaseEvent hier gerade
+                // läuft. Qt arbeitet danach auf einem toten Objekt
+                // weiter. Unter macOS ging das zufällig gut, die
+                // Linux-CI hat es als SegFault gemeldet (test_seiten-
+                // bereich, 2026-09-28). Derselbe Fehler wie beim
+                // Bandmenü und beim ersten Leisten-Klick: niemals ein
+                // Widget aus seinem eigenen Handler heraus löschen.
+                auto rueckruf = onDragOut;
+                QTimer::singleShot(0, this, [rueckruf, wo]() { rueckruf(wo); });
             }
             return;
         }

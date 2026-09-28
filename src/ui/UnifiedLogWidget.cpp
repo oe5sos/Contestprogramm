@@ -1714,8 +1714,21 @@ void UnifiedLogWidget::applyEntryRowWidths()
     // der beiden Zellen mehr der angepassten Spaltenbreite: die
     // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
     // schmaler oder breiter wurde.
-    if (!m_entryRowBlanks.isEmpty() && !m_feedTable->isColumnHidden(ColSerial)) {
-        m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
+    if (!m_entryRowBlanks.isEmpty()) {
+        // Auch SICHTBAR schalten, nicht nur breit machen: die laufende
+        // Nummer lässt sich abschalten und wieder einschalten (⚙ des
+        // Logs). Beim Abschalten blieb die leere Zelle stehen und wurde
+        // nur nicht mehr angepasst -- beim Wiedereinschalten fehlte sie
+        // dann in der Eingabezeile, während die Tabelle ihre Spalte
+        // längst wieder zeigte: Rufzeichenfeld bei 70, Spalte bei 185.
+        // Von der Windows-CI im Rüttel-Prüfstand gefunden (2026-09-28).
+        const bool nummerSichtbar = !m_feedTable->isColumnHidden(ColSerial);
+        m_entryRowBlanks.at(0)->setVisible(nummerSichtbar);
+        if (nummerSichtbar) {
+            m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
+        } else {
+            m_entryRowBlanks.at(0)->setFixedSize(0, rowHeight);
+        }
     }
     if (m_entryBandLabel) {
         m_entryBandLabel->setFixedSize(columnWidthFor(ColBand), rowHeight);
@@ -2286,6 +2299,16 @@ void UnifiedLogWidget::setRunningNumberVisible(bool visible)
     m_entryRowLayoutBuilt = false; // erzwingt den Neuaufbau der Zeile
     setViewMode(m_viewMode);
     fitColumnsToViewport();
+    // Und zum Schluss die Zeile auf die Spalten legen. setViewMode()
+    // hat sie neu gebaut, fitColumnsToViewport() danach die Breiten
+    // geändert -- dazwischen passt niemand die Zeile an. Ohne diese
+    // Zeile stand das Rufzeichenfeld nach dem Wiedereinschalten der
+    // laufenden Nummer bei 70, während seine Spalte bei 185 anfing:
+    // die QSO#-Spalte war in der Tabelle da, in der Eingabezeile
+    // nicht. Von der Windows-CI im Rüttel-Prüfstand gefunden
+    // (2026-09-28); auf macOS fing ein späterer Layout-Durchlauf es
+    // ein, weshalb es dort nur dem auffiel, der sofort hinsah.
+    applyEntryRowWidths();
 }
 
 void UnifiedLogWidget::setEntryRowPosition(ContestSettings::LogEntryRowPosition position)
