@@ -636,7 +636,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_logModel = new LogTableModel(this);
     m_unifiedLog = new UnifiedLogWidget(this);
     m_unifiedLog->setLogModel(m_logModel);
-    m_unifiedLog->setChatModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
         /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
@@ -1052,7 +1051,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignTyped, this, &MainWindow::refreshDxInfoLine);
-    connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);

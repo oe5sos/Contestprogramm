@@ -225,7 +225,6 @@ public:
     // both are available; a null chat model simply omits the "Spots &
     // Chat" section below the log history.
     void setLogModel(LogTableModel* model);
-    void setChatModels(ChatFeedModel* onKst, ChatFeedModel* cluster);
 
     // Tears down and rebuilds the entry row's per-contest exchange
     // sub-fields, one labelled value cell per entry in `fields` (same
@@ -468,10 +467,6 @@ signals:
     // Info-Zeile soll mitlaufen, während getippt wird.
     void callsignTyped(const QString& callsign);
 
-    // A not-yet-worked spot/chat candidate row was clicked -- same
-    // signal shape (and the same MainWindow::handleCandidateActivated
-    // consumer) ChatFeedView::candidateActivated used.
-    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
 
     // A logged history row's Call cell / Exch Emp. cell was hand-edited
     // in place (double-click or Enter/F2 on the cell, DXLog.net-style --
@@ -597,7 +592,6 @@ private:
     void rebuildExchangeCell(const QMap<QString, QString>& previousValues);
     void applyDistanceColumnsVisibility();
     void configureFeedColumns();
-    void applyDividerSpan();
     // Caps m_feedTable's own maximum height to exactly its current row
     // content when the entry row sits at the Bottom (so the entry row
     // touches the table's own last row directly, no trailing blank
