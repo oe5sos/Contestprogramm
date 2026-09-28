@@ -1325,6 +1325,46 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // visible column set changes.
     m_feedTable->setItemDelegateForColumn(ColStatus, new PillDelegate(m_feedTable));
     m_feedTable->setItemDelegateForColumn(ColSerialGridRcvd, new SerialGridDelegate(m_feedTable));
+
+    // Der Tabulator soll weitertragen: Qt schliesst den Editor mit dem
+    // Hinweis EditNextItem/EditPreviousItem und rueckt genau eine Spalte
+    // weiter -- ist die nicht bearbeitbar (und das sind die meisten,
+    // siehe UnifiedFeedModel::flags()), macht es dort gar nichts auf,
+    // und das Korrigieren endet nach einer Zelle. Also selbst zur
+    // naechsten korrigierbaren Zelle weiter. Verzoegert um einen
+    // Durchlauf, weil die Ansicht ihren eigenen Sprung erst nach diesem
+    // Signal macht und ihn sonst gleich wieder ueberschreiben wuerde.
+    const auto tabulatorTraegtWeiter = [this](QAbstractItemDelegate* delegate) {
+        if (!delegate) {
+            return;
+        }
+        connect(delegate, &QAbstractItemDelegate::closeEditor, this,
+                [this](QWidget* editor, QAbstractItemDelegate::EndEditHint hint) {
+                    const int richtung = hint == QAbstractItemDelegate::EditNextItem
+                                             ? 1
+                                             : (hint == QAbstractItemDelegate::EditPreviousItem ? -1 : 0);
+                    if (richtung == 0 || !editor) {
+                        return;
+                    }
+                    // Nicht currentIndex() fragen: die Ansicht hat ihren
+                    // eigenen Sprung um eine Spalte schon gemacht, wenn
+                    // dieses Signal ankommt. Der Editor selbst liegt
+                    // genau auf seiner Zelle -- also von dort ablesen,
+                    // solange er noch steht (geloescht wird er erst
+                    // danach).
+                    const QModelIndex von = m_feedTable->indexAt(editor->geometry().center());
+                    if (!von.isValid()) {
+                        return;
+                    }
+                    const int zeile = von.row();
+                    const int spalte = von.column();
+                    QTimer::singleShot(0, m_feedTable, [this, zeile, spalte, richtung]() {
+                        editNextCorrectableCell(m_feedModel->index(zeile, spalte), richtung);
+                    });
+                });
+    };
+    tabulatorTraegtWeiter(m_feedTable->itemDelegate());
+    tabulatorTraegtWeiter(m_feedTable->itemDelegateForColumn(ColSerialGridRcvd));
     // The table's viewport gets its real width only when the layout
     // runs AFTER this widget's own resizeEvent() -- so the column fit
     // (fitColumnsToViewport()) listens to the viewport's own resize,
@@ -1514,6 +1554,24 @@ QWidget* UnifiedLogWidget::buildFieldCell(QWidget* parent, QWidget* valueWidget,
 
     cell->setFixedSize(width, height);
     return cell;
+}
+
+// Siehe die Erklaerung an der Deklaration: einen offenen Zelleneditor
+// beim Beenden nicht mehr committen lassen. Die Tabelle vom Modell zu
+// trennen schliesst jeden Editor, ohne ihn abzuschicken.
+UnifiedLogWidget::~UnifiedLogWidget()
+{
+    closeCellEditors();
+}
+
+void UnifiedLogWidget::closeCellEditors()
+{
+    // reset() räumt die offenen Zelleneditoren der Ansicht weg, ohne sie
+    // vorher abzuschicken -- genau das Gegenteil dessen, was ein
+    // Fokusverlust tut.
+    if (m_feedTable) {
+        m_feedTable->reset();
+    }
 }
 
 void UnifiedLogWidget::configureFeedColumns()
@@ -2171,6 +2229,55 @@ void UnifiedLogWidget::setGridFilter(const QString& text)
 // gesetzt ist. Martin, 2026-09-28: ein "#" im Filterfeld, und das Log
 // sah aus, als wäre es weg. Es war nur gefiltert, aber das stand
 // nirgends.
+void UnifiedLogWidget::editNextCorrectableCell(const QModelIndex& from, int direction)
+{
+    if (!m_feedTable || !m_feedModel || !from.isValid() || direction == 0) {
+        return;
+    }
+    QHeaderView* header = m_feedTable->horizontalHeader();
+    // Sichtbare Spalten in der Reihenfolge, in der sie DASTEHEN -- die
+    // Ansicht "DXLog-Vollspalten" ordnet sie per moveSection() um, also
+    // waere die logische Reihenfolge hier die falsche.
+    QVector<int> sichtbar;
+    for (int v = 0; v < header->count(); ++v) {
+        const int logisch = header->logicalIndex(v);
+        if (!header->isSectionHidden(logisch)) {
+            sichtbar.append(logisch);
+        }
+    }
+    if (sichtbar.isEmpty()) {
+        return;
+    }
+    int pos = sichtbar.indexOf(from.column());
+    if (pos < 0) {
+        pos = direction > 0 ? -1 : sichtbar.size();
+    }
+    int zeile = from.row();
+    // Hoechstens einmal durch das ganze Log -- eine Notbremse, falls
+    // gar keine Zelle mehr korrigierbar ist (leeres Log, nur Kandidaten).
+    const int maxSchritte = sichtbar.size() * (m_feedModel->rowCount() + 1) + 1;
+    for (int schritt = 0; schritt < maxSchritte; ++schritt) {
+        pos += direction;
+        if (pos >= sichtbar.size()) {
+            pos = 0;
+            ++zeile;
+        } else if (pos < 0) {
+            pos = sichtbar.size() - 1;
+            --zeile;
+        }
+        if (zeile < 0 || zeile >= m_feedModel->rowCount()) {
+            return; // oben oder unten angekommen: hier hoert es auf
+        }
+        const QModelIndex ziel = m_feedModel->index(zeile, sichtbar.at(pos));
+        if (ziel.isValid() && (m_feedModel->flags(ziel) & Qt::ItemIsEditable)) {
+            m_feedTable->setCurrentIndex(ziel);
+            m_feedTable->scrollTo(ziel);
+            m_feedTable->edit(ziel);
+            return;
+        }
+    }
+}
+
 void UnifiedLogWidget::updateFilterNotice(const QString& text)
 {
     if (!m_filterNoticeLabel) {

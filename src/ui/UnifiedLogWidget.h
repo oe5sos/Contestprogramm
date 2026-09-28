@@ -202,6 +202,21 @@ public:
     static constexpr const char* kAwayToggleButtonObjectName = "unifiedLogAwayToggleButton";
 
     explicit UnifiedLogWidget(QWidget* parent = nullptr);
+    // Nicht leer: steht beim Beenden noch ein Zelleneditor offen (eine
+    // begonnene Korrektur), dann committet Qt ihn beim Fokusverlust --
+    // und dieses Signal erreicht MainWindow, dessen Destruktor laengst
+    // gelaufen ist. Qt bricht das mit einem QFATAL ab ("Called object is
+    // not of the correct type (class destructor may have already run)").
+    // Gefunden 2026-09-28 am Prueftstand test_durchgang_tastatur, als der
+    // Tabulator zum ersten Mal eine naechste Zelle offen stehen liess.
+    ~UnifiedLogWidget() override;
+
+    // Bricht eine begonnene Zellenkorrektur ab, ohne sie abzuschicken.
+    // MainWindow ruft das als Erstes in seinem Destruktor: sonst
+    // committet ein offener Editor beim Verstecken des Fensters noch
+    // einmal, und das Signal läuft in einen MainWindow, dessen
+    // Destruktor schon durch ist -- Qt bricht das mit einem QFATAL ab.
+    void closeCellEditors();
 
     // Non-owning; the caller (MainWindow, via AppController) keeps these
     // alive for as long as this widget exists -- same ownership pattern
@@ -661,6 +676,17 @@ private:
     // Sagt an, dass ein Grid-Filter gesetzt ist und wie viele QSOs er
     // übrig lässt -- siehe kFilterNoticeObjectName.
     void updateFilterNotice(const QString& text);
+    // Nach einem Tabulator im Zelleneditor weiter zur naechsten
+    // KORRIGIERBAREN Zelle -- Zeit, Call und Nr./Grid sind es, alles
+    // dazwischen nicht (siehe UnifiedFeedModel::flags()). Qt springt von
+    // sich aus nur eine Spalte weiter und macht dort nichts auf, wenn
+    // die nicht bearbeitbar ist; dann hoert das Korrigieren nach einer
+    // Zelle auf. Martin, 2026-09-28: "reicht dort der tabulator" -- er
+    // reicht zum Speichern, und ab jetzt traegt er auch weiter, "quasi
+    // wie bei excel" (sein Wort zur Eingabezeile, dieselbe Erwartung).
+    // `direction` ist +1 fuer Tab, -1 fuer Shift+Tab; am Zeilenende geht
+    // es in die naechste bzw. vorige Zeile.
+    void editNextCorrectableCell(const QModelIndex& from, int direction);
 
     // The entry row -- a plain widget (an EntryRowFrame, see the .cpp),
     // NOT a QTableView/QAbstractItemModel of any kind (see the class

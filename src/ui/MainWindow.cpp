@@ -1746,7 +1746,24 @@ void MainWindow::saveWindowGeometry() {
     m_appController.database().setSettingValue(QStringLiteral("MainWindowGeometry"), QString::fromUtf8(geometry.toBase64()));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Nicht mehr = default: steht beim Beenden noch eine Zellenkorrektur
+    // offen, dann verliert ihr Editor beim Verstecken des Fensters den
+    // Fokus und committet ein letztes Mal -- mitten in der Zerstörung.
+    // Das Signal landet dann in handleHistoryCallsignEditRequested() &
+    // Co., deren Objekt es nicht mehr gibt, und Qt bricht mit einem
+    // QFATAL ab ("Called object is not of the correct type (class
+    // destructor may have already run)"). Gefunden 2026-09-28 am
+    // Prüfstand test_durchgang_tastatur, mit dem Rückverfolger bis in
+    // QAbstractItemView::commitData hinein. Also zuerst die Leitungen
+    // kappen, dann den Editor wegräumen -- beides, damit auch ein
+    // anderer, hier noch nicht bedachter Weg nicht mehr ankommt.
+    if (m_unifiedLog != nullptr) {
+        disconnect(m_unifiedLog, nullptr, this, nullptr);
+        m_unifiedLog->closeCellEditors();
+    }
+}
 
 const ContestDefinition* MainWindow::findContestDefinition(const QString& contestId) const
 {
