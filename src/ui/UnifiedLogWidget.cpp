@@ -1714,6 +1714,21 @@ void UnifiedLogWidget::applyEntryRowWidths()
     // der beiden Zellen mehr der angepassten Spaltenbreite: die
     // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
     // schmaler oder breiter wurde.
+    // Die drei Zellen VOR dem Rufzeichen bekommen die ABSTÄNDE der
+    // Spaltenpositionen, nicht die Spaltenbreiten. Das klingt nach
+    // demselben, ist es aber nicht: Ränder, Gitterlinien und Rundungen
+    // summieren sich, und auf dem CI-Mac (Qt 6.8.3) fing das
+    // Rufzeichenfeld in den Vollspalten dadurch 6 px vor seiner Spalte
+    // an, während es lokal (Qt 6.11.1) genau saß. Abstände zwischen
+    // Positionen, die die Tabelle selbst meldet, stimmen dagegen per
+    // Konstruktion -- und sie berücksichtigen eine versteckte Spalte
+    // (Abstand 0) wie eine umsortierte Reihenfolge von allein.
+    QHeaderView* kopf = m_feedTable->horizontalHeader();
+    const int xSerial = kopf->sectionPosition(ColSerial);
+    const int xBand = kopf->sectionPosition(ColBand);
+    const int xTime = kopf->sectionPosition(ColTime);
+    const int xCall = kopf->sectionPosition(ColCall);
+
     if (!m_entryRowBlanks.isEmpty()) {
         // Auch SICHTBAR schalten, nicht nur breit machen: die laufende
         // Nummer lässt sich abschalten und wieder einschalten (⚙ des
@@ -1724,16 +1739,12 @@ void UnifiedLogWidget::applyEntryRowWidths()
         // Von der Windows-CI im Rüttel-Prüfstand gefunden (2026-09-28).
         const bool nummerSichtbar = !m_feedTable->isColumnHidden(ColSerial);
         m_entryRowBlanks.at(0)->setVisible(nummerSichtbar);
-        if (nummerSichtbar) {
-            m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
-        } else {
-            m_entryRowBlanks.at(0)->setFixedSize(0, rowHeight);
-        }
+        m_entryRowBlanks.at(0)->setFixedSize(nummerSichtbar ? std::max(0, xBand - xSerial) : 0, rowHeight);
     }
     if (m_entryBandLabel) {
-        m_entryBandLabel->setFixedSize(columnWidthFor(ColBand), rowHeight);
+        m_entryBandLabel->setFixedSize(std::max(0, xTime - xBand), rowHeight);
     }
-    m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
+    m_entryTimeLabel->setFixedSize(std::max(0, xCall - xTime), rowHeight);
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
     const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
                                 : columnWidthFor(ColExchSent);
