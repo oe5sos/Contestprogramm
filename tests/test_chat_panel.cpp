@@ -30,6 +30,7 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/ChatPanelWidget.h"
+#include "ui/StyleKit.h"
 #include "ui/MainWindow.h"
 #include "ui/PanelContainerWidget.h"
 #include "ui/PanelHeaderBar.h"
@@ -67,6 +68,7 @@ private slots:
     void theChatPanelExistsInTheMainWindow();
     void theOptionsMenuOffersEverythingThatCanBeChanged();
     void everyPanelWithOptionsAlsoShowsTheGear();
+    void linesThatMentionMeStandOutInMagenta();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -469,6 +471,73 @@ void TestChatPanel::everyPanelWithOptionsAlsoShowsTheGear()
         qInfo().noquote() << id << "-- ⚙ sichtbar:" << (zahnrad->isVisibleTo(kopf) ? "ja" : "nein");
         QVERIFY2(zahnrad->isVisibleTo(kopf),
                  qPrintable(QStringLiteral("Panel %1 hat Optionen, zeigt aber kein ⚙").arg(id)));
+    }
+}
+
+// Martin, 2026-09-28: "was im chat mich betrifft soll in magenta
+// gekennzeichnet werden." Entscheidend ist, WAS als "betrifft mich"
+// gilt: mein Rufzeichen als eigenes Wort. Ein Rufzeichen, das meines
+// als Anfang enthält (OE5SOSX), darf nicht anschlagen -- sonst leuchtet
+// die halbe Liste und die Farbe sagt nichts mehr.
+void TestChatPanel::linesThatMentionMeStandOutInMagenta()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("magenta.sqlite"));
+    QVERIFY(controller);
+
+    ChatPanelWidget panel;
+    panel.setFeedModels(&controller->on4kstFeedModel(), &controller->clusterFeedModel());
+    panel.setOwnCallsign(QStringLiteral("OE5SOS"));
+    panel.setShowAll(true);
+    panel.resize(900, 400);
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+
+    controller->on4kstFeedModel().addCandidate(macheZeile(
+        QStringLiteral("DL1ABC"), QStringLiteral("JN68AA"), QStringLiteral("OE5SOS de DL1ABC 144.310?"),
+        QStringLiteral("on4kst"), 4));
+    controller->on4kstFeedModel().addCandidate(macheZeile(
+        QStringLiteral("OK2XYZ"), QStringLiteral("JN99AA"), QStringLiteral("CQ 144.300 wer hoert mich"),
+        QStringLiteral("on4kst"), 3));
+    controller->on4kstFeedModel().addCandidate(macheZeile(
+        QStringLiteral("HA5QRP"), QStringLiteral("JN97MM"), QStringLiteral("oe5sosx bitte 144.320"),
+        QStringLiteral("on4kst"), 2));
+    QCoreApplication::processEvents();
+
+    auto* tabelle = panel.findChild<QTableView*>(QLatin1String(ChatPanelWidget::kTableObjectName));
+    QVERIFY(tabelle);
+    QAbstractItemModel* modell = tabelle->model();
+    QVERIFY(modell);
+
+    const QColor magenta(Style::kMentionMagenta());
+    QHash<QString, QColor> farbeJeCall;
+    for (int r = 0; r < modell->rowCount(); ++r) {
+        const QString call = modell->index(r, ChatPanelWidget::ColumnCall).data().toString();
+        const QVariant vordergrund =
+            modell->index(r, ChatPanelWidget::ColumnText).data(Qt::ForegroundRole);
+        farbeJeCall.insert(call, vordergrund.value<QColor>());
+        qInfo().noquote() << call << "->" << vordergrund.value<QColor>().name();
+    }
+
+    QVERIFY2(farbeJeCall.contains(QStringLiteral("DL1ABC")), "die Zeile an mich fehlt");
+    QCOMPARE(farbeJeCall.value(QStringLiteral("DL1ABC")).name(), magenta.name());
+    QVERIFY2(farbeJeCall.value(QStringLiteral("OK2XYZ")).name() != magenta.name(),
+             "eine Zeile ohne mein Rufzeichen leuchtet magenta");
+    QVERIFY2(farbeJeCall.value(QStringLiteral("HA5QRP")).name() != magenta.name(),
+             "OE5SOSX hat als Treffer für OE5SOS gezählt");
+
+    const QByteArray ziel = qgetenv("CP_CHAT_BILD");
+    if (!ziel.isEmpty()) {
+        QVERIFY(panel.grab().save(QString::fromLocal8Bit(ziel)));
+    }
+
+    // Und ohne eigenes Rufzeichen wird gar nichts hervorgehoben.
+    panel.setOwnCallsign(QString());
+    QCoreApplication::processEvents();
+    for (int r = 0; r < modell->rowCount(); ++r) {
+        const QColor farbe = modell->index(r, ChatPanelWidget::ColumnText).data(Qt::ForegroundRole).value<QColor>();
+        QVERIFY2(farbe.name() != magenta.name(), "ohne eigenes Rufzeichen darf nichts magenta sein");
     }
 }
 

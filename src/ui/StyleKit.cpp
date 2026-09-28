@@ -147,6 +147,17 @@ QString kBlueText() { return colorAt(IdxBlueText); }
 
 QString kAmberText() { return colorAt(IdxAmberText); }
 
+QString kMentionMagenta()
+{
+    // Helligkeit vom Haupttext übernehmen: auf einem dunklen Thema
+    // muss die Farbe hell genug sein, auf einem hellen dunkel genug.
+    const QColor text(kTextPrimary());
+    const int l = text.lightness();
+    // Kräftig genug, um zwischen grauen Zeilen sofort aufzufallen,
+    // aber nicht vollgesättigt -- das flimmert auf Schrift.
+    return QColor::fromHsl(310, 200, std::clamp(l, 115, 170)).name();
+}
+
 QString bandTint(const QString& band)
 {
     // Grad Abstand zum Akzentton des Themas, nicht absolute Farbtöne:

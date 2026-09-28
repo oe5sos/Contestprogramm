@@ -56,6 +56,12 @@ public:
     void setShowAll(bool showAll);
     bool showsAll() const;
 
+    // Das eigene Rufzeichen. Zeilen, in denen es vorkommt, stehen in
+    // Magenta -- Martin, 2026-09-28: "was im chat mich betrifft soll in
+    // magenta gekennzeichnet werden." Leer heißt: nichts hervorheben.
+    void setOwnCallsign(const QString& callsign);
+    QString ownCallsign() const;
+
 signals:
     // Der Bediener will diese Station anrufen -- Doppelklick auf eine
     // Zeile. Dieselbe Form, die MainWindow::handleCandidateActivated

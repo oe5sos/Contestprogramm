@@ -2431,6 +2431,14 @@ void MainWindow::refreshMapWidget()
     const ContestSettings settings = m_appController.settings();
     m_mapWidget->setOwnGrid(settings.ownGrid);
     m_mapWidget->setOwnLabel(settings.ownCallsign);
+    // Dasselbe Rufzeichen färbt im Chat die Zeilen, die mich angehen
+    // (Martin, 2026-09-28: "was im chat mich betrifft soll in magenta
+    // gekennzeichnet werden"). Hier mitgezogen, weil diese Stelle nach
+    // jeder Einstellungsänderung läuft -- wer sein Rufzeichen ändert,
+    // hat sofort die richtige Hervorhebung.
+    if (m_chatPanel) {
+        m_chatPanel->setOwnCallsign(settings.ownCallsign);
+    }
 
     QVector<MapWidget::Station> stations;
     QSet<QString> workedCallsigns;
