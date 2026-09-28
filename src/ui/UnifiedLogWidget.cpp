@@ -2183,7 +2183,19 @@ void UnifiedLogWidget::applyKnownExchange(const QString& gridSquare, const std::
         if (!edit) {
             continue;
         }
-        if (field.type == QStringLiteral("grid6") && !gridSquare.isEmpty() && edit->text().isEmpty()) {
+        // Nur ein SECHSSTELLIGER Vorschlag darf in ein grid6-Feld. Ein
+        // vierstelliger Locator ist gültig, aber für eine UKW-Einreichung
+        // zu grob -- und im Feld sieht er fertig aus, sodass ein Return
+        // ihn logt. Solche stehen wirklich in alten Logs: in
+        // logbuch-sandbox/logbook.adi (9271 QSOs) ist "JN17" einer von
+        // ihnen, und Datei > Listen laden > "Locator aus alten Logs"
+        // nimmt sie mit -- zu Recht, für Check Partial und als grobe
+        // Peilung taugen sie. Nur vorschlagen darf man sie nicht: ein
+        // leeres Feld fragt nach, ein halb gefülltes nicht.
+        // Selbst tippen kann der Bediener natürlich, was er will.
+        const bool grobeAngabe = gridSquare.size() < 6;
+        if (field.type == QStringLiteral("grid6") && !gridSquare.isEmpty() && !grobeAngabe
+            && edit->text().isEmpty()) {
             edit->setText(gridSquare);
             setFieldAutoFilled(edit, true);
         }

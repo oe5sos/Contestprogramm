@@ -188,6 +188,17 @@ void TestQsoLoeschen::cursorOnTheRowAndTheDeleteKey()
         MainWindow window(*controller);
         window.show();
         QVERIFY(QTest::qWaitForWindowExposed(&window));
+        // Das Fenster muss AKTIV sein, nicht nur sichtbar: die Löschtaste
+        // hängt an einem QShortcut mit Qt::WidgetWithChildrenShortcut, und
+        // Qt liefert Kurzbefehle nur an ein aktives Fenster aus. Auf dem
+        // CI-Mac fiel dieser Prüfstand am 2026-09-28 einmal durch (2 QSOs
+        // statt 1 übrig, also Taste ohne Wirkung), lokal 25 von 25 grün --
+        // genau das Bild einer Fensteraktivierung, die manchmal noch nicht
+        // durch ist. activateWindow() ohne QVERIFY: auf einem Bildschirm
+        // ohne Fenstermanager sagt qWaitForWindowActive nichts Sicheres,
+        // aber wo es etwas sagt, wartet es richtig.
+        window.activateWindow();
+        (void)QTest::qWaitForWindowActive(&window);
         auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
         QVERIFY(table);
 

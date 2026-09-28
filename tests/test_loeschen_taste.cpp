@@ -124,6 +124,12 @@ void TestLoeschenTaste::backspaceOnASelectedRowDeletesThatQso()
     window.resize(1440, 900);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    // Aktiv, nicht nur sichtbar -- die Loeschtaste haengt an einem
+    // QShortcut, und Qt liefert Kurzbefehle nur an ein aktives Fenster
+    // aus. Ohne das flattert so ein Pruefstand auf einem CI-Laeufer
+    // (erlebt am 2026-09-28 mit test_qso_loeschen auf dem CI-Mac).
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
 
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
@@ -160,6 +166,12 @@ void TestLoeschenTaste::deleteKeyDoesTheSame()
     window.resize(1440, 900);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    // Aktiv, nicht nur sichtbar -- die Loeschtaste haengt an einem
+    // QShortcut, und Qt liefert Kurzbefehle nur an ein aktives Fenster
+    // aus. Ohne das flattert so ein Pruefstand auf einem CI-Laeufer
+    // (erlebt am 2026-09-28 mit test_qso_loeschen auf dem CI-Mac).
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
 
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
@@ -191,6 +203,12 @@ void TestLoeschenTaste::backspaceInsideACellEditorDeletesACharacterNotTheQso()
     window.resize(1440, 900);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    // Aktiv, nicht nur sichtbar -- die Loeschtaste haengt an einem
+    // QShortcut, und Qt liefert Kurzbefehle nur an ein aktives Fenster
+    // aus. Ohne das flattert so ein Pruefstand auf einem CI-Laeufer
+    // (erlebt am 2026-09-28 mit test_qso_loeschen auf dem CI-Mac).
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
 
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
@@ -233,6 +251,12 @@ void TestLoeschenTaste::backspaceInTheEntryRowDeletesACharacterNotTheQso()
     window.resize(1440, 900);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    // Aktiv, nicht nur sichtbar -- die Loeschtaste haengt an einem
+    // QShortcut, und Qt liefert Kurzbefehle nur an ein aktives Fenster
+    // aus. Ohne das flattert so ein Pruefstand auf einem CI-Laeufer
+    // (erlebt am 2026-09-28 mit test_qso_loeschen auf dem CI-Mac).
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
 
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
