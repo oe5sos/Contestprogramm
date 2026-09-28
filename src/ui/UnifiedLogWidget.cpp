@@ -2104,6 +2104,29 @@ void UnifiedLogWidget::resetForNextEntry()
     applyRstDefaults();
     setDupeIndicator(false);
     setEntryDistanceBearing(std::nullopt, std::nullopt);
+    // Die Eingabezeile wieder auf die Spaltenbreiten nageln -- aber
+    // einen Ereignisdurchlauf SPÄTER, nicht jetzt.
+    //
+    // Mit dem eben geloggten QSO ist die Tabelle um eine Zeile
+    // gewachsen. Ihre Spalten passen sich erst im nächsten
+    // Layout-Durchlauf an (der Rollbalken kann erscheinen, der Viewport
+    // wird schmaler, fitColumnsToViewport() rechnet neu) -- wer hier
+    // sofort abgleicht, nagelt die Zeile auf Breiten fest, die gleich
+    // nicht mehr gelten. Genau daran sind vier Anläufe gescheitert: ein
+    // Abgleich an dieser Stelle, in rebuildExchangeCell() und in
+    // setViewMode() machte es nicht besser, zum Teil schlechter.
+    //
+    // Ohne das stand nach jedem geloggten QSO in der Ansicht
+    // DXLog-Vollspalten das Rufzeichenfeld 6 px links von seiner Spalte
+    // (x=179 statt 185). Gefunden 2026-09-28 mit dem Rüttel-Prüfstand
+    // (tests/test_ruetteln.cpp), unabhängig davon auch vom CI-Mac
+    // gemeldet -- Martin: "ich komme immer sofort auf fehler und du zu
+    // selten."
+    QTimer::singleShot(0, this, [this]() {
+        if (m_entryRowLayoutBuilt) {
+            applyEntryRowWidths();
+        }
+    });
     m_callsignEdit->setFocus();
 }
 
