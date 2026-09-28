@@ -303,6 +303,8 @@ bool DxClusterClient::parseDxSpotLine(const QString& line, SpotCandidate& candid
     // silently dropped for lacking location data DX clusters never had
     // in the first place.
     candidate.rawLine = line;
+    // Eine Cluster-Zeile ist schon lesbar.
+    candidate.message = line.trimmed();
     candidate.timestampUtc = timestamp;
     candidate.source = QStringLiteral("cluster");
     candidate.freqHz = static_cast<qint64>(freqKhz * 1000.0);

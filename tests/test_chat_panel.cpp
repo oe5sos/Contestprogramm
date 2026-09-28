@@ -17,6 +17,7 @@
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QLabel>
+#include <QMenu>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -61,6 +62,7 @@ private slots:
     void aDoubleClickTakesTheStationOver();
     void sendingAMessageLeavesTheField();
     void theChatPanelExistsInTheMainWindow();
+    void theOptionsMenuOffersEverythingThatCanBeChanged();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -312,6 +314,123 @@ void TestChatPanel::theChatPanelExistsInTheMainWindow()
     QVERIFY(table);
     qInfo() << "Zeilen im Chat-Panel des Fensters:" << table->model()->rowCount();
     QVERIFY(table->model()->rowCount() >= 1);
+
+    // Die Lage aller Panels -- und ob das Chat-Panel unter einem
+    // anderen liegt. Ein Panel, das man erst hervorziehen muss, ist
+    // keine gute Vorgabe (im laufenden Betrieb lag der Chat unter Rate
+    // und Rotoren).
+    QMap<QString, QRect> lagen;
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
+                               QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
+                               QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
+                               QStringLiteral("skeds"), QStringLiteral("chat")}) {
+        if (auto* w = window.findChild<QWidget*>(id)) {
+            if (!w->isHidden()) {
+                lagen.insert(id, w->geometry());
+            }
+        }
+    }
+    for (auto it = lagen.constBegin(); it != lagen.constEnd(); ++it) {
+        qInfo().noquote() << QStringLiteral("  %1: %2,%3 %4x%5")
+                                  .arg(it.key(), -14)
+                                  .arg(it.value().x())
+                                  .arg(it.value().y())
+                                  .arg(it.value().width())
+                                  .arg(it.value().height());
+    }
+    // Im kompakten Entwurf hat der Chat bewusst keine Vorgabe -- die
+    // Fläche ist dort voll (siehe die Registrierung in MainWindow).
+    // Dann steht er nicht da, und es gibt nichts zu überlappen.
+    if (!lagen.contains(QStringLiteral("chat"))) {
+        qInfo().noquote() << "Der Chat hat in diesem Entwurf keine Vorgabe -- er wird über "
+                              "Fenster > Panels eingeschaltet.";
+        return;
+    }
+    const QRect chatLage = lagen.value(QStringLiteral("chat"));
+    QStringList ueberlappt;
+    for (auto it = lagen.constBegin(); it != lagen.constEnd(); ++it) {
+        if (it.key() == QStringLiteral("chat")) {
+            continue;
+        }
+        if (it.value().intersects(chatLage)) {
+            ueberlappt << it.key();
+        }
+    }
+    qInfo().noquote() << "Chat überlappt mit:"
+                      << (ueberlappt.isEmpty() ? QStringLiteral("(nichts)")
+                                                : ueberlappt.join(QStringLiteral(", ")));
+    QVERIFY2(ueberlappt.isEmpty(),
+             qPrintable(QStringLiteral("Das Chat-Panel liegt in der Vorgabe unter: %1")
+                            .arg(ueberlappt.join(QStringLiteral(", ")))));
+}
+
+// Martin, 2026-09-28: "der chat sollte auch optionen haben. wie zb
+// wechsel des bandes usw.! alle möglichkeiten sollten dort änderbar
+// sein." Also nachsehen, dass im ⚙ des Chat-Kopfes wirklich alles steht,
+// was ON4KST hergibt -- Raum, Anwesenheit, CQ -- und was das Panel
+// selbst kann.
+void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("chatopt.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    // Das Menü ist ein Aufklappmenü: es beim Aufgehen abfangen, seine
+    // Einträge lesen und wieder zumachen.
+    QStringList eintraege;
+    QStringList kennungen;
+    QTimer::singleShot(0, [&eintraege, &kennungen]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu) {
+            return;
+        }
+        const auto sammle = [&](QMenu* m, auto&& selbst) -> void {
+            for (QAction* a : m->actions()) {
+                if (a->isSeparator()) {
+                    continue;
+                }
+                if (a->menu()) {
+                    selbst(a->menu(), selbst);
+                    continue;
+                }
+                eintraege << a->text();
+                if (!a->objectName().isEmpty()) {
+                    kennungen << a->objectName();
+                }
+            }
+        };
+        sammle(menu, sammle);
+        menu->close();
+    });
+    QMetaObject::invokeMethod(&window, "showChatOptionsPopup");
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "Im ⚙ des Chats steht:";
+    for (const QString& e : eintraege) {
+        qInfo().noquote() << "   " << e;
+    }
+
+    // Die Räume, die ON4KST kennt (siehe On4kstClient's
+    // Klassenkommentar: 50 / 144 / GHZ / EME / HF).
+    for (const QString& raum : {QStringLiteral("chatRoom_50"), QStringLiteral("chatRoom_144"),
+                                 QStringLiteral("chatRoom_GHZ"), QStringLiteral("chatRoom_EME"),
+                                 QStringLiteral("chatRoom_HF")}) {
+        QVERIFY2(kennungen.contains(raum), qPrintable(QStringLiteral("Der Raum %1 fehlt").arg(raum)));
+    }
+    QVERIFY2(kennungen.contains(QStringLiteral("chatRoomFollowBand")),
+             "Es fehlt der Weg zurück zu „dem Band folgen“");
+    // Anwesenheit, CQ, Filter, Reichweite.
+    for (const QString& kennung : {QStringLiteral("chatAwayAction"), QStringLiteral("chatBackAction"),
+                                    QStringLiteral("chatCqAction"), QStringLiteral("chatShowAllAction"),
+                                    QStringLiteral("chatRadiusAction")}) {
+        QVERIFY2(kennungen.contains(kennung), qPrintable(QStringLiteral("Es fehlt: %1").arg(kennung)));
+    }
 }
 
 int main(int argc, char* argv[])

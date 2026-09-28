@@ -90,7 +90,11 @@ public:
                     .arg(QString::number(qRound(zeile.linie.distanceKm)),
                           QString::number(qRound(zeile.linie.bearingDeg)));
             case ChatPanelWidget::ColumnText:
-                return zeile.linie.candidate.rawLine;
+                // Der lesbare Text, nicht die Protokollzeile -- siehe
+                // SpotCandidate::message. Fällt auf rawLine zurück,
+                // falls eine Quelle ihn (noch) nicht setzt.
+                return zeile.linie.candidate.message.isEmpty() ? zeile.linie.candidate.rawLine
+                                                                : zeile.linie.candidate.message;
             default:
                 return QVariant();
             }

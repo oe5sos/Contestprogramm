@@ -956,28 +956,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
     connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
     PanelContainerWidget* chatContainer =
-        m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
-                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 620, 262),
-                                             QRect(0, 430, 620, 262));
+        // Im großen Entwurf unten rechts, neben den Skeds. Im KOMPAKTEN
+    // (dem 13"-Layout, das Martin fährt) bewusst OHNE Vorgabe, also
+    // zunächst versteckt: dort ist die Fläche vollständig belegt --
+    // Rotoren, Karte, Nächstes Ziel, Rate, Log, Bandmap teilen sich
+    // 1372x793 ohne Lücke. Jede Vorgabe läge unter einem anderen Panel,
+    // und ein Panel, das man erst hervorziehen muss, ist schlechter als
+    // eines, das man über Fenster > Panels bewusst einschaltet und
+    // hinlegt, wo man es haben will. Das Profil merkt sich die Lage
+    // dann.
+    m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
+                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
     // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
     if (chatContainer && chatContainer->headerBar()) {
-        connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this]() {
-            auto* menu = new QMenu(this);
-            menu->setAttribute(Qt::WA_DeleteOnClose);
-            QAction* alle = menu->addAction(QStringLiteral("Alle Zeilen zeigen (auch unerreichbare)"));
-            alle->setObjectName(QStringLiteral("chatShowAllAction"));
-            alle->setCheckable(true);
-            alle->setChecked(m_chatPanel->showsAll());
-            // Das Filtern ist gewollt (Martin, 2026-09-28: "alles was
-            // mich nicht erreicht ... möchte ich gefiltert haben um
-            // nicht 1000 unnötige chat zu sehen"). Dieser Schalter ist
-            // für den Fall, dass man doch einmal nachsehen will, was
-            // weggefiltert wurde -- die Kopfzeile sagt ohnehin, wie
-            // viele Zeilen es sind.
-            connect(alle, &QAction::triggered, this,
-                    [this](bool checked) { m_chatPanel->setShowAll(checked); });
-            menu->exec(QCursor::pos());
-        });
+        connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showChatOptionsPopup);
     }
 
     m_panelLayoutManager->finalizeInitialLayout();
@@ -2468,6 +2461,106 @@ void MainWindow::handleAwayToggled(bool away)
     } else {
         m_appController.on4kstClient().sendBack();
     }
+}
+
+// Alles, was sich am Chat einstellen lässt, an einer Stelle -- Martin,
+// 2026-09-28: "der chat sollte auch optionen haben. wie zb wechsel des
+// bandes usw.! alle möglichkeiten sollten dort änderbar sein."
+//
+// Was ON4KST hergibt, steht im Klassenkommentar von On4kstClient: die
+// Räume ("/CHAT 50|144|GHZ|EME|HF"), Abwesend/Zurück ("/AWAY", "/BACK")
+// und der CQ-Ruf. Dazu kommt, was dieses Panel selbst kann: das
+// Filtern, das sonst nur in der Kopfzeile sichtbar ist.
+void MainWindow::showChatOptionsPopup()
+{
+    if (!m_chatPanel) {
+        return;
+    }
+    auto* menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    On4kstClient& client = m_appController.on4kstClient();
+    const bool angemeldet = client.isLoggedIn();
+
+    // --- Raum ---------------------------------------------------------
+    // Der Raum folgt sonst dem Band (syncOn4kstRoomForCurrentBand()).
+    // Hier lässt er sich von Hand setzen: wer auf 144 arbeitet, aber im
+    // Mikrowellenraum mitlesen will, kann das.
+    auto* raumMenu = menu->addMenu(QStringLiteral("Chatraum"));
+    raumMenu->setEnabled(angemeldet);
+    struct Raum {
+        const char* wert;
+        const char* name;
+    };
+    static const Raum raeume[] = {
+        {"50", "50 MHz"}, {"144", "144 / 432 MHz"}, {"GHZ", "Mikrowelle (ab 1296)"},
+        {"EME", "EME"},   {"HF", "Kurzwelle"},
+    };
+    for (const Raum& raum : raeume) {
+        const QString wert = QString::fromLatin1(raum.wert);
+        QAction* eintrag = raumMenu->addAction(QString::fromUtf8(raum.name));
+        eintrag->setObjectName(QStringLiteral("chatRoom_%1").arg(wert));
+        eintrag->setCheckable(true);
+        eintrag->setChecked(m_currentOn4kstRoom == wert);
+        connect(eintrag, &QAction::triggered, this, [this, wert]() {
+            m_appController.on4kstClient().switchRoom(wert);
+            m_currentOn4kstRoom = wert;
+            statusBar()->showMessage(QStringLiteral("ON4KST: Raum %1").arg(wert), 4000);
+        });
+    }
+    // Und zurück auf "folgt dem Band" -- das ist der Normalfall.
+    QAction* demBandFolgen = raumMenu->addAction(QStringLiteral("dem Band folgen"));
+    demBandFolgen->setObjectName(QStringLiteral("chatRoomFollowBand"));
+    connect(demBandFolgen, &QAction::triggered, this, [this]() {
+        m_currentOn4kstRoom.clear(); // erzwingt den Wechsel beim nächsten Abgleich
+        syncOn4kstRoomForCurrentBand();
+    });
+
+    menu->addSeparator();
+
+    // --- Anwesenheit --------------------------------------------------
+    QAction* abwesend = menu->addAction(QStringLiteral("Als abwesend melden"));
+    abwesend->setObjectName(QStringLiteral("chatAwayAction"));
+    abwesend->setEnabled(angemeldet);
+    connect(abwesend, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendAway();
+        statusBar()->showMessage(QStringLiteral("ON4KST: als abwesend gemeldet"), 4000);
+    });
+    QAction* zurueck = menu->addAction(QStringLiteral("Wieder da"));
+    zurueck->setObjectName(QStringLiteral("chatBackAction"));
+    zurueck->setEnabled(angemeldet);
+    connect(zurueck, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendBack();
+        statusBar()->showMessage(QStringLiteral("ON4KST: wieder da"), 4000);
+    });
+
+    menu->addSeparator();
+
+    // --- CQ -----------------------------------------------------------
+    QAction* cq = menu->addAction(QStringLiteral("CQ rufen"));
+    cq->setObjectName(QStringLiteral("chatCqAction"));
+    cq->setEnabled(angemeldet);
+    connect(cq, &QAction::triggered, this, &MainWindow::handleCqDraftRequested);
+
+    menu->addSeparator();
+
+    // --- Was das Panel selbst kann -------------------------------------
+    QAction* alle = menu->addAction(QStringLiteral("Alle Zeilen zeigen (auch unerreichbare)"));
+    alle->setObjectName(QStringLiteral("chatShowAllAction"));
+    alle->setCheckable(true);
+    alle->setChecked(m_chatPanel->showsAll());
+    // Das Filtern ist gewollt (Martin, 2026-09-28: "alles was mich nicht
+    // erreicht ... möchte ich gefiltert haben um nicht 1000 unnötige
+    // chat zu sehen"). Dieser Schalter ist für den Fall, dass man doch
+    // einmal nachsehen will, was weggefiltert wurde.
+    connect(alle, &QAction::triggered, this, [this](bool checked) { m_chatPanel->setShowAll(checked); });
+
+    QAction* reichweite = menu->addAction(QStringLiteral("Reichweite ändern…"));
+    reichweite->setObjectName(QStringLiteral("chatRadiusAction"));
+    // Die Reichweite ist DAS Kriterium des Filters -- sie gehört
+    // erreichbar, wo gefiltert wird, nicht nur in den Einstellungen.
+    connect(reichweite, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    menu->exec(QCursor::pos());
 }
 
 QString MainWindow::on4kstRoomValueForBand(const QString& band)

@@ -417,6 +417,10 @@ private:
     // is only ever reached via the signal/function-pointer connect()
     // below, never QMetaObject::invokeMethod.
     void showLogViewOptionsPopup();
+    // Das ⚙ des Chat-Panels: Raum, Anwesenheit, CQ, Filter, Reichweite
+    // -- siehe die Umsetzung. Q_INVOKABLE, damit der Prüfstand es rufen
+    // kann, ohne den ⚙-Knopf zu treffen.
+    Q_INVOKABLE void showChatOptionsPopup();
 
     AppController& m_appController;
 
