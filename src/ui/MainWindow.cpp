@@ -3472,6 +3472,11 @@ void MainWindow::exportCabrillo()
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"), QStringLiteral("Kein aktiver Contest ausgewählt."));
         return;
     }
+    // Dieselbe Frage wie beim EDI: der Cabrillo-Roboter rechnet
+    // fehlerhafte QSOs genauso gegen.
+    if (!confirmExportDespiteLogErrors()) {
+        return;
+    }
 
     // Erst die Angaben, die kein QSO beantworten kann (Leistung,
     // Bedienerklasse, Hilfsmittel), dann die Datei -- der Robot liest
@@ -3536,12 +3541,54 @@ void MainWindow::exportAdif()
     statusBar()->showMessage(QStringLiteral("ADIF-Log exportiert: %1").arg(path), 5000);
 }
 
+// Vor einem Export: hat das Log Fehlerzeilen, wird gefragt. Ein QSO
+// ohne Locator oder ohne empfangene Nummer zählt null Punkte, und der
+// Roboter rechnet es gegen -- das soll niemand erst erfahren, wenn die
+// Auswertung kommt. Warnungen halten nicht auf; die sind zum Ansehen,
+// nicht zum Anhalten.
+//
+// Gibt true zurück, wenn exportiert werden soll.
+bool MainWindow::confirmExportDespiteLogErrors()
+{
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    if (!def) {
+        return true;
+    }
+    const QVector<QsoRecord> records = m_appController.database().qsosForContest(settings.activeContestId);
+    const LogCheckContext context = logCheckContextFor(*def, settings, records, QDateTime::currentDateTimeUtc());
+    const LogCheckResult result = checkLog(records, context);
+    if (result.errors == 0) {
+        return true;
+    }
+
+    QMessageBox box(QMessageBox::Warning, QStringLiteral("Contestprogramm"),
+                    QStringLiteral("Das Log hat %1 Fehler.").arg(result.errors), QMessageBox::NoButton, this);
+    box.setInformativeText(
+        QStringLiteral("%1\n\nEin QSO ohne Locator oder ohne empfangene Nummer zählt null Punkte, und die "
+                        "Auswertung rechnet es gegen. Besser vorher ansehen als hinterher erfahren.")
+            .arg(result.countsText()));
+    QPushButton* checkButton = box.addButton(QStringLiteral("Log prüfen…"), QMessageBox::AcceptRole);
+    QPushButton* exportButton = box.addButton(QStringLiteral("Trotzdem exportieren"), QMessageBox::DestructiveRole);
+    box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
+    box.setDefaultButton(checkButton);
+    box.exec();
+    if (box.clickedButton() == checkButton) {
+        openLogCheckWindow();
+        return false;
+    }
+    return box.clickedButton() == exportButton;
+}
+
 void MainWindow::exportEdi()
 {
     const ContestSettings settings = m_appController.settings();
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     if (!def) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"), QStringLiteral("Kein aktiver Contest ausgewählt."));
+        return;
+    }
+    if (!confirmExportDespiteLogErrors()) {
         return;
     }
 

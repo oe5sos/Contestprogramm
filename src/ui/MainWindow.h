@@ -113,6 +113,9 @@ private slots:
     void importOldLogs();
     // Eine veröffentlichte Ergebnisliste (CSV) als Locator-Quelle.
     void importResultsCsv();
+    // Vor einem Export: bei Fehlerzeilen im Log nachfragen. true =
+    // exportieren.
+    bool confirmExportDespiteLogErrors();
     void archiveActiveContest();
     void refreshCheckPartial();
     void openMultiplierWindow();
