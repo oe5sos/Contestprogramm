@@ -358,6 +358,18 @@ QString appStyleSheet()
         "QMenu::item { padding: 4px 20px; }"
         "QMenu::item:selected { background: %8; color: %9; }"
 
+        // Die Leiste des Seitenbereichs. Ohne eigene Regel sah man dem
+        // gedrückten Knopf nichts an -- Martin, 2026-09-28: "wird nicht
+        // übernommen", mit zwei Bildern, auf denen verschiedene Seiten
+        // vorne lagen und trotzdem immer dasselbe Kürzel hell wirkte.
+        // Aktiv = Akzentfarbe plus Balken am Rand, wie in Longpath.
+        "QWidget#sideAreaRail QToolButton { background: transparent; color: %12;"
+        "  border: none; border-left: 2px solid transparent; border-radius: 0;"
+        "  padding: 6px 0; }"
+        "QWidget#sideAreaRail QToolButton:hover { background: %14; color: %2; }"
+        "QWidget#sideAreaRail QToolButton:checked { background: %4; color: %8;"
+        "  border-left: 2px solid %8; }"
+
         "QStatusBar { background: %19; border-top: 1px solid %3; color: %5; }"
         "QStatusBar::item { border: none; }"
 

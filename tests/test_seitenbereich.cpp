@@ -26,6 +26,7 @@
 #include "ui/PanelContainerWidget.h"
 #include "ui/PanelLayoutManager.h"
 #include "ui/SideAreaWidget.h"
+#include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -48,6 +49,7 @@ private slots:
     void pressingTheButtonThroughAccessibilityAlsoSwitches();
     void draggingAPanelOntoTheSideAreaPutsItIn();
     void theSideAreaSurvivesARestart();
+    void theActiveRailButtonLooksActive();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -609,6 +611,100 @@ void TestSeitenbereich::theSideAreaSurvivesARestart()
         PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
         QVERIFY(bereichPanel);
         QVERIFY2(!bereichPanel->isHidden(), "Der Seitenbereich ist nach dem Neustart versteckt");
+    }
+}
+
+// Martin, 2026-09-28: "wird nicht übernommen" -- zwei Bilder, auf
+// denen verschiedene Seiten vorne lagen und in der Leiste trotzdem
+// immer dasselbe Kürzel hell wirkte. Der Zustand stimmte (isChecked),
+// nur SAH man ihm nichts an: für QToolButton gab es keine Stilregel,
+// ein flacher Knopf im dunklen Thema sieht gedrückt aus wie nicht
+// gedrückt. Dieser Prüfstand hält beides fest -- den Zustand und, mit
+// CP_LEISTE_BILD=<pfad>, ein Bild der Leiste zum Ansehen.
+void TestSeitenbereich::theActiveRailButtonLooksActive()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("leiste.sqlite"));
+    QVERIFY(controller);
+
+    // Auf derselben Bühne wie das laufende Programm: main.cpp setzt
+    // dieses Stylesheet, und genau darin fehlte die Regel. Ohne diese
+    // Zeile prüfte man den nackten Standardstil, der den gedrückten
+    // Knopf von sich aus zeichnet -- der Prüfstand wäre grün und das
+    // Programm trotzdem falsch.
+    qApp->setStyleSheet(Style::appStyleSheet());
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    for (const auto& paar : {std::pair<QString, QString>{QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+                              {QStringLiteral("chat"), QStringLiteral("Chat")},
+                              {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+                              {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")}}) {
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, paar.first),
+                                   Q_ARG(QString, paar.second));
+    }
+    bereich->setActive(QStringLiteral("map"));
+    QCoreApplication::processEvents();
+
+    auto* rail = bereich->findChild<QWidget*>(QLatin1String(SideAreaWidget::kRailObjectName));
+    QVERIFY(rail);
+
+    // Der Zustand: genau einer ist gedrückt, und zwar der aktive.
+    QStringList gedrueckt;
+    for (QToolButton* knopf : rail->findChildren<QToolButton*>()) {
+        if (knopf->isChecked()) {
+            gedrueckt << knopf->objectName();
+        }
+    }
+    qInfo().noquote() << "gedrückt:" << gedrueckt.join(QStringLiteral(", "));
+    QCOMPARE(gedrueckt, QStringList{QStringLiteral("sideRail_map")});
+
+    // Und das Aussehen: der gedrückte Knopf muss sich vom Nachbarn
+    // unterscheiden, sonst sieht man die aktive Seite nicht.
+    auto* aktiv = rail->findChild<QToolButton*>(QStringLiteral("sideRail_map"));
+    auto* still = rail->findChild<QToolButton*>(QStringLiteral("sideRail_chat"));
+    QVERIFY(aktiv && still);
+    const QImage bildAktiv = aktiv->grab().toImage();
+    const QImage bildStill = still->grab().toImage();
+    QVERIFY(!bildAktiv.isNull() && !bildStill.isNull());
+    QVERIFY2(bildAktiv.size() == bildStill.size(), "gleich große Knöpfe erwartet");
+    // Gemessen wird nicht "irgendwie anders" -- ein Pixelvergleich ist
+    // schon durch das Kürzel selbst erfüllt und war in der Gegenprobe
+    // auch ohne Regel bei 99 %. Verlangt wird die Akzentfarbe: der
+    // Balken am linken Rand des aktiven Knopfes.
+    const QColor akzent(Style::kBlueBg());
+    auto akzentAnteilAmRand = [&akzent](const QImage& bild) {
+        int treffer = 0;
+        int gezaehlt = 0;
+        for (int y = 0; y < bild.height(); ++y) {
+            for (int x = 0; x < std::min(3, bild.width()); ++x) {
+                const QColor farbe(bild.pixel(x, y));
+                ++gezaehlt;
+                if (std::abs(farbe.red() - akzent.red()) < 40 && std::abs(farbe.green() - akzent.green()) < 40
+                    && std::abs(farbe.blue() - akzent.blue()) < 40) {
+                    ++treffer;
+                }
+            }
+        }
+        return gezaehlt > 0 ? double(treffer) / double(gezaehlt) : 0.0;
+    };
+    const double amAktiven = akzentAnteilAmRand(bildAktiv);
+    const double amStillen = akzentAnteilAmRand(bildStill);
+    qInfo().noquote() << "Akzent am linken Rand -- aktiv:" << QString::number(amAktiven * 100.0, 'f', 0)
+                      << "% still:" << QString::number(amStillen * 100.0, 'f', 0) << "%";
+    QVERIFY2(amAktiven > 0.5, "Der aktive Knopf trägt keinen Akzentbalken -- die aktive Seite ist nicht erkennbar");
+    QVERIFY2(amStillen < 0.1, "Auch der stille Knopf trägt den Balken");
+
+    const QByteArray ziel = qgetenv("CP_LEISTE_BILD");
+    if (!ziel.isEmpty()) {
+        QVERIFY(bereich->grab().save(QString::fromLocal8Bit(ziel)));
+        qInfo().noquote() << "Bild abgelegt:" << QString::fromLocal8Bit(ziel);
     }
 }
 
