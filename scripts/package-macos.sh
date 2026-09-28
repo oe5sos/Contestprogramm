@@ -129,7 +129,23 @@ cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 DMG="$OUT_DIR/Contestprogramm-$VERSION-macOS-$ARCH_LABEL.dmg"
 rm -f "$DMG"
-hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+# Mehrere Anläufe: "hdiutil: create failed - Resource busy" ist auf den
+# macOS-Läufern der CI ein bekannter Aussetzer -- irgendein anderer
+# Prozess (Spotlight, ein voriger diskimages-helper) hält den Ordner
+# gerade fest. Erlebt am 2026-09-28, Lauf 36402539443: Bau und alle
+# Prüfstände grün, nur das Abbild scheiterte. Ohne Wiederholung fällt
+# damit irgendwann ein Release-Lauf aus, an dem sonst nichts falsch ist.
+dmg_versuch=1
+until hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null 2>&1; do
+    if [ "$dmg_versuch" -ge 3 ]; then
+        echo "hdiutil hat dreimal nicht gewollt -- hier die letzte Meldung:" >&2
+        hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >&2
+        exit 1
+    fi
+    echo "hdiutil war belegt, Versuch $dmg_versuch -- in 5 s noch einmal" >&2
+    dmg_versuch=$((dmg_versuch + 1))
+    sleep 5
+done
 rm -rf "$STAGE"
 (cd "$OUT_DIR" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
 echo "fertig: $DMG ($(du -h "$DMG" | cut -f1))"
