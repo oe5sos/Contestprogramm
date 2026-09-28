@@ -429,6 +429,9 @@ private:
     Q_INVOKABLE void takePanelOutOfSideArea(const QString& id);
     // Ein losgelassenes Panel über dem Seitenbereich -- siehe dort.
     Q_INVOKABLE void dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos);
+    // Der Rückweg: aus dem Seitenbereich heraus an die Stelle, wo man
+    // losgelassen hat.
+    Q_INVOKABLE void dragPanelOutOfSideArea(const QString& id, const QPoint& globalPos);
     // Wer im Seitenbereich liegt, welche Seite oben ist und ob er
     // zugeklappt war -- das überlebt den Neustart, wie jede andere
     // Panel-Lage auch.

@@ -995,6 +995,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_sideArea, &SideAreaWidget::removeRequested, this, [this](const QString& id) {
         takePanelOutOfSideArea(id);
     });
+    connect(m_sideArea, &SideAreaWidget::pageDraggedOut, this, &MainWindow::dragPanelOutOfSideArea);
     // Welche Seite oben liegt und ob der Bereich zugeklappt ist, gehört
     // zur Lage dazu -- sonst steht nach dem Neustart eine andere Seite
     // vorne als beim Beenden.
@@ -2782,6 +2783,47 @@ void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
     m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
     saveSideAreaState();
     statusBar()->showMessage(QStringLiteral("%1 liegt jetzt im Seitenbereich").arg(title), 4000);
+}
+
+// Herausziehen: das Panel verlässt den Bereich und legt sich dorthin,
+// wo der Zeiger losgelassen wurde. Martin, 2026-09-28: "die widgets
+// sollte man aber auch wieder per drag and drop rausziehen können, in
+// dem fall nach rechts." Innerhalb des Bereichs losgelassen heißt
+// "doch nicht" -- sonst risse ein Rutscher beim Umschalten das Panel
+// heraus.
+void MainWindow::dragPanelOutOfSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || !m_sideArea->hasPage(id)) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (bereichPanel) {
+        const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+        if (bereichAufDemSchirm.contains(globalPos)) {
+            return;
+        }
+    }
+    const QSize vorherigeGroesse = m_sideAreaHomeGeometry.value(id).size();
+    takePanelOutOfSideArea(id);
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel) {
+        return;
+    }
+    // Der Griff sitzt links oben am Panelkopf, dort wo man es auch
+    // wieder anfassen würde -- ein paar Pixel neben dem Zeiger, nicht
+    // mittig darunter, sonst verdeckt der Mauszeiger die Kopfzeile.
+    QWidget* flaeche = m_panelLayoutManager->canvas();
+    if (!flaeche) {
+        return;
+    }
+    const QPoint aufDerFlaeche = flaeche->mapFromGlobal(globalPos) - QPoint(20, 10);
+    const QSize groesse = vorherigeGroesse.isValid() && !vorherigeGroesse.isEmpty() ? vorherigeGroesse
+                                                                                     : panel->size();
+    panel->trySetGeometry(QRect(aufDerFlaeche, groesse));
+    m_panelLayoutManager->revealPanel(id);
+    statusBar()->showMessage(QStringLiteral("%1 liegt wieder auf der Fläche")
+                                 .arg(panel->title().isEmpty() ? id : panel->title()),
+                             4000);
 }
 
 // Und zurück auf die Fläche, an die Stelle, von der es kam.

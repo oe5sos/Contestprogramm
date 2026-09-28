@@ -6,12 +6,15 @@
 
 
 #include <QHBoxLayout>
+#include <QApplication>
 #include <QIcon>
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+#include <functional>
 
 namespace Contestprogramm {
 
@@ -63,9 +66,59 @@ public:
 
     QString id() const { return m_id; }
 
+    // Wird gerufen, wenn der Knopf aus der Leiste HERAUSgezogen wurde.
+    // Ein Rückruf statt eines Signals: diese Klasse liegt im anonymen
+    // Namensraum und hat kein Q_OBJECT.
+    std::function<void(const QPoint&)> onDragOut;
+
     static constexpr int kIconPx = 17;
 
 protected:
+    // Ziehen als Rückweg aus dem Bereich. Martin, 2026-09-28: "die
+    // widgets sollte man aber auch wieder per drag and drop rausziehen
+    // können, in dem fall nach rechts." Hinein geht es schon so (am
+    // Panelkopf packen); hinaus gab es nur den Rechtsklick, und den
+    // findet man nicht von selbst.
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton) {
+            m_pressGlobal = event->globalPosition().toPoint();
+            m_zieht = false;
+        }
+        QToolButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if ((event->buttons() & Qt::LeftButton) && !m_zieht && !m_pressGlobal.isNull()) {
+            const QPoint jetzt = event->globalPosition().toPoint();
+            if ((jetzt - m_pressGlobal).manhattanLength() >= QApplication::startDragDistance()) {
+                m_zieht = true;
+                setCursor(Qt::ClosedHandCursor);
+            }
+        }
+        QToolButton::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        if (m_zieht && event->button() == Qt::LeftButton) {
+            m_zieht = false;
+            m_pressGlobal = QPoint();
+            unsetCursor();
+            setDown(false);
+            const QPoint wo = event->globalPosition().toPoint();
+            // NICHT an die Basisklasse weitergeben: die würde den Knopf
+            // umschalten, und ein Zug wäre zugleich ein Klick.
+            if (onDragOut) {
+                onDragOut(wo);
+            }
+            return;
+        }
+        m_pressGlobal = QPoint();
+        QToolButton::mouseReleaseEvent(event);
+    }
+
     // Ein zu langer Name ("Karte / Verbindungen") würde den Knopf
     // aufblähen; QToolButton kürzt von sich aus nicht.
     void resizeEvent(QResizeEvent* event) override
@@ -85,6 +138,8 @@ protected:
 private:
     QString m_id;
     QString m_title;
+    QPoint m_pressGlobal;
+    bool m_zieht = false;
 };
 
 } // namespace
@@ -234,6 +289,10 @@ void SideAreaWidget::rebuildRail()
         // Zustand mit QSignalBlocker, ein programmatisches Nachziehen
         // landet also nicht wieder hier.
         connect(button, &QToolButton::toggled, this, [this, id](bool) { railClicked(id); });
+        // Herausziehen: der Bereich meldet es nur, entschieden wird
+        // draußen (MainWindow weiß, wohin das Panel auf der Fläche
+        // gehört und ob die Stelle überhaupt außerhalb liegt).
+        button->onDragOut = [this, id](const QPoint& globalPos) { emit pageDraggedOut(id, globalPos); };
         button->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(button, &QWidget::customContextMenuRequested, this,
                 [this, id](const QPoint&) { emit removeRequested(id); });

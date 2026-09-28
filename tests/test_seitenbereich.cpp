@@ -51,6 +51,7 @@ private slots:
     void theSideAreaSurvivesARestart();
     void theActiveRailButtonLooksActive();
     void everyRailButtonCarriesAnIconAndItsName();
+    void draggingAPanelOutOfTheRailPutsItBackOnTheCanvas();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -773,6 +774,75 @@ void TestSeitenbereich::everyRailButtonCarriesAnIconAndItsName()
     }
     qInfo().noquote() << "neun Knöpfe mit Symbol und Namen, Leiste"
                       << SideAreaWidget::kRailWidth << "px";
+}
+
+// Martin, 2026-09-28: "die widgets sollte man aber auch wieder per
+// drag and drop rausziehen können, in dem fall nach rechts." Hinein
+// ging es längst durch Ziehen, hinaus nur per Rechtsklick -- und den
+// findet man nicht von selbst.
+void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("rausziehen.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QString, QStringLiteral("Karte / Verbindungen")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("map")));
+
+    PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
+    QVERIFY(bereichPanel);
+
+    // Innerhalb des Bereichs losgelassen: das bleibt drin. Ein
+    // Rutscher beim Umschalten darf das Panel nicht herausreißen.
+    const QPoint drinnen =
+        bereichPanel->mapToGlobal(QPoint(bereichPanel->width() / 2, bereichPanel->height() / 2));
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, drinnen));
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "im Bereich losgelassen -- noch drin:"
+                      << (bereich->hasPage(QStringLiteral("map")) ? "ja" : "nein");
+    QVERIFY2(bereich->hasPage(QStringLiteral("map")), "Ein Rutscher im Bereich hat das Panel herausgerissen");
+
+    // Nach rechts herausgezogen: liegt wieder auf der Fläche, und zwar
+    // dort, wo losgelassen wurde.
+    QWidget* flaeche = manager->canvas();
+    QVERIFY(flaeche);
+    const QPoint zielAufDerFlaeche(900, 300);
+    const QPoint zielGlobal = flaeche->mapToGlobal(zielAufDerFlaeche);
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, zielGlobal));
+    QCoreApplication::processEvents();
+
+    QVERIFY2(!bereich->hasPage(QStringLiteral("map")), "Die Karte ist nicht aus dem Bereich herausgekommen");
+    PanelContainerWidget* karte = manager->panel(QStringLiteral("map"));
+    QVERIFY(karte);
+    QCOMPARE(karte->parentWidget(), flaeche);
+    QVERIFY2(!karte->isHidden(), "Die Karte ist unsichtbar wieder aufgetaucht");
+    qInfo().noquote() << "herausgezogen nach" << karte->geometry() << "-- Ziel war" << zielAufDerFlaeche;
+    // Der Griff sitzt links oben am Kopf, also ein paar Pixel neben dem
+    // Zeiger; genau darauf prüfen wäre spröde, in der Nähe genügt.
+    // Und: ein breites Panel ganz rechts abgelegt wird auf die Fläche
+    // zurückgeschoben, sonst hinge die Hälfte draußen -- das ist
+    // richtig so und gehört in die Erwartung.
+    const int passtNochX = std::max(0, flaeche->width() - karte->width());
+    const int erwartetX = std::min(zielAufDerFlaeche.x() - 20, passtNochX);
+    QVERIFY2(std::abs(karte->x() - erwartetX) <= 40,
+             qPrintable(QStringLiteral("Die Karte liegt bei x=%1, erwartet war %2")
+                            .arg(karte->x()).arg(erwartetX)));
+    QVERIFY2(std::abs(karte->y() - (zielAufDerFlaeche.y() - 10)) <= 40,
+             "Die Karte liegt nicht dort, wo losgelassen wurde");
 }
 
 int main(int argc, char* argv[])

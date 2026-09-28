@@ -71,6 +71,11 @@ signals:
     void collapsedChanged(bool collapsed);
     // Rechtsklick auf ein Leistensymbol: "Aus dem Seitenbereich nehmen".
     void removeRequested(const QString& id);
+    // Der Knopf wurde aus der Leiste herausgezogen und an dieser Stelle
+    // losgelassen (Bildschirmkoordinaten). Martin, 2026-09-28: "die
+    // widgets sollte man aber auch wieder per drag and drop rausziehen
+    // können, in dem fall nach rechts."
+    void pageDraggedOut(const QString& id, const QPoint& globalPos);
 
 private:
     // Die Knöpfe NEU BAUEN -- nur, wenn sich die Liste der Seiten
