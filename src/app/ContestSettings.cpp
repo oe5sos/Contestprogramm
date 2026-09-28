@@ -253,6 +253,8 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     logShowRunningNumber = database.settingValue(QStringLiteral("log_show_running_number"),
                                                  logShowRunningNumber ? QStringLiteral("1") : QStringLiteral("0"))
                           != QStringLiteral("0");
+    activeBands = stringListFromJson(
+        database.settingValue(QStringLiteral("active_bands"), stringListToJson(activeBands)), activeBands);
 
     cwMacros = stringListFromJson(
         database.settingValue(QStringLiteral("cw_macros"), stringListToJson(cwMacros)), cwMacros);
@@ -343,6 +345,7 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("log_entry_row_position"), logEntryRowPositionToString(logEntryRowPosition));
     database.setSettingValue(QStringLiteral("log_show_running_number"),
                              logShowRunningNumber ? QStringLiteral("1") : QStringLiteral("0"));
+    database.setSettingValue(QStringLiteral("active_bands"), stringListToJson(activeBands));
 
     database.setSettingValue(QStringLiteral("cw_macros"), stringListToJson(cwMacros));
 

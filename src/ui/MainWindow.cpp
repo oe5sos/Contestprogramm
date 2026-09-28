@@ -81,6 +81,7 @@
 #include <QHash>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -1837,7 +1838,13 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
-        m_unifiedLog->setContestBandCount(def->bands().size());
+        // Nicht alle Bänder, die der Contest KENNT, sondern die, auf
+        // denen wirklich gefahren wird (ContestSettings::activeBands --
+        // leer heißt alle). Daran hängt die Bandspalte im Log: eine
+        // Spalte, in der überall dasselbe steht, sagt nichts.
+        const QStringList gefahren = m_appController.settings().activeBands;
+        const int bandZahl = gefahren.isEmpty() ? def->bands().size() : gefahren.size();
+        m_unifiedLog->setContestBandCount(bandZahl);
         m_unifiedLog->setCurrentBand(m_currentBand);
         rebuildBandModeControls();
         // The score rows (km per band, ODX) need the own locator and the
@@ -4030,6 +4037,45 @@ void MainWindow::archiveActiveContest()
                        "das leere Log.")
             .arg(records.size())
             .arg(contestId, archiveId));
+    // Und in derselben Frage: auf welchen Bändern wird gefahren?
+    // Martin, 2026-09-28: "beim start des contest soll ich dies ggf.
+    // zusätzlich anführen, sprich ich muss gefragt werden. standard
+    // nicht." Der IARU-R1-Contest kennt sieben Bänder, gefahren wird
+    // meist eines -- und eine Bandspalte, in der überall dasselbe
+    // steht, sagt nichts.
+    //
+    // Bewusst IN diesem Dialog, nicht als zweiter danach: ein zweiter
+    // modaler Dialog im selben Ablauf bleibt in jedem Prüfstand stehen,
+    // der den ersten wegklickt, und hängt damit die CI auf (so schon
+    // einmal passiert, siehe den Linux-Hänger vom 2026-09-09). Und für
+    // den Bediener ist eine Frage besser als zwei.
+    QList<QCheckBox*> bandBoxes;
+    const ContestDefinition* startDef = findContestDefinition(contestId);
+    if (startDef && startDef->bands().size() >= 2) {
+        auto* gruppe = new QGroupBox(QStringLiteral("Bänder in diesem Contest"), &box);
+        gruppe->setObjectName(QStringLiteral("newLogBandGroup"));
+        auto* gruppenLayout = new QVBoxLayout(gruppe);
+        auto* hinweis = new QLabel(
+            QStringLiteral("Nur die angekreuzten bekommen im Log eine eigene Spalte und eine eigene "
+                           "Auswertung. Bleibt es bei einem, spart sich das Log die Spalte."),
+            gruppe);
+        hinweis->setWordWrap(true);
+        gruppenLayout->addWidget(hinweis);
+        const QStringList bisher = m_appController.settings().activeBands;
+        for (const QString& band : startDef->bands()) {
+            auto* kasten = new QCheckBox(QStringLiteral("%1 MHz").arg(band), gruppe);
+            kasten->setObjectName(QStringLiteral("newLogBand_%1").arg(band));
+            // Vorbelegt: was zuletzt galt -- und beim ersten Mal genau
+            // das Band, auf dem gerade gearbeitet wird. Also eines.
+            kasten->setChecked(bisher.isEmpty() ? (band == m_currentBand) : bisher.contains(band));
+            gruppenLayout->addWidget(kasten);
+            bandBoxes.append(kasten);
+        }
+        if (auto* grid = qobject_cast<QGridLayout*>(box.layout())) {
+            grid->addWidget(gruppe, grid->rowCount(), 0, 1, grid->columnCount());
+        }
+    }
+
     QPushButton* startButton = box.addButton(QStringLiteral("Neues Log beginnen"), QMessageBox::AcceptRole);
     box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
     box.setDefaultButton(startButton);
@@ -4046,6 +4092,20 @@ void MainWindow::archiveActiveContest()
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                              QStringLiteral("Archivieren fehlgeschlagen:\n%1").arg(error));
         return;
+    }
+    // Die Bandwahl aus dem Dialog übernehmen. Keines angekreuzt heißt
+    // nicht "gar keines": dann gelten wieder alle, sonst ließe sich
+    // nichts mehr sinnvoll loggen.
+    if (!bandBoxes.isEmpty()) {
+        QStringList gewaehlt;
+        for (QCheckBox* kasten : bandBoxes) {
+            if (kasten->isChecked()) {
+                gewaehlt << kasten->objectName().mid(QStringLiteral("newLogBand_").size());
+            }
+        }
+        ContestSettings settings = m_appController.settings();
+        settings.activeBands = gewaehlt;
+        m_appController.setSettings(settings);
     }
     // Everything that reads the active contest's QSOs, same sequence
     // openContestPicker() uses after a contest switch.

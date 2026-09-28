@@ -222,6 +222,18 @@ struct ContestSettings {
     // falsche Spalte abliest, sendet die falsche Nummer.
     bool logShowRunningNumber = true;
 
+    // Die Bänder, die in DIESEM Contest wirklich gefahren werden --
+    // leer heißt „alle, die der Contest kennt". Martin, 2026-09-28:
+    // "beim start des contest soll ich dies ggf. zusätzlich anführen,
+    // sprich ich muss gefragt werden. standard nicht."
+    //
+    // Der IARU-R1-Contest kennt sieben Bänder, gefahren wird meist
+    // eines. Daran hängt, ob die Bandspalte im Log überhaupt einen
+    // Unterschied zeigt. Gefragt wird beim Beginn eines neuen Logs
+    // (MainWindow::archiveActiveContest()), vorbelegt mit dem Band, auf
+    // dem gerade gearbeitet wird -- also standardmäßig genau eines.
+    QStringList activeBands;
+
     // CW F-key macro templates (Kern-Welle 2), sent via
     // RigctldClient::sendMorse() after CwMacroPanel substitutes
     // {call}/{exchange}. A simple macro panel, not a full keyer -- see
