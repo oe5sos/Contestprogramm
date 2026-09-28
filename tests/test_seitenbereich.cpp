@@ -50,6 +50,7 @@ private slots:
     void draggingAPanelOntoTheSideAreaPutsItIn();
     void theSideAreaSurvivesARestart();
     void theActiveRailButtonLooksActive();
+    void everyRailButtonCarriesAnIconAndItsName();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -706,6 +707,72 @@ void TestSeitenbereich::theActiveRailButtonLooksActive()
         QVERIFY(bereich->grab().save(QString::fromLocal8Bit(ziel)));
         qInfo().noquote() << "Bild abgelegt:" << QString::fromLocal8Bit(ziel);
     }
+}
+
+// Martin, 2026-09-28: "schön wäre, wenn wir vielleicht icons dazu
+// hätten" -- aus drei Blättern hat er C gewählt: Symbol UND Name
+// nebeneinander, Leiste 150 px. Beides muss ankommen; ein Knopf ohne
+// Symbol fiele in der Reihe sofort auf, einer ohne Namen wäre die
+// Fassung, die er nicht wollte.
+void TestSeitenbereich::everyRailButtonCarriesAnIconAndItsName()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("symbole.sqlite"));
+    QVERIFY(controller);
+
+    qApp->setStyleSheet(Style::appStyleSheet());
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    const QList<std::pair<QString, QString>> seiten = {
+        {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
+        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
+        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
+        {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
+        {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+        {QStringLiteral("checkpartial"), QStringLiteral("Check")},
+        {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
+        {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
+    };
+    for (const auto& seite : seiten) {
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, seite.first),
+                                   Q_ARG(QString, seite.second));
+    }
+    QCoreApplication::processEvents();
+
+    for (const auto& seite : seiten) {
+        auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_%1").arg(seite.first));
+        QVERIFY2(knopf, qPrintable(QStringLiteral("kein Leistenknopf für %1").arg(seite.first)));
+        QVERIFY2(!knopf->icon().isNull(), qPrintable(QStringLiteral("%1 hat kein Symbol").arg(seite.first)));
+        // Das Symbol darf nicht leer gezeichnet sein -- ein QIcon mit
+        // einer durchsichtigen Fläche ist nicht null und sähe im
+        // Prüfstand richtig aus.
+        const QImage bild = knopf->icon().pixmap(17, 17, QIcon::Normal, QIcon::Off).toImage();
+        int gesetzt = 0;
+        for (int y = 0; y < bild.height(); ++y) {
+            for (int x = 0; x < bild.width(); ++x) {
+                if (qAlpha(bild.pixel(x, y)) > 30) {
+                    ++gesetzt;
+                }
+            }
+        }
+        QVERIFY2(gesetzt > 10, qPrintable(QStringLiteral("%1: Symbol ist leer").arg(seite.first)));
+        // Und der Name -- gekürzt, aber erkennbar: der Anfang steht da.
+        const QString text = knopf->text();
+        QVERIFY2(!text.isEmpty(), qPrintable(QStringLiteral("%1 hat keinen Namen").arg(seite.first)));
+        QVERIFY2(seite.second.startsWith(text.left(4)),
+                 qPrintable(QStringLiteral("%1: Name '%2' passt nicht zu '%3'")
+                                .arg(seite.first, text, seite.second)));
+        QCOMPARE(knopf->toolTip(), seite.second);
+    }
+    qInfo().noquote() << "neun Knöpfe mit Symbol und Namen, Leiste"
+                      << SideAreaWidget::kRailWidth << "px";
 }
 
 int main(int argc, char* argv[])

@@ -1,11 +1,14 @@
 #include "ui/SideAreaWidget.h"
 
+#include "ui/SideAreaIcons.h"
 #include "ui/StyleKit.h"
 
 
 
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -16,30 +19,72 @@ namespace {
 
 
 
-// Ein Knopf in der Leiste. Senkrecht schmal, mit dem Anfang des
-// Panelnamens -- Symbole gibt es in diesem Programm nicht, und ein
-// Kürzel liest sich besser als ein erfundenes Piktogramm.
+// Ein Knopf in der Leiste: Symbol links, Name daneben. Martin,
+// 2026-09-28, aus drei Blättern gewählt ("C"): "schön wäre, wenn wir
+// vielleicht icons dazu hätten".
+//
+// Die Symbolfarbe folgt dem Zustand, deshalb zwei Bilder in einem
+// QIcon -- Qt wählt bei einem ankreuzbaren Knopf selbst zwischen
+// QIcon::Off und QIcon::On, ganz ohne Zutun beim Umschalten.
 class RailButton : public QToolButton {
 public:
     RailButton(const QString& id, const QString& title, QWidget* parent)
         : QToolButton(parent)
         , m_id(id)
+        , m_title(title)
     {
         setObjectName(QStringLiteral("sideRail_%1").arg(id));
         setCheckable(true);
         setAutoRaise(true);
         setFixedWidth(SideAreaWidget::kRailWidth - 6);
         setToolTip(title);
-        // Zwei Buchstaben: "Ch" für Chat, "Ba" für Bandmap. Der volle
-        // Name steht im Tooltip und oben im Panelkopf.
-        setText(title.left(2));
+        setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        setIconSize(QSize(kIconPx, kIconPx));
         setFont(Style::capsFont(font()));
+
+        QIcon symbol;
+        const qreal faktor = devicePixelRatioF() > 0.0 ? devicePixelRatioF() : 1.0;
+        const QPixmap still = sideAreaIconPixmap(id, kIconPx, QColor(Style::kTextInactive()), faktor);
+        const QPixmap aktiv = sideAreaIconPixmap(id, kIconPx, QColor(Style::kBlueBg()), faktor);
+        if (!still.isNull()) {
+            symbol.addPixmap(still, QIcon::Normal, QIcon::Off);
+            symbol.addPixmap(aktiv, QIcon::Normal, QIcon::On);
+            // Beim Daraufzeigen ebenfalls das stille Bild -- die Farbe
+            // wechselt sonst zweimal (Hintergrund und Symbol), was
+            // unruhig wirkt.
+            symbol.addPixmap(still, QIcon::Active, QIcon::Off);
+            symbol.addPixmap(aktiv, QIcon::Active, QIcon::On);
+            setIcon(symbol);
+        }
+        // Der Name wird beim Zeichnen gekürzt, nicht hier: die Breite
+        // steht erst fest, wenn der Knopf sie hat.
+        setText(title);
     }
 
     QString id() const { return m_id; }
 
+    static constexpr int kIconPx = 17;
+
+protected:
+    // Ein zu langer Name ("Karte / Verbindungen") würde den Knopf
+    // aufblähen; QToolButton kürzt von sich aus nicht.
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QToolButton::resizeEvent(event);
+        // Symbol, Randbalken, beide Polster und der Abstand zwischen
+        // Symbol und Text gehen ab. Zu knapp gerechnet kürzt Qt selbst
+        // noch einmal nach -- und zwar in der MITTE ("KARTE ...ERBIN"),
+        // was schlechter lesbar ist als ein sauberes Ende.
+        const int fuerText = width() - kIconPx - 34;
+        const QString gekuerzt = fontMetrics().elidedText(m_title, Qt::ElideRight, std::max(10, fuerText));
+        if (gekuerzt != text()) {
+            setText(gekuerzt);
+        }
+    }
+
 private:
     QString m_id;
+    QString m_title;
 };
 
 } // namespace

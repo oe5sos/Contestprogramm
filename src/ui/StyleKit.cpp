@@ -365,7 +365,10 @@ QString appStyleSheet()
         // Aktiv = Akzentfarbe plus Balken am Rand, wie in Longpath.
         "QWidget#sideAreaRail QToolButton { background: transparent; color: %12;"
         "  border: none; border-left: 2px solid transparent; border-radius: 0;"
-        "  padding: 6px 0; }"
+        // Links etwas Luft, damit das Symbol nicht am Rand klebt, und
+        // zwischen Symbol und Name der Abstand, den QToolButton selbst
+        // nicht hergibt.
+        "  padding: 6px 4px 6px 8px; text-align: left; }"
         "QWidget#sideAreaRail QToolButton:hover { background: %14; color: %2; }"
         "QWidget#sideAreaRail QToolButton:checked { background: %4; color: %8;"
         "  border-left: 2px solid %8; }"

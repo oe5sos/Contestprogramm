@@ -56,9 +56,12 @@ public:
     // railClicked().
     void railClicked(const QString& id);
 
-    // Die Breite der Leiste. Longpath nimmt 38; hier steht die Zahl an
-    // einer Stelle, weil der eingeklappte Bereich genau so breit ist.
-    static constexpr int kRailWidth = 38;
+    // Die Breite der Leiste. Sie trägt Symbol UND Namen -- Martin hat
+    // am 2026-09-28 aus drei Blättern C gewählt ("Symbol und Name",
+    // 150 px) statt der schmalen Fassungen A (38) und B (44). Die Zahl
+    // steht an einer Stelle, weil der eingeklappte Bereich genau so
+    // breit ist.
+    static constexpr int kRailWidth = 150;
 
     static constexpr const char* kRailObjectName = "sideAreaRail";
     static constexpr const char* kStackObjectName = "sideAreaStack";
