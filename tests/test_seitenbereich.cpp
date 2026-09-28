@@ -47,6 +47,7 @@ private slots:
     void aPanelPutIntoAHiddenSideAreaDoesNotVanish();
     void pressingTheButtonThroughAccessibilityAlsoSwitches();
     void draggingAPanelOntoTheSideAreaPutsItIn();
+    void theSideAreaSurvivesARestart();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -553,6 +554,62 @@ void TestSeitenbereich::draggingAPanelOntoTheSideAreaPutsItIn()
     QVERIFY(knopf);
     qInfo().noquote() << "Kürzel in der Leiste:" << knopf->text() << "| Tooltip:" << knopf->toolTip();
     QCOMPARE(knopf->toolTip(), QStringLiteral("Karte / Verbindungen"));
+}
+
+// Beim Neustart lag der Bereich wieder leer da -- man hätte Chat,
+// Skeds und Karte jedes Mal von Hand hineinlegen müssen, also genau
+// die Handgriffe, die er abnehmen soll. Aufgefallen beim Live-Test am
+// 2026-09-28: frische Instanz, leerer Bereich.
+void TestSeitenbereich::theSideAreaSurvivesARestart()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QStringList seitenVorher;
+    {
+        auto controller = makeController(dir, QStringLiteral("neustart.sqlite"));
+        QVERIFY(controller);
+        MainWindow window(*controller);
+        window.resize(1440, 900);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto* bereich = window.findChild<SideAreaWidget*>();
+        QVERIFY(bereich);
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("chat")),
+                                   Q_ARG(QString, QStringLiteral("Chat")));
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("skeds")),
+                                   Q_ARG(QString, QStringLiteral("Skeds")));
+        bereich->setActive(QStringLiteral("chat"));
+        seitenVorher = bereich->pageIds();
+        qInfo().noquote() << "vor dem Neustart:" << seitenVorher.join(QStringLiteral(", "))
+                          << "| aktiv:" << bereich->activeId();
+        QCoreApplication::processEvents();
+    }
+
+    // Zweiter Start auf derselben Datenbank -- wie nach Beenden und
+    // wieder Aufsperren.
+    {
+        auto controller = makeController(dir, QStringLiteral("neustart.sqlite"));
+        QVERIFY(controller);
+        MainWindow window(*controller);
+        window.resize(1440, 900);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto* bereich = window.findChild<SideAreaWidget*>();
+        QVERIFY(bereich);
+        qInfo().noquote() << "nach dem Neustart:" << bereich->pageIds().join(QStringLiteral(", "))
+                          << "| aktiv:" << bereich->activeId();
+        QCOMPARE(bereich->pageIds(), seitenVorher);
+        QCOMPARE(bereich->activeId(), QStringLiteral("chat"));
+        // Und der Bereich selbst steht da, sonst läge alles im Verborgenen.
+        auto* manager = window.findChild<PanelLayoutManager*>();
+        QVERIFY(manager);
+        PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
+        QVERIFY(bereichPanel);
+        QVERIFY2(!bereichPanel->isHidden(), "Der Seitenbereich ist nach dem Neustart versteckt");
+    }
 }
 
 int main(int argc, char* argv[])

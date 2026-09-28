@@ -429,6 +429,11 @@ private:
     Q_INVOKABLE void takePanelOutOfSideArea(const QString& id);
     // Ein losgelassenes Panel über dem Seitenbereich -- siehe dort.
     Q_INVOKABLE void dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos);
+    // Wer im Seitenbereich liegt, welche Seite oben ist und ob er
+    // zugeklappt war -- das überlebt den Neustart, wie jede andere
+    // Panel-Lage auch.
+    void saveSideAreaState();
+    void restoreSideAreaState();
 
     AppController& m_appController;
 
@@ -528,6 +533,7 @@ private:
     // gewandert sind -- siehe putPanelIntoSideArea().
     SideAreaWidget* m_sideArea = nullptr;
     QHash<QString, QRect> m_sideAreaHomeGeometry;
+    bool m_restoringSideArea = false;
     void refreshBandmap();
     // Online scoreboard (core/OnlineScoreboard.h): config follows the
     // settings/contest, records follow the log.

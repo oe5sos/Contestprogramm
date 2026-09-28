@@ -988,6 +988,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_sideArea, &SideAreaWidget::removeRequested, this, [this](const QString& id) {
         takePanelOutOfSideArea(id);
     });
+    // Welche Seite oben liegt und ob der Bereich zugeklappt ist, gehört
+    // zur Lage dazu -- sonst steht nach dem Neustart eine andere Seite
+    // vorne als beim Beenden.
+    connect(m_sideArea, &SideAreaWidget::activeChanged, this, [this](const QString&) { saveSideAreaState(); });
+    connect(m_sideArea, &SideAreaWidget::collapsedChanged, this, [this](bool) { saveSideAreaState(); });
     m_panelLayoutManager->registerPanel(QStringLiteral("sidearea"), QStringLiteral("Seitenbereich"),
                                          m_sideArea, /*contentHasOwnChrome=*/false,
                                          QRect(1100, 78, 340, 600));
@@ -1007,6 +1012,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     }
 
     m_panelLayoutManager->finalizeInitialLayout();
+
+    // Erst jetzt, wo jedes Panel seine gespeicherte Lage hat: die
+    // gemerkte Lage merkt sich beim Hineinlegen genau diese Geometrie
+    // als Zuhause für den Rückweg.
+    restoreSideAreaState();
 
     // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
     // -- Longpath's own ProfileRail sits at the very left, full window
@@ -2681,6 +2691,53 @@ void MainWindow::dropPanelIfOverSideArea(const QString& id, const QPoint& global
     putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
 }
 
+// Der Seitenbereich überlebt den Neustart. Ohne das lag nach jedem
+// Start wieder alles auf der Fläche, und man müsste Chat, Skeds und
+// Karte jedes Mal von Hand hineinlegen -- genau die Handgriffe, die
+// der Bereich einem abnehmen soll.
+void MainWindow::saveSideAreaState()
+{
+    if (!m_sideArea || m_restoringSideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    db.setSettingValue(QStringLiteral("panel.sidearea.pages"), m_sideArea->pageIds().join(QLatin1Char(',')));
+    db.setSettingValue(QStringLiteral("panel.sidearea.active"), m_sideArea->activeId());
+    db.setSettingValue(QStringLiteral("panel.sidearea.collapsed"),
+                       m_sideArea->isCollapsed() ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
+void MainWindow::restoreSideAreaState()
+{
+    if (!m_sideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    const QString raw = db.settingValue(QStringLiteral("panel.sidearea.pages"));
+    if (raw.isEmpty()) {
+        return;
+    }
+    // Während des Wiederherstellens nicht zurückschreiben: addPage()
+    // setzt jede Seite kurz aktiv, das würde die gespeicherte aktive
+    // Seite unterwegs überschreiben.
+    m_restoringSideArea = true;
+    for (const QString& id : raw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+        if (!panel) {
+            continue; // eine Kennung, die es nicht mehr gibt, wird still übergangen
+        }
+        putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
+    }
+    const QString active = db.settingValue(QStringLiteral("panel.sidearea.active"));
+    if (!active.isEmpty() && m_sideArea->hasPage(active)) {
+        m_sideArea->setActive(active);
+    }
+    if (db.settingValue(QStringLiteral("panel.sidearea.collapsed")) == QStringLiteral("1")) {
+        m_sideArea->setCollapsed(true);
+    }
+    m_restoringSideArea = false;
+}
+
 // Ein Panel in den Seitenbereich legen: es verlässt die Fläche und
 // wird eine Seite im Bereich. Der Behälter wandert mit -- samt Kopfzeile,
 // Schloss und ⚙, damit dort dieselben Handgriffe gelten wie draußen.
@@ -2703,6 +2760,7 @@ void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
     // Der Bereich selbst soll sichtbar sein, sonst legt man etwas in
     // ein verstecktes Panel.
     m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
+    saveSideAreaState();
     statusBar()->showMessage(QStringLiteral("%1 liegt jetzt im Seitenbereich").arg(title), 4000);
 }
 
@@ -2725,6 +2783,7 @@ void MainWindow::takePanelOutOfSideArea(const QString& id)
     panel->show();
     panel->raise();
     m_sideAreaHomeGeometry.remove(id);
+    saveSideAreaState();
 }
 
 QString MainWindow::on4kstRoomValueForBand(const QString& band)
