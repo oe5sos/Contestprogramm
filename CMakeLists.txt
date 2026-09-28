@@ -219,6 +219,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
     src/ui/ChatPanelWidget.cpp
+    src/ui/SideAreaWidget.cpp
     src/ui/SkedPanel.h
     src/ui/SkedPanel.cpp
     src/ui/ScoreboardDialog.h

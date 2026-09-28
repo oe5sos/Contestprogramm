@@ -28,6 +28,7 @@ class AppController;
 class ContestDefinition;
 class BandmapWidget;
 class ChatPanelWidget;
+class SideAreaWidget;
 class OnlineScoreboard;
 class CheckPartialWidget;
 class ContestRulesEditor;
@@ -421,6 +422,11 @@ private:
     // -- siehe die Umsetzung. Q_INVOKABLE, damit der Prüfstand es rufen
     // kann, ohne den ⚙-Knopf zu treffen.
     Q_INVOKABLE void showChatOptionsPopup();
+    // Panels in den Seitenbereich legen und wieder herausnehmen.
+    // Q_INVOKABLE, damit der Prüfstand sie rufen kann, ohne das Menü
+    // zu treffen.
+    Q_INVOKABLE void putPanelIntoSideArea(const QString& id, const QString& title);
+    Q_INVOKABLE void takePanelOutOfSideArea(const QString& id);
 
     AppController& m_appController;
 
@@ -516,6 +522,10 @@ private:
     // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
     // ChatPanelWidget's Klassenkommentar.
     ChatPanelWidget* m_chatPanel = nullptr;
+    // Der Seitenbereich und die Lagen, aus denen die Panels dorthin
+    // gewandert sind -- siehe putPanelIntoSideArea().
+    SideAreaWidget* m_sideArea = nullptr;
+    QHash<QString, QRect> m_sideAreaHomeGeometry;
     void refreshBandmap();
     // Online scoreboard (core/OnlineScoreboard.h): config follows the
     // settings/contest, records follow the log.
