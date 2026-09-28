@@ -107,15 +107,24 @@ void TestLayoutBleibt::theRealWindowKeepsItsPanelsThroughAResize()
     controller.setSettings(settings);
 
     MainWindow window(controller);
+    // Die Entwurfs-Setzzeit aus dem Weg raeumen, statt sie abzuwarten:
+    // solange sie laeuft, legt eine frische Installation ihre Panels bei
+    // jeder Groessenaenderung absichtlich neu nach dem passenden Entwurf
+    // (macOS verkleinert ein zu grosses Fenster erst nach show(), der
+    // Entwurf muss dieser zweiten Groesse folgen). Ein festes qWait davor
+    // reicht nicht: auf einem langsameren Rechner -- der Linux-Laeufer
+    // der CI -- bekommt das Fenster seine erste echte Groesse spaeter,
+    // die Setzzeit faengt danach erst an, und der Pruefstand misst dann
+    // den Entwurf statt den Klemmer. setDesignSettleMs() ist genau
+    // dafuer da (siehe dort). Martins Lage ist ohnehin die andere:
+    // gespeichertes Layout, Fenster laengst offen.
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY2(manager, "Der Layout-Verwalter ist nicht zu finden");
+    manager->setDesignSettleMs(1);
     window.resize(1440, 900);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
-    // Die Entwurfs-Setzzeit (1500 ms) muss GANZ ablaufen: solange sie
-    // laeuft, legt eine frische Installation ihre Panels bei jeder
-    // Groessenaenderung absichtlich neu nach dem passenden Entwurf --
-    // macOS verkleinert ein zu grosses Fenster erst nach show(). Martins
-    // Lage ist eine andere: gespeichertes Layout, Fenster laengst offen.
-    QTest::qWait(1800);
+    QTest::qWait(300);
 
     auto* rotor = window.findChild<PanelContainerWidget*>(QStringLiteral("rotorrow"));
     QVERIFY2(rotor, "Das Rotor-Panel gibt es nicht");
