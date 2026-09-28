@@ -11,6 +11,12 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag, der gebaut und veröffentlicht werden soll (z.B. v0.1.0); leer = nur bauen'
+        required: false
+        default: ''
 
 # Ein Lauf je Zweig, und ein neuer Push bricht den vorigen ab. Martin,
 # 2026-09-28: "ich möchte nicht immer emails erhalten, wenn du änderungen
@@ -23,15 +29,15 @@ on:
 # Zwischenstände nur der letzte übrig -- der, der zählt. Für main und
 # für Tags wird NICHT abgebrochen: dort läuft nichts "zwischendurch",
 # und ein abgebrochener Release-Lauf wäre ein fehlendes Paket.
+#
+# Dieser Block gehört NEBEN "on:", nicht hinein -- beim ersten Versuch
+# stand er mittendrin, und workflow_dispatch rutschte darunter. GitHub
+# lehnte die Datei ab ("This run likely failed because of a workflow
+# file issue"); ein YAML-Prüfer merkt das nicht, weil die Datei
+# syntaktisch gültig bleibt.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag, der gebaut und veröffentlicht werden soll (z.B. v0.1.0); leer = nur bauen'
-        required: false
-        default: ''
 
 env:
   QT_VERSION: 6.8.3
