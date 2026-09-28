@@ -72,6 +72,7 @@ private slots:
     void loggingSeveralQsosByKeyboardThenCorrectingEarlierOnes();
     void aTabAloneCommitsACorrectionToTheDatabase();
     void quittingWithACorrectionStillOpenDoesNotCrash();
+    void tabWalksOnAcrossRowsAndShiftTabWalksBack();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -418,6 +419,94 @@ void TestDurchgangTastatur::quittingWithACorrectionStillOpenDoesNotCrash()
     QCOMPARE(qsos.size(), 1);
     qInfo() << "in der Datenbank steht:" << qsos.first().callsign;
     QCOMPARE(qsos.first().callsign, QStringLiteral("DL1ABC"));
+}
+
+// Martins "usw.": nicht eine Korrektur, sondern durchgehen. Der
+// Tabulator muss ueber die Zeilengrenze weitertragen, und Shift+Tab muss
+// zurueckfuehren -- sonst muss man zwischendurch immer wieder zur Maus.
+void TestDurchgangTastatur::tabWalksOnAcrossRowsAndShiftTabWalksBack()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("wandern.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    logByKeyboard(window, QStringLiteral("DL1ABC"), 14, QStringLiteral("JN58SD"));
+    logByKeyboard(window, QStringLiteral("OK2XYZ"), 7, QStringLiteral("JN99AA"));
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+    const int zeile = rowForCallsign(model, QStringLiteral("DL1ABC"));
+    QVERIFY(zeile >= 0);
+
+    // In der ersten Zeile bei Call anfangen und dreimal Tab -- dabei muss
+    // es ueber Nr./Grid hinaus in die naechste Zeile gehen.
+    QModelIndex index = model->index(zeile, UnifiedLogWidget::ColumnCall);
+    table->setCurrentIndex(index);
+    table->edit(index);
+    QCoreApplication::processEvents();
+
+    QList<QPair<int, int>> besucht;
+    besucht.append({zeile, int(UnifiedLogWidget::ColumnCall)});
+    for (int schritt = 0; schritt < 3; ++schritt) {
+        QLineEdit* editor = nullptr;
+        for (QLineEdit* e : table->viewport()->findChildren<QLineEdit*>()) {
+            if (e->isVisible()) {
+                editor = e;
+            }
+        }
+        QVERIFY2(editor, qPrintable(QStringLiteral("Schritt %1: kein Editor offen").arg(schritt + 1)));
+        QTest::keyClick(editor, Qt::Key_Tab);
+        QCoreApplication::processEvents();
+        QTest::qWait(20); // der Weitersprung geht ueber einen Durchlauf
+        const QModelIndex jetzt = table->currentIndex();
+        QVERIFY2(jetzt.isValid(), qPrintable(QStringLiteral("Schritt %1: keine Zelle mehr").arg(schritt + 1)));
+        QVERIFY2(model->flags(jetzt) & Qt::ItemIsEditable,
+                 qPrintable(QStringLiteral("Schritt %1 landete auf Spalte %2, die nicht korrigierbar ist")
+                                .arg(schritt + 1)
+                                .arg(jetzt.column())));
+        besucht.append({jetzt.row(), jetzt.column()});
+    }
+    QStringList weg;
+    for (const auto& z : besucht) {
+        weg << QStringLiteral("(%1,%2)").arg(z.first).arg(z.second);
+    }
+    qInfo().noquote() << "Weg des Tabulators:" << weg.join(QStringLiteral(" -> "));
+
+    // Es muss vorangegangen sein, nicht auf der Stelle getreten: mehr als
+    // eine Zeile beruehrt, und keine Station zweimal hintereinander.
+    QSet<int> zeilen;
+    for (const auto& z : besucht) {
+        zeilen.insert(z.first);
+    }
+    QVERIFY2(zeilen.size() >= 2, qPrintable(QStringLiteral("Der Tabulator blieb in einer Zeile: %1")
+                                                .arg(weg.join(QStringLiteral(" -> ")))));
+
+    // Und zurueck: Shift+Tab muss die vorige korrigierbare Zelle aufmachen.
+    QLineEdit* editor = nullptr;
+    for (QLineEdit* e : table->viewport()->findChildren<QLineEdit*>()) {
+        if (e->isVisible()) {
+            editor = e;
+        }
+    }
+    QVERIFY(editor);
+    const QPair<int, int> vorPos = besucht.last();
+    QTest::keyClick(editor, Qt::Key_Backtab);
+    QCoreApplication::processEvents();
+    QTest::qWait(20);
+    const QModelIndex zurueck = table->currentIndex();
+    qInfo() << "Shift+Tab fuehrte von" << vorPos.first << vorPos.second << "nach" << zurueck.row()
+            << zurueck.column();
+    QVERIFY2(zurueck.isValid() && (model->flags(zurueck) & Qt::ItemIsEditable),
+             "Shift+Tab landete nicht auf einer korrigierbaren Zelle");
+    const QPair<int, int> nachPos(zurueck.row(), zurueck.column());
+    QVERIFY2(nachPos != vorPos, "Shift+Tab bewegte sich nicht");
 }
 
 int main(int argc, char* argv[])
