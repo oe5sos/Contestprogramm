@@ -42,6 +42,7 @@ private slots:
     void takingAPanelOutPutsItBackWhereItCameFrom();
     void theMenuOffersEveryPanel();
     void aPanelInTheSideAreaKeepsWhatWasTypedInIt();
+    void clickingTheRailButtonItselfSwitchesThePage();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -252,6 +253,67 @@ void TestSeitenbereich::aPanelInTheSideAreaKeepsWhatWasTypedInIt()
     QVERIFY(!felderDraussen.isEmpty());
     qInfo().noquote() << "wieder draußen:" << felderDraussen.first()->text();
     QCOMPARE(felderDraussen.first()->text(), QStringLiteral("OK2XYZ"));
+}
+
+// Der Weg, den der Bediener wirklich nimmt: ein Klick auf den KNOPF,
+// nicht ein Aufruf von railClicked(). Der Unterschied ist nicht
+// theoretisch -- live hob ein Klick auf "BA" den Knopf hervor, zeigte
+// aber weiter die Skeds. Ursache: die Leiste wurde im Klick-Handler neu
+// gebaut, wobei der gerade geklickte Knopf gelöscht wurde. Derselbe
+// Fehler wie am selben Tag beim Bandmenü.
+//
+// Deshalb hier mehrfach hin und her klicken, jedes Mal über den Knopf.
+void TestSeitenbereich::clickingTheRailButtonItselfSwitchesThePage()
+{
+    SideAreaWidget bereich;
+    bereich.resize(340, 500);
+    bereich.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&bereich));
+
+    auto* a = new QWidget;
+    auto* b = new QWidget;
+    auto* c = new QWidget;
+    bereich.addPage(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), a);
+    bereich.addPage(QStringLiteral("skeds"), QStringLiteral("Skeds"), b);
+    bereich.addPage(QStringLiteral("chat"), QStringLiteral("Chat"), c);
+    QCoreApplication::processEvents();
+
+    auto* stack = bereich.findChild<QStackedWidget*>(QLatin1String(SideAreaWidget::kStackObjectName));
+    QVERIFY(stack);
+
+    struct Schritt {
+        const char* id;
+        QWidget* erwartet;
+    };
+    const QVector<Schritt> schritte{{"bandmap", a}, {"skeds", b}, {"bandmap", a},
+                                     {"chat", c},    {"skeds", b}};
+    for (const Schritt& schritt : schritte) {
+        const QString id = QString::fromLatin1(schritt.id);
+        auto* knopf = bereich.findChild<QToolButton*>(QStringLiteral("sideRail_%1").arg(id));
+        QVERIFY2(knopf, qPrintable(QStringLiteral("Kein Knopf für %1").arg(id)));
+        knopf->click();
+        QCoreApplication::processEvents();
+        qInfo().noquote() << "Klick auf" << id << "-> aktiv:" << bereich.activeId()
+                          << "| gezeigt:" << (stack->currentWidget() == schritt.erwartet ? "richtig"
+                                                                                          : "FALSCH");
+        QVERIFY2(bereich.activeId() == id,
+                 qPrintable(QStringLiteral("Nach dem Klick auf %1 ist %2 aktiv").arg(id, bereich.activeId())));
+        QVERIFY2(stack->currentWidget() == schritt.erwartet,
+                 qPrintable(QStringLiteral("Nach dem Klick auf %1 steht die falsche Seite da").arg(id)));
+        QVERIFY2(!bereich.isCollapsed(),
+                 qPrintable(QStringLiteral("Der Klick auf %1 hat zugeklappt").arg(id)));
+        // Und der Knopf sieht auch gedrückt aus -- live war er es, ohne
+        // dass die Seite wechselte.
+        QVERIFY2(knopf->isChecked(), qPrintable(QStringLiteral("Der Knopf %1 sieht nicht gedrückt aus").arg(id)));
+    }
+
+    // Zum Schluss: nochmal auf das aktive, per Knopf -- das klappt zu.
+    auto* aktiv = bereich.findChild<QToolButton*>(QStringLiteral("sideRail_skeds"));
+    QVERIFY(aktiv);
+    aktiv->click();
+    QCoreApplication::processEvents();
+    qInfo() << "Klick auf das aktive Symbol -> zugeklappt:" << bereich.isCollapsed();
+    QVERIFY2(bereich.isCollapsed(), "Der Klick auf das aktive Symbol hat nicht zugeklappt");
 }
 
 int main(int argc, char* argv[])

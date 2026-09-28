@@ -110,7 +110,7 @@ void SideAreaWidget::setActive(const QString& id)
         // klickte man auf ein Symbol und es passierte sichtbar nichts.
         setCollapsed(false);
     }
-    rebuildRail();
+    updateRailState();
     emit activeChanged(id);
 }
 
@@ -146,10 +146,19 @@ void SideAreaWidget::railClicked(const QString& id)
         // ("Klick aufs aktive Symbol klappt zu"), die Martin dort aus
         // drei Entwürfen gewählt hat.
         setCollapsed(true);
-        rebuildRail();
+        updateRailState();
         return;
     }
     setActive(id);
+}
+
+void SideAreaWidget::updateRailState()
+{
+    for (QToolButton* button : m_rail->findChildren<QToolButton*>()) {
+        const QString id = button->objectName().mid(QStringLiteral("sideRail_").size());
+        QSignalBlocker blocker(button);
+        button->setChecked(id == m_active && !m_collapsed);
+    }
 }
 
 void SideAreaWidget::rebuildRail()

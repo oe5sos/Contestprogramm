@@ -70,7 +70,18 @@ signals:
     void removeRequested(const QString& id);
 
 private:
+    // Die Knöpfe NEU BAUEN -- nur, wenn sich die Liste der Seiten
+    // ändert. Niemals aus einem Klick-Handler heraus: der Knopf, der
+    // gerade geklickt wird, würde dabei gelöscht, und Qt arbeitet
+    // danach auf einem toten Objekt weiter. Genau dieser Fehler ist mir
+    // am selben Tag schon beim Bandmenü passiert (rebuildBandModeControls
+    // vs. syncBandModeControls in MainWindow) -- und hier live wieder:
+    // ein Klick auf "BA" hob den Knopf hervor, zeigte aber weiter die
+    // Skeds.
     void rebuildRail();
+    // Nur den Zustand nachziehen (welcher Knopf gedrückt aussieht).
+    // Das ist der Weg, den ein Klick nimmt.
+    void updateRailState();
 
     QWidget* m_rail = nullptr;
     QVBoxLayout* m_railLayout = nullptr;
