@@ -968,7 +968,23 @@ private:
         // dash, not "0" -- HAUSSTIL rule 7 -- for the (today
         // unreachable, since every logged QSO gets a serial) case where
         // it was never set.
-        case ColSerial: return record.serialSent ? paddedSerial(*record.serialSent) : Style::unknownDash();
+        // Die CHRONOLOGISCHE Nummer: das wievielte QSO dieses Logs das
+        // ist, 1 aufwärts. Martin, 2026-09-28: "es ist keine
+        // chronologische nmer vorhanden."
+        //
+        // Bis dahin stand hier die GESENDETE Contest-Nummer
+        // (record.serialSent). Das war zweimal falsch: sie steht schon
+        // im gesendeten Austausch daneben ("59 001 JN67VV"), und in der
+        // Ansicht DXLog-Vollspalten hätte sie mit der eigenen Spalte
+        // "Nr. gesendet" (ColSerialSent) buchstäblich dasselbe gezeigt.
+        // Und sie ist auf UKW gar nicht chronologisch: die laufende
+        // Nummer fängt je Band wieder bei 001 an (IARU R1), also stünde
+        // nach einem Bandwechsel wieder eine 1 in der Liste.
+        //
+        // LogTableModel ist aufsteigend sortiert (ältestes QSO zuerst,
+        // siehe rebuild()), sourceRow ist also schon die Position in der
+        // Zeitfolge.
+        case ColSerial: return paddedSerial(sourceRow + 1);
         case ColTime: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnTime));
         case ColCall: return m_logModel->data(m_logModel->index(sourceRow, LogTableModel::ColumnCallsign));
         // "Exch Ges." / "Exch Emp." == what we sent / what we received,
@@ -1708,6 +1724,15 @@ bool UnifiedLogWidget::columnWantedByViewMode(int col) const
     const bool dxLog = (m_viewMode == ContestSettings::LogViewMode::DxLogFullColumns);
     switch (col) {
     case ColSerial:
+        // Die laufende Nummer steht in BEIDEN Ansichten: sie ist die
+        // Orientierung im Log ("das wievielte QSO war das?"), keine
+        // Feinheit der Vollspalten. Martin, 2026-09-28: "es ist keine
+        // chronologische nmer vorhanden." Sie doppelt auch nichts mehr
+        // -- siehe data(), wo ColSerial seit heute die Position in der
+        // Zeitfolge trägt und nicht die gesendete Contest-Nummer.
+        // Abschaltbar wie in DXLog.net, siehe
+        // ContestSettings::logShowRunningNumber.
+        return m_runningNumberVisible;
     case ColRstSent:
     case ColSerialSent:
         return dxLog;
@@ -2334,6 +2359,22 @@ void UnifiedLogWidget::setOperatingMode(ContestSettings::OperatingMode mode)
     updateStatusLine();
 }
 
+void UnifiedLogWidget::setRunningNumberVisible(bool visible)
+{
+    if (m_runningNumberVisible == visible) {
+        return;
+    }
+    m_runningNumberVisible = visible;
+    // Den vorhandenen Weg gehen statt einen zweiten zu bauen:
+    // setViewMode() teilt die Spalten neu ein (und liest dabei
+    // m_runningNumberVisible), fitColumnsToViewport() passt die Breiten
+    // an, rebuildEntryRowLayout() zieht die Eingabezeile nach, damit
+    // beide in einer Flucht bleiben.
+    m_entryRowLayoutBuilt = false; // erzwingt den Neuaufbau der Zeile
+    setViewMode(m_viewMode);
+    fitColumnsToViewport();
+}
+
 void UnifiedLogWidget::setEntryRowPosition(ContestSettings::LogEntryRowPosition position)
 {
     m_entryRowPosition = position;
@@ -2440,7 +2481,11 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
     m_viewMode = mode;
     const bool dxLog = (mode == ContestSettings::LogViewMode::DxLogFullColumns);
 
-    m_feedTable->setColumnHidden(ColSerial, !dxLog);
+    // Die laufende Nummer steht in BEIDEN Ansichten -- sie ist die
+    // Orientierung im Log ("das wievielte QSO war das?"), nicht ein
+    // Feinheit der Vollspalten-Ansicht. Martin, 2026-09-28: "es ist
+    // keine chronologische nmer vorhanden."
+    m_feedTable->setColumnHidden(ColSerial, !m_runningNumberVisible);
     // Die Bandspalte hängt nicht nur an der Ansicht: ein Contest mit
     // mehreren Bändern zeigt sie auch kompakt (siehe
     // setContestHasSeveralBands()). Ohne dieses ODER holte der nächste

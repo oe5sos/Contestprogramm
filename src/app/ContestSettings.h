@@ -210,6 +210,18 @@ struct ContestSettings {
     // an operator who prefers it, just no longer the initial value.
     LogEntryRowPosition logEntryRowPosition = LogEntryRowPosition::Bottom;
 
+    // Die laufende Nummer ganz links im Log ("das wievielte QSO war
+    // das?"). Standardmäßig an -- Martin, 2026-09-28: "es ist keine
+    // chronologische nmer vorhanden."
+    //
+    // Abschaltbar, weil DXLog.net das genau so löst und die Begründung
+    // auf Martins Conteste passt: "Hides the QSO numbers on the left,
+    // useful for serial number contests so wrong serials don't get
+    // sent" (dxlog.net/docs, Main Window). Auf UKW fängt die GESENDETE
+    // Nummer je Band wieder bei 001 an, die laufende nicht -- wer die
+    // falsche Spalte abliest, sendet die falsche Nummer.
+    bool logShowRunningNumber = true;
+
     // CW F-key macro templates (Kern-Welle 2), sent via
     // RigctldClient::sendMorse() after CwMacroPanel substitutes
     // {call}/{exchange}. A simple macro panel, not a full keyer -- see

@@ -424,6 +424,12 @@ public:
     // see UnifiedFeedModel::rebuild()) or the entry row's own fields/
     // styling.
     void setEntryRowPosition(ContestSettings::LogEntryRowPosition position);
+
+    // Die laufende Nummer links ein- oder ausblenden -- siehe
+    // ContestSettings::logShowRunningNumber für das Warum (DXLog.net
+    // löst es genauso).
+    void setRunningNumberVisible(bool visible);
+    bool runningNumberVisible() const { return m_runningNumberVisible; }
     ContestSettings::LogEntryRowPosition entryRowPosition() const { return m_entryRowPosition; }
 
     // Places `text` into the chat quick-send field, focused and fully
@@ -729,6 +735,9 @@ private:
     QLabel* m_filterNoticeLabel = nullptr;
     ContestSettings::OperatingMode m_operatingMode = ContestSettings::OperatingMode::SearchAndPounce;
     ContestSettings::LogViewMode m_viewMode = ContestSettings::LogViewMode::Compact;
+    // Siehe setRunningNumberVisible() / ContestSettings::
+    // logShowRunningNumber.
+    bool m_runningNumberVisible = true;
     // Bottom by default -- matches ContestSettings::logEntryRowPosition's
     // own default (see its doc comment for why Top stopped making sense
     // once the feed table's row order became chronologically ascending).

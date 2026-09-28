@@ -2517,6 +2517,9 @@ void MainWindow::updateStatusBar()
     // their own doc comments), so calling them unconditionally here
     // needs no dirty-check.
     m_unifiedLog->setOperatingMode(settings.operatingMode);
+    // VOR setViewMode(): dort wird die Spalte ein- bzw. ausgeblendet,
+    // und setRunningNumberVisible() ruft setViewMode() ohnehin selbst.
+    m_unifiedLog->setRunningNumberVisible(settings.logShowRunningNumber);
     m_unifiedLog->setViewMode(settings.logViewMode);
     m_unifiedLog->setEntryRowPosition(settings.logEntryRowPosition);
 }
@@ -3289,6 +3292,24 @@ void MainWindow::showLogViewOptionsPopup()
     };
     addModeAction(ContestSettings::LogViewMode::Compact, QStringLiteral("Kompakt"));
     addModeAction(ContestSettings::LogViewMode::DxLogFullColumns, QStringLiteral("DXLog-Vollspalten"));
+
+    menu->addSeparator();
+
+    // Die laufende Nummer links, abschaltbar -- so löst es DXLog.net,
+    // und die Begründung dort passt auf die UKW-Conteste: "Hides the
+    // QSO numbers on the left, useful for serial number contests so
+    // wrong serials don't get sent". Auf UKW fängt die GESENDETE Nummer
+    // je Band wieder bei 001 an, die laufende nicht.
+    QAction* runningNumberAction = menu->addAction(QStringLiteral("Laufende Nummer (QSO#)"));
+    runningNumberAction->setObjectName(QStringLiteral("logRunningNumberAction"));
+    runningNumberAction->setCheckable(true);
+    runningNumberAction->setChecked(m_appController.settings().logShowRunningNumber);
+    connect(runningNumberAction, &QAction::triggered, this, [this](bool checked) {
+        m_unifiedLog->setRunningNumberVisible(checked);
+        ContestSettings settings = m_appController.settings();
+        settings.logShowRunningNumber = checked;
+        m_appController.setSettings(settings);
+    });
 
     menu->addSeparator();
 

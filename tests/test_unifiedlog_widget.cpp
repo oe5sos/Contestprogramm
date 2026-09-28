@@ -699,17 +699,26 @@ void TestUnifiedLogWidget::viewModeTogglesSerialColumnVisibilityOnly()
 
     auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(feedTable);
-    // Default (Kompakt): hidden.
-    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
-    // Every other column stays visible regardless.
+    // Die laufende Nummer steht seit 2026-09-28 in BEIDEN Ansichten --
+    // Martin: "es ist keine chronologische nmer vorhanden." Sie ist die
+    // Orientierung im Log, keine Feinheit der Vollspalten. Vorher war
+    // sie in Kompakt ausgeblendet, weil sie damals die GESENDETE Nummer
+    // zeigte und die schon im Austausch daneben stand.
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnCall));
+
+    // Was der Umschalter WIRKLICH umschaltet: die aufgeteilten Spalten
+    // RST gesendet / Nr. gesendet.
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 
     widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
     QCOMPARE(widget.viewMode(), ContestSettings::LogViewMode::DxLogFullColumns);
     QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 
     widget.setViewMode(ContestSettings::LogViewMode::Compact);
-    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QVERIFY(feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialSent));
 }
 
 // ColumnSerial itself is real per-QSO data (QsoRecord::serialSent, from
@@ -741,8 +750,13 @@ void TestUnifiedLogWidget::serialColumnShowsRealSerialSentOrDash()
     // oldest first (see its own rebuild() comment -- DXLog.net's real
     // order, confirmed 2026-09-11) -- feed row 0 is `withSerial`
     // (logged first), feed row 1 is `withoutSerial` (logged second).
-    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("012"));
-    QVERIFY(model->data(model->index(1, UnifiedLogWidget::ColumnSerial)).toString().contains(QString::fromUtf8("——")));
+    // Seit 2026-09-28 trägt diese Spalte die LAUFENDE Nummer -- das
+    // wievielte QSO des Logs die Zeile ist --, nicht mehr die gesendete
+    // Contest-Nummer (die stand schon im Austausch daneben, und auf UKW
+    // fängt sie je Band wieder bei 001 an). Also 001 und 002, ganz
+    // gleich, welche Nummer gesendet wurde und ob überhaupt eine.
+    QCOMPARE(model->data(model->index(0, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("001"));
+    QCOMPARE(model->data(model->index(1, UnifiedLogWidget::ColumnSerial)).toString(), QStringLiteral("002"));
 }
 
 // ContestSettings::logViewMode persistence -- same
@@ -1024,9 +1038,23 @@ void TestUnifiedLogWidget::narrowPanelFitsTheColumnsAndTheEntryRowFollows()
     }
     QVERIFY2(visibleWidth <= feedTable->viewport()->width(),
              qPrintable(QStringLiteral("columns %1 > viewport %2").arg(visibleWidth).arg(feedTable->viewport()->width())));
-    // Shrunk, but never below what the text needs.
-    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnCall) < 115);
-    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnExchangeSent) >= 126);
+    // Was bei 620 px übrig bleiben MUSS: die Spalten, an denen man das
+    // Log liest. Vorher stand hier "die Call-Spalte schrumpft unter
+    // 115" -- das war nur ein Indiz dafür, dass überhaupt angepasst
+    // wird, und seit die laufende Nummer mitläuft (2026-09-28) geht es
+    // ohne Schrumpfen genau auf: es weichen dieselben Spalten wie
+    // vorher (Peilung, gesendeter Austausch, siehe kGiveWayOrder), und
+    // der Rest passt in seiner natürlichen Breite. Die Zusicherung, um
+    // die es geht, steht oben: alles im Viewport, kein Rollbalken.
+    QVERIFY2(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerial),
+             "Die laufende Nummer darf auch in einem schmalen Panel nicht verschwinden");
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnCall));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnTime));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnSerialGridRcvd));
+    QVERIFY(!feedTable->isColumnHidden(UnifiedLogWidget::ColumnStatus));
+    // Und keine Spalte fällt unter das, was ihr Text braucht.
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnCall) >= 70);
+    QVERIFY(feedTable->columnWidth(UnifiedLogWidget::ColumnSerialGridRcvd) >= 100);
 
     QLineEdit* callsign = findEditByPlaceholder(widget, QStringLiteral("Callsign"));
     QVERIFY(callsign);
@@ -1104,7 +1132,15 @@ void TestUnifiedLogWidget::serialsReadAsThreeDigitsEverywhere()
 
     auto* feedTable = widget.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(feedTable);
-    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerial).data().toString(), QStringLiteral("008"));
+    // Die laufende Nummer: erstes QSO des Logs, dreistellig.
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerial).data().toString(), QStringLiteral("001"));
+    // Die GESENDETE Nummer (8) steht in ihrer eigenen Spalte -- seit
+    // 2026-09-28 trägt ColumnSerial die Position im Log, nicht mehr sie.
+    // Dreistellig muss sie trotzdem sein, darum geht es hier.
+    widget.setViewMode(ContestSettings::LogViewMode::DxLogFullColumns);
+    QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerialSent).data().toString(),
+             QStringLiteral("008"));
+    widget.setViewMode(ContestSettings::LogViewMode::Compact);
     QCOMPARE(feedTable->model()->index(0, UnifiedLogWidget::ColumnSerialGridRcvd).data().toString(),
              QStringLiteral("004 JN78EG"));
 
