@@ -1499,6 +1499,20 @@ void UnifiedLogWidget::configureFeedColumns()
 
 int UnifiedLogWidget::columnWidthFor(int col) const
 {
+    // Die Breite, die die TABELLE wirklich hat -- nicht die, die
+    // fitColumnsToViewport() zuletzt ausgerechnet hat. Beides sollte
+    // dasselbe sein, war es aber nicht überall: auf dem CI-Mac (Qt
+    // 6.8.3) saß das Rufzeichenfeld der Eingabezeile in der Ansicht
+    // DXLog-Vollspalten 6 px links von seiner Spalte, lokal (Qt 6.11.1)
+    // stimmte es. Eine zweite Rechnung neben der Wahrheit driftet
+    // irgendwann -- also gar nicht erst zwei Rechnungen führen.
+    // m_columnWidths bleibt als Rückfall, solange die Tabelle ihre
+    // Breiten noch nicht hat (Spalte versteckt, oder vor dem ersten
+    // Layout: columnWidth() gibt dann 0 zurück).
+    const int echt = m_feedTable ? m_feedTable->columnWidth(col) : 0;
+    if (echt > 0) {
+        return echt;
+    }
     return m_columnWidths.value(col, kColumnWidths[col]);
 }
 

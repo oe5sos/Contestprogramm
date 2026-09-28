@@ -138,9 +138,20 @@ void TestEingabezeileInFlucht::theEntryRowLinesUpWithTheTableInBothViews()
         QLineEdit* rufzeichen = felder.first();
         const int zelleX = zellenAnfang(window, rufzeichen);
         const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
+        // Die Einzelbreiten vor dem Rufzeichen -- dort muss ein Versatz
+        // entstehen, wenn einer entsteht.
+        QStringList breiten;
+        for (const auto paar : {std::pair<const char*, int>{"QSO#", UnifiedLogWidget::ColumnSerial},
+                                 {"Band", UnifiedLogWidget::ColumnBand},
+                                 {"Zeit", UnifiedLogWidget::ColumnTime}}) {
+            if (!table->isColumnHidden(paar.second)) {
+                breiten << QStringLiteral("%1=%2").arg(QLatin1String(paar.first)).arg(table->columnWidth(paar.second));
+            }
+        }
         qInfo().noquote() << name << "-- Rufzeichenfeld bei" << zelleX << ", Call-Spalte bei" << spalteX
                           << "| Breite" << rufzeichen->width() << "gegen"
-                          << table->columnWidth(UnifiedLogWidget::ColumnCall);
+                          << table->columnWidth(UnifiedLogWidget::ColumnCall)
+                          << "| davor:" << breiten.join(QLatin1Char(' '));
 
         QVERIFY2(std::abs(zelleX - spalteX) <= 1,
                  qPrintable(QStringLiteral("%1: das Rufzeichenfeld fängt bei %2 an, seine Spalte bei %3 -- "
