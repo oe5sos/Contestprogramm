@@ -73,6 +73,8 @@ private slots:
     void aTabAloneCommitsACorrectionToTheDatabase();
     void quittingWithACorrectionStillOpenDoesNotCrash();
     void tabWalksOnAcrossRowsAndShiftTabWalksBack();
+    void returnAfterACorrectionGoesBackToTheEntryRow();
+    void aCorrectionNeverTouchesTheBand();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -507,6 +509,136 @@ void TestDurchgangTastatur::tabWalksOnAcrossRowsAndShiftTabWalksBack()
              "Shift+Tab landete nicht auf einer korrigierbaren Zelle");
     const QPair<int, int> nachPos(zurueck.row(), zurueck.column());
     QVERIFY2(nachPos != vorPos, "Shift+Tab bewegte sich nicht");
+}
+
+// Martin, 2026-09-28: "nach einer änderung muss wieder zur nächsten
+// zeile im contest spring." Mit Return abgeschlossen ist die Korrektur
+// fertig -- dann gehoert der Cursor dorthin, wo das naechste QSO
+// entsteht, nicht in die Tabelle. (Der Tabulator bleibt in der Tabelle,
+// der ist zum Weiterkorrigieren da.)
+void TestDurchgangTastatur::returnAfterACorrectionGoesBackToTheEntryRow()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("zurueck.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
+
+    logByKeyboard(window, QStringLiteral("DL1ABC"), 14, QStringLiteral("JN58SD"));
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+    const int zeile = rowForCallsign(model, QStringLiteral("DL1ABC"));
+    QVERIFY(zeile >= 0);
+
+    const QModelIndex index = model->index(zeile, UnifiedLogWidget::ColumnCall);
+    table->setCurrentIndex(index);
+    table->edit(index);
+    QCoreApplication::processEvents();
+    QLineEdit* editor = nullptr;
+    for (QLineEdit* e : table->viewport()->findChildren<QLineEdit*>()) {
+        if (e->isVisible()) {
+            editor = e;
+        }
+    }
+    QVERIFY(editor);
+    editor->selectAll();
+    QTest::keyClicks(editor, QStringLiteral("DL1ABD"));
+    QTest::keyClick(editor, Qt::Key_Return);
+    QCoreApplication::processEvents();
+    QTest::qWait(30);
+
+    // Die Korrektur ist drin ...
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    QCOMPARE(qsos.size(), 1);
+    QCOMPARE(qsos.first().callsign, QStringLiteral("DL1ABD"));
+
+    // ... und der Cursor steht wieder im Rufzeichenfeld der Eingabezeile.
+    const QList<QLineEdit*> fields = entryFields(window);
+    QVERIFY(fields.size() >= 4);
+    QWidget* fokus = QApplication::focusWidget();
+    qInfo().noquote() << "Fokus nach der Korrektur:"
+                      << (fokus ? fokus->metaObject()->className() : "(keiner)")
+                      << (fokus == fields.at(0) ? "= Rufzeichenfeld" : "= etwas anderes");
+    QVERIFY2(fokus == fields.at(0),
+             "Nach der abgeschlossenen Korrektur steht der Cursor nicht in der Eingabezeile");
+
+    // Und von dort laesst sich sofort weiterloggen.
+    logByKeyboard(window, QStringLiteral("OK2XYZ"), 7, QStringLiteral("JN99AA"));
+    QCOMPARE(controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF")).size(), 2);
+}
+
+// Martin, 2026-09-28: "alle sind mit 144 gekennzeichnet." In seinem Log
+// stimmt das auch -- alle elf QSOs stehen wirklich auf 144, nachgesehen.
+// Gegengeprueft wird hier trotzdem, dass weder das Loggen auf einem
+// anderen Band noch eine spaetere Korrektur das Band verdreht: ein QSO,
+// das faelschlich als 144 im Log steht, waere in der Einreichung falsch
+// gewertet.
+void TestDurchgangTastatur::aCorrectionNeverTouchesTheBand()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("band.sqlite"));
+    QVERIFY(controller);
+
+    // Ein QSO auf 432, eines auf 144 -- beide von Hand ins Log, wie sie
+    // nach einem Bandwechsel ohne Funkgeraet entstehen.
+    for (int i = 0; i < 2; ++i) {
+        QsoRecord r;
+        r.callsign = i == 0 ? QStringLiteral("DL1ABC") : QStringLiteral("OK2XYZ");
+        r.band = i == 0 ? QStringLiteral("432") : QStringLiteral("144");
+        r.mode = QStringLiteral("SSB");
+        r.timestampUtc = QDateTime::currentDateTimeUtc().addSecs(-600 * (i + 1)).toString(Qt::ISODate);
+        r.rstSent = QStringLiteral("59");
+        r.rstRcvd = QStringLiteral("59");
+        r.serialSent = i + 1;
+        r.serialRcvd = i + 1;
+        r.gridSquare = QStringLiteral("JN58SD");
+        r.distanceKm = 165.0;
+        r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
+        QVERIFY(controller->database().insertQso(r));
+    }
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+
+    // Das 432er-QSO korrigieren -- Rufzeichen UND Locator.
+    const int zeile = rowForCallsign(model, QStringLiteral("DL1ABC"));
+    QVERIFY(zeile >= 0);
+    QVERIFY(model->setData(model->index(zeile, UnifiedLogWidget::ColumnCall), QStringLiteral("DL1ABD"),
+                            Qt::EditRole));
+    QCoreApplication::processEvents();
+    const int zeile2 = rowForCallsign(model, QStringLiteral("DL1ABD"));
+    QVERIFY(zeile2 >= 0);
+    QVERIFY(model->setData(model->index(zeile2, UnifiedLogWidget::ColumnSerialGridRcvd),
+                            QStringLiteral("59 001 JO70FF"), Qt::EditRole));
+    QCoreApplication::processEvents();
+
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    QCOMPARE(qsos.size(), 2);
+    QMap<QString, QString> baender;
+    for (const QsoRecord& q : qsos) {
+        baender.insert(q.callsign, q.band);
+    }
+    qInfo().noquote() << "Bänder nach zwei Korrekturen: DL1ABD =" << baender.value(QStringLiteral("DL1ABD"))
+                      << ", OK2XYZ =" << baender.value(QStringLiteral("OK2XYZ"));
+    QVERIFY2(baender.value(QStringLiteral("DL1ABD")) == QStringLiteral("432"),
+             qPrintable(QStringLiteral("Das 432er-QSO steht nach der Korrektur auf %1")
+                            .arg(baender.value(QStringLiteral("DL1ABD")))));
+    QCOMPARE(baender.value(QStringLiteral("OK2XYZ")), QStringLiteral("144"));
 }
 
 int main(int argc, char* argv[])

@@ -1343,7 +1343,23 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
                     const int richtung = hint == QAbstractItemDelegate::EditNextItem
                                              ? 1
                                              : (hint == QAbstractItemDelegate::EditPreviousItem ? -1 : 0);
-                    if (richtung == 0 || !editor) {
+                    if (richtung == 0) {
+                        // Mit Return abgeschlossen (SubmitModelCache):
+                        // die Korrektur ist fertig, also zurück in die
+                        // Eingabezeile -- dort entsteht das nächste QSO.
+                        // Martin, 2026-09-28: "nach einer änderung muss
+                        // wieder zur nächsten zeile im contest spring."
+                        // Beim Abbrechen mit Esc (RevertModelCache)
+                        // genauso: wer abbricht, will weiterloggen.
+                        // Nur der Tabulator bleibt in der Tabelle, der
+                        // ist zum Weiterkorrigieren da.
+                        if (hint == QAbstractItemDelegate::SubmitModelCache
+                            || hint == QAbstractItemDelegate::RevertModelCache) {
+                            QTimer::singleShot(0, this, [this]() { focusCallsign(); });
+                        }
+                        return;
+                    }
+                    if (!editor) {
                         return;
                     }
                     // Nicht currentIndex() fragen: die Ansicht hat ihren
