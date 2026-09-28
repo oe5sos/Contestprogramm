@@ -31,6 +31,9 @@
 #include "data/QsoRecord.h"
 #include "ui/ChatPanelWidget.h"
 #include "ui/MainWindow.h"
+#include "ui/PanelContainerWidget.h"
+#include "ui/PanelHeaderBar.h"
+#include "ui/PanelLayoutManager.h"
 
 #include <memory>
 
@@ -63,6 +66,7 @@ private slots:
     void sendingAMessageLeavesTheField();
     void theChatPanelExistsInTheMainWindow();
     void theOptionsMenuOffersEverythingThatCanBeChanged();
+    void everyPanelWithOptionsAlsoShowsTheGear();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -430,6 +434,41 @@ void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
                                     QStringLiteral("chatCqAction"), QStringLiteral("chatShowAllAction"),
                                     QStringLiteral("chatRadiusAction")}) {
         QVERIFY2(kennungen.contains(kennung), qPrintable(QStringLiteral("Es fehlt: %1").arg(kennung)));
+    }
+}
+
+// Martin, 2026-09-28: "im chat gibt es keine optionen - diese sollten
+// dafür dienen, dass ich zb die gruppe wechseln kann". Das Menü gab es
+// längst (siehe den Prüfstand darüber), nur keinen Knopf, der es
+// öffnet: PanelHeaderBar zeigt den ⚙ erst nach
+// setOptionsAffordanceEnabled(true), und beim Chat fehlte genau diese
+// Zeile. Ein Menü, das man prüfen, aber nicht anklicken kann, ist
+// keines -- deshalb prüft dieser Prüfstand den Weg dorthin, für jedes
+// Panel, das Optionen hat.
+void TestChatPanel::everyPanelWithOptionsAlsoShowsTheGear()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("zahnrad.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    for (const QString& id : {QStringLiteral("chat"), QStringLiteral("unifiedlog"), QStringLiteral("map")}) {
+        PanelContainerWidget* panel = manager->panel(id);
+        QVERIFY2(panel, qPrintable(QStringLiteral("Panel %1 fehlt").arg(id)));
+        PanelHeaderBar* kopf = panel->headerBar();
+        QVERIFY2(kopf, qPrintable(QStringLiteral("Panel %1 hat keinen Kopf").arg(id)));
+        auto* zahnrad = kopf->findChild<QPushButton*>(QStringLiteral("panelHeaderOptionsButton"));
+        QVERIFY2(zahnrad, qPrintable(QStringLiteral("Panel %1: kein ⚙-Knopf").arg(id)));
+        qInfo().noquote() << id << "-- ⚙ sichtbar:" << (zahnrad->isVisibleTo(kopf) ? "ja" : "nein");
+        QVERIFY2(zahnrad->isVisibleTo(kopf),
+                 qPrintable(QStringLiteral("Panel %1 hat Optionen, zeigt aber kein ⚙").arg(id)));
     }
 }
 

@@ -970,6 +970,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                              /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
     // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
     if (chatContainer && chatContainer->headerBar()) {
+        // Ohne diese Zeile gibt es das Menü zwar, aber keinen Knopf, der
+        // es öffnet. Genau so war es: Martin, 2026-09-28, "im chat gibt
+        // es keine optionen - diese sollten dafür dienen, dass ich zb
+        // die gruppe wechseln kann". Der Kopf zeigt den ⚙ erst, wenn er
+        // ausdrücklich eingeschaltet wird (setOptionsAffordanceEnabled),
+        // das Verbinden des Signals allein genügt nicht.
+        chatContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
                 &MainWindow::showChatOptionsPopup);
     }
@@ -2175,8 +2182,21 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             connect(&client, &RotctldClient::azimuthChanged, widget, [this, &client, label](double az) {
                 pushRotorHeadingToMap(client, true, az, label);
             });
-            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, label]() {
-                pushRotorHeadingToMap(client, true, client.azimuthDeg(), label);
+            // Die Richtung kommt vom BEDIENFELD, nicht vom Client.
+            // Martin, 2026-09-28: "ich habe den rotor-zeiger geändert,
+            // aber in der karte war dieser auf null grad." Genau hier
+            // ging sie verloren: ohne Draht zum Rotor meldet
+            // RotctldClient::azimuthDeg() 0, und jeder Takt der
+            // Verbindungsprüfung (stateChanged feuert auch bei jedem
+            // erfolglosen Anlauf) schob diese 0 in die Karte -- über
+            // die Richtung hinweg, die man gerade von Hand gestellt
+            // hatte. Der Zeiger blieb auf 31, der Lichtkegel sprang auf
+            // 0. Das Bedienfeld ist die Quelle: es zeigt, was der
+            // Steckplatz verfolgt, ob echt gemessen oder von Hand
+            // gestellt -- dieselbe Regel, nach der die Nadel gezeichnet
+            // wird.
+            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, widget, label]() {
+                pushRotorHeadingToMap(client, true, widget->azimuthDeg(), label);
             });
             // Mirrors the dial's OWN heading onto the map -- not just a
             // duplicate of the two connections above. This one also

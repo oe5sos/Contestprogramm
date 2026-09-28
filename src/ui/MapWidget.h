@@ -182,6 +182,9 @@ public:
     // The scope rectangle -- its centre is the own station. Tests click
     // there.
     QRectF canvasRectForTest() const { return scopeRect(); }
+    // Was die Karte gerade als Peilung führt -- für Prüfstände, die
+    // nachsehen, ob eine Drehung am Rotor hier ankommt.
+    double rotorHeadingForTest(int rotor) const { return rotor == 2 ? m_rotor2AzimuthDeg : m_rotor1AzimuthDeg; }
     QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
 
     QSize minimumSizeHint() const override;

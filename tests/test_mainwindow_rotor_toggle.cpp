@@ -32,6 +32,7 @@ private slots:
     void reEnablingRotor2RecreatesItsWidget();
     void mapBeamwidthReachesTheRotorDials();
     void mapKnowsWhetherTheRotorLinkIsUp();
+    void turningTheDialMovesTheMapsBeam();
 };
 
 namespace {
@@ -193,6 +194,40 @@ void TestMainWindowRotorToggle::mapKnowsWhetherTheRotorLinkIsUp()
     QVERIFY(!controller->rotor1Client().isConnected());
     QVERIFY(!map->rotorLinkLive(1));
     QVERIFY(!map->rotorLinkLive(2));
+}
+
+// Martin, 2026-09-28: "ich habe den rotor-zeiger geändert, aber in der
+// karte war dieser auf null grad." Der Zeiger und der Lichtkegel
+// müssen dieselbe Richtung zeigen, auch ohne Draht zum Rotor -- und
+// gerade dann, denn ohne Gerät ist der Zeiger das Einzige, was man von
+// Hand stellt.
+void TestMainWindowRotorToggle::turningTheDialMovesTheMapsBeam()
+{
+    QTemporaryDir dir;
+    auto controller = makeReadyController(dir, QStringLiteral("mw_beam.sqlite"));
+    QVERIFY(controller);
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* karte = window.findChild<MapWidget*>();
+    QVERIFY(karte);
+    const QList<RotorWidget*> rotoren = window.findChildren<RotorWidget*>();
+    QVERIFY2(rotoren.size() >= 1, "kein Rotor-Bedienfeld");
+
+    rotoren.first()->setAzimuthDeg(31.0);
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "Zeiger:" << rotoren.first()->azimuthDeg() << "-- Karte:" << karte->rotorHeadingForTest(1);
+    QCOMPARE(karte->rotorHeadingForTest(1), 31.0);
+
+    if (rotoren.size() >= 2) {
+        rotoren.at(1)->setAzimuthDeg(39.0);
+        QCoreApplication::processEvents();
+        qInfo().noquote() << "Zeiger 2:" << rotoren.at(1)->azimuthDeg()
+                          << "-- Karte:" << karte->rotorHeadingForTest(2);
+        QCOMPARE(karte->rotorHeadingForTest(2), 39.0);
+    }
 }
 
 int main(int argc, char* argv[])
