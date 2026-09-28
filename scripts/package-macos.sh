@@ -83,6 +83,43 @@ for fwdir in "$FW"/*.framework; do
     install_name_tool -id "@executable_path/../Frameworks/$name.framework/Versions/A/$name" "$fwdir/Versions/A/$name" 2>/dev/null || true
 done
 
+# Jeden @rpath-Verweis INNERHALB des Bundles auf einen festen Pfad
+# umschreiben, und den Bau-rpath entfernen. Gefunden 2026-09-28: das
+# ausgelieferte Programm trug als einzigen rpath /opt/homebrew/opt/qt/lib
+# -- den Pfad der Bau-Maschine. libbrotlidec sucht ihre Partnerbibliothek
+# über @rpath, und die liegt zwar IM Bundle, wurde dort aber nie gesucht.
+# Auf dem Rechner des Entwicklers fällt das nicht auf (dort gibt es
+# Homebrew), auf dem eines Empfängers schon. Die Schleifen oben setzen
+# nur die IDs der Bibliotheken, nicht die Verweise untereinander.
+fix_rpath_refs() {
+    local bin="$1"
+    otool -L "$bin" 2>/dev/null | awk '/@rpath\//{print $1}' | while read -r ref; do
+        install_name_tool -change "$ref" "@executable_path/../Frameworks/${ref#@rpath/}" "$bin" 2>/dev/null || true
+    done
+}
+for lib in "$FW"/*.dylib; do
+    fix_rpath_refs "$lib"
+done
+for fwdir in "$FW"/*.framework; do
+    name=$(basename "$fwdir" .framework)
+    fix_rpath_refs "$fwdir/Versions/A/$name"
+done
+for plug in $(find "$APP/Contents/PlugIns" -name '*.dylib' 2>/dev/null); do
+    fix_rpath_refs "$plug"
+done
+fix_rpath_refs "$APP/Contents/MacOS/Contestprogramm"
+
+# Und die rpaths selbst: alles, was auf die Bau-Maschine zeigt, raus --
+# an seine Stelle der Ordner im Bundle, damit ein @rpath, den ein
+# künftiges Qt neu einführt, auch dort landet und nicht im Nichts.
+otool -l "$APP/Contents/MacOS/Contestprogramm" \
+    | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}' \
+    | while read -r rp; do
+        [ "$rp" = "@executable_path/../Frameworks" ] && continue
+        install_name_tool -delete_rpath "$rp" "$APP/Contents/MacOS/Contestprogramm" 2>/dev/null || true
+    done
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/Contestprogramm" 2>/dev/null || true
+
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
