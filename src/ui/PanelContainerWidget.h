@@ -207,7 +207,8 @@ private:
     QWidget* m_resizeGrip = nullptr;
 
     bool m_dragging = false;
-    QPoint m_dragStartOffset; // globalPos - pos() at drag start
+    QPoint m_dragStartOffset;
+    QPoint m_lastDragGlobal; // zuletzt gemeldete Zeigerposition im Zug
     bool m_resizing = false;
     QPoint m_resizeStartGlobal;
     QSize m_resizeStartSize;

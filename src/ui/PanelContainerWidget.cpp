@@ -208,6 +208,7 @@ void PanelContainerWidget::beginDrag(const QPoint& globalPos)
     m_dragging = true;
     raise();
     m_dragStartOffset = globalPos - pos();
+    m_lastDragGlobal = globalPos;
 }
 
 void PanelContainerWidget::updateDrag(const QPoint& globalPos)
@@ -215,6 +216,7 @@ void PanelContainerWidget::updateDrag(const QPoint& globalPos)
     if (!m_dragging) {
         return;
     }
+    m_lastDragGlobal = globalPos;
     QPoint newPos = globalPos - m_dragStartOffset;
     // Clamped to the parent canvas -- same overlay-docked behavior as
     // ContainerWidget::updateDrag()'s non-floating branch.
@@ -240,7 +242,12 @@ void PanelContainerWidget::endDrag()
     // kann ich aber nicht reinziehen." Über das Menü ging es schon; mit
     // der Maus hineinziehen ist der Weg, den er erwartet, und den
     // Longpath auch anbietet.
-    emit dragFinished(QCursor::pos());
+    // Die zuletzt GEMELDETE Zeigerposition, nicht QCursor::pos(): bei
+    // einem von außen eingespeisten Zug (Bedienungshilfen, meine eigene
+    // Live-Prüfung) steht der Zeiger beim Loslassen schon wieder am
+    // Ausgangspunkt -- das Panel wäre dann nie im Seitenbereich
+    // gelandet, obwohl es dort losgelassen wurde.
+    emit dragFinished(m_lastDragGlobal);
     emit geometryEdited();
 }
 
