@@ -2563,6 +2563,26 @@ void MainWindow::handleLogRequested()
     if (def && !exchangeComplete(*def, exchangeReceived)) {
         if (!m_incompleteExchangeEnterArmed) {
             m_incompleteExchangeEnterArmed = true;
+            // Bevor gemeckert wird: ist der Locator dieser Station
+            // bekannt, gehört er jetzt ins Feld. Martin, 2026-09-28:
+            // "nach eingabe des rufzeichen schon automatisch der
+            // locator im locator ... um einerseits weniger fehler zu
+            // machen und auch schneller zu sein." Das Vorbelegen läuft
+            // sonst 200 ms nach dem letzten Tastendruck -- wer schneller
+            // tippt als das und sofort Enter drückt, kam bis hierher
+            // mit leerem Feld an. Ein QSO ohne Locator zählt auf UKW
+            // null Punkte.
+            const QString known = knownGridForCallsign(callsign);
+            if (!known.isEmpty()) {
+                m_unifiedLog->applyKnownExchange(known, std::nullopt);
+            }
+            // Nochmal fragen: vielleicht ist der Austausch damit schon
+            // vollständig, dann ist nichts mehr zu melden.
+            if (exchangeComplete(*def, m_unifiedLog->exchangeReceived())) {
+                statusBar()->showMessage(
+                    QStringLiteral("Locator %1 aus früheren Logs/Listen eingesetzt — Enter loggt").arg(known), 6000);
+                return;
+            }
             m_unifiedLog->focusFirstEmptyExchangeField();
             statusBar()->showMessage(
                 QStringLiteral("Exchange unvollständig (Nummer/Locator fehlt) — Enter nochmals loggt trotzdem"), 6000);

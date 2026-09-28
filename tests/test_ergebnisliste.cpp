@@ -36,6 +36,8 @@ class TestErgebnisliste : public QObject
 private slots:
     void importedResultsPrefillTheLocator();
     void ownLogBeatsTheImportedList();
+    void aFastEnterStillGetsTheKnownLocator();
+    void aChangedLocatorIsTypedOverAndWarnedAbout();
 };
 
 namespace {
@@ -139,6 +141,78 @@ void TestErgebnisliste::ownLogBeatsTheImportedList()
     QVERIFY(log);
     log->setCallsign(QStringLiteral("OE5DIN"));
     QTRY_COMPARE_WITH_TIMEOUT(log->exchangeReceived().value(QStringLiteral("grid")), QStringLiteral("JN68AA"), 3000);
+}
+
+// "um einerseits weniger fehler zu machen und auch schneller zu sein"
+// -- das Vorbelegen läuft 200 ms nach dem letzten Tastendruck. Wer
+// schneller tippt und sofort Enter drückt, kam bis dahin mit leerem
+// Locatorfeld an, und ein QSO ohne Locator zählt auf UKW null Punkte.
+// Das erste Enter setzt den bekannten Locator jetzt selbst ein.
+void TestErgebnisliste::aFastEnterStillGetsTheKnownLocator()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("schnell.sqlite"));
+    QVERIFY(controller);
+    const QString path = writeResults(dir, QStringLiteral("liste.csv"), kResultsCsv);
+    QVERIFY(!path.isEmpty());
+    QCOMPARE(controller->callsignLocatorLookup().importCsvFile(path).imported, 2);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    // Rufzeichen und Nummer gesetzt, Locator leer -- und sofort Enter,
+    // ohne die 200 ms abzuwarten.
+    log->setCallsign(QStringLiteral("OE5DIN"));
+    log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("001"));
+    QVERIFY(log->exchangeReceived().value(QStringLiteral("grid")).isEmpty());
+    emit log->logRequested();
+
+    // Noch nichts geloggt -- aber der Locator steht jetzt da.
+    QCOMPARE(controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF")).size(), 0);
+    QCOMPARE(log->exchangeReceived().value(QStringLiteral("grid")), QStringLiteral("JN78BL"));
+
+    // Das nächste Enter loggt ihn mit.
+    emit log->logRequested();
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    QCOMPARE(qsos.size(), 1);
+    QCOMPARE(qsos.first().gridSquare, QStringLiteral("JN78BL"));
+}
+
+// "dieser kann aber ggf. abweichen, wenn locator geändert worden ist."
+// Der vorbelegte Wert ist ein Vorschlag, kein Riegel: drübergetippt
+// gilt das Getippte, und die Zeile über der Eingabe sagt, dass es
+// abweicht.
+void TestErgebnisliste::aChangedLocatorIsTypedOverAndWarnedAbout()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("geaendert.sqlite"));
+    QVERIFY(controller);
+    const QString path = writeResults(dir, QStringLiteral("liste.csv"), kResultsCsv);
+    QVERIFY(!path.isEmpty());
+    QCOMPARE(controller->callsignLocatorLookup().importCsvFile(path).imported, 2);
+
+    MainWindow window(*controller);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+
+    log->setCallsign(QStringLiteral("OE5DIN"));
+    QTRY_COMPARE_WITH_TIMEOUT(log->exchangeReceived().value(QStringLiteral("grid")), QStringLiteral("JN78BL"), 3000);
+
+    // Die Station nennt einen anderen Berg: drübergetippt.
+    log->setExchangeFieldValue(QStringLiteral("grid"), QStringLiteral("JN68QQ"));
+    QCOMPARE(log->exchangeReceived().value(QStringLiteral("grid")), QStringLiteral("JN68QQ"));
+    QVERIFY2(log->entryWarning().contains(QStringLiteral("JN78BL")), qPrintable(log->entryWarning()));
+    QVERIFY2(log->entryWarning().contains(QStringLiteral("JN68QQ")), qPrintable(log->entryWarning()));
+
+    // Und geloggt wird, was gehört wurde.
+    log->setExchangeFieldValue(QStringLiteral("serial"), QStringLiteral("001"));
+    emit log->logRequested();
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    QCOMPARE(qsos.size(), 1);
+    QCOMPARE(qsos.first().gridSquare, QStringLiteral("JN68QQ"));
 }
 
 int main(int argc, char* argv[])
