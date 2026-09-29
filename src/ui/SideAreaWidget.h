@@ -56,9 +56,12 @@ public:
     // railClicked().
     void railClicked(const QString& id);
 
-    // Die Breite der Leiste. Longpath nimmt 38; hier steht die Zahl an
-    // einer Stelle, weil der eingeklappte Bereich genau so breit ist.
-    static constexpr int kRailWidth = 38;
+    // Die Breite der Leiste. Sie trägt Symbol UND Namen -- Martin hat
+    // am 2026-09-28 aus drei Blättern C gewählt ("Symbol und Name",
+    // 150 px) statt der schmalen Fassungen A (38) und B (44). Die Zahl
+    // steht an einer Stelle, weil der eingeklappte Bereich genau so
+    // breit ist.
+    static constexpr int kRailWidth = 150;
 
     static constexpr const char* kRailObjectName = "sideAreaRail";
     static constexpr const char* kStackObjectName = "sideAreaStack";
@@ -68,6 +71,11 @@ signals:
     void collapsedChanged(bool collapsed);
     // Rechtsklick auf ein Leistensymbol: "Aus dem Seitenbereich nehmen".
     void removeRequested(const QString& id);
+    // Der Knopf wurde aus der Leiste herausgezogen und an dieser Stelle
+    // losgelassen (Bildschirmkoordinaten). Martin, 2026-09-28: "die
+    // widgets sollte man aber auch wieder per drag and drop rausziehen
+    // können, in dem fall nach rechts."
+    void pageDraggedOut(const QString& id, const QPoint& globalPos);
 
 private:
     // Die Knöpfe NEU BAUEN -- nur, wenn sich die Liste der Seiten

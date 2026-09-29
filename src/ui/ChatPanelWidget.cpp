@@ -36,6 +36,12 @@ class MergedChatModel : public QAbstractTableModel {
 public:
     explicit MergedChatModel(QObject* parent = nullptr) : QAbstractTableModel(parent) {}
 
+    // Eine zusammengeführte Zeile: woher sie kam und was drinsteht.
+    struct Zeile {
+        bool ausKst = true;
+        ChatFeedModel::FeedLine linie;
+    };
+
     void setFeeds(ChatFeedModel* onKst, ChatFeedModel* cluster)
     {
         for (ChatFeedModel* alt : {m_onKst, m_cluster}) {
@@ -100,6 +106,12 @@ public:
             }
         }
         if (role == Qt::ForegroundRole) {
+            // Was mich betrifft, zuerst -- auch wenn die Station schon
+            // gearbeitet ist: wer mich anspricht, ist wichtiger als die
+            // Frage, ob ich ihn schon im Log habe.
+            if (betrifftMich(zeile)) {
+                return QVariant::fromValue(QColor(Style::kMentionMagenta()));
+            }
             // Schon gearbeitet: gedämpft. Das Auge soll an den offenen
             // Stationen hängenbleiben.
             if (zeile.linie.worked) {
@@ -150,6 +162,53 @@ public:
 
 public slots:
     // Ob ALLE Zeilen gezeigt werden oder nur die gefilterten.
+    void setOwnCallsign(const QString& callsign)
+    {
+        const QString neu = callsign.trimmed().toUpper();
+        if (m_ownCallsign == neu) {
+            return;
+        }
+        m_ownCallsign = neu;
+        if (!m_rows.isEmpty()) {
+            emit dataChanged(index(0, 0), index(m_rows.size() - 1, ChatPanelWidget::ColumnCount - 1),
+                             {Qt::ForegroundRole});
+        }
+    }
+
+    QString ownCallsign() const { return m_ownCallsign; }
+
+    // Betrifft mich diese Zeile? Wenn mein Rufzeichen darin steht --
+    // als eigenes Wort, nicht als Teil eines anderen Rufzeichens:
+    // "OE5SOS" darf nicht in "OE5SOSX" anschlagen. ON4KST schreibt die
+    // Anrede mitten in den Text ("OE5SOS de DL1ABC ..."), deshalb wird
+    // der ganze Text durchsucht und nicht nur ein Empfängerfeld.
+    bool betrifftMich(const Zeile& zeile) const
+    {
+        if (m_ownCallsign.isEmpty()) {
+            return false;
+        }
+        if (zeile.linie.candidate.callsign.trimmed().compare(m_ownCallsign, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+        const QString text = zeile.linie.candidate.message.isEmpty() ? zeile.linie.candidate.rawLine
+                                                                      : zeile.linie.candidate.message;
+        int ab = 0;
+        while (true) {
+            const int pos = text.indexOf(m_ownCallsign, ab, Qt::CaseInsensitive);
+            if (pos < 0) {
+                return false;
+            }
+            const bool linksFrei = pos == 0 || !(text.at(pos - 1).isLetterOrNumber() || text.at(pos - 1) == QLatin1Char('/'));
+            const int nach = pos + m_ownCallsign.size();
+            const bool rechtsFrei = nach >= text.size()
+                                     || !(text.at(nach).isLetterOrNumber() || text.at(nach) == QLatin1Char('/'));
+            if (linksFrei && rechtsFrei) {
+                return true;
+            }
+            ab = pos + 1;
+        }
+    }
+
     void setShowAll(bool alle)
     {
         if (m_alleZeigen == alle) {
@@ -223,11 +282,7 @@ public slots:
     }
 
 private:
-    struct Zeile {
-        bool ausKst = true;
-        ChatFeedModel::FeedLine linie;
-    };
-
+    QString m_ownCallsign;
     ChatFeedModel* m_onKst = nullptr;
     ChatFeedModel* m_cluster = nullptr;
     QVector<Zeile> m_rows;
@@ -299,6 +354,18 @@ ChatPanelWidget::ChatPanelWidget(QWidget* parent)
 void ChatPanelWidget::setFeedModels(ChatFeedModel* onKst, ChatFeedModel* cluster)
 {
     m_model->setFeeds(onKst, cluster);
+}
+
+void ChatPanelWidget::setOwnCallsign(const QString& callsign)
+{
+    if (m_model) {
+        m_model->setOwnCallsign(callsign);
+    }
+}
+
+QString ChatPanelWidget::ownCallsign() const
+{
+    return m_model ? m_model->ownCallsign() : QString();
 }
 
 void ChatPanelWidget::setConnectionStatus(const QString& text)

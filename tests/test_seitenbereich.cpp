@@ -18,14 +18,17 @@
 #include <QMenu>
 #include <QStackedWidget>
 #include <QTemporaryDir>
+#include <QMouseEvent>
 #include <QToolButton>
 
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
 #include "ui/PanelContainerWidget.h"
+#include "ui/PanelHeaderBar.h"
 #include "ui/PanelLayoutManager.h"
 #include "ui/SideAreaWidget.h"
+#include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -48,6 +51,11 @@ private slots:
     void pressingTheButtonThroughAccessibilityAlsoSwitches();
     void draggingAPanelOntoTheSideAreaPutsItIn();
     void theSideAreaSurvivesARestart();
+    void theActiveRailButtonLooksActive();
+    void everyRailButtonCarriesAnIconAndItsName();
+    void draggingAPanelOutOfTheRailPutsItBackOnTheCanvas();
+    void aRealMouseDragOnTheRailButtonTakesThePanelOut();
+    void aRealMouseDragOnThePanelHeaderTakesItOutToo();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -610,6 +618,378 @@ void TestSeitenbereich::theSideAreaSurvivesARestart()
         QVERIFY(bereichPanel);
         QVERIFY2(!bereichPanel->isHidden(), "Der Seitenbereich ist nach dem Neustart versteckt");
     }
+}
+
+// Martin, 2026-09-28: "wird nicht übernommen" -- zwei Bilder, auf
+// denen verschiedene Seiten vorne lagen und in der Leiste trotzdem
+// immer dasselbe Kürzel hell wirkte. Der Zustand stimmte (isChecked),
+// nur SAH man ihm nichts an: für QToolButton gab es keine Stilregel,
+// ein flacher Knopf im dunklen Thema sieht gedrückt aus wie nicht
+// gedrückt. Dieser Prüfstand hält beides fest -- den Zustand und, mit
+// CP_LEISTE_BILD=<pfad>, ein Bild der Leiste zum Ansehen.
+void TestSeitenbereich::theActiveRailButtonLooksActive()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("leiste.sqlite"));
+    QVERIFY(controller);
+
+    // Auf derselben Bühne wie das laufende Programm: main.cpp setzt
+    // dieses Stylesheet, und genau darin fehlte die Regel. Ohne diese
+    // Zeile prüfte man den nackten Standardstil, der den gedrückten
+    // Knopf von sich aus zeichnet -- der Prüfstand wäre grün und das
+    // Programm trotzdem falsch.
+    qApp->setStyleSheet(Style::appStyleSheet());
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    for (const auto& paar : {std::pair<QString, QString>{QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+                              {QStringLiteral("chat"), QStringLiteral("Chat")},
+                              {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+                              {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")}}) {
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, paar.first),
+                                   Q_ARG(QString, paar.second));
+    }
+    bereich->setActive(QStringLiteral("map"));
+    QCoreApplication::processEvents();
+
+    auto* rail = bereich->findChild<QWidget*>(QLatin1String(SideAreaWidget::kRailObjectName));
+    QVERIFY(rail);
+
+    // Der Zustand: genau einer ist gedrückt, und zwar der aktive.
+    QStringList gedrueckt;
+    for (QToolButton* knopf : rail->findChildren<QToolButton*>()) {
+        if (knopf->isChecked()) {
+            gedrueckt << knopf->objectName();
+        }
+    }
+    qInfo().noquote() << "gedrückt:" << gedrueckt.join(QStringLiteral(", "));
+    QCOMPARE(gedrueckt, QStringList{QStringLiteral("sideRail_map")});
+
+    // Und das Aussehen: der gedrückte Knopf muss sich vom Nachbarn
+    // unterscheiden, sonst sieht man die aktive Seite nicht.
+    auto* aktiv = rail->findChild<QToolButton*>(QStringLiteral("sideRail_map"));
+    auto* still = rail->findChild<QToolButton*>(QStringLiteral("sideRail_chat"));
+    QVERIFY(aktiv && still);
+    const QImage bildAktiv = aktiv->grab().toImage();
+    const QImage bildStill = still->grab().toImage();
+    QVERIFY(!bildAktiv.isNull() && !bildStill.isNull());
+    QVERIFY2(bildAktiv.size() == bildStill.size(), "gleich große Knöpfe erwartet");
+    // Gemessen wird nicht "irgendwie anders" -- ein Pixelvergleich ist
+    // schon durch das Kürzel selbst erfüllt und war in der Gegenprobe
+    // auch ohne Regel bei 99 %. Verlangt wird die Akzentfarbe: der
+    // Balken am linken Rand des aktiven Knopfes.
+    const QColor akzent(Style::kBlueBg());
+    auto akzentAnteilAmRand = [&akzent](const QImage& bild) {
+        int treffer = 0;
+        int gezaehlt = 0;
+        for (int y = 0; y < bild.height(); ++y) {
+            for (int x = 0; x < std::min(3, bild.width()); ++x) {
+                const QColor farbe(bild.pixel(x, y));
+                ++gezaehlt;
+                if (std::abs(farbe.red() - akzent.red()) < 40 && std::abs(farbe.green() - akzent.green()) < 40
+                    && std::abs(farbe.blue() - akzent.blue()) < 40) {
+                    ++treffer;
+                }
+            }
+        }
+        return gezaehlt > 0 ? double(treffer) / double(gezaehlt) : 0.0;
+    };
+    const double amAktiven = akzentAnteilAmRand(bildAktiv);
+    const double amStillen = akzentAnteilAmRand(bildStill);
+    qInfo().noquote() << "Akzent am linken Rand -- aktiv:" << QString::number(amAktiven * 100.0, 'f', 0)
+                      << "% still:" << QString::number(amStillen * 100.0, 'f', 0) << "%";
+    QVERIFY2(amAktiven > 0.5, "Der aktive Knopf trägt keinen Akzentbalken -- die aktive Seite ist nicht erkennbar");
+    QVERIFY2(amStillen < 0.1, "Auch der stille Knopf trägt den Balken");
+
+    const QByteArray ziel = qgetenv("CP_LEISTE_BILD");
+    if (!ziel.isEmpty()) {
+        QVERIFY(bereich->grab().save(QString::fromLocal8Bit(ziel)));
+        qInfo().noquote() << "Bild abgelegt:" << QString::fromLocal8Bit(ziel);
+    }
+}
+
+// Martin, 2026-09-28: "schön wäre, wenn wir vielleicht icons dazu
+// hätten" -- aus drei Blättern hat er C gewählt: Symbol UND Name
+// nebeneinander, Leiste 150 px. Beides muss ankommen; ein Knopf ohne
+// Symbol fiele in der Reihe sofort auf, einer ohne Namen wäre die
+// Fassung, die er nicht wollte.
+void TestSeitenbereich::everyRailButtonCarriesAnIconAndItsName()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("symbole.sqlite"));
+    QVERIFY(controller);
+
+    qApp->setStyleSheet(Style::appStyleSheet());
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    const QList<std::pair<QString, QString>> seiten = {
+        {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
+        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
+        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
+        {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
+        {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+        {QStringLiteral("checkpartial"), QStringLiteral("Check")},
+        {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
+        {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
+    };
+    for (const auto& seite : seiten) {
+        QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, seite.first),
+                                   Q_ARG(QString, seite.second));
+    }
+    QCoreApplication::processEvents();
+
+    for (const auto& seite : seiten) {
+        auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_%1").arg(seite.first));
+        QVERIFY2(knopf, qPrintable(QStringLiteral("kein Leistenknopf für %1").arg(seite.first)));
+        QVERIFY2(!knopf->icon().isNull(), qPrintable(QStringLiteral("%1 hat kein Symbol").arg(seite.first)));
+        // Das Symbol darf nicht leer gezeichnet sein -- ein QIcon mit
+        // einer durchsichtigen Fläche ist nicht null und sähe im
+        // Prüfstand richtig aus.
+        const QImage bild = knopf->icon().pixmap(17, 17, QIcon::Normal, QIcon::Off).toImage();
+        int gesetzt = 0;
+        for (int y = 0; y < bild.height(); ++y) {
+            for (int x = 0; x < bild.width(); ++x) {
+                if (qAlpha(bild.pixel(x, y)) > 30) {
+                    ++gesetzt;
+                }
+            }
+        }
+        QVERIFY2(gesetzt > 10, qPrintable(QStringLiteral("%1: Symbol ist leer").arg(seite.first)));
+        // Und der Name -- gekürzt, aber erkennbar: der Anfang steht da.
+        const QString text = knopf->text();
+        QVERIFY2(!text.isEmpty(), qPrintable(QStringLiteral("%1 hat keinen Namen").arg(seite.first)));
+        QVERIFY2(seite.second.startsWith(text.left(4)),
+                 qPrintable(QStringLiteral("%1: Name '%2' passt nicht zu '%3'")
+                                .arg(seite.first, text, seite.second)));
+        QCOMPARE(knopf->toolTip(), seite.second);
+    }
+    qInfo().noquote() << "neun Knöpfe mit Symbol und Namen, Leiste"
+                      << SideAreaWidget::kRailWidth << "px";
+}
+
+// Martin, 2026-09-28: "die widgets sollte man aber auch wieder per
+// drag and drop rausziehen können, in dem fall nach rechts." Hinein
+// ging es längst durch Ziehen, hinaus nur per Rechtsklick -- und den
+// findet man nicht von selbst.
+void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("rausziehen.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    // Gesperrt hineinlegen -- so fährt Martin sein Layout, und genau
+    // daran ist das Herausziehen live gescheitert: trySetGeometry()
+    // weist ein gesperrtes Panel ab, es landete an seinem alten Platz
+    // statt dort, wo losgelassen wurde.
+    if (PanelContainerWidget* vorher = manager->panel(QStringLiteral("map"))) {
+        vorher->setLocked(true);
+    }
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QString, QStringLiteral("Karte / Verbindungen")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("map")));
+
+    PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
+    QVERIFY(bereichPanel);
+
+    // Innerhalb des Bereichs losgelassen: das bleibt drin. Ein
+    // Rutscher beim Umschalten darf das Panel nicht herausreißen.
+    const QPoint drinnen =
+        bereichPanel->mapToGlobal(QPoint(bereichPanel->width() / 2, bereichPanel->height() / 2));
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, drinnen));
+    QCoreApplication::processEvents();
+    qInfo().noquote() << "im Bereich losgelassen -- noch drin:"
+                      << (bereich->hasPage(QStringLiteral("map")) ? "ja" : "nein");
+    QVERIFY2(bereich->hasPage(QStringLiteral("map")), "Ein Rutscher im Bereich hat das Panel herausgerissen");
+
+    // Nach rechts herausgezogen: liegt wieder auf der Fläche, und zwar
+    // dort, wo losgelassen wurde.
+    QWidget* flaeche = manager->canvas();
+    QVERIFY(flaeche);
+    const QPoint zielAufDerFlaeche(900, 300);
+    const QPoint zielGlobal = flaeche->mapToGlobal(zielAufDerFlaeche);
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+                               Q_ARG(QPoint, zielGlobal));
+    QCoreApplication::processEvents();
+
+    QVERIFY2(!bereich->hasPage(QStringLiteral("map")), "Die Karte ist nicht aus dem Bereich herausgekommen");
+    PanelContainerWidget* karte = manager->panel(QStringLiteral("map"));
+    QVERIFY(karte);
+    QCOMPARE(karte->parentWidget(), flaeche);
+    QVERIFY2(!karte->isHidden(), "Die Karte ist unsichtbar wieder aufgetaucht");
+    qInfo().noquote() << "herausgezogen nach" << karte->geometry() << "-- Ziel war" << zielAufDerFlaeche;
+    // Der Griff sitzt links oben am Kopf, also ein paar Pixel neben dem
+    // Zeiger; genau darauf prüfen wäre spröde, in der Nähe genügt.
+    // Und: ein breites Panel ganz rechts abgelegt wird auf die Fläche
+    // zurückgeschoben, sonst hinge die Hälfte draußen -- das ist
+    // richtig so und gehört in die Erwartung.
+    const int passtNochX = std::max(0, flaeche->width() - karte->width());
+    const int erwartetX = std::min(zielAufDerFlaeche.x() - 20, passtNochX);
+    QVERIFY2(std::abs(karte->x() - erwartetX) <= 40,
+             qPrintable(QStringLiteral("Die Karte liegt bei x=%1, erwartet war %2")
+                            .arg(karte->x()).arg(erwartetX)));
+    QVERIFY2(std::abs(karte->y() - (zielAufDerFlaeche.y() - 10)) <= 40,
+             "Die Karte liegt nicht dort, wo losgelassen wurde");
+    // Und das Schloss ist danach wieder zu: der eine Handgriff ging
+    // durch, die Sperre bleibt.
+    QVERIFY2(karte->isLocked(), "Das Panel ist nach dem Herausziehen nicht mehr gesperrt");
+
+    // Dasselbe mit der Rotorreihe: sie hat ein eigenes Layoutgesetz
+    // (reflowRotorRowForCanvasWidth stellt sie in schmalen Fenstern
+    // mittig) -- live sah es aus, als rutsche sie nach dem
+    // Herausziehen wieder nach links.
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
+                               Q_ARG(QString, QStringLiteral("Rotoren")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("rotorrow")));
+    const QPoint zielRotoren = flaeche->mapToGlobal(QPoint(700, 420));
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
+                               Q_ARG(QPoint, zielRotoren));
+    QCoreApplication::processEvents();
+    PanelContainerWidget* rotoren = manager->panel(QStringLiteral("rotorrow"));
+    QVERIFY(rotoren);
+    qInfo().noquote() << "Rotoren herausgezogen nach" << rotoren->geometry()
+                      << "-- Fläche" << flaeche->size();
+    const int passtRotoren = std::max(0, flaeche->width() - rotoren->width());
+    QVERIFY2(std::abs(rotoren->x() - std::min(700 - 20, passtRotoren)) <= 40,
+             qPrintable(QStringLiteral("Rotoren liegen bei x=%1").arg(rotoren->x())));
+}
+
+// Martin, 2026-09-28: "ich kann nichts herausziehen." Der Prüfstand
+// darüber ruft dragPanelOutOfSideArea() selbst auf und beweist damit
+// nur die halbe Strecke -- der Weg von der echten Maus bis dorthin
+// blieb ungeprüft. Dieser hier drückt, bewegt und lässt los, wie eine
+// Hand es täte.
+void TestSeitenbereich::aRealMouseDragOnTheRailButtonTakesThePanelOut()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("echtezug.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("chat")),
+                               Q_ARG(QString, QStringLiteral("Chat")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("chat")));
+
+    auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_chat"));
+    QVERIFY(knopf);
+    QWidget* flaeche = manager->canvas();
+    QVERIFY(flaeche);
+
+    // Drücken, in Schritten nach rechts ziehen, loslassen -- alles als
+    // echte Mausereignisse an die beteiligten Widgets.
+    const QPoint start = knopf->rect().center();
+    QTest::mousePress(knopf, Qt::LeftButton, Qt::NoModifier, start);
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint imKnopf = start + QPoint(i * 60, i * 20);
+        QMouseEvent bewegung(QEvent::MouseMove, QPointF(imKnopf), knopf->mapToGlobal(imKnopf), Qt::NoButton,
+                             Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(knopf, &bewegung);
+    }
+    const QPoint ende = start + QPoint(8 * 60, 8 * 20);
+    QMouseEvent loslassen(QEvent::MouseButtonRelease, QPointF(ende), knopf->mapToGlobal(ende), Qt::LeftButton,
+                          Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(knopf, &loslassen);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "nach echtem Zug -- noch im Bereich:"
+                      << (bereich->hasPage(QStringLiteral("chat")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("chat")),
+             "Ein echter Mauszug am Leistenknopf holt das Panel nicht heraus");
+    PanelContainerWidget* chat = manager->panel(QStringLiteral("chat"));
+    QVERIFY(chat);
+    QCOMPARE(chat->parentWidget(), flaeche);
+    QVERIFY(!chat->isHidden());
+}
+
+// Und derselbe Zug am PANELKOPF, denn das ist die Geste, die man
+// erwartet: hinein zieht man am Kopf, also auch hinaus. Martin,
+// 2026-09-28: "ich kann nichts herausziehen" -- der Leistenknopf ging
+// längst, der Kopf nicht.
+void TestSeitenbereich::aRealMouseDragOnThePanelHeaderTakesItOutToo()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("kopfzug.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    auto* bereich = window.findChild<SideAreaWidget*>();
+    QVERIFY(bereich);
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("chat")),
+                               Q_ARG(QString, QStringLiteral("Chat")));
+    QCoreApplication::processEvents();
+    QVERIFY(bereich->hasPage(QStringLiteral("chat")));
+
+    PanelContainerWidget* chat = manager->panel(QStringLiteral("chat"));
+    QVERIFY(chat);
+    PanelHeaderBar* kopf = chat->headerBar();
+    QVERIFY(kopf);
+
+    // Am Kopf packen -- links, wo nur die Beschriftung sitzt, nicht auf
+    // Schloss oder Zahnrad.
+    const QPoint start(30, kopf->height() / 2);
+    QTest::mousePress(kopf, Qt::LeftButton, Qt::NoModifier, start);
+    for (int i = 1; i <= 8; ++i) {
+        const QPoint jetzt = start + QPoint(i * 70, i * 25);
+        QMouseEvent bewegung(QEvent::MouseMove, QPointF(jetzt), kopf->mapToGlobal(jetzt), Qt::NoButton,
+                             Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(kopf, &bewegung);
+    }
+    const QPoint ende = start + QPoint(8 * 70, 8 * 25);
+    QMouseEvent loslassen(QEvent::MouseButtonRelease, QPointF(ende), kopf->mapToGlobal(ende), Qt::LeftButton,
+                          Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(kopf, &loslassen);
+    QCoreApplication::processEvents();
+
+    qInfo().noquote() << "Zug am Panelkopf -- noch im Bereich:"
+                      << (bereich->hasPage(QStringLiteral("chat")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("chat")),
+             "Ein Zug am Panelkopf holt das Panel nicht aus dem Seitenbereich");
+    QCOMPARE(chat->parentWidget(), manager->canvas());
+    QVERIFY(!chat->isHidden());
 }
 
 int main(int argc, char* argv[])

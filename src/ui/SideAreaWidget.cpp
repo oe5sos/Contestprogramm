@@ -1,14 +1,21 @@
 #include "ui/SideAreaWidget.h"
 
+#include "ui/SideAreaIcons.h"
 #include "ui/StyleKit.h"
 
 
 
 #include <QHBoxLayout>
+#include <QApplication>
+#include <QIcon>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+#include <functional>
 
 namespace Contestprogramm {
 
@@ -16,30 +23,149 @@ namespace {
 
 
 
-// Ein Knopf in der Leiste. Senkrecht schmal, mit dem Anfang des
-// Panelnamens -- Symbole gibt es in diesem Programm nicht, und ein
-// Kürzel liest sich besser als ein erfundenes Piktogramm.
+// Ein Knopf in der Leiste: Symbol links, Name daneben. Martin,
+// 2026-09-28, aus drei Blättern gewählt ("C"): "schön wäre, wenn wir
+// vielleicht icons dazu hätten".
+//
+// Die Symbolfarbe folgt dem Zustand, deshalb zwei Bilder in einem
+// QIcon -- Qt wählt bei einem ankreuzbaren Knopf selbst zwischen
+// QIcon::Off und QIcon::On, ganz ohne Zutun beim Umschalten.
 class RailButton : public QToolButton {
 public:
     RailButton(const QString& id, const QString& title, QWidget* parent)
         : QToolButton(parent)
         , m_id(id)
+        , m_title(title)
     {
         setObjectName(QStringLiteral("sideRail_%1").arg(id));
         setCheckable(true);
         setAutoRaise(true);
         setFixedWidth(SideAreaWidget::kRailWidth - 6);
         setToolTip(title);
-        // Zwei Buchstaben: "Ch" für Chat, "Ba" für Bandmap. Der volle
-        // Name steht im Tooltip und oben im Panelkopf.
-        setText(title.left(2));
+        setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        setIconSize(QSize(kIconPx, kIconPx));
         setFont(Style::capsFont(font()));
+
+        QIcon symbol;
+        const qreal faktor = devicePixelRatioF() > 0.0 ? devicePixelRatioF() : 1.0;
+        const QPixmap still = sideAreaIconPixmap(id, kIconPx, QColor(Style::kTextInactive()), faktor);
+        const QPixmap aktiv = sideAreaIconPixmap(id, kIconPx, QColor(Style::kBlueBg()), faktor);
+        if (!still.isNull()) {
+            symbol.addPixmap(still, QIcon::Normal, QIcon::Off);
+            symbol.addPixmap(aktiv, QIcon::Normal, QIcon::On);
+            // Beim Daraufzeigen ebenfalls das stille Bild -- die Farbe
+            // wechselt sonst zweimal (Hintergrund und Symbol), was
+            // unruhig wirkt.
+            symbol.addPixmap(still, QIcon::Active, QIcon::Off);
+            symbol.addPixmap(aktiv, QIcon::Active, QIcon::On);
+            setIcon(symbol);
+        }
+        // Der Name wird beim Zeichnen gekürzt, nicht hier: die Breite
+        // steht erst fest, wenn der Knopf sie hat.
+        setText(title);
     }
 
     QString id() const { return m_id; }
 
+    // Wird gerufen, wenn der Knopf aus der Leiste HERAUSgezogen wurde.
+    // Ein Rückruf statt eines Signals: diese Klasse liegt im anonymen
+    // Namensraum und hat kein Q_OBJECT.
+    std::function<void(const QPoint&)> onDragOut;
+
+    static constexpr int kIconPx = 17;
+
+protected:
+    // Ziehen als Rückweg aus dem Bereich. Martin, 2026-09-28: "die
+    // widgets sollte man aber auch wieder per drag and drop rausziehen
+    // können, in dem fall nach rechts." Hinein geht es schon so (am
+    // Panelkopf packen); hinaus gab es nur den Rechtsklick, und den
+    // findet man nicht von selbst.
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton) {
+            m_pressGlobal = event->globalPosition().toPoint();
+            m_zieht = false;
+        }
+        QToolButton::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if ((event->buttons() & Qt::LeftButton) && !m_pressGlobal.isNull()) {
+            const QPoint jetzt = event->globalPosition().toPoint();
+            if (!m_zieht && (jetzt - m_pressGlobal).manhattanLength() >= QApplication::startDragDistance()) {
+                m_zieht = true;
+                setCursor(Qt::ClosedHandCursor);
+            }
+            // JEDE Bewegung merken, nicht nur die, mit der der Zug
+            // begann: sonst steht hier am Ende ein Punkt dicht neben
+            // dem Knopf -- also mitten im Seitenbereich -- und das
+            // Herausziehen gilt als "doch nicht". Live gefunden.
+            m_letzteZugPosition = jetzt;
+        }
+        QToolButton::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        if (m_zieht && event->button() == Qt::LeftButton) {
+            m_zieht = false;
+            m_pressGlobal = QPoint();
+            unsetCursor();
+            setDown(false);
+            // Die zuletzt GEMELDETE Zugposition, nicht die beim
+            // Loslassen: bei einem eingespeisten Zug
+            // (Bedienungshilfen, meine eigene Live-Prüfung) steht der
+            // Zeiger beim Loslassen schon wieder am Ausgangspunkt --
+            // das Panel landete dann links in der Leiste statt dort,
+            // wo man es hingezogen hat. Dieselbe Lehre wie bei
+            // PanelContainerWidget::endDrag().
+            const QPoint wo = m_letzteZugPosition.isNull() ? event->globalPosition().toPoint()
+                                                            : m_letzteZugPosition;
+            // NICHT an die Basisklasse weitergeben: die würde den Knopf
+            // umschalten, und ein Zug wäre zugleich ein Klick.
+            m_letzteZugPosition = QPoint();
+            if (onDragOut) {
+                // VERZÖGERT, nicht sofort: onDragOut nimmt das Panel aus
+                // dem Bereich, dabei baut rebuildRail() die Knöpfe neu
+                // -- auch DIESEN, dessen mouseReleaseEvent hier gerade
+                // läuft. Qt arbeitet danach auf einem toten Objekt
+                // weiter. Unter macOS ging das zufällig gut, die
+                // Linux-CI hat es als SegFault gemeldet (test_seiten-
+                // bereich, 2026-09-28). Derselbe Fehler wie beim
+                // Bandmenü und beim ersten Leisten-Klick: niemals ein
+                // Widget aus seinem eigenen Handler heraus löschen.
+                auto rueckruf = onDragOut;
+                QTimer::singleShot(0, this, [rueckruf, wo]() { rueckruf(wo); });
+            }
+            return;
+        }
+        m_pressGlobal = QPoint();
+        QToolButton::mouseReleaseEvent(event);
+    }
+
+    // Ein zu langer Name ("Karte / Verbindungen") würde den Knopf
+    // aufblähen; QToolButton kürzt von sich aus nicht.
+    void resizeEvent(QResizeEvent* event) override
+    {
+        QToolButton::resizeEvent(event);
+        // Symbol, Randbalken, beide Polster und der Abstand zwischen
+        // Symbol und Text gehen ab. Zu knapp gerechnet kürzt Qt selbst
+        // noch einmal nach -- und zwar in der MITTE ("KARTE ...ERBIN"),
+        // was schlechter lesbar ist als ein sauberes Ende.
+        const int fuerText = width() - kIconPx - 34;
+        const QString gekuerzt = fontMetrics().elidedText(m_title, Qt::ElideRight, std::max(10, fuerText));
+        if (gekuerzt != text()) {
+            setText(gekuerzt);
+        }
+    }
+
 private:
     QString m_id;
+    QString m_title;
+    QPoint m_pressGlobal;
+    QPoint m_letzteZugPosition;
+    bool m_zieht = false;
 };
 
 } // namespace
@@ -189,6 +315,10 @@ void SideAreaWidget::rebuildRail()
         // Zustand mit QSignalBlocker, ein programmatisches Nachziehen
         // landet also nicht wieder hier.
         connect(button, &QToolButton::toggled, this, [this, id](bool) { railClicked(id); });
+        // Herausziehen: der Bereich meldet es nur, entschieden wird
+        // draußen (MainWindow weiß, wohin das Panel auf der Fläche
+        // gehört und ob die Stelle überhaupt außerhalb liegt).
+        button->onDragOut = [this, id](const QPoint& globalPos) { emit pageDraggedOut(id, globalPos); };
         button->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(button, &QWidget::customContextMenuRequested, this,
                 [this, id](const QPoint&) { emit removeRequested(id); });

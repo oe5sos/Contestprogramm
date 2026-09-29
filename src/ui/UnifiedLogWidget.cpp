@@ -1714,13 +1714,37 @@ void UnifiedLogWidget::applyEntryRowWidths()
     // der beiden Zellen mehr der angepassten Spaltenbreite: die
     // Eingabezeile verrutschte gegen die Tabelle, sobald das Panel
     // schmaler oder breiter wurde.
-    if (!m_entryRowBlanks.isEmpty() && !m_feedTable->isColumnHidden(ColSerial)) {
-        m_entryRowBlanks.at(0)->setFixedSize(columnWidthFor(ColSerial), rowHeight);
+    // Die drei Zellen VOR dem Rufzeichen bekommen die ABSTÄNDE der
+    // Spaltenpositionen, nicht die Spaltenbreiten. Das klingt nach
+    // demselben, ist es aber nicht: Ränder, Gitterlinien und Rundungen
+    // summieren sich, und auf dem CI-Mac (Qt 6.8.3) fing das
+    // Rufzeichenfeld in den Vollspalten dadurch 6 px vor seiner Spalte
+    // an, während es lokal (Qt 6.11.1) genau saß. Abstände zwischen
+    // Positionen, die die Tabelle selbst meldet, stimmen dagegen per
+    // Konstruktion -- und sie berücksichtigen eine versteckte Spalte
+    // (Abstand 0) wie eine umsortierte Reihenfolge von allein.
+    QHeaderView* kopf = m_feedTable->horizontalHeader();
+    const int xSerial = kopf->sectionPosition(ColSerial);
+    const int xBand = kopf->sectionPosition(ColBand);
+    const int xTime = kopf->sectionPosition(ColTime);
+    const int xCall = kopf->sectionPosition(ColCall);
+
+    if (!m_entryRowBlanks.isEmpty()) {
+        // Auch SICHTBAR schalten, nicht nur breit machen: die laufende
+        // Nummer lässt sich abschalten und wieder einschalten (⚙ des
+        // Logs). Beim Abschalten blieb die leere Zelle stehen und wurde
+        // nur nicht mehr angepasst -- beim Wiedereinschalten fehlte sie
+        // dann in der Eingabezeile, während die Tabelle ihre Spalte
+        // längst wieder zeigte: Rufzeichenfeld bei 70, Spalte bei 185.
+        // Von der Windows-CI im Rüttel-Prüfstand gefunden (2026-09-28).
+        const bool nummerSichtbar = !m_feedTable->isColumnHidden(ColSerial);
+        m_entryRowBlanks.at(0)->setVisible(nummerSichtbar);
+        m_entryRowBlanks.at(0)->setFixedSize(nummerSichtbar ? std::max(0, xBand - xSerial) : 0, rowHeight);
     }
     if (m_entryBandLabel) {
-        m_entryBandLabel->setFixedSize(columnWidthFor(ColBand), rowHeight);
+        m_entryBandLabel->setFixedSize(std::max(0, xTime - xBand), rowHeight);
     }
-    m_entryTimeLabel->setFixedSize(columnWidthFor(ColTime), rowHeight);
+    m_entryTimeLabel->setFixedSize(std::max(0, xCall - xTime), rowHeight);
     m_callsignEdit->setFixedSize(columnWidthFor(ColCall), rowHeight);
     const int sentWidth = dxLog ? (columnWidthFor(ColRstSent) + columnWidthFor(ColSerialSent))
                                 : columnWidthFor(ColExchSent);
@@ -2286,6 +2310,16 @@ void UnifiedLogWidget::setRunningNumberVisible(bool visible)
     m_entryRowLayoutBuilt = false; // erzwingt den Neuaufbau der Zeile
     setViewMode(m_viewMode);
     fitColumnsToViewport();
+    // Und zum Schluss die Zeile auf die Spalten legen. setViewMode()
+    // hat sie neu gebaut, fitColumnsToViewport() danach die Breiten
+    // geändert -- dazwischen passt niemand die Zeile an. Ohne diese
+    // Zeile stand das Rufzeichenfeld nach dem Wiedereinschalten der
+    // laufenden Nummer bei 70, während seine Spalte bei 185 anfing:
+    // die QSO#-Spalte war in der Tabelle da, in der Eingabezeile
+    // nicht. Von der Windows-CI im Rüttel-Prüfstand gefunden
+    // (2026-09-28); auf macOS fing ein späterer Layout-Durchlauf es
+    // ein, weshalb es dort nur dem auffiel, der sofort hinsah.
+    applyEntryRowWidths();
 }
 
 void UnifiedLogWidget::setEntryRowPosition(ContestSettings::LogEntryRowPosition position)

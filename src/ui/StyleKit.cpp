@@ -147,6 +147,17 @@ QString kBlueText() { return colorAt(IdxBlueText); }
 
 QString kAmberText() { return colorAt(IdxAmberText); }
 
+QString kMentionMagenta()
+{
+    // Helligkeit vom Haupttext übernehmen: auf einem dunklen Thema
+    // muss die Farbe hell genug sein, auf einem hellen dunkel genug.
+    const QColor text(kTextPrimary());
+    const int l = text.lightness();
+    // Kräftig genug, um zwischen grauen Zeilen sofort aufzufallen,
+    // aber nicht vollgesättigt -- das flimmert auf Schrift.
+    return QColor::fromHsl(310, 200, std::clamp(l, 115, 170)).name();
+}
+
 QString bandTint(const QString& band)
 {
     // Grad Abstand zum Akzentton des Themas, nicht absolute Farbtöne:
@@ -357,6 +368,21 @@ QString appStyleSheet()
         "QMenu { background: %4; color: %2; border: 1px solid %3; }"
         "QMenu::item { padding: 4px 20px; }"
         "QMenu::item:selected { background: %8; color: %9; }"
+
+        // Die Leiste des Seitenbereichs. Ohne eigene Regel sah man dem
+        // gedrückten Knopf nichts an -- Martin, 2026-09-28: "wird nicht
+        // übernommen", mit zwei Bildern, auf denen verschiedene Seiten
+        // vorne lagen und trotzdem immer dasselbe Kürzel hell wirkte.
+        // Aktiv = Akzentfarbe plus Balken am Rand, wie in Longpath.
+        "QWidget#sideAreaRail QToolButton { background: transparent; color: %12;"
+        "  border: none; border-left: 2px solid transparent; border-radius: 0;"
+        // Links etwas Luft, damit das Symbol nicht am Rand klebt, und
+        // zwischen Symbol und Name der Abstand, den QToolButton selbst
+        // nicht hergibt.
+        "  padding: 6px 4px 6px 8px; text-align: left; }"
+        "QWidget#sideAreaRail QToolButton:hover { background: %14; color: %2; }"
+        "QWidget#sideAreaRail QToolButton:checked { background: %4; color: %8;"
+        "  border-left: 2px solid %8; }"
 
         "QStatusBar { background: %19; border-top: 1px solid %3; color: %5; }"
         "QStatusBar::item { border: none; }"

@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -217,6 +218,13 @@ void PanelContainerWidget::updateDrag(const QPoint& globalPos)
         return;
     }
     m_lastDragGlobal = globalPos;
+    // Liegt das Panel im Seitenbereich, sitzt es in einem
+    // QStackedWidget und füllt es ganz aus. Dort etwas zu verschieben
+    // ergibt nur Gezitter -- der Zug zählt trotzdem, sein Ende
+    // entscheidet über das Herausziehen (siehe dragFinished).
+    if (qobject_cast<QStackedWidget*>(parentWidget()) != nullptr) {
+        return;
+    }
     QPoint newPos = globalPos - m_dragStartOffset;
     // Clamped to the parent canvas -- same overlay-docked behavior as
     // ContainerWidget::updateDrag()'s non-floating branch.

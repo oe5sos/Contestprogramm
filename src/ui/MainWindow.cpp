@@ -970,6 +970,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                              /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
     // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
     if (chatContainer && chatContainer->headerBar()) {
+        // Ohne diese Zeile gibt es das Menü zwar, aber keinen Knopf, der
+        // es öffnet. Genau so war es: Martin, 2026-09-28, "im chat gibt
+        // es keine optionen - diese sollten dafür dienen, dass ich zb
+        // die gruppe wechseln kann". Der Kopf zeigt den ⚙ erst, wenn er
+        // ausdrücklich eingeschaltet wird (setOptionsAffordanceEnabled),
+        // das Verbinden des Signals allein genügt nicht.
+        chatContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
                 &MainWindow::showChatOptionsPopup);
     }
@@ -988,6 +995,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_sideArea, &SideAreaWidget::removeRequested, this, [this](const QString& id) {
         takePanelOutOfSideArea(id);
     });
+    connect(m_sideArea, &SideAreaWidget::pageDraggedOut, this, &MainWindow::dragPanelOutOfSideArea);
     // Welche Seite oben liegt und ob der Bereich zugeklappt ist, gehört
     // zur Lage dazu -- sonst steht nach dem Neustart eine andere Seite
     // vorne als beim Beenden.
@@ -1006,8 +1014,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
                                QStringLiteral("skeds"), QStringLiteral("chat")}) {
         if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
-            connect(panel, &PanelContainerWidget::dragFinished, this,
-                    [this, id](const QPoint& globalPos) { dropPanelIfOverSideArea(id, globalPos); });
+            connect(panel, &PanelContainerWidget::dragFinished, this, [this, id](const QPoint& globalPos) {
+                // Beide Richtungen am selben Griff: liegt das Panel
+                // schon im Seitenbereich, holt der Zug es heraus, sonst
+                // legt er es hinein. Martin, 2026-09-28: "ich kann
+                // nichts herausziehen" -- der Leistenknopf ging, aber
+                // gezogen wird am Panelkopf, spiegelbildlich zum
+                // Hineinziehen.
+                if (m_sideArea && m_sideArea->hasPage(id)) {
+                    dragPanelOutOfSideArea(id, globalPos);
+                } else {
+                    dropPanelIfOverSideArea(id, globalPos);
+                }
+            });
         }
     }
 
@@ -2175,8 +2194,21 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             connect(&client, &RotctldClient::azimuthChanged, widget, [this, &client, label](double az) {
                 pushRotorHeadingToMap(client, true, az, label);
             });
-            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, label]() {
-                pushRotorHeadingToMap(client, true, client.azimuthDeg(), label);
+            // Die Richtung kommt vom BEDIENFELD, nicht vom Client.
+            // Martin, 2026-09-28: "ich habe den rotor-zeiger geändert,
+            // aber in der karte war dieser auf null grad." Genau hier
+            // ging sie verloren: ohne Draht zum Rotor meldet
+            // RotctldClient::azimuthDeg() 0, und jeder Takt der
+            // Verbindungsprüfung (stateChanged feuert auch bei jedem
+            // erfolglosen Anlauf) schob diese 0 in die Karte -- über
+            // die Richtung hinweg, die man gerade von Hand gestellt
+            // hatte. Der Zeiger blieb auf 31, der Lichtkegel sprang auf
+            // 0. Das Bedienfeld ist die Quelle: es zeigt, was der
+            // Steckplatz verfolgt, ob echt gemessen oder von Hand
+            // gestellt -- dieselbe Regel, nach der die Nadel gezeichnet
+            // wird.
+            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, widget, label]() {
+                pushRotorHeadingToMap(client, true, widget->azimuthDeg(), label);
             });
             // Mirrors the dial's OWN heading onto the map -- not just a
             // duplicate of the two connections above. This one also
@@ -2399,6 +2431,14 @@ void MainWindow::refreshMapWidget()
     const ContestSettings settings = m_appController.settings();
     m_mapWidget->setOwnGrid(settings.ownGrid);
     m_mapWidget->setOwnLabel(settings.ownCallsign);
+    // Dasselbe Rufzeichen färbt im Chat die Zeilen, die mich angehen
+    // (Martin, 2026-09-28: "was im chat mich betrifft soll in magenta
+    // gekennzeichnet werden"). Hier mitgezogen, weil diese Stelle nach
+    // jeder Einstellungsänderung läuft -- wer sein Rufzeichen ändert,
+    // hat sofort die richtige Hervorhebung.
+    if (m_chatPanel) {
+        m_chatPanel->setOwnCallsign(settings.ownCallsign);
+    }
 
     QVector<MapWidget::Station> stations;
     QSet<QString> workedCallsigns;
@@ -2762,6 +2802,67 @@ void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
     m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
     saveSideAreaState();
     statusBar()->showMessage(QStringLiteral("%1 liegt jetzt im Seitenbereich").arg(title), 4000);
+}
+
+// Herausziehen: das Panel verlässt den Bereich und legt sich dorthin,
+// wo der Zeiger losgelassen wurde. Martin, 2026-09-28: "die widgets
+// sollte man aber auch wieder per drag and drop rausziehen können, in
+// dem fall nach rechts." Innerhalb des Bereichs losgelassen heißt
+// "doch nicht" -- sonst risse ein Rutscher beim Umschalten das Panel
+// heraus.
+void MainWindow::dragPanelOutOfSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || !m_sideArea->hasPage(id)) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (bereichPanel) {
+        const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+        if (bereichAufDemSchirm.contains(globalPos)) {
+            return;
+        }
+    }
+    const QSize vorherigeGroesse = m_sideAreaHomeGeometry.value(id).size();
+    takePanelOutOfSideArea(id);
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel) {
+        return;
+    }
+    // Der Griff sitzt links oben am Panelkopf, dort wo man es auch
+    // wieder anfassen würde -- ein paar Pixel neben dem Zeiger, nicht
+    // mittig darunter, sonst verdeckt der Mauszeiger die Kopfzeile.
+    QWidget* flaeche = m_panelLayoutManager->canvas();
+    if (!flaeche) {
+        return;
+    }
+    const QPoint aufDerFlaeche = flaeche->mapFromGlobal(globalPos) - QPoint(20, 10);
+    const QSize groesse = vorherigeGroesse.isValid() && !vorherigeGroesse.isEmpty() ? vorherigeGroesse
+                                                                                     : panel->size();
+    // Ein GESPERRTES Panel weist trySetGeometry() ab -- und Martins
+    // Panels sind gesperrt. Live gefunden: Skeds kam aus der Leiste,
+    // legte sich aber an seinen alten Platz links oben statt dorthin,
+    // wo losgelassen wurde. Wer ein Panel eigenhändig herauszieht,
+    // verschiebt es absichtlich; das Schloss schützt vor Versehen, und
+    // ein Zug quer über den Schirm ist keines. Es bleibt gesperrt --
+    // nur dieser eine Handgriff geht durch.
+    const bool warGesperrt = panel->isLocked();
+    if (warGesperrt) {
+        panel->setLocked(false);
+    }
+    // Auf der Fläche halten. Sonst hinge ein breites Panel, ganz rechts
+    // abgelegt, zur Hälfte draußen -- die Klemme, die der
+    // Layout-Manager sonst besorgt, greift bei einem gesperrten Panel
+    // nicht.
+    const QPoint gehalten(std::clamp(aufDerFlaeche.x(), 0, std::max(0, flaeche->width() - groesse.width())),
+                          std::clamp(aufDerFlaeche.y(), 0, std::max(0, flaeche->height() - groesse.height())));
+    panel->trySetGeometry(QRect(gehalten, groesse));
+    if (warGesperrt) {
+        panel->setLocked(true);
+    }
+    m_panelLayoutManager->revealPanel(id);
+    statusBar()->showMessage(QStringLiteral("%1 liegt wieder auf der Fläche")
+                                 .arg(panel->title().isEmpty() ? id : panel->title()),
+                             4000);
 }
 
 // Und zurück auf die Fläche, an die Stelle, von der es kam.

@@ -39,6 +39,7 @@ class TestEingabezeileInFlucht : public QObject
 private slots:
     void theEntryRowLinesUpWithTheTableInBothViews();
     void itStaysInLineWhenTheRunningNumberIsSwitchedOff();
+    void itStaysInLineWhenTheRunningNumberComesBack();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -209,6 +210,55 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberIsSwitchedOff()
     const int zelleX = zellenAnfang(window, rufzeichen);
     const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
     qInfo().noquote() << "ohne laufende Nummer -- Rufzeichenfeld bei" << zelleX << ", Call-Spalte bei" << spalteX;
+    QVERIFY2(std::abs(zelleX - spalteX) <= 1,
+             qPrintable(QStringLiteral("Das Rufzeichenfeld fängt bei %1 an, seine Spalte bei %2")
+                            .arg(zelleX)
+                            .arg(spalteX)));
+}
+
+// Der Rückweg: aus und wieder AN. Die Windows-CI hat ihn am
+// 2026-09-28 im Rüttel-Prüfstand gefunden -- "nach nummer(an):
+// Rufzeichenfeld bei 70, Spalte bei 185". Auf macOS fiel es nicht auf,
+// weil dort ein Layout-Durchlauf die Zeile nachträglich einfing.
+void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberComesBack()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("flucht3.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* row = window.findChild<QWidget*>(QLatin1String(UnifiedLogWidget::kEntryRowObjectName));
+    QVERIFY(row);
+
+    log->setRunningNumberVisible(false);
+    log->setRunningNumberVisible(true);
+    // Ein Layout-Durchlauf gehört dazu: die endgültige Spaltenbreite
+    // steht erst danach fest, und genau dann muss die Zeile folgen.
+    QCoreApplication::processEvents();
+    QVERIFY(!table->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    for (QLineEdit* feld : row->findChildren<QLineEdit*>()) {
+        qInfo().noquote() << "Feld" << feld->objectName() << feld->placeholderText() << "bei"
+                          << zellenAnfang(window, feld) << "Breite" << feld->width();
+    }
+    for (int spalte = 0; spalte < 6; ++spalte) {
+        qInfo().noquote() << "Spalte" << spalte << "versteckt" << table->isColumnHidden(spalte) << "bei"
+                          << spaltenAnfang(table, spalte);
+    }
+    QLineEdit* rufzeichen = row->findChildren<QLineEdit*>().first();
+    const int zelleX = zellenAnfang(window, rufzeichen);
+    const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
+    qInfo().noquote() << "laufende Nummer wieder an -- Rufzeichenfeld bei" << zelleX << ", Call-Spalte bei"
+                      << spalteX;
     QVERIFY2(std::abs(zelleX - spalteX) <= 1,
              qPrintable(QStringLiteral("Das Rufzeichenfeld fängt bei %1 an, seine Spalte bei %2")
                             .arg(zelleX)
