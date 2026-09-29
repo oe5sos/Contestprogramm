@@ -113,6 +113,35 @@ void arbeiteAb()
 
 } // namespace
 
+namespace {
+
+// Ein echter Mausklick auf eine Zelle -- Ereignisse direkt an den
+// Viewport, NICHT QTest::mouseClick: das geht über das Fenstersystem
+// und verpufft, solange das Fenster nicht wirklich auf einem Schirm
+// liegt (im Prüfstandslauf nie). Genau daran waren die Maus-Prüfstände
+// bisher blind: clicked feuerte nicht einmal.
+void klickeZelle(QTableView* tabelle, const QModelIndex& index, bool doppelt)
+{
+    if (!tabelle || !index.isValid()) {
+        return;
+    }
+    tabelle->scrollTo(index);
+    const QPoint mitte = tabelle->visualRect(index).center();
+    const QPointF global = tabelle->viewport()->mapToGlobal(mitte);
+    auto schicke = [&](QEvent::Type art, Qt::MouseButtons gedrueckt) {
+        QMouseEvent e(art, QPointF(mitte), global, Qt::LeftButton, gedrueckt, Qt::NoModifier);
+        QApplication::sendEvent(tabelle->viewport(), &e);
+    };
+    schicke(QEvent::MouseButtonPress, Qt::LeftButton);
+    schicke(QEvent::MouseButtonRelease, Qt::NoButton);
+    if (doppelt) {
+        schicke(QEvent::MouseButtonDblClick, Qt::LeftButton);
+        schicke(QEvent::MouseButtonRelease, Qt::NoButton);
+    }
+}
+
+} // namespace
+
 class TestRuetteln : public QObject
 {
     Q_OBJECT
@@ -162,11 +191,21 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent_data()
     QTest::addColumn<int>("schritte");
     // Mehrere Startwerte: jeder fährt eine andere Folge. Fest gewählt,
     // damit ein Fehlschlag wiederholbar ist.
-    QTest::newRow("Folge 1") << quint32(20260928) << 200;
-    QTest::newRow("Folge 2") << quint32(4711) << 200;
-    QTest::newRow("Folge 3") << quint32(144432) << 200;
-    QTest::newRow("Folge 4") << quint32(1) << 200;
-    QTest::newRow("Folge 5") << quint32(999983) << 200;
+    // Länge je Folge: 200 im Alltag, beliebig mehr für einen Dauerlauf
+    // (CP_RUETTELN_SCHRITTE=5000). Ein Contest dauert 24 Stunden --
+    // was dabei schiefgeht, zeigt sich nicht in 200 Handgriffen, und
+    // unter dem Speicherprüfer schon gar nicht. Martin, 2026-09-29:
+    // "beim contest kann ich mir keine fehler leisten."
+    bool zahlOk = false;
+    const int schritteProFolge = qEnvironmentVariableIntValue("CP_RUETTELN_SCHRITTE", &zahlOk) > 0 && zahlOk
+        ? qEnvironmentVariableIntValue("CP_RUETTELN_SCHRITTE")
+        : 200;
+
+    QTest::newRow("Folge 1") << quint32(20260928) << schritteProFolge;
+    QTest::newRow("Folge 2") << quint32(4711) << schritteProFolge;
+    QTest::newRow("Folge 3") << quint32(144432) << schritteProFolge;
+    QTest::newRow("Folge 4") << quint32(1) << schritteProFolge;
+    QTest::newRow("Folge 5") << quint32(999983) << schritteProFolge;
 }
 
 void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
@@ -374,7 +413,7 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
     };
 
     for (int schritt = 0; schritt < schritte; ++schritt) {
-        const int handlung = zufall.bounded(10);
+        const int handlung = zufall.bounded(11);
         const QList<QPair<QString, QString>> vorher = verlaufszeilen();
 
         switch (handlung) {
@@ -402,8 +441,22 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
             if (zeile < 0) {
                 break;
             }
-            model->setData(model->index(zeile, UnifiedLogWidget::ColumnCall),
-                            rufzeichen.at(zufall.bounded(rufzeichen.size())), Qt::EditRole);
+            // Wie im Contest: doppelt auf die Zelle, tippen, Enter.
+            // Vorher stand hier setData() -- das prüfte, ob das Modell
+            // eine Änderung verarbeitet, nicht ob man überhaupt
+            // hinkommt (Martin, 2026-09-29: "möchte log ändern,
+            // funktioniert nicht").
+            const QModelIndex zelle = model->index(zeile, UnifiedLogWidget::ColumnCall);
+            klickeZelle(table, zelle, /*doppelt=*/true);
+            arbeiteAb();
+            QLineEdit* editor = table->viewport()->findChild<QLineEdit*>();
+            QVERIFY2(editor != nullptr,
+                     qPrintable(QStringLiteral("Doppelklick auf das Rufzeichen öffnet keinen Editor "
+                                                "(Zeile %1)%2")
+                                    .arg(zeile)
+                                    .arg(QStringLiteral("\nVerlauf: ") + verlauf.join(QStringLiteral(" > ")))));
+            editor->setText(rufzeichen.at(zufall.bounded(rufzeichen.size())));
+            QTest::keyClick(editor, Qt::Key_Return);
             arbeiteAb();
             verlauf << QStringLiteral("call-korrektur");
             break;
@@ -422,11 +475,19 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
             if (zeile < 0) {
                 break;
             }
-            model->setData(model->index(zeile, UnifiedLogWidget::ColumnSerialGridRcvd),
-                            QStringLiteral("59 %1 %2")
+            // Auch hier über die Bedienung: doppelt auf die Zelle
+            // "Nr./Grid", neu tippen, Enter.
+            const QModelIndex zelle = model->index(zeile, UnifiedLogWidget::ColumnSerialGridRcvd);
+            klickeZelle(table, zelle, true);
+            arbeiteAb();
+            QLineEdit* editor = table->viewport()->findChild<QLineEdit*>();
+            QVERIFY2(editor != nullptr,
+                     qPrintable(QStringLiteral("Doppelklick auf Nr./Grid öffnet keinen Editor (Zeile %1)")
+                                    .arg(zeile)));
+            editor->setText(QStringLiteral("59 %1 %2")
                                 .arg(zufall.bounded(1, 400), 3, 10, QLatin1Char('0'))
-                                .arg(locatoren.at(zufall.bounded(locatoren.size()))),
-                            Qt::EditRole);
+                                .arg(locatoren.at(zufall.bounded(locatoren.size()))));
+            QTest::keyClick(editor, Qt::Key_Return);
             arbeiteAb();
             verlauf << QStringLiteral("locator-korrektur");
             break;
@@ -477,6 +538,29 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
             controller->setSettings(settings);
             arbeiteAb();
             verlauf << QStringLiteral("nummer(%1)").arg(an ? QStringLiteral("an") : QStringLiteral("aus"));
+            break;
+        }
+        case 10: { // Gueltigkeit umschalten -- Klick auf die Statuszelle
+            if (vorher.isEmpty()) {
+                break;
+            }
+            int zeile = -1;
+            for (int i = 0; i < model->rowCount(); ++i) {
+                if (!model->index(i, UnifiedLogWidget::ColumnCall).data().toString().isEmpty()) {
+                    zeile = i;
+                    break;
+                }
+            }
+            if (zeile < 0) {
+                break;
+            }
+            // Ein Klick macht ungueltig, der naechste wieder gueltig --
+            // im Contest der Griff fuer ein QSO, das nicht zaehlt.
+            klickeZelle(table, model->index(zeile, UnifiedLogWidget::ColumnStatus), false);
+            arbeiteAb();
+            klickeZelle(table, model->index(zeile, UnifiedLogWidget::ColumnStatus), false);
+            arbeiteAb();
+            verlauf << QStringLiteral("ungueltig-hin-und-zurueck");
             break;
         }
         case 9: { // Fenster ziehen
