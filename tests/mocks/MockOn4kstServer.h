@@ -40,6 +40,10 @@ public:
     void rejectNextLogin(int code = 101, const QString& message = QStringLiteral("Already logged in"));
     int loginAttempts() const { return m_loginAttempts; }
 
+    // Die Leitung kappen, wie es ein Server tut, der neu startet oder
+    // den ein Netzweg verliert. Der Client muss von allein zurückkommen.
+    void dropConnection();
+
 signals:
     void keepaliveSent();
 

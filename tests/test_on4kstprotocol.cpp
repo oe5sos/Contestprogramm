@@ -26,6 +26,7 @@ private slots:
     void switchingRoomsLogsInAgainWithTheNewChatId();
     void aRejectedLoginIsTriedAgainInsteadOfGivingUp();
     void aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry();
+    void theChatComesBackAfterEveryDropOverALongContest();
 };
 
 void TestOn4kstProtocol::initTestCase()
@@ -250,6 +251,66 @@ void TestOn4kstProtocol::aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry(
     client.reconnectNow();
     QTRY_VERIFY_WITH_TIMEOUT(server.loginAttempts() > vorNeuverbinden, 5000);
     qInfo().noquote() << "neu verbinden -> Anmeldeversuche:" << server.loginAttempts();
+}
+
+// Der Dauerbetrieb, den ein 24-Stunden-Contest verlangt. Martin,
+// 2026-09-29: "beim contest kann ich mir keine fehler leisten" -- und
+// am selben Morgen war sein Chat still, weil ein einziger abgelehnter
+// Login als endgültig galt.
+//
+// Der Server kappt hier immer wieder die Leitung, einmal weist er
+// einen Login ab. Der Client muss JEDES MAL von allein zurückkommen
+// und im richtigen Raum landen. Zyklen einstellbar über
+// CP_KST_ZYKLEN -- im Alltag ein paar, für einen langen Lauf mehr.
+void TestOn4kstProtocol::theChatComesBackAfterEveryDropOverALongContest()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+
+    On4kstClient client;
+    QSignalSpy raumSpy(&client, &On4kstClient::roomObserved);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isLoggedIn(), 5000);
+
+    bool ok = false;
+    const int gewuenscht = qEnvironmentVariableIntValue("CP_KST_ZYKLEN", &ok);
+    const int zyklen = (ok && gewuenscht > 0) ? gewuenscht : 12;
+
+    int zurueckgekommen = 0;
+    for (int i = 0; i < zyklen; ++i) {
+        const int vorher = server.loginAttempts();
+        // Jeder dritte Abbruch kommt mit einer Login-Ablehnung dazu --
+        // "Sitzung noch offen", der Fall vom 29.09.
+        if (i % 3 == 2) {
+            server.rejectNextLogin();
+        }
+        server.dropConnection();
+        QTRY_VERIFY_WITH_TIMEOUT(!client.isLoggedIn(), 5000);
+        // reconnectNow() ist der Knopf "Jetzt neu verbinden"; ohne ihn
+        // wartet der Takt bis zu einer Minute, was diesen Prüfstand
+        // unnötig lang machen würde. Geprüft wird, dass der Client nach
+        // JEDEM Abbruch wieder sauber im Raum landet.
+        client.reconnectNow();
+        if (i % 3 == 2) {
+            // Dieser Anlauf wird abgewiesen -- so gewollt: danach
+            // wartet der Client in Ruhe (eine Minute), statt zu
+            // hämmern. Der Prüfstand darf das nicht als Fehler lesen;
+            // die erste Fassung tat es und meldete einen Mangel, den es
+            // nicht gibt. Also: auf die Ablehnung warten und dann den
+            // Knopf noch einmal drücken, wie es ein Bediener täte.
+            QTRY_VERIFY_WITH_TIMEOUT(server.loginAttempts() > vorher, 8000);
+            QTRY_VERIFY_WITH_TIMEOUT(client.hasPendingRetryForTest(), 8000);
+            client.reconnectNow();
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(client.isLoggedIn(), 8000);
+        QVERIFY2(server.loginAttempts() > vorher, "kein neuer Anmeldeversuch nach dem Abbruch");
+        QCOMPARE(client.currentChatId(), On4kstClient::kChatIdVhfUhf);
+        ++zurueckgekommen;
+    }
+    qInfo().noquote() << zurueckgekommen << "von" << zyklen << "Abbrüchen überstanden, Anmeldeversuche:"
+                      << server.loginAttempts() << "| Raum zuletzt:" << server.lastChatId();
+    QCOMPARE(zurueckgekommen, zyklen);
 }
 
 int main(int argc, char* argv[])

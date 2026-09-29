@@ -85,6 +85,17 @@ void MockOn4kstServer::onReadyRead()
     }
 }
 
+void MockOn4kstServer::dropConnection()
+{
+    if (m_client) {
+        m_client->abort();
+        m_client = nullptr;
+    }
+    m_loggedIn = false;
+    m_keepaliveSent = false;
+    m_buffer.clear();
+}
+
 void MockOn4kstServer::rejectNextLogin(int code, const QString& message)
 {
     m_rejectCode = code;
