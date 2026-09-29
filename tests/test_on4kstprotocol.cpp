@@ -25,6 +25,7 @@ private slots:
     void liveLoginReceivesSpotChatAndKeepalive();
     void switchingRoomsLogsInAgainWithTheNewChatId();
     void aRejectedLoginIsTriedAgainInsteadOfGivingUp();
+    void aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry();
 };
 
 void TestOn4kstProtocol::initTestCase()
@@ -209,6 +210,46 @@ void TestOn4kstProtocol::aRejectedLoginIsTriedAgainInsteadOfGivingUp()
     QTRY_VERIFY_WITH_TIMEOUT(client.hasPendingRetryForTest(), 5000);
     qInfo().noquote() << "nächster Anlauf in" << client.pendingRetryDelayMsForTest() / 1000 << "s";
     QVERIFY(client.pendingRetryDelayMsForTest() >= 60000);
+}
+
+// Martin, 2026-09-29, mit Bild: "kann nicht anklicken". Das ganze
+// Raummenü hing an "angemeldet" -- und angemeldet war er gerade
+// nicht, weil ON4KST an dem Morgen schlicht nicht erreichbar war
+// (aus seiner eigenen Shell: "connectx to www.on4kst.org port 23001
+// failed: Operation timed out"). Gerade dann will man den Raum
+// wählen können: die Wahl soll für den nächsten Anlauf gelten, und
+// der soll gleich genommen werden.
+void TestOn4kstProtocol::aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+
+    On4kstClient client;
+    QSignalSpy raumSpy(&client, &On4kstClient::roomObserved);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+
+    // Verbindung weg, wie bei einem Server, der nicht antwortet.
+    client.disconnectFromServer();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 5000);
+    const int versucheVorher = server.loginAttempts();
+
+    // Jetzt den Raum wählen -- getrennt.
+    client.switchRoom(3);
+    QTRY_COMPARE_WITH_TIMEOUT(server.lastChatId(), 3, 5000);
+    QVERIFY2(server.loginAttempts() > versucheVorher,
+             "Die Raumwahl im getrennten Zustand hat keinen neuen Anlauf ausgelöst");
+    QCOMPARE(client.currentChatId(), 3);
+    qInfo().noquote() << "getrennt Raum 3 gewählt -> Server sah Login für Raum" << server.lastChatId();
+
+    // Und "Jetzt neu verbinden" nimmt ebenfalls sofort einen Anlauf.
+    client.disconnectFromServer();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 5000);
+    const int vorNeuverbinden = server.loginAttempts();
+    client.reconnectNow();
+    QTRY_VERIFY_WITH_TIMEOUT(server.loginAttempts() > vorNeuverbinden, 5000);
+    qInfo().noquote() << "neu verbinden -> Anmeldeversuche:" << server.loginAttempts();
 }
 
 int main(int argc, char* argv[])

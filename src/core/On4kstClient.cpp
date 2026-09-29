@@ -118,9 +118,40 @@ int On4kstClient::pendingRetryDelayMsForTest() const
     return m_reconnectTimer->interval();
 }
 
+void On4kstClient::reconnectNow()
+{
+    if (m_host.isEmpty() || m_callsign.isEmpty()) {
+        return; // ohne Zugangsdaten gibt es nichts zu wählen
+    }
+    m_reconnectTimer->stop();
+    m_reconnectAttempts = 0;
+    m_loginRejected = false;
+    m_pendingRoomChatId = m_chatId;
+    m_intentionalDisconnect = false;
+    if (m_connected || m_socket->state() != QAbstractSocket::UnconnectedState) {
+        disconnectFromServer();
+        m_intentionalDisconnect = false;
+        return; // onDisconnected nimmt den vorgemerkten Anlauf auf
+    }
+    startPendingRoomLogin();
+}
+
 void On4kstClient::switchRoom(int chatId)
 {
-    if (chatId <= 0 || chatId == m_chatId) {
+    if (chatId <= 0) {
+        return;
+    }
+    // Getrennt darf man den Raum trotzdem wählen -- dann gilt er für
+    // den nächsten Anlauf, und der wird gleich genommen. Martin,
+    // 2026-09-29: "kann nicht anklicken", weil das ganze Raummenü an
+    // "angemeldet" hing -- und angemeldet war er gerade nicht.
+    const bool getrennt = !m_connected && m_socket->state() == QAbstractSocket::UnconnectedState;
+    if (chatId == m_chatId && !getrennt) {
+        return;
+    }
+    if (getrennt) {
+        m_chatId = chatId;
+        reconnectNow();
         return;
     }
     // Nicht sofort neu verbinden: ein connectToHost() auf einem Socket,

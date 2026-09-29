@@ -392,7 +392,8 @@ void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
     // Einträge lesen und wieder zumachen.
     QStringList eintraege;
     QStringList kennungen;
-    QTimer::singleShot(0, [&eintraege, &kennungen]() {
+    QStringList anklickbar;
+    QTimer::singleShot(0, [&eintraege, &kennungen, &anklickbar]() {
         auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
         if (!menu) {
             return;
@@ -409,6 +410,9 @@ void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
                 eintraege << a->text();
                 if (!a->objectName().isEmpty()) {
                     kennungen << a->objectName();
+                    if (a->isEnabled()) {
+                        anklickbar << a->objectName();
+                    }
                 }
             }
         };
@@ -434,6 +438,21 @@ void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
     }
     QVERIFY2(kennungen.contains(QStringLiteral("chatRoomFollowBand")),
              "Es fehlt der Weg zurück zu „dem Band folgen“");
+    // Und der Weg zurück ins Netz, wenn die Verbindung weg ist --
+    // Martin, 2026-09-29: "kann nicht anklicken", als ON4KST nicht
+    // erreichbar war. Beides muss GETRENNT benutzbar sein: der Raum
+    // (er gilt dann für den nächsten Anlauf) und das Neuverbinden.
+    QVERIFY2(kennungen.contains(QStringLiteral("chatReconnectAction")),
+             "Es fehlt „Jetzt neu verbinden“");
+    for (const QString& kennung : kennungen) {
+        if (kennung == QStringLiteral("chatReconnectAction")
+            || kennung.startsWith(QStringLiteral("chatRoom_"))) {
+            QVERIFY2(anklickbar.contains(kennung),
+                     qPrintable(QStringLiteral("%1 ist gesperrt -- getrennt ist aber genau der Fall, "
+                                                "in dem man es braucht")
+                                    .arg(kennung)));
+        }
+    }
     // Anwesenheit, CQ, Filter, Reichweite.
     for (const QString& kennung : {QStringLiteral("chatAwayAction"), QStringLiteral("chatBackAction"),
                                     QStringLiteral("chatCqAction"), QStringLiteral("chatShowAllAction"),

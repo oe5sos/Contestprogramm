@@ -87,6 +87,10 @@ public:
 
     // Für Prüfstände: steht ein neuer Anlauf an, und wie lange dauert
     // es noch? Ein abgelehnter Login darf nicht das Ende sein.
+    // Sofort einen neuen Anlauf nehmen, ohne auf den Takt zu warten --
+    // für den Knopf "Neu verbinden" im ⚙ des Chats.
+    void reconnectNow();
+
     bool hasPendingRetryForTest() const;
     int pendingRetryDelayMsForTest() const;
     void sendChatMessage(const QString& text);

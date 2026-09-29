@@ -2641,7 +2641,10 @@ void MainWindow::showChatOptionsPopup()
     // Hier lässt er sich von Hand setzen: wer auf 144 arbeitet, aber im
     // Mikrowellenraum mitlesen will, kann das.
     auto* raumMenu = menu->addMenu(QStringLiteral("Chatraum"));
-    raumMenu->setEnabled(angemeldet);
+    // BEWUSST auch im getrennten Zustand anklickbar: der gewählte Raum
+    // gilt dann für den nächsten Anlauf, und der wird sofort genommen.
+    // Martin, 2026-09-29: "kann nicht anklicken" -- das Menü war an
+    // "angemeldet" gekoppelt, und angemeldet war er gerade nicht.
     struct Raum {
         int id;
         const char* name;
@@ -2677,6 +2680,13 @@ void MainWindow::showChatOptionsPopup()
     connect(demBandFolgen, &QAction::triggered, this, [this]() {
         m_currentOn4kstRoom.clear(); // erzwingt den Wechsel beim nächsten Abgleich
         syncOn4kstRoomForCurrentBand();
+    });
+
+    QAction* neuVerbinden = menu->addAction(QStringLiteral("Jetzt neu verbinden"));
+    neuVerbinden->setObjectName(QStringLiteral("chatReconnectAction"));
+    connect(neuVerbinden, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().reconnectNow();
+        statusBar()->showMessage(QStringLiteral("ON4KST: neuer Anmeldeversuch läuft"), 4000);
     });
 
     menu->addSeparator();
