@@ -13,7 +13,9 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QFile>
 #include <QHeaderView>
+#include <QTextStream>
 #include <QIntValidator>
 #include <QKeyEvent>
 #include <QLabel>
@@ -1285,6 +1287,32 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // see eventFilter().
     m_feedTable->viewport()->installEventFilter(this);
     connect(m_feedTable, &QTableView::clicked, this, &UnifiedLogWidget::handleFeedRowClicked);
+
+    // Mitschrift für die Fehlersuche am Log: CP_LOG_MITSCHRIFT=<pfad>
+    // hält fest, was beim Klicken wirklich ankommt. Gebraucht für
+    // Martins Meldung vom 2026-09-29 ("möchte log ändern, funktioniert
+    // nicht"): der Prüfstand kann es nicht klären, weil QTest-Mausklicks
+    // ein Fenster brauchen, das wirklich auf dem Schirm liegt -- in der
+    // Reihe läuft keiner. Also im laufenden Programm nachsehen.
+    if (!qgetenv("CP_LOG_MITSCHRIFT").isEmpty()) {
+        auto schreibe = [](const QString& text) {
+            QFile mit(QString::fromLocal8Bit(qgetenv("CP_LOG_MITSCHRIFT")));
+            if (mit.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream(&mit) << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << ' ' << text
+                                  << '\n';
+            }
+        };
+        connect(m_feedTable, &QTableView::clicked, this, [this, schreibe](const QModelIndex& i) {
+            schreibe(QStringLiteral("clicked Zeile %1 Spalte %2 editierbar=%3")
+                          .arg(i.row()).arg(i.column())
+                          .arg(bool(m_feedModel->flags(i) & Qt::ItemIsEditable)));
+        });
+        connect(m_feedTable, &QTableView::doubleClicked, this, [this, schreibe](const QModelIndex& i) {
+            schreibe(QStringLiteral("doubleClicked Zeile %1 Spalte %2 editierbar=%3 -> edit() folgt")
+                          .arg(i.row()).arg(i.column())
+                          .arg(bool(m_feedModel->flags(i) & Qt::ItemIsEditable)));
+        });
+    }
 
     // Löschen: Rechtsklick auf die Zeile oder die Entf-Taste. Martin,
     // 2026-09-27: "fehler sollen einfach und schnell geändert und
