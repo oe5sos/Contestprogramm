@@ -1,5 +1,6 @@
 #include "MockOn4kstServer.h"
 
+#include <QDebug>
 #include <QHostAddress>
 
 namespace Contestprogramm {
@@ -39,9 +40,12 @@ void MockOn4kstServer::onReadyRead()
         // Anything the client sends after the keepalive challenge is
         // the reply under test -- capture it verbatim rather than
         // trying to parse it (a bare "\r\n" has nothing to parse).
+        // Die Antwort auf CK| mitschreiben -- ABER weiterparsen: früher
+        // stand hier ein return, und damit verschluckte der Prüfstand
+        // alles, was der Client nach dem ersten Keepalive noch schickte.
+        // Ein zweites LOGINC (Raumwechsel) kam deshalb nie an, und der
+        // Prüfstand behauptete, der Wechsel funktioniere nicht.
         m_afterKeepalive += m_buffer;
-        m_buffer.clear();
-        return;
     }
 
     while (true) {
@@ -52,14 +56,23 @@ void MockOn4kstServer::onReadyRead()
         const QByteArray line = m_buffer.left(idx).trimmed();
         m_buffer.remove(0, idx + 1);
 
-        if (!m_loggedIn && line.startsWith("LOGIN")) {
+        if (line.startsWith("LOGIN")) {
+            // Die vierte Spalte von LOGINC|call|pw|chat_id|version| ist
+            // der Raum. Der echte Server bestätigt ihn und schickt
+            // danach Zeilen aus GENAU diesem Raum -- der Prüfstand tut
+            // dasselbe, sonst ließe sich ein Raumwechsel nicht prüfen.
+            const QList<QByteArray> felder = line.split('|');
+            m_lastChatId = felder.size() > 3 ? felder.at(3).toInt() : 2;
             m_loggedIn = true;
-            m_client->write("SDONE|2|\r\n");
+            const QByteArray raum = QByteArray::number(m_lastChatId);
+            m_client->write("SDONE|" + raum + "|\r\n");
             m_client->write("DL|1700000000|1200Z|OE1TST|144300.0|OE3TST|FT8 -12dB|JN78|JN77|\r\n");
-            m_client->write("CH|2|1200Z|OE7TST|Hans|ALL|CQ CQ JN88TC|0|\r\n");
-            m_client->write("CK|\r\n");
-            m_keepaliveSent = true;
-            emit keepaliveSent();
+            m_client->write("CH|" + raum + "|1200Z|OE7TST|Hans|ALL|CQ CQ JN88TC|0|\r\n");
+            if (!m_keepaliveSent) {
+                m_client->write("CK|\r\n");
+                m_keepaliveSent = true;
+                emit keepaliveSent();
+            }
         }
     }
 }

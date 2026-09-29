@@ -31,6 +31,9 @@ public:
     // test reads this back to confirm the required bare "\r\n" reply.
     QByteArray bytesReceivedAfterKeepalive() const { return m_afterKeepalive; }
 
+    // Der Raum, den das zuletzt empfangene Login angefordert hat.
+    int lastChatId() const { return m_lastChatId; }
+
 signals:
     void keepaliveSent();
 
@@ -44,6 +47,7 @@ private:
     QByteArray  m_buffer;
     QByteArray  m_afterKeepalive;
     bool m_loggedIn = false;
+    int  m_lastChatId = 0; // Raum aus dem zuletzt empfangenen LOGINC
     bool m_keepaliveSent = false;
 };
 

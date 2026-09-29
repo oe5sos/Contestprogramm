@@ -423,11 +423,13 @@ void TestChatPanel::theOptionsMenuOffersEverythingThatCanBeChanged()
         qInfo().noquote() << "   " << e;
     }
 
-    // Die Räume, die ON4KST kennt (siehe On4kstClient's
-    // Klassenkommentar: 50 / 144 / GHZ / EME / HF).
-    for (const QString& raum : {QStringLiteral("chatRoom_50"), QStringLiteral("chatRoom_144"),
-                                 QStringLiteral("chatRoom_GHZ"), QStringLiteral("chatRoom_EME"),
-                                 QStringLiteral("chatRoom_HF")}) {
+    // Die Räume stehen jetzt unter ihrer chat_id, nicht unter einem
+    // Kürzel: nur die Nummer setzt bei ON4KST wirklich einen Raum
+    // (LOGINC|...|chat_id|). 1 = 50/70, 2 = 144/432, 3 = Mikrowelle,
+    // 4 = EME, 5 = Kurzwelle.
+    for (const QString& raum : {QStringLiteral("chatRoom_1"), QStringLiteral("chatRoom_2"),
+                                 QStringLiteral("chatRoom_3"), QStringLiteral("chatRoom_4"),
+                                 QStringLiteral("chatRoom_5")}) {
         QVERIFY2(kennungen.contains(raum), qPrintable(QStringLiteral("Der Raum %1 fehlt").arg(raum)));
     }
     QVERIFY2(kennungen.contains(QStringLiteral("chatRoomFollowBand")),

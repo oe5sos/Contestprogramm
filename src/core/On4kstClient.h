@@ -75,7 +75,15 @@ public:
     bool isConnected() const { return m_connected; }
     bool isLoggedIn() const { return m_loggedIn; }
 
-    void switchRoom(const QString& value); // "/CHAT <value>"
+    // Den Raum wechseln. Geht NUR über ein neues Login: die chat_id ist
+    // ein Feld von LOGINC, und der Server bestätigt sie mit
+    // LOGSTAT|100|chat_id|. Das früher hier verschickte "/CHAT <wert>"
+    // stammt aus der wtKST-Doku, die dieser Client selbst als
+    // ungeprüft führt -- Martin, 2026-09-29: "bitte kontrolliere ob
+    // dieser chat auch wirklich den raum ändert." Ob es wirkt, zeigt
+    // roomObserved(): die chat_id, die in den eingehenden Zeilen steht.
+    void switchRoom(int chatId);
+    int currentChatId() const { return m_chatId; }
     void sendChatMessage(const QString& text);
     void sendCqCall(const QString& callsign, const QString& message); // "/CQ callsign message"
     void sendAway();
@@ -102,6 +110,10 @@ signals:
     // 2026-09-28: "bitte kontrolliere ob dieser chat auch wirklich den
     // raum ändert."
     void roomObserved(int chatId);
+
+private:
+    // Meldet sich mit dem vorgemerkten Raum neu an -- siehe switchRoom().
+    void startPendingRoomLogin();
 
 private slots:
     void onConnected();
@@ -130,7 +142,8 @@ private:
     QString m_callsign;
     QString m_password;
     int     m_chatId{kChatIdVhfUhf};
-    int     m_observedChatId{-1}; // aus eingehenden CH|/CR|-Zeilen
+    int     m_observedChatId{-1};   // aus eingehenden CH|/CR|-Zeilen
+    int     m_pendingRoomChatId{0}; // gewünschter Raum, sobald die Leitung unten ist
 
     std::atomic<bool> m_connected{false};
     bool    m_loggedIn{false};

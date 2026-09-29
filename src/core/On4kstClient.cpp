@@ -16,6 +16,11 @@
 
 #include "core/SpotParser.h"
 
+#include <QDateTime>
+#include <QDebug>
+#include <QFile>
+#include <QTextStream>
+
 #include <algorithm>
 
 namespace Contestprogramm {
@@ -103,9 +108,48 @@ void On4kstClient::sendRaw(const QString& line)
     m_socket->write((line + QStringLiteral("\r\n")).toLatin1());
 }
 
-void On4kstClient::switchRoom(const QString& value)
+void On4kstClient::switchRoom(int chatId)
 {
-    sendRaw(QStringLiteral("/CHAT %1").arg(value));
+    if (chatId <= 0 || chatId == m_chatId) {
+        return;
+    }
+    // Nicht sofort neu verbinden: ein connectToHost() auf einem Socket,
+    // der gerade erst zumacht, wird von Qt abgewiesen -- der Prüfstand
+    // zeigte das sofort (der Server sah weiter nur die alte
+    // Raumnummer). Also den Wunsch vormerken und erst anmelden, wenn
+    // die Leitung wirklich unten ist (onDisconnected).
+    m_pendingRoomChatId = chatId;
+    m_observedChatId = -1; // die alte Beobachtung gilt nicht mehr
+    if (!m_connected && m_socket->state() == QAbstractSocket::UnconnectedState) {
+        startPendingRoomLogin();
+        return;
+    }
+    disconnectFromServer();
+}
+
+void On4kstClient::startPendingRoomLogin()
+{
+    if (m_pendingRoomChatId <= 0) {
+        return;
+    }
+    const int chatId = m_pendingRoomChatId;
+    m_pendingRoomChatId = 0;
+    m_connected = false;
+    m_loggedIn = false;
+    // Den Socket erst hart zurücksetzen: direkt aus onDisconnected
+    // heraus steckt er noch im Schließen, und ein connectToHost() wird
+    // dann stillschweigend verworfen -- im Prüfstand kam das zweite
+    // LOGINC nie beim Server an. Und einen Umlauf warten, damit Qt den
+    // Zustandswechsel abschließt, bevor neu gewählt wird.
+    QTimer::singleShot(0, this, [this, chatId]() {
+        // abort() gehört MIT in den verzögerten Teil: ruft man es noch
+        // im disconnected-Handler desselben Sockets, kommt die neue
+        // Verbindung zwar in ConnectingState, aber nie zustande.
+        m_socket->abort();
+        m_connected = false;
+        m_loggedIn = false;
+        connectAndLogin(m_host, m_port, m_callsign, m_password, chatId);
+    });
 }
 
 void On4kstClient::sendChatMessage(const QString& text)
@@ -161,6 +205,14 @@ void On4kstClient::onDisconnected()
 
     if (wasConnected) {
         emit disconnected();
+    }
+
+    // Ein vorgemerkter Raumwechsel ist der Grund fürs Trennen gewesen
+    // -- jetzt, wo die Leitung unten ist, melden wir uns mit der neuen
+    // Raumnummer wieder an.
+    if (m_pendingRoomChatId > 0) {
+        startPendingRoomLogin();
+        return;
     }
 
     scheduleReconnect();
@@ -241,6 +293,21 @@ void On4kstClient::onReadyRead()
 
         if (line.isEmpty()) {
             continue;
+        }
+
+        // Mitschrift für die Fehlersuche am Protokoll: CP_KST_MITSCHRIFT
+        // = Pfad schreibt jede Zeile roh mit, so wie sie ankommt. Ohne
+        // die Variable passiert nichts. Gebraucht, um Martins Frage vom
+        // 2026-09-29 zu klären ("kontrolliere ob dieser chat auch
+        // wirklich den raum ändert"): was der Server über Räume
+        // überhaupt hergibt, steht in keiner Doku, die sich prüfen
+        // ließe -- also nachsehen, was er schickt.
+        static const QByteArray mitschriftPfad = qgetenv("CP_KST_MITSCHRIFT");
+        if (!mitschriftPfad.isEmpty()) {
+            QFile mit(QString::fromLocal8Bit(mitschriftPfad));
+            if (mit.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream(&mit) << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << ' ' << line << '\n';
+            }
         }
 
         emit rawLineReceived(line);

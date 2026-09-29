@@ -355,7 +355,8 @@ private:
     // Empty for a band this program doesn't operate/an as-yet-unknown
     // band -- syncOn4kstRoomForCurrentBand() below then leaves the
     // current room alone rather than switching to a meaningless value.
-    static QString on4kstRoomValueForBand(const QString& band);
+    // Die chat_id des Raums, der zu diesem Band gehört; 0 = keiner bekannt.
+    static int on4kstRoomValueForBand(const QString& band);
     QString on4kstRoomStatusText() const;
     // Automatic 23cm room-switch (plan's chat-capability item 4,
     // 2026-09-12): m_currentBand is already fully CAT-driven with no

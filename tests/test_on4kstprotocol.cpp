@@ -23,6 +23,7 @@ private slots:
     void telnetIacIsStrippedFromBuffer();
 
     void liveLoginReceivesSpotChatAndKeepalive();
+    void switchingRoomsLogsInAgainWithTheNewChatId();
 };
 
 void TestOn4kstProtocol::initTestCase()
@@ -138,6 +139,40 @@ void TestOn4kstProtocol::liveLoginReceivesSpotChatAndKeepalive()
     QCOMPARE(chat.grid, QStringLiteral("JN88TC"));
 
     QVERIFY(client.isLoggedIn());
+}
+
+// Martin, 2026-09-29: "bitte kontrolliere ob dieser chat auch wirklich
+// den raum ändert." Er ändert ihn jetzt auf dem einzigen Weg, den das
+// Protokoll dafür kennt -- ein neues Login mit der gewünschten
+// chat_id. Geprüft wird beides: dass das Login die neue Nummer trägt,
+// und dass die Zeilen danach aus diesem Raum kommen (roomObserved).
+void TestOn4kstProtocol::switchingRoomsLogsInAgainWithTheNewChatId()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+
+    On4kstClient client;
+    QSignalSpy raumSpy(&client, &On4kstClient::roomObserved);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+    QCOMPARE(raumSpy.takeFirst().at(0).toInt(), On4kstClient::kChatIdVhfUhf);
+    QCOMPARE(server.lastChatId(), On4kstClient::kChatIdVhfUhf);
+    QCOMPARE(client.currentChatId(), On4kstClient::kChatIdVhfUhf);
+
+    // In den Mikrowellenraum wechseln.
+    client.switchRoom(3);
+    QTRY_COMPARE_WITH_TIMEOUT(server.lastChatId(), 3, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+    QCOMPARE(raumSpy.takeLast().at(0).toInt(), 3);
+    QCOMPARE(client.currentChatId(), 3);
+
+    // Derselbe Raum noch einmal: kein zweites Login, sonst risse jeder
+    // Bandabgleich die Verbindung ohne Not ab.
+    const int vorher = server.lastChatId();
+    client.switchRoom(3);
+    QCoreApplication::processEvents();
+    QCOMPARE(server.lastChatId(), vorher);
 }
 
 int main(int argc, char* argv[])
