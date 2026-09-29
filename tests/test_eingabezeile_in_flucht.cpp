@@ -26,6 +26,7 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/MainWindow.h"
+#include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -40,6 +41,7 @@ private slots:
     void theEntryRowLinesUpWithTheTableInBothViews();
     void itStaysInLineWhenTheRunningNumberIsSwitchedOff();
     void itStaysInLineWhenTheRunningNumberComesBack();
+    void theStatusColumnIsOnlyAsWideAsItsPill();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -263,6 +265,45 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberComesBack()
              qPrintable(QStringLiteral("Das Rufzeichenfeld fängt bei %1 an, seine Spalte bei %2")
                             .arg(zelleX)
                             .arg(spalteX)));
+}
+
+// Martin, 2026-09-29: "bitte viel schmäler machen, ich benötige
+// platz!!!" -- über die letzte Spalte im Log. Sie wuchs bis 110 px in
+// jede freie Lücke und stand auf fast jeder Zeile leer da. Jetzt ist
+// sie so breit wie ihr breitestes Schild und keinen Deut breiter.
+void TestEingabezeileInFlucht::theStatusColumnIsOnlyAsWideAsItsPill()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("statusbreite.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+
+    // Was das breiteste Schild in seiner eigenen Schrift braucht.
+    QFont pillenSchrift = table->font();
+    pillenSchrift.setPixelSize(Style::kFontCaption);
+    pillenSchrift.setWeight(QFont::DemiBold);
+    const QFontMetrics masse(pillenSchrift);
+    const int noetig = masse.horizontalAdvance(QStringLiteral("UNGÜLTIG")) + 16 + 12;
+
+    const int breite = table->columnWidth(UnifiedLogWidget::ColumnStatus);
+    qInfo().noquote() << "Statusspalte:" << breite << "px, das Schild braucht" << noetig << "px";
+    QVERIFY2(breite >= noetig - 2,
+             qPrintable(QStringLiteral("Die Statusspalte ist %1 px breit, UNGÜLTIG braucht %2 px")
+                            .arg(breite).arg(noetig)));
+    QVERIFY2(breite <= noetig + 2,
+             qPrintable(QStringLiteral("Die Statusspalte ist mit %1 px breiter als nötig (%2 px)")
+                            .arg(breite).arg(noetig)));
+    // Und deutlich schmäler als der alte Deckel von 110 px.
+    QVERIFY2(breite < 100, "Die Statusspalte ist nicht schmäler geworden");
 }
 
 int main(int argc, char* argv[])
