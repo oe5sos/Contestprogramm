@@ -16,6 +16,7 @@
 #include "core/terrain/TerrainDataManager.h"
 #include "data/ContestDatabase.h"
 #include "data/LogBackup.h"
+#include "data/QsoJournal.h"
 #include "data/ContestDefinition.h"
 #include "data/DupeChecker.h"
 #include "data/MultiplierTracker.h"
@@ -24,6 +25,8 @@
 
 #include <QDateTime>
 #include <QObject>
+
+#include <memory>
 #include <QString>
 #include <QVector>
 
@@ -73,6 +76,10 @@ public:
     // Periodic copies of the database (data/LogBackup.h); created in
     // openDatabase() beside the database file, null before that.
     LogBackup* logBackup() { return m_logBackup; }
+
+    // Die zweite Spur für jedes QSO -- siehe QsoJournal. Nullptr,
+    // solange keine Datenbank offen ist.
+    QsoJournal* qsoJournal() { return m_qsoJournal.get(); }
     const ContestDatabase& database() const { return m_database; }
     DupeChecker& dupeChecker() { return m_dupeChecker; }
     RigctldClient& rigctldClient() { return m_rigctldClient; }
@@ -223,6 +230,7 @@ private:
     ContestSettings m_settings;
     ContestDatabase m_database;
     LogBackup* m_logBackup = nullptr; // owned via QObject parent
+    std::unique_ptr<QsoJournal> m_qsoJournal;
     DupeChecker m_dupeChecker; // holds ContestDatabase& -- declared after m_database
     // Rufzeichen -> Land, aus einer cty.dat, die der Bediener selbst
     // lädt (MainWindow: Datei > Länderliste laden). Liegt hier und

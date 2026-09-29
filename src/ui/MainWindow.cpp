@@ -3201,6 +3201,21 @@ void MainWindow::handleLogRequested()
     record.isDupe = dupe;
     record.source = QStringLiteral("manual");
 
+    // ZUERST ins Journal, dann in die Datenbank. Die Reihenfolge ist
+    // der ganze Sinn: wenn die Datenbank gleich versagt (Platte voll,
+    // Datei gesperrt, Schema kaputt), steht das QSO trotzdem schon auf
+    // der Platte -- als ADIF-Zeile, die sich überall importieren lässt.
+    // Martin, 2026-09-29: "die dürfen nicht weg sein."
+    if (QsoJournal* journal = m_appController.qsoJournal()) {
+        if (!journal->schreibe(record, m_appController.settings())) {
+            // Kein Abbruch: das Loggen geht weiter, die Datenbank ist
+            // die erste Spur. Aber sagen muss man es -- ein stilles
+            // halbes Netz ist schlechter als gar keines.
+            statusBar()->showMessage(
+                QStringLiteral("Journal konnte nicht geschrieben werden: %1").arg(journal->letzterFehler()),
+                8000);
+        }
+    }
     if (!m_appController.database().insertQso(record)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                               QStringLiteral("QSO konnte nicht gespeichert werden:\n%1").arg(m_appController.database().lastError()));

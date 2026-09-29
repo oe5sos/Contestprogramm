@@ -18,10 +18,13 @@
 #include <QElapsedTimer>
 #include <QApplication>
 #include <QProcess>
+#include <QFile>
 #include <QTemporaryDir>
 #include <QThread>
 
+#include "app/ContestSettings.h"
 #include "data/ContestDatabase.h"
+#include "data/QsoJournal.h"
 #include "data/QsoRecord.h"
 
 
@@ -58,6 +61,7 @@ private slots:
     void loggingStaysFastEnoughWithFullSync();
     void aKillInTheMiddleOfWritingLosesNothingThatWasConfirmed();
     void afterAHardKillTheLogIsStillUsable();
+    void theJournalHoldsEveryQsoEvenWhenTheDatabaseRefuses();
 };
 
 void TestLogHaltbarkeit::everyLoggedQsoSurvivesAHardKill()
@@ -189,6 +193,58 @@ void TestLogHaltbarkeit::afterAHardKillTheLogIsStillUsable()
     }
     QCOMPARE(db.qsoCountForContest(QStringLiteral("IARU_R1_VHF_UHF")), 15);
     qInfo().noquote() << "nach dem Abschuss weitergeloggt, jetzt 15 QSOs";
+}
+
+// Die zweite Spur. Wenn die Datenbank versagt -- Platte voll, Datei
+// gesperrt, Schema kaputt --, darf das QSO nicht nur in der
+// Eingabezeile stehen. Hier wird die Datenbank schreibgeschützt
+// gemacht, also genau dieser Fall erzwungen, und geprüft, dass das
+// Journal die Zeile trotzdem hat.
+void TestLogHaltbarkeit::theJournalHoldsEveryQsoEvenWhenTheDatabaseRefuses()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString journalPfad = dir.filePath(QStringLiteral("journal.adi"));
+    ContestSettings einstellungen;
+    einstellungen.ownCallsign = QStringLiteral("OE5SOS");
+    einstellungen.ownGrid = QStringLiteral("JN67VV");
+
+    QsoJournal journal(journalPfad);
+    for (int i = 1; i <= 5; ++i) {
+        QsoRecord r = macheQso(i);
+        QVERIFY2(journal.schreibe(r, einstellungen),
+                 qPrintable(QStringLiteral("Journal schreibt nicht: %1").arg(journal.letzterFehler())));
+    }
+
+    QFile datei(journalPfad);
+    QVERIFY(datei.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString inhalt = QString::fromUtf8(datei.readAll());
+    datei.close();
+    const int zeilen = inhalt.count(QStringLiteral("<EOR>"));
+    qInfo().noquote() << "Journal enthält" << zeilen << "QSO-Zeilen";
+    QCOMPARE(zeilen, 5);
+    QVERIFY2(inhalt.contains(QStringLiteral("<CALL:6>DL1ABC")), "das Rufzeichen fehlt im Journal");
+    QVERIFY2(inhalt.contains(QStringLiteral("<GRIDSQUARE:6>JN78CG")), "der Locator fehlt im Journal");
+
+    // Und jetzt der eigentliche Fall: die Datenbank nimmt nichts mehr
+    // an, das Journal schon.
+    const QString dbPfad = dir.filePath(QStringLiteral("gesperrt.sqlite"));
+    {
+        ContestDatabase db;
+        QVERIFY(db.open(dbPfad));
+        QsoRecord r = macheQso(99);
+        QVERIFY(db.insertQso(r));
+    }
+    QVERIFY(QFile::setPermissions(dbPfad, QFileDevice::ReadOwner));
+    ContestDatabase gesperrt;
+    const bool geoeffnet = gesperrt.open(dbPfad);
+    QsoRecord r = macheQso(100);
+    const bool inDatenbank = geoeffnet && gesperrt.insertQso(r);
+    const bool imJournal = journal.schreibe(r, einstellungen);
+    qInfo().noquote() << "schreibgeschützte Datenbank -- in der Datenbank:" << inDatenbank
+                      << "| im Journal:" << imJournal;
+    QVERIFY2(imJournal, "Das Journal muss auch dann schreiben, wenn die Datenbank es nicht tut");
+    QFile::setPermissions(dbPfad, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
 }
 
 void TestLogHaltbarkeit::loggingStaysFastEnoughWithFullSync()

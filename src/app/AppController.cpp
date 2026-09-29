@@ -215,6 +215,11 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     m_transverter = TransverterSetup::load(m_database);
     // Backups live beside the database itself ("backups/" next to the
     // .sqlite), where a rescue after a crash looks first.
+    // Das Journal liegt neben der Datenbank und trägt denselben Namen
+    // mit der Endung .adi -- wer nach einem Unglück sucht, findet es
+    // dort, ohne ein Verzeichnis tiefer zu gehen.
+    m_qsoJournal = std::make_unique<QsoJournal>(
+        QFileInfo(path).dir().filePath(QFileInfo(path).completeBaseName() + QStringLiteral("-journal.adi")));
     if (m_logBackup == nullptr) {
         m_logBackup = new LogBackup(m_database, QFileInfo(path).dir().filePath(QStringLiteral("backups")), this);
         // The second copy's folder (a stick, a cloud folder) is a
