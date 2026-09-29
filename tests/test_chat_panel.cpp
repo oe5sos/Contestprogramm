@@ -69,6 +69,7 @@ private slots:
     void theOptionsMenuOffersEverythingThatCanBeChanged();
     void everyPanelWithOptionsAlsoShowsTheGear();
     void linesThatMentionMeStandOutInMagenta();
+    void shortwaveClusterSpotsStayOutOfAVhfContestChat();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -539,6 +540,67 @@ void TestChatPanel::linesThatMentionMeStandOutInMagenta()
         const QColor farbe = modell->index(r, ChatPanelWidget::ColumnText).data(Qt::ForegroundRole).value<QColor>();
         QVERIFY2(farbe.name() != magenta.name(), "ohne eigenes Rufzeichen darf nichts magenta sein");
     }
+}
+
+// Martin, 2026-09-29, mit Bild: "im chatroom 144 sind
+// kurzwelleneinträge." Sie kamen nicht aus dem ON4KST-Raum, sondern
+// vom DX-Cluster, der weltweit alles spottet -- auch 1,8 und 7 MHz. In
+// einem UKW-Contest kann einen das nicht erreichen, also gehört es
+// nicht in den Chat. Eine Chatzeile ohne Frequenz bleibt.
+void TestChatPanel::shortwaveClusterSpotsStayOutOfAVhfContestChat()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("kurzwelle.sqlite"));
+    QVERIFY(controller);
+
+    ChatPanelWidget panel;
+    panel.setFeedModels(&controller->on4kstFeedModel(), &controller->clusterFeedModel());
+    panel.resize(900, 400);
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+
+    // 144 MHz aus der Nähe: gehört hinein.
+    controller->clusterFeedModel().addCandidate(macheZeile(QStringLiteral("S51DX"), QStringLiteral("JN76AB"),
+                                                            QStringLiteral("144325.0 S51DX JN76AB"),
+                                                            QStringLiteral("cluster"), 2, 144325000));
+    // Kurzwelle: dieselbe Station, aber auf 7 MHz -- nichts für einen
+    // UKW-Contest.
+    controller->clusterFeedModel().addCandidate(macheZeile(QStringLiteral("XE1AOH"), QString(),
+                                                            QStringLiteral("DX de DK3TG: 7164.0 XE1AOH"),
+                                                            QStringLiteral("cluster"), 2, 7164000));
+    controller->clusterFeedModel().addCandidate(macheZeile(QStringLiteral("VP2MAA"), QString(),
+                                                            QStringLiteral("DX de OK1DOT: 1814.9 VP2MAA"),
+                                                            QStringLiteral("cluster"), 1, 1814900));
+    // Eine Chatzeile ohne Frequenz -- bleibt.
+    // Nahe Station (51 km), damit sie der Reichweitenfilter nicht
+    // ohnehin aussortiert -- geprüft werden soll hier das Band.
+    controller->on4kstFeedModel().addCandidate(macheZeile(QStringLiteral("OK2XYZ"), QStringLiteral("JN78CG"),
+                                                          QStringLiteral("CQ 144.300 wer hoert mich"),
+                                                          QStringLiteral("on4kst"), 3));
+    QCoreApplication::processEvents();
+
+    auto* tabelle = panel.findChild<QTableView*>(QLatin1String(ChatPanelWidget::kTableObjectName));
+    QVERIFY(tabelle);
+    QStringList gezeigt;
+    for (int r = 0; r < tabelle->model()->rowCount(); ++r) {
+        gezeigt << tabelle->model()->index(r, ChatPanelWidget::ColumnCall).data().toString();
+    }
+    qInfo().noquote() << "im Chat:" << gezeigt.join(QStringLiteral(", "));
+    QVERIFY2(gezeigt.contains(QStringLiteral("S51DX")), "der 144-MHz-Spot fehlt");
+    QVERIFY2(gezeigt.contains(QStringLiteral("OK2XYZ")), "die Chatzeile ohne Frequenz fehlt");
+    QVERIFY2(!gezeigt.contains(QStringLiteral("XE1AOH")), "ein 7-MHz-Spot steht im UKW-Chat");
+    QVERIFY2(!gezeigt.contains(QStringLiteral("VP2MAA")), "ein 1,8-MHz-Spot steht im UKW-Chat");
+
+    // Und mit "alle Zeilen zeigen" ist alles wieder da -- gefiltert
+    // heißt verborgen, nicht weggeworfen.
+    panel.setShowAll(true);
+    QCoreApplication::processEvents();
+    QStringList alle;
+    for (int r = 0; r < tabelle->model()->rowCount(); ++r) {
+        alle << tabelle->model()->index(r, ChatPanelWidget::ColumnCall).data().toString();
+    }
+    QVERIFY2(alle.contains(QStringLiteral("XE1AOH")), "der Kurzwellen-Spot ist ganz verschwunden");
 }
 
 int main(int argc, char* argv[])

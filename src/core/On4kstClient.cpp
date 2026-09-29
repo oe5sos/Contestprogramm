@@ -334,6 +334,18 @@ void On4kstClient::handleLine(const QString& line)
         return;
     }
     if (SpotParser::parseChatLine(line, candidate)) {
+        // Die Raumkennung steht im zweiten Feld jeder CH|/CR|-Zeile.
+        // Sie ist der einzige ehrliche Beleg dafür, in welchem Raum
+        // dieser Client wirklich hängt.
+        const QStringList felder = line.split(QLatin1Char('|'));
+        if (felder.size() > 1) {
+            bool ok = false;
+            const int raum = felder.at(1).toInt(&ok);
+            if (ok && raum != m_observedChatId) {
+                m_observedChatId = raum;
+                emit roomObserved(raum);
+            }
+        }
         emit chatLineReceived(candidate);
     }
 }

@@ -18,7 +18,13 @@
 //   Failure:    LOGSTAT|code|message|
 //   Room:       chat_id 2 = 144/432 MHz (this program's target room);
 //               /CHAT value switches rooms after login ("50"/"144"/
-//               "GHZ"/"EME"/"HF").
+//               "GHZ"/"EME"/"HF") -- SO STEHT ES IN DER wtKST-DOKU,
+//               nachgeprüft ist es NICHT. Die einzige belegte Stelle,
+//               an der ein Raum gesetzt wird, ist das Login selbst
+//               (LOGINC|...|chat_id|) und die Bestätigung des Servers
+//               (LOGSTAT|100|chat_id|). Wer wissen will, in welchem
+//               Raum er sitzt, sieht auf roomObserved(): die chat_id,
+//               die in den eingehenden Zeilen wirklich steht.
 //   Spot:       DL|unix_time|dx_utc|spotter|qrg|dx|info|spotter_locator|dx_locator|
 //   Chat:       CH|chat_id|date|callsign|firstname|destination|msg|highlight|
 //               (CR|... in the login batch, same fields)
@@ -90,6 +96,12 @@ signals:
     void spotReceived(const SpotCandidate& candidate);
     void chatLineReceived(const SpotCandidate& candidate); // grid may be empty
     void rawLineReceived(const QString& line);
+    // Der Raum, aus dem die zuletzt eingegangene Chatzeile kam (das
+    // Feld chat_id in CH|/CR|). Damit lässt sich NACHSEHEN, in welchem
+    // Raum man wirklich sitzt, statt es zu glauben -- Martin,
+    // 2026-09-28: "bitte kontrolliere ob dieser chat auch wirklich den
+    // raum ändert."
+    void roomObserved(int chatId);
 
 private slots:
     void onConnected();
@@ -118,6 +130,7 @@ private:
     QString m_callsign;
     QString m_password;
     int     m_chatId{kChatIdVhfUhf};
+    int     m_observedChatId{-1}; // aus eingehenden CH|/CR|-Zeilen
 
     std::atomic<bool> m_connected{false};
     bool    m_loggedIn{false};

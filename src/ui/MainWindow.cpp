@@ -1254,6 +1254,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         updateStatusBar();
     });
     connect(&m_appController.on4kstClient(), &On4kstClient::loginFailed, this, &MainWindow::updateStatusBar);
+    // Was der Server wirklich schickt. Martin, 2026-09-28: "bitte
+    // kontrolliere ob dieser chat auch wirklich den raum ändert" -- das
+    // lässt sich nur am Datenstrom ablesen, nicht am eigenen Wunsch.
+    connect(&m_appController.on4kstClient(), &On4kstClient::roomObserved, this, [this](int chatId) {
+        m_observedOn4kstRoom = chatId;
+        updateStatusBar();
+        if (m_chatPanel) {
+            m_chatPanel->setConnectionStatus(on4kstRoomStatusText());
+        }
+    });
 
     connect(&m_appController.dxClusterClient(), &DxClusterClient::connected, this, &MainWindow::updateStatusBar);
     connect(&m_appController.dxClusterClient(), &DxClusterClient::disconnected, this, &MainWindow::updateStatusBar);
@@ -2885,6 +2895,24 @@ void MainWindow::takePanelOutOfSideArea(const QString& id)
     panel->raise();
     m_sideAreaHomeGeometry.remove(id);
     saveSideAreaState();
+}
+
+// Was im Chatkopf über dem Raum steht: der angeforderte Raum und --
+// wenn er davon abweicht oder noch nichts angekommen ist -- der, den
+// der Server tatsächlich liefert. Zwei Angaben, weil genau die
+// Differenz die Frage beantwortet, ob ein Wechsel gewirkt hat.
+QString MainWindow::on4kstRoomStatusText() const
+{
+    if (!m_appController.on4kstClient().isLoggedIn()) {
+        return QStringLiteral("ON4KST: getrennt");
+    }
+    const QString gewuenscht = m_currentOn4kstRoom.isEmpty() ? QStringLiteral("(dem Band folgend)")
+                                                              : m_currentOn4kstRoom;
+    if (m_observedOn4kstRoom < 0) {
+        return QStringLiteral("ON4KST: Raum %1 angefordert, noch keine Zeile empfangen").arg(gewuenscht);
+    }
+    return QStringLiteral("ON4KST: Raum %1 angefordert, Zeilen kommen aus Raum %2")
+        .arg(gewuenscht, QString::number(m_observedOn4kstRoom));
 }
 
 QString MainWindow::on4kstRoomValueForBand(const QString& band)
