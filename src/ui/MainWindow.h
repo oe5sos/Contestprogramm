@@ -355,7 +355,9 @@ private:
     // Empty for a band this program doesn't operate/an as-yet-unknown
     // band -- syncOn4kstRoomForCurrentBand() below then leaves the
     // current room alone rather than switching to a meaningless value.
-    static QString on4kstRoomValueForBand(const QString& band);
+    // Die chat_id des Raums, der zu diesem Band gehört; 0 = keiner bekannt.
+    static int on4kstRoomValueForBand(const QString& band);
+    QString on4kstRoomStatusText() const;
     // Automatic 23cm room-switch (plan's chat-capability item 4,
     // 2026-09-12): m_currentBand is already fully CAT-driven with no
     // manual UI control (see the class comment above) -- reusing that
@@ -509,6 +511,9 @@ private:
     // first sync, so that call's "differs from current" check does not
     // skip the very first (post-login) switch.
     QString m_currentOn4kstRoom;
+    // Der Raum, den der Server WIRKLICH liefert (chat_id aus den
+    // eingehenden Zeilen) -- nicht der, den wir angefordert haben.
+    int m_observedOn4kstRoom = -1;
     RateMeterWidget* m_rateMeterWidget = nullptr;
     // Check Partial (core/CheckPartialIndex.h + ui/CheckPartialWidget.h):
     // the index is refilled by reloadCheckPartialSources() on every

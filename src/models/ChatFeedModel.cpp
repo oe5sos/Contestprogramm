@@ -224,6 +224,32 @@ ChatFeedModel::FeedLine ChatFeedModel::lineAt(int index) const
     return zeile;
 }
 
+// Gehört die Frequenz dieses Spots zu einem Band, auf dem der aktive
+// Contest überhaupt läuft?
+//
+// Martin, 2026-09-29, mit Bild: "im chatroom 144 sind
+// kurzwelleneinträge." Die Zeilen kamen nicht aus dem ON4KST-Raum,
+// sondern vom DX-Cluster -- der schickt, was weltweit gespottet wird,
+// also auch 1,8 / 7 / 10 / 21 MHz. In einem UKW-Contest ist das nichts,
+// was einen erreichen kann; es ist genau der Fall, den sein Filter
+// abdecken soll ("alles was mich nicht erreicht bzw. was absolut nicht
+// funktionieren kann möchte ich gefiltert haben").
+//
+// Ein Spot OHNE Frequenz (jede Chatzeile) bleibt drin: über den sagt
+// die Frequenz nichts aus. Und ohne bekannte Contestbänder wird nichts
+// aussortiert -- lieber zu viel zeigen als etwas Richtiges verschlucken.
+bool ChatFeedModel::bandBelongsToContest(qint64 freqHz) const
+{
+    if (freqHz <= 0 || m_contestBands.isEmpty()) {
+        return true;
+    }
+    const QString band = bandLabelForFrequencyHz(freqHz);
+    if (band.isEmpty()) {
+        return true; // unbekanntes Band -- nicht heimlich wegwerfen
+    }
+    return m_contestBands.contains(band);
+}
+
 void ChatFeedModel::rebuildVisibleRows()
 {
     beginResetModel();
@@ -244,7 +270,7 @@ void ChatFeedModel::rebuildVisibleRows()
     QVector<double> survivorScores;
     for (int i = 0; i < m_allEntries.size(); ++i) {
         const Entry& entry = m_allEntries.at(i);
-        if (entry.geo.inRange && !entry.worked) {
+        if (entry.geo.inRange && !entry.worked && bandBelongsToContest(entry.candidate.freqHz)) {
             survivorIndices.append(i);
             survivorScores.append(entry.score);
         }

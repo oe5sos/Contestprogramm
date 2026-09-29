@@ -23,6 +23,9 @@ private slots:
     void telnetIacIsStrippedFromBuffer();
 
     void liveLoginReceivesSpotChatAndKeepalive();
+    void switchingRoomsLogsInAgainWithTheNewChatId();
+    void aRejectedLoginIsTriedAgainInsteadOfGivingUp();
+    void aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry();
 };
 
 void TestOn4kstProtocol::initTestCase()
@@ -138,6 +141,115 @@ void TestOn4kstProtocol::liveLoginReceivesSpotChatAndKeepalive()
     QCOMPARE(chat.grid, QStringLiteral("JN88TC"));
 
     QVERIFY(client.isLoggedIn());
+}
+
+// Martin, 2026-09-29: "bitte kontrolliere ob dieser chat auch wirklich
+// den raum ändert." Er ändert ihn jetzt auf dem einzigen Weg, den das
+// Protokoll dafür kennt -- ein neues Login mit der gewünschten
+// chat_id. Geprüft wird beides: dass das Login die neue Nummer trägt,
+// und dass die Zeilen danach aus diesem Raum kommen (roomObserved).
+void TestOn4kstProtocol::switchingRoomsLogsInAgainWithTheNewChatId()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+
+    On4kstClient client;
+    QSignalSpy raumSpy(&client, &On4kstClient::roomObserved);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+    QCOMPARE(raumSpy.takeFirst().at(0).toInt(), On4kstClient::kChatIdVhfUhf);
+    QCOMPARE(server.lastChatId(), On4kstClient::kChatIdVhfUhf);
+    QCOMPARE(client.currentChatId(), On4kstClient::kChatIdVhfUhf);
+
+    // In den Mikrowellenraum wechseln.
+    client.switchRoom(3);
+    QTRY_COMPARE_WITH_TIMEOUT(server.lastChatId(), 3, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+    QCOMPARE(raumSpy.takeLast().at(0).toInt(), 3);
+    QCOMPARE(client.currentChatId(), 3);
+
+    // Derselbe Raum noch einmal: kein zweites Login, sonst risse jeder
+    // Bandabgleich die Verbindung ohne Not ab.
+    const int vorher = server.lastChatId();
+    client.switchRoom(3);
+    QCoreApplication::processEvents();
+    QCOMPARE(server.lastChatId(), vorher);
+}
+
+// Ein abgelehnter Login hat den Chat bis zum Programmstart
+// stillgelegt. Gedacht war das gegen falsche Zugangsdaten, es traf
+// aber genauso "Sitzung noch offen" oder "Server mag gerade nicht" --
+// am 2026-09-29 live erlebt: nach etlichen Neustarts blieb die
+// Statusleiste grau und der Chat leer, bis das Programm neu startete.
+// Mitten im Contest ist das schlimmer als ein Versuch alle paar
+// Minuten.
+void TestOn4kstProtocol::aRejectedLoginIsTriedAgainInsteadOfGivingUp()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+    server.rejectNextLogin();
+
+    On4kstClient client;
+    QSignalSpy abgelehntSpy(&client, &On4kstClient::loginFailed);
+    QSignalSpy angemeldetSpy(&client, &On4kstClient::loggedIn);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!abgelehntSpy.isEmpty(), 5000);
+    QCOMPARE(server.loginAttempts(), 1);
+    qInfo().noquote() << "erster Versuch abgewiesen:" << abgelehntSpy.first().at(1).toString();
+
+    // Früher war hier Schluss. Jetzt steht ein neuer Anlauf an -- er
+    // kommt in Ruhe (eine Minute), deshalb wird hier nur geprüft, DASS
+    // einer ansteht, statt eine Minute zu warten.
+    // Warten, nicht sofort prüfen: der neue Anlauf wird erst gestellt,
+    // wenn die Leitung wirklich unten ist (onDisconnected). Allein
+    // gelaufen war der Prüfstand grün, in der Reihe rot -- ein
+    // Zeitfehler im Prüfstand, nicht im Programm.
+    QTRY_VERIFY_WITH_TIMEOUT(client.hasPendingRetryForTest(), 5000);
+    qInfo().noquote() << "nächster Anlauf in" << client.pendingRetryDelayMsForTest() / 1000 << "s";
+    QVERIFY(client.pendingRetryDelayMsForTest() >= 60000);
+}
+
+// Martin, 2026-09-29, mit Bild: "kann nicht anklicken". Das ganze
+// Raummenü hing an "angemeldet" -- und angemeldet war er gerade
+// nicht, weil ON4KST an dem Morgen schlicht nicht erreichbar war
+// (aus seiner eigenen Shell: "connectx to www.on4kst.org port 23001
+// failed: Operation timed out"). Gerade dann will man den Raum
+// wählen können: die Wahl soll für den nächsten Anlauf gelten, und
+// der soll gleich genommen werden.
+void TestOn4kstProtocol::aRoomCanBeChosenWhileDisconnectedAndIsUsedOnTheNextTry()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+
+    On4kstClient client;
+    QSignalSpy raumSpy(&client, &On4kstClient::roomObserved);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+    QTRY_VERIFY_WITH_TIMEOUT(!raumSpy.isEmpty(), 5000);
+
+    // Verbindung weg, wie bei einem Server, der nicht antwortet.
+    client.disconnectFromServer();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 5000);
+    const int versucheVorher = server.loginAttempts();
+
+    // Jetzt den Raum wählen -- getrennt.
+    client.switchRoom(3);
+    QTRY_COMPARE_WITH_TIMEOUT(server.lastChatId(), 3, 5000);
+    QVERIFY2(server.loginAttempts() > versucheVorher,
+             "Die Raumwahl im getrennten Zustand hat keinen neuen Anlauf ausgelöst");
+    QCOMPARE(client.currentChatId(), 3);
+    qInfo().noquote() << "getrennt Raum 3 gewählt -> Server sah Login für Raum" << server.lastChatId();
+
+    // Und "Jetzt neu verbinden" nimmt ebenfalls sofort einen Anlauf.
+    client.disconnectFromServer();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.isConnected(), 5000);
+    const int vorNeuverbinden = server.loginAttempts();
+    client.reconnectNow();
+    QTRY_VERIFY_WITH_TIMEOUT(server.loginAttempts() > vorNeuverbinden, 5000);
+    qInfo().noquote() << "neu verbinden -> Anmeldeversuche:" << server.loginAttempts();
 }
 
 int main(int argc, char* argv[])

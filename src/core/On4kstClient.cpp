@@ -16,6 +16,11 @@
 
 #include "core/SpotParser.h"
 
+#include <QDateTime>
+#include <QDebug>
+#include <QFile>
+#include <QTextStream>
+
 #include <algorithm>
 
 namespace Contestprogramm {
@@ -103,9 +108,89 @@ void On4kstClient::sendRaw(const QString& line)
     m_socket->write((line + QStringLiteral("\r\n")).toLatin1());
 }
 
-void On4kstClient::switchRoom(const QString& value)
+bool On4kstClient::hasPendingRetryForTest() const
 {
-    sendRaw(QStringLiteral("/CHAT %1").arg(value));
+    return m_reconnectTimer->isActive();
+}
+
+int On4kstClient::pendingRetryDelayMsForTest() const
+{
+    return m_reconnectTimer->interval();
+}
+
+void On4kstClient::reconnectNow()
+{
+    if (m_host.isEmpty() || m_callsign.isEmpty()) {
+        return; // ohne Zugangsdaten gibt es nichts zu wählen
+    }
+    m_reconnectTimer->stop();
+    m_reconnectAttempts = 0;
+    m_loginRejected = false;
+    m_pendingRoomChatId = m_chatId;
+    m_intentionalDisconnect = false;
+    if (m_connected || m_socket->state() != QAbstractSocket::UnconnectedState) {
+        disconnectFromServer();
+        m_intentionalDisconnect = false;
+        return; // onDisconnected nimmt den vorgemerkten Anlauf auf
+    }
+    startPendingRoomLogin();
+}
+
+void On4kstClient::switchRoom(int chatId)
+{
+    if (chatId <= 0) {
+        return;
+    }
+    // Getrennt darf man den Raum trotzdem wählen -- dann gilt er für
+    // den nächsten Anlauf, und der wird gleich genommen. Martin,
+    // 2026-09-29: "kann nicht anklicken", weil das ganze Raummenü an
+    // "angemeldet" hing -- und angemeldet war er gerade nicht.
+    const bool getrennt = !m_connected && m_socket->state() == QAbstractSocket::UnconnectedState;
+    if (chatId == m_chatId && !getrennt) {
+        return;
+    }
+    if (getrennt) {
+        m_chatId = chatId;
+        reconnectNow();
+        return;
+    }
+    // Nicht sofort neu verbinden: ein connectToHost() auf einem Socket,
+    // der gerade erst zumacht, wird von Qt abgewiesen -- der Prüfstand
+    // zeigte das sofort (der Server sah weiter nur die alte
+    // Raumnummer). Also den Wunsch vormerken und erst anmelden, wenn
+    // die Leitung wirklich unten ist (onDisconnected).
+    m_pendingRoomChatId = chatId;
+    m_observedChatId = -1; // die alte Beobachtung gilt nicht mehr
+    if (!m_connected && m_socket->state() == QAbstractSocket::UnconnectedState) {
+        startPendingRoomLogin();
+        return;
+    }
+    disconnectFromServer();
+}
+
+void On4kstClient::startPendingRoomLogin()
+{
+    if (m_pendingRoomChatId <= 0) {
+        return;
+    }
+    const int chatId = m_pendingRoomChatId;
+    m_pendingRoomChatId = 0;
+    m_connected = false;
+    m_loggedIn = false;
+    // Den Socket erst hart zurücksetzen: direkt aus onDisconnected
+    // heraus steckt er noch im Schließen, und ein connectToHost() wird
+    // dann stillschweigend verworfen -- im Prüfstand kam das zweite
+    // LOGINC nie beim Server an. Und einen Umlauf warten, damit Qt den
+    // Zustandswechsel abschließt, bevor neu gewählt wird.
+    QTimer::singleShot(0, this, [this, chatId]() {
+        // abort() gehört MIT in den verzögerten Teil: ruft man es noch
+        // im disconnected-Handler desselben Sockets, kommt die neue
+        // Verbindung zwar in ConnectingState, aber nie zustande.
+        m_socket->abort();
+        m_connected = false;
+        m_loggedIn = false;
+        connectAndLogin(m_host, m_port, m_callsign, m_password, chatId);
+    });
 }
 
 void On4kstClient::sendChatMessage(const QString& text)
@@ -163,6 +248,14 @@ void On4kstClient::onDisconnected()
         emit disconnected();
     }
 
+    // Ein vorgemerkter Raumwechsel ist der Grund fürs Trennen gewesen
+    // -- jetzt, wo die Leitung unten ist, melden wir uns mit der neuen
+    // Raumnummer wieder an.
+    if (m_pendingRoomChatId > 0) {
+        startPendingRoomLogin();
+        return;
+    }
+
     scheduleReconnect();
 }
 
@@ -187,7 +280,11 @@ void On4kstClient::scheduleReconnect()
     // Exponential backoff, shift count clamped to avoid signed-int UB;
     // saturates at kMaxReconnectDelayMs well before the clamp matters.
     const int shiftBits = std::min(m_reconnectAttempts, 30);
-    const int delay = std::min(kInitialReconnectDelayMs * (1 << shiftBits), kMaxReconnectDelayMs);
+    // Nach einem abgelehnten Login in aller Ruhe: eine Minute, dann
+    // verdoppelnd bis zehn. Siehe die Erklärung bei LOGSTAT.
+    const int start = m_loginRejected ? kRejectedLoginRetryDelayMs : kInitialReconnectDelayMs;
+    const int deckel = m_loginRejected ? kRejectedLoginMaxDelayMs : kMaxReconnectDelayMs;
+    const int delay = std::min(start * (1 << shiftBits), deckel);
     m_reconnectTimer->start(delay);
     m_reconnectAttempts++;
 }
@@ -243,6 +340,21 @@ void On4kstClient::onReadyRead()
             continue;
         }
 
+        // Mitschrift für die Fehlersuche am Protokoll: CP_KST_MITSCHRIFT
+        // = Pfad schreibt jede Zeile roh mit, so wie sie ankommt. Ohne
+        // die Variable passiert nichts. Gebraucht, um Martins Frage vom
+        // 2026-09-29 zu klären ("kontrolliere ob dieser chat auch
+        // wirklich den raum ändert"): was der Server über Räume
+        // überhaupt hergibt, steht in keiner Doku, die sich prüfen
+        // ließe -- also nachsehen, was er schickt.
+        static const QByteArray mitschriftPfad = qgetenv("CP_KST_MITSCHRIFT");
+        if (!mitschriftPfad.isEmpty()) {
+            QFile mit(QString::fromLocal8Bit(mitschriftPfad));
+            if (mit.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream(&mit) << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << ' ' << line << '\n';
+            }
+        }
+
         emit rawLineReceived(line);
         handleLine(line);
     }
@@ -286,6 +398,7 @@ void On4kstClient::handleLine(const QString& line)
             if (!m_loggedIn) {
                 m_loggedIn = true;
                 m_reconnectAttempts = 0;
+                m_loginRejected = false;
             }
             sendRaw(QStringLiteral("SDONE|%1|").arg(chatId));
             emit loggedIn(chatId);
@@ -294,12 +407,20 @@ void On4kstClient::handleLine(const QString& line)
         const QString message = fields.size() > 2 ? fields.at(2) : QString();
         emit loginFailed(code, message);
         if (!m_loggedIn) {
-            // A login-time failure (wrong password, unknown user) will
-            // fail identically on every retry -- stop hammering it and
-            // leave reconnecting to a deliberate action (e.g. the
-            // operator fixing credentials in Settings) instead of the
-            // usual auto-reconnect.
-            m_intentionalDisconnect = true;
+            // Es wird NICHT mehr endgültig aufgegeben. Bis heute hat ein
+            // einziger abgelehnter Login den Chat bis zum nächsten
+            // Programmstart stillgelegt -- gedacht war das gegen
+            // falsche Zugangsdaten ("hämmert sonst ewig gegen dieselbe
+            // Wand"), es trifft aber genauso den vorübergehenden Fall:
+            // Sitzung noch offen, Server überlastet, Netz kurz weg.
+            // Mitten in einem Contest ist ein stiller Chat schlimmer
+            // als ein Versuch alle paar Minuten. Welcher Code was
+            // bedeutet, ist nicht belegt (nur 100 = Erfolg), also wird
+            // nicht geraten, sondern langsam weiterprobiert: erster
+            // neuer Anlauf nach einer Minute, dann verdoppelnd bis zehn
+            // Minuten. Das ist kein Hämmern, und der Chat kommt von
+            // allein wieder, sobald der Grund weg ist.
+            m_loginRejected = true;
             m_socket->disconnectFromHost();
         }
         return;
@@ -334,6 +455,18 @@ void On4kstClient::handleLine(const QString& line)
         return;
     }
     if (SpotParser::parseChatLine(line, candidate)) {
+        // Die Raumkennung steht im zweiten Feld jeder CH|/CR|-Zeile.
+        // Sie ist der einzige ehrliche Beleg dafür, in welchem Raum
+        // dieser Client wirklich hängt.
+        const QStringList felder = line.split(QLatin1Char('|'));
+        if (felder.size() > 1) {
+            bool ok = false;
+            const int raum = felder.at(1).toInt(&ok);
+            if (ok && raum != m_observedChatId) {
+                m_observedChatId = raum;
+                emit roomObserved(raum);
+            }
+        }
         emit chatLineReceived(candidate);
     }
 }

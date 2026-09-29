@@ -1254,6 +1254,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         updateStatusBar();
     });
     connect(&m_appController.on4kstClient(), &On4kstClient::loginFailed, this, &MainWindow::updateStatusBar);
+    // Was der Server wirklich schickt. Martin, 2026-09-28: "bitte
+    // kontrolliere ob dieser chat auch wirklich den raum ändert" -- das
+    // lässt sich nur am Datenstrom ablesen, nicht am eigenen Wunsch.
+    connect(&m_appController.on4kstClient(), &On4kstClient::roomObserved, this, [this](int chatId) {
+        m_observedOn4kstRoom = chatId;
+        updateStatusBar();
+        if (m_chatPanel) {
+            m_chatPanel->setConnectionStatus(on4kstRoomStatusText());
+        }
+    });
 
     connect(&m_appController.dxClusterClient(), &DxClusterClient::connected, this, &MainWindow::updateStatusBar);
     connect(&m_appController.dxClusterClient(), &DxClusterClient::disconnected, this, &MainWindow::updateStatusBar);
@@ -2631,25 +2641,37 @@ void MainWindow::showChatOptionsPopup()
     // Hier lässt er sich von Hand setzen: wer auf 144 arbeitet, aber im
     // Mikrowellenraum mitlesen will, kann das.
     auto* raumMenu = menu->addMenu(QStringLiteral("Chatraum"));
-    raumMenu->setEnabled(angemeldet);
+    // BEWUSST auch im getrennten Zustand anklickbar: der gewählte Raum
+    // gilt dann für den nächsten Anlauf, und der wird sofort genommen.
+    // Martin, 2026-09-29: "kann nicht anklicken" -- das Menü war an
+    // "angemeldet" gekoppelt, und angemeldet war er gerade nicht.
     struct Raum {
-        const char* wert;
+        int id;
         const char* name;
     };
+    // Die Nummern stehen in derselben Tabelle, aus der auch
+    // On4kstClient::kChatIdVhfUhf stammt: 1 = 50/70 MHz, 2 = 144/432,
+    // 3 = Mikrowelle, 4 = EME/JT65, 5 = Kurzwelle. Nachgeprüft ist
+    // davon nur die 2 -- unser Raum, live bestätigt. Ob eine andere
+    // Nummer den erwarteten Raum trifft, zeigt nach dem Wechsel der
+    // Chatkopf: dort steht, aus welchem Raum die Zeilen wirklich
+    // kommen.
     static const Raum raeume[] = {
-        {"50", "50 MHz"}, {"144", "144 / 432 MHz"}, {"GHZ", "Mikrowelle (ab 1296)"},
-        {"EME", "EME"},   {"HF", "Kurzwelle"},
+        {1, "50 / 70 MHz"}, {2, "144 / 432 MHz"}, {3, "Mikrowelle (ab 1296)"},
+        {4, "EME / JT65"},  {5, "Kurzwelle"},
     };
     for (const Raum& raum : raeume) {
-        const QString wert = QString::fromLatin1(raum.wert);
         QAction* eintrag = raumMenu->addAction(QString::fromUtf8(raum.name));
-        eintrag->setObjectName(QStringLiteral("chatRoom_%1").arg(wert));
+        eintrag->setObjectName(QStringLiteral("chatRoom_%1").arg(raum.id));
         eintrag->setCheckable(true);
-        eintrag->setChecked(m_currentOn4kstRoom == wert);
-        connect(eintrag, &QAction::triggered, this, [this, wert]() {
-            m_appController.on4kstClient().switchRoom(wert);
-            m_currentOn4kstRoom = wert;
-            statusBar()->showMessage(QStringLiteral("ON4KST: Raum %1").arg(wert), 4000);
+        eintrag->setChecked(client.currentChatId() == raum.id);
+        connect(eintrag, &QAction::triggered, this, [this, raum]() {
+            // Der Wechsel ist ein neues Login -- die Verbindung geht
+            // dabei kurz weg und kommt mit der neuen Raumnummer wieder.
+            m_appController.on4kstClient().switchRoom(raum.id);
+            m_currentOn4kstRoom = QString::number(raum.id);
+            statusBar()->showMessage(QStringLiteral("ON4KST: melde mich in Raum %1 neu an").arg(raum.id),
+                                      4000);
         });
     }
     // Und zurück auf "folgt dem Band" -- das ist der Normalfall.
@@ -2658,6 +2680,13 @@ void MainWindow::showChatOptionsPopup()
     connect(demBandFolgen, &QAction::triggered, this, [this]() {
         m_currentOn4kstRoom.clear(); // erzwingt den Wechsel beim nächsten Abgleich
         syncOn4kstRoomForCurrentBand();
+    });
+
+    QAction* neuVerbinden = menu->addAction(QStringLiteral("Jetzt neu verbinden"));
+    neuVerbinden->setObjectName(QStringLiteral("chatReconnectAction"));
+    connect(neuVerbinden, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().reconnectNow();
+        statusBar()->showMessage(QStringLiteral("ON4KST: neuer Anmeldeversuch läuft"), 4000);
     });
 
     menu->addSeparator();
@@ -2887,15 +2916,40 @@ void MainWindow::takePanelOutOfSideArea(const QString& id)
     saveSideAreaState();
 }
 
-QString MainWindow::on4kstRoomValueForBand(const QString& band)
+// Was im Chatkopf über dem Raum steht: der angeforderte Raum und --
+// wenn er davon abweicht oder noch nichts angekommen ist -- der, den
+// der Server tatsächlich liefert. Zwei Angaben, weil genau die
+// Differenz die Frage beantwortet, ob ein Wechsel gewirkt hat.
+QString MainWindow::on4kstRoomStatusText() const
 {
-    if (band == QStringLiteral("1296")) {
-        return QStringLiteral("GHZ");
+    if (!m_appController.on4kstClient().isLoggedIn()) {
+        return QStringLiteral("ON4KST: getrennt");
+    }
+    const QString gewuenscht = m_currentOn4kstRoom.isEmpty() ? QStringLiteral("(dem Band folgend)")
+                                                              : m_currentOn4kstRoom;
+    if (m_observedOn4kstRoom < 0) {
+        return QStringLiteral("ON4KST: Raum %1 angefordert, noch keine Zeile empfangen").arg(gewuenscht);
+    }
+    return QStringLiteral("ON4KST: Raum %1 angefordert, Zeilen kommen aus Raum %2")
+        .arg(gewuenscht, QString::number(m_observedOn4kstRoom));
+}
+
+// Welcher ON4KST-Raum zu einem Band gehört -- als chat_id, denn nur
+// die setzt einen Raum wirklich (siehe On4kstClient::switchRoom).
+// 0 heißt "kein Raum bekannt", dann bleibt alles beim Alten.
+int MainWindow::on4kstRoomValueForBand(const QString& band)
+{
+    if (band == QStringLiteral("1296") || band == QStringLiteral("2320")
+        || band == QStringLiteral("5760") || band == QStringLiteral("10368")) {
+        return 3; // Mikrowelle
     }
     if (band == QStringLiteral("144") || band == QStringLiteral("432")) {
-        return QStringLiteral("144");
+        return On4kstClient::kChatIdVhfUhf; // 2 -- live bestätigt
     }
-    return QString();
+    if (band == QStringLiteral("50") || band == QStringLiteral("70")) {
+        return 1;
+    }
+    return 0;
 }
 
 void MainWindow::syncOn4kstRoomForCurrentBand()
@@ -2903,12 +2957,14 @@ void MainWindow::syncOn4kstRoomForCurrentBand()
     if (!m_appController.on4kstClient().isLoggedIn()) {
         return;
     }
-    const QString targetRoom = on4kstRoomValueForBand(m_currentBand);
-    if (targetRoom.isEmpty() || targetRoom == m_currentOn4kstRoom) {
+    const int zielRaum = on4kstRoomValueForBand(m_currentBand);
+    // 0 heißt: für dieses Band ist kein Raum bekannt -- dann bleibt
+    // alles, wie es ist, statt blind irgendwohin zu wechseln.
+    if (zielRaum <= 0 || zielRaum == m_appController.on4kstClient().currentChatId()) {
         return;
     }
-    m_appController.on4kstClient().switchRoom(targetRoom);
-    m_currentOn4kstRoom = targetRoom;
+    m_appController.on4kstClient().switchRoom(zielRaum);
+    m_currentOn4kstRoom = QString::number(zielRaum);
 }
 
 void MainWindow::updateStatusBar()

@@ -18,7 +18,13 @@
 //   Failure:    LOGSTAT|code|message|
 //   Room:       chat_id 2 = 144/432 MHz (this program's target room);
 //               /CHAT value switches rooms after login ("50"/"144"/
-//               "GHZ"/"EME"/"HF").
+//               "GHZ"/"EME"/"HF") -- SO STEHT ES IN DER wtKST-DOKU,
+//               nachgeprüft ist es NICHT. Die einzige belegte Stelle,
+//               an der ein Raum gesetzt wird, ist das Login selbst
+//               (LOGINC|...|chat_id|) und die Bestätigung des Servers
+//               (LOGSTAT|100|chat_id|). Wer wissen will, in welchem
+//               Raum er sitzt, sieht auf roomObserved(): die chat_id,
+//               die in den eingehenden Zeilen wirklich steht.
 //   Spot:       DL|unix_time|dx_utc|spotter|qrg|dx|info|spotter_locator|dx_locator|
 //   Chat:       CH|chat_id|date|callsign|firstname|destination|msg|highlight|
 //               (CR|... in the login batch, same fields)
@@ -69,7 +75,24 @@ public:
     bool isConnected() const { return m_connected; }
     bool isLoggedIn() const { return m_loggedIn; }
 
-    void switchRoom(const QString& value); // "/CHAT <value>"
+    // Den Raum wechseln. Geht NUR über ein neues Login: die chat_id ist
+    // ein Feld von LOGINC, und der Server bestätigt sie mit
+    // LOGSTAT|100|chat_id|. Das früher hier verschickte "/CHAT <wert>"
+    // stammt aus der wtKST-Doku, die dieser Client selbst als
+    // ungeprüft führt -- Martin, 2026-09-29: "bitte kontrolliere ob
+    // dieser chat auch wirklich den raum ändert." Ob es wirkt, zeigt
+    // roomObserved(): die chat_id, die in den eingehenden Zeilen steht.
+    void switchRoom(int chatId);
+    int currentChatId() const { return m_chatId; }
+
+    // Für Prüfstände: steht ein neuer Anlauf an, und wie lange dauert
+    // es noch? Ein abgelehnter Login darf nicht das Ende sein.
+    // Sofort einen neuen Anlauf nehmen, ohne auf den Takt zu warten --
+    // für den Knopf "Neu verbinden" im ⚙ des Chats.
+    void reconnectNow();
+
+    bool hasPendingRetryForTest() const;
+    int pendingRetryDelayMsForTest() const;
     void sendChatMessage(const QString& text);
     void sendCqCall(const QString& callsign, const QString& message); // "/CQ callsign message"
     void sendAway();
@@ -90,6 +113,16 @@ signals:
     void spotReceived(const SpotCandidate& candidate);
     void chatLineReceived(const SpotCandidate& candidate); // grid may be empty
     void rawLineReceived(const QString& line);
+    // Der Raum, aus dem die zuletzt eingegangene Chatzeile kam (das
+    // Feld chat_id in CH|/CR|). Damit lässt sich NACHSEHEN, in welchem
+    // Raum man wirklich sitzt, statt es zu glauben -- Martin,
+    // 2026-09-28: "bitte kontrolliere ob dieser chat auch wirklich den
+    // raum ändert."
+    void roomObserved(int chatId);
+
+private:
+    // Meldet sich mit dem vorgemerkten Raum neu an -- siehe switchRoom().
+    void startPendingRoomLogin();
 
 private slots:
     void onConnected();
@@ -118,6 +151,9 @@ private:
     QString m_callsign;
     QString m_password;
     int     m_chatId{kChatIdVhfUhf};
+    int     m_observedChatId{-1};   // aus eingehenden CH|/CR|-Zeilen
+    int     m_pendingRoomChatId{0}; // gewünschter Raum, sobald die Leitung unten ist
+    bool    m_loginRejected{false}; // letzter Login abgelehnt -> langsamer weiterprobieren
 
     std::atomic<bool> m_connected{false};
     bool    m_loggedIn{false};
@@ -126,6 +162,9 @@ private:
 
     static constexpr int kMaxReconnectDelayMs = 60000;
     static constexpr int kInitialReconnectDelayMs = 5000;
+    // Nach einem abgelehnten Login: langsamer Takt statt Aufgeben.
+    static constexpr int kRejectedLoginRetryDelayMs = 60000;   // 1 min
+    static constexpr int kRejectedLoginMaxDelayMs = 600000;    // 10 min
     static constexpr int kConnectTimeoutMs = 10000;
 };
 

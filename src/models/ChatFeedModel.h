@@ -80,6 +80,10 @@ public:
     // a candidate without a frequency (see the class comment). Empty
     // falls back to callsign-only.
     void setContestBands(const QStringList& bands);
+    // Läuft der aktive Contest überhaupt auf dem Band dieser Frequenz?
+    // Siehe die Erklärung an der Definition -- Kurzwellen-Spots des
+    // Clusters haben in einem UKW-Contest nichts im Chat verloren.
+    bool bandBelongsToContest(qint64 freqHz) const;
 
     // Optional (nullptr = no multiplier boost, e.g. before
     // AppController has recomputed one yet). Non-owning; the caller
