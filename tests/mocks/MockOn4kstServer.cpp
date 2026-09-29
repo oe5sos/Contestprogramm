@@ -57,6 +57,14 @@ void MockOn4kstServer::onReadyRead()
         m_buffer.remove(0, idx + 1);
 
         if (line.startsWith("LOGIN")) {
+            ++m_loginAttempts;
+            if (m_rejectCode != 0) {
+                const int code = m_rejectCode;
+                m_rejectCode = 0; // nur dieser eine Versuch
+                m_client->write("LOGSTAT|" + QByteArray::number(code) + "|"
+                                + m_rejectMessage.toLatin1() + "|\r\n");
+                continue;
+            }
             // Die vierte Spalte von LOGINC|call|pw|chat_id|version| ist
             // der Raum. Der echte Server bestätigt ihn und schickt
             // danach Zeilen aus GENAU diesem Raum -- der Prüfstand tut
@@ -75,6 +83,12 @@ void MockOn4kstServer::onReadyRead()
             }
         }
     }
+}
+
+void MockOn4kstServer::rejectNextLogin(int code, const QString& message)
+{
+    m_rejectCode = code;
+    m_rejectMessage = message;
 }
 
 } // namespace Contestprogramm

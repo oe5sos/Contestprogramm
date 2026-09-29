@@ -108,6 +108,16 @@ void On4kstClient::sendRaw(const QString& line)
     m_socket->write((line + QStringLiteral("\r\n")).toLatin1());
 }
 
+bool On4kstClient::hasPendingRetryForTest() const
+{
+    return m_reconnectTimer->isActive();
+}
+
+int On4kstClient::pendingRetryDelayMsForTest() const
+{
+    return m_reconnectTimer->interval();
+}
+
 void On4kstClient::switchRoom(int chatId)
 {
     if (chatId <= 0 || chatId == m_chatId) {
@@ -239,7 +249,11 @@ void On4kstClient::scheduleReconnect()
     // Exponential backoff, shift count clamped to avoid signed-int UB;
     // saturates at kMaxReconnectDelayMs well before the clamp matters.
     const int shiftBits = std::min(m_reconnectAttempts, 30);
-    const int delay = std::min(kInitialReconnectDelayMs * (1 << shiftBits), kMaxReconnectDelayMs);
+    // Nach einem abgelehnten Login in aller Ruhe: eine Minute, dann
+    // verdoppelnd bis zehn. Siehe die Erklärung bei LOGSTAT.
+    const int start = m_loginRejected ? kRejectedLoginRetryDelayMs : kInitialReconnectDelayMs;
+    const int deckel = m_loginRejected ? kRejectedLoginMaxDelayMs : kMaxReconnectDelayMs;
+    const int delay = std::min(start * (1 << shiftBits), deckel);
     m_reconnectTimer->start(delay);
     m_reconnectAttempts++;
 }
@@ -353,6 +367,7 @@ void On4kstClient::handleLine(const QString& line)
             if (!m_loggedIn) {
                 m_loggedIn = true;
                 m_reconnectAttempts = 0;
+                m_loginRejected = false;
             }
             sendRaw(QStringLiteral("SDONE|%1|").arg(chatId));
             emit loggedIn(chatId);
@@ -361,12 +376,20 @@ void On4kstClient::handleLine(const QString& line)
         const QString message = fields.size() > 2 ? fields.at(2) : QString();
         emit loginFailed(code, message);
         if (!m_loggedIn) {
-            // A login-time failure (wrong password, unknown user) will
-            // fail identically on every retry -- stop hammering it and
-            // leave reconnecting to a deliberate action (e.g. the
-            // operator fixing credentials in Settings) instead of the
-            // usual auto-reconnect.
-            m_intentionalDisconnect = true;
+            // Es wird NICHT mehr endgültig aufgegeben. Bis heute hat ein
+            // einziger abgelehnter Login den Chat bis zum nächsten
+            // Programmstart stillgelegt -- gedacht war das gegen
+            // falsche Zugangsdaten ("hämmert sonst ewig gegen dieselbe
+            // Wand"), es trifft aber genauso den vorübergehenden Fall:
+            // Sitzung noch offen, Server überlastet, Netz kurz weg.
+            // Mitten in einem Contest ist ein stiller Chat schlimmer
+            // als ein Versuch alle paar Minuten. Welcher Code was
+            // bedeutet, ist nicht belegt (nur 100 = Erfolg), also wird
+            // nicht geraten, sondern langsam weiterprobiert: erster
+            // neuer Anlauf nach einer Minute, dann verdoppelnd bis zehn
+            // Minuten. Das ist kein Hämmern, und der Chat kommt von
+            // allein wieder, sobald der Grund weg ist.
+            m_loginRejected = true;
             m_socket->disconnectFromHost();
         }
         return;

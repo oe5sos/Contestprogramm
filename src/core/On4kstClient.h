@@ -84,6 +84,11 @@ public:
     // roomObserved(): die chat_id, die in den eingehenden Zeilen steht.
     void switchRoom(int chatId);
     int currentChatId() const { return m_chatId; }
+
+    // Für Prüfstände: steht ein neuer Anlauf an, und wie lange dauert
+    // es noch? Ein abgelehnter Login darf nicht das Ende sein.
+    bool hasPendingRetryForTest() const;
+    int pendingRetryDelayMsForTest() const;
     void sendChatMessage(const QString& text);
     void sendCqCall(const QString& callsign, const QString& message); // "/CQ callsign message"
     void sendAway();
@@ -144,6 +149,7 @@ private:
     int     m_chatId{kChatIdVhfUhf};
     int     m_observedChatId{-1};   // aus eingehenden CH|/CR|-Zeilen
     int     m_pendingRoomChatId{0}; // gewünschter Raum, sobald die Leitung unten ist
+    bool    m_loginRejected{false}; // letzter Login abgelehnt -> langsamer weiterprobieren
 
     std::atomic<bool> m_connected{false};
     bool    m_loggedIn{false};
@@ -152,6 +158,9 @@ private:
 
     static constexpr int kMaxReconnectDelayMs = 60000;
     static constexpr int kInitialReconnectDelayMs = 5000;
+    // Nach einem abgelehnten Login: langsamer Takt statt Aufgeben.
+    static constexpr int kRejectedLoginRetryDelayMs = 60000;   // 1 min
+    static constexpr int kRejectedLoginMaxDelayMs = 600000;    // 10 min
     static constexpr int kConnectTimeoutMs = 10000;
 };
 

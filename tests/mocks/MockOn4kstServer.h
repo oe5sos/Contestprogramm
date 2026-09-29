@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QObject>
+#include <QString>
 #include <QTcpServer>
 #include <QTcpSocket>
 
@@ -34,6 +35,11 @@ public:
     // Der Raum, den das zuletzt empfangene Login angefordert hat.
     int lastChatId() const { return m_lastChatId; }
 
+    // Den nächsten Login mit LOGSTAT|<code>| abweisen -- für den Fall
+    // "Sitzung noch offen / Server mag gerade nicht".
+    void rejectNextLogin(int code = 101, const QString& message = QStringLiteral("Already logged in"));
+    int loginAttempts() const { return m_loginAttempts; }
+
 signals:
     void keepaliveSent();
 
@@ -48,6 +54,9 @@ private:
     QByteArray  m_afterKeepalive;
     bool m_loggedIn = false;
     int  m_lastChatId = 0; // Raum aus dem zuletzt empfangenen LOGINC
+    int  m_loginAttempts = 0;
+    int  m_rejectCode = 0;
+    QString m_rejectMessage;
     bool m_keepaliveSent = false;
 };
 

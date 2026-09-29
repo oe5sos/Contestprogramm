@@ -24,6 +24,7 @@ private slots:
 
     void liveLoginReceivesSpotChatAndKeepalive();
     void switchingRoomsLogsInAgainWithTheNewChatId();
+    void aRejectedLoginIsTriedAgainInsteadOfGivingUp();
 };
 
 void TestOn4kstProtocol::initTestCase()
@@ -173,6 +174,41 @@ void TestOn4kstProtocol::switchingRoomsLogsInAgainWithTheNewChatId()
     client.switchRoom(3);
     QCoreApplication::processEvents();
     QCOMPARE(server.lastChatId(), vorher);
+}
+
+// Ein abgelehnter Login hat den Chat bis zum Programmstart
+// stillgelegt. Gedacht war das gegen falsche Zugangsdaten, es traf
+// aber genauso "Sitzung noch offen" oder "Server mag gerade nicht" --
+// am 2026-09-29 live erlebt: nach etlichen Neustarts blieb die
+// Statusleiste grau und der Chat leer, bis das Programm neu startete.
+// Mitten im Contest ist das schlimmer als ein Versuch alle paar
+// Minuten.
+void TestOn4kstProtocol::aRejectedLoginIsTriedAgainInsteadOfGivingUp()
+{
+    MockOn4kstServer server;
+    QVERIFY(server.startListening());
+    server.rejectNextLogin();
+
+    On4kstClient client;
+    QSignalSpy abgelehntSpy(&client, &On4kstClient::loginFailed);
+    QSignalSpy angemeldetSpy(&client, &On4kstClient::loggedIn);
+    client.connectAndLogin(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5SOS"),
+                           QStringLiteral("geheim"), On4kstClient::kChatIdVhfUhf);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!abgelehntSpy.isEmpty(), 5000);
+    QCOMPARE(server.loginAttempts(), 1);
+    qInfo().noquote() << "erster Versuch abgewiesen:" << abgelehntSpy.first().at(1).toString();
+
+    // Früher war hier Schluss. Jetzt steht ein neuer Anlauf an -- er
+    // kommt in Ruhe (eine Minute), deshalb wird hier nur geprüft, DASS
+    // einer ansteht, statt eine Minute zu warten.
+    // Warten, nicht sofort prüfen: der neue Anlauf wird erst gestellt,
+    // wenn die Leitung wirklich unten ist (onDisconnected). Allein
+    // gelaufen war der Prüfstand grün, in der Reihe rot -- ein
+    // Zeitfehler im Prüfstand, nicht im Programm.
+    QTRY_VERIFY_WITH_TIMEOUT(client.hasPendingRetryForTest(), 5000);
+    qInfo().noquote() << "nächster Anlauf in" << client.pendingRetryDelayMsForTest() / 1000 << "s";
+    QVERIFY(client.pendingRetryDelayMsForTest() >= 60000);
 }
 
 int main(int argc, char* argv[])
