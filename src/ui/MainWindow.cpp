@@ -1113,7 +1113,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_versionLabel = new QLabel(this);
     m_versionLabel->setObjectName(QStringLiteral("versionStatus"));
     m_versionLabel->setFont(Style::monoFont(m_versionLabel->font(), Style::kFontSmall));
-    m_versionLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
+    // Polster links: die Statusnachricht (Rufzeichen, Contestname) endet
+    // unmittelbar davor, und ohne Abstand klebte die Fassung daran --
+    // "...Subregional März/Maiv0.1.1". Live gesehen, 2026-09-30.
+    m_versionLabel->setStyleSheet(
+        QStringLiteral("color: %1; padding-left: 10px; padding-right: 4px;").arg(Style::kTextTertiary()));
     m_versionLabel->setText(QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
     m_versionLabel->setToolTip(QStringLiteral("Fassung %1 · Stand %2 · %3")
                                    .arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION),
