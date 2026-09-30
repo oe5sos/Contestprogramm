@@ -44,6 +44,12 @@ public:
     void setBuildStamp(const QString& stamp);
     QString buildStamp() const { return m_buildStamp; }
 
+    // The program this process was started as (its absolute executable
+    // path), sent along with the build stamp so a restart runs the
+    // program the operator started, not the running one's. Tests set it.
+    void setProgramPath(const QString& path);
+    QString programPath() const { return m_programPath; }
+
 signals:
     // Another start asked this instance to show itself.
     void activateRequested();
@@ -51,13 +57,21 @@ signals:
     // build than this one (see setBuildStamp()) -- operator, 2026-09-21,
     // three times in a row: built, started, and looked at the old
     // program, because the start had only raised the running window.
-    // main.cpp restarts this instance on it (the restarted process is
-    // the new binary), the same way a restored backup restarts.
-    void newerBuildStarted();
+    // main.cpp restarts this instance on it, the same way a restored
+    // backup restarts.
+    //
+    // `program` is the executable that second start ran: the new build
+    // may lie beside the running one (2026-09-28, Contestprogramm-neu.app
+    // next to Contestprogramm.app), where restarting the running one's
+    // own path brought the old program back. Empty when the start was
+    // an older build that did not send it, or sent nothing usable --
+    // main.cpp then restarts its own path, right for a rebuild in place.
+    void newerBuildStarted(const QString& program);
 
 private:
     QString m_dataDir;
     QString m_buildStamp;
+    QString m_programPath;
     std::unique_ptr<QLockFile> m_lock;
     std::unique_ptr<QLocalServer> m_server;
 };
