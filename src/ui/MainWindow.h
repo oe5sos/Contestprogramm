@@ -626,6 +626,8 @@ private:
     // label, not a connect/disconnect badge, same treatment as
     // m_gridRadiusLabel above.
     QLabel* m_weatherStatusLabel = nullptr;
+    // Welche Fassung läuft -- aus BuildInfo.h, also immer die gebaute.
+    QLabel* m_versionLabel = nullptr;
     QPushButton* m_modeToggleButton = nullptr;
     // See saveWindowGeometry()'s doc comment.
     QTimer* m_geometrySaveTimer = nullptr;

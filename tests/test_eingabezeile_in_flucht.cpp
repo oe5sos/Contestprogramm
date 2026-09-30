@@ -26,6 +26,7 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/MainWindow.h"
+#include "BuildInfo.h"
 #include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
@@ -42,6 +43,7 @@ private slots:
     void itStaysInLineWhenTheRunningNumberIsSwitchedOff();
     void itStaysInLineWhenTheRunningNumberComesBack();
     void theStatusColumnIsOnlyAsWideAsItsPill();
+    void theRunningVersionIsOnTheStatusBar();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -304,6 +306,36 @@ void TestEingabezeileInFlucht::theStatusColumnIsOnlyAsWideAsItsPill()
                             .arg(breite).arg(noetig)));
     // Und deutlich schmäler als der alte Deckel von 110 px.
     QVERIFY2(breite < 100, "Die Statusspalte ist nicht schmäler geworden");
+}
+
+// Martin, 2026-09-30: "bitte version immer in die taskleiste legen,
+// automatisch". Automatisch heißt: aus BuildInfo.h, das bei jedem Bau
+// neu geschrieben wird -- nichts von Hand gepflegtes, das irgendwann
+// eine falsche Zahl zeigt. Genau das prüft dieser Prüfstand: die
+// angezeigte Fassung MUSS die gebaute sein.
+void TestEingabezeileInFlucht::theRunningVersionIsOnTheStatusBar()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("version.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* label = window.findChild<QLabel*>(QStringLiteral("versionStatus"));
+    QVERIFY2(label, "In der Statusleiste steht keine Fassung");
+    qInfo().noquote() << "Statusleiste zeigt:" << label->text() << "| Tooltip:" << label->toolTip();
+    QCOMPARE(label->text(), QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
+    // Commit und Baudatum im Tooltip -- beim Melden eines Fehlers ist
+    // genau das die Angabe, die zählt.
+    QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)),
+             "Der Commit fehlt im Tooltip");
+    QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE)),
+             "Das Baudatum fehlt im Tooltip");
+    QVERIFY2(label->isVisibleTo(&window), "Die Fassung ist nicht sichtbar");
 }
 
 int main(int argc, char* argv[])

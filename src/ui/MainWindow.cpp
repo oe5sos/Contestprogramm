@@ -1,5 +1,7 @@
 #include "ui/MainWindow.h"
 
+#include "BuildInfo.h"
+
 #include "app/AppController.h"
 #include "core/BandUtils.h"
 #include "core/BandmapModel.h"
@@ -1101,7 +1103,25 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_weatherStatusLabel->setFont(Style::monoFont(m_weatherStatusLabel->font(), Style::kFontSmall));
     m_weatherStatusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
     m_weatherStatusLabel->setText(QStringLiteral("Wetter: %1").arg(Style::unknownDash()));
+    // Welche Fassung gerade läuft -- Martin, 2026-09-30: "bitte version
+    // immer in die taskleiste legen, automatisch". Automatisch heißt:
+    // aus BuildInfo.h, das cmake/BuildInfo.cmake bei JEDEM Bau neu
+    // schreibt. Nichts von Hand zu pflegen, und keine Fassung kann
+    // behaupten, eine andere zu sein. Commit und Baudatum stehen im
+    // Tooltip: auf der Leiste würden sie nur Platz kosten, beim Melden
+    // eines Fehlers sind sie aber genau das, was zählt.
+    m_versionLabel = new QLabel(this);
+    m_versionLabel->setObjectName(QStringLiteral("versionStatus"));
+    m_versionLabel->setFont(Style::monoFont(m_versionLabel->font(), Style::kFontSmall));
+    m_versionLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
+    m_versionLabel->setText(QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
+    m_versionLabel->setToolTip(QStringLiteral("Fassung %1 · Stand %2 · %3")
+                                   .arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION),
+                                         QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE),
+                                         QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)));
+
     m_modeToggleButton = new QPushButton(this);
+    statusBar()->addPermanentWidget(m_versionLabel);
     statusBar()->addPermanentWidget(m_rigctldStatusLabel);
     statusBar()->addPermanentWidget(m_on4kstStatusLabel);
     statusBar()->addPermanentWidget(m_clusterStatusLabel);
