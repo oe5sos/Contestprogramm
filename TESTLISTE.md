@@ -36,7 +36,7 @@ bewusst aufgeschoben.
 - [ ] **Dauerlauf mit echten Netzdiensten** über Stunden (ON4KST und
       Cluster verbunden), nicht nur gegen den Prüfstand-Server.
 
-## Zwei Fallen, die schon zugeschlagen haben
+## Fallen, die schon zugeschlagen haben
 
 - Nach `git merge` **CMake neu einlesen**, sonst läuft ein neu
   hinzugekommener Prüfstand nicht mit und die Zahl „108/108" ist grün,
@@ -45,3 +45,10 @@ bewusst aufgeschoben.
   2026-09-29 hing das Programm bei 99 % CPU, weil ich eine Fassung
   kopiert habe, während die Suite noch lief -- sie hätte den Fehler
   gefunden.
+- **Neuer Code muss von Anfang an auf allen drei Plattformen gedacht
+  werden**, nicht von der CI nachgereicht bekommen. Am 2026-09-30 zwei
+  Windows-Fehler hintereinander aus EINER neuen Datei (QsoJournal):
+  `<unistd.h>`/`fsync()` gibt es dort nicht (`_commit()` aus `<io.h>`),
+  und eine Vorwärtsdeklaration als `class` statt `struct` lässt den
+  MSVC-Linker ein Symbol suchen, das so nie erzeugt wurde -- clang und
+  gcc ist der Unterschied egal.
