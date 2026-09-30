@@ -10,7 +10,11 @@
 #include <QSaveFile>
 #include <QTextStream>
 
+#ifdef Q_OS_WIN
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace Contestprogramm {
 
@@ -46,7 +50,15 @@ bool QsoJournal::schreibe(const QsoRecord& record, const ContestSettings& settin
         m_letzterFehler = datei.errorString();
         return false;
     }
+    // Bis auf die Platte, plattformabhängig. Unter Windows gibt es
+    // weder <unistd.h> noch fsync(); _commit() auf demselben
+    // Dateideskriptor tut dasselbe. Der erste Wurf hatte nur den
+    // POSIX-Weg -- die Windows-CI brach schon beim Bauen ab.
+#ifdef Q_OS_WIN
+    ::_commit(datei.handle());
+#else
     ::fsync(datei.handle());
+#endif
     datei.close();
     m_letzterFehler.clear();
     return true;

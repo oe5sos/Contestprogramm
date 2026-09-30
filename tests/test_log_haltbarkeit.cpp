@@ -18,6 +18,7 @@
 #include <QElapsedTimer>
 #include <QApplication>
 #include <QProcess>
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QThread>
@@ -65,6 +66,7 @@ private slots:
     void theJournalHoldsEveryQsoEvenWhenTheDatabaseRefuses();
     void theJournalCanBeReadBackCompletely();
     void aLostDatabaseIsRebuiltFromTheJournal();
+    void aJournalThatCannotWriteSaysSoAndDoesNotStopLogging();
 };
 
 void TestLogHaltbarkeit::everyLoggedQsoSurvivesAHardKill()
@@ -374,6 +376,52 @@ void TestLogHaltbarkeit::aLostDatabaseIsRebuiltFromTheJournal()
     }
     qInfo().noquote() << mitNummer << "von" << wieder.size() << "QSOs haben beide Nummern";
     QCOMPARE(mitNummer, 12);
+}
+
+// Und wenn die zweite Spur selbst ausfällt -- Platte voll, Ordner
+// nicht beschreibbar, Stick abgezogen? Dann muss zweierlei gelten:
+// das Journal sagt es (still scheitern wäre das Schlimmste, man
+// verließe sich auf ein Netz, das es nicht gibt), und das Loggen geht
+// trotzdem weiter. Die Datenbank ist die erste Spur; ein kaputtes
+// Journal darf den Contest nicht anhalten.
+void TestLogHaltbarkeit::aJournalThatCannotWriteSaysSoAndDoesNotStopLogging()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+#ifdef Q_OS_WIN
+    // Windows kennt keinen Schreibschutz auf Ordnern in dem Sinn, den
+    // dieser Prüfstand braucht: setPermissions() greift dort nicht,
+    // das Schreiben gelänge trotzdem und der Prüfstand wäre rot, ohne
+    // dass etwas falsch wäre. Lieber ehrlich überspringen als eine
+    // Zusage prüfen, die hier nicht herstellbar ist.
+    QSKIP("Schreibgeschützte Ordner lassen sich unter Windows so nicht herstellen");
+#endif
+    const QString gesperrterOrdner = dir.filePath(QStringLiteral("nichtbeschreibbar"));
+    QVERIFY(QDir().mkpath(gesperrterOrdner));
+    // Lesen und betreten erlaubt, schreiben nicht.
+    QVERIFY(QFile::setPermissions(gesperrterOrdner,
+                                   QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+
+    ContestSettings einstellungen;
+    einstellungen.ownCallsign = QStringLiteral("OE5SOS");
+    QsoJournal journal(QDir(gesperrterOrdner).filePath(QStringLiteral("geht-nicht.adi")));
+    QsoRecord r = macheQso(1);
+    const bool geschrieben = journal.schreibe(r, einstellungen);
+    qInfo().noquote() << "Journal in gesperrtem Ordner -- geschrieben:" << geschrieben
+                      << "| Fehler:" << journal.letzterFehler();
+    QVERIFY2(!geschrieben, "Das Journal behauptet, in einen gesperrten Ordner geschrieben zu haben");
+    QVERIFY2(!journal.letzterFehler().isEmpty(),
+             "Das Journal scheitert STILL -- man verließe sich auf ein Netz, das es nicht gibt");
+
+    // Und die Datenbank nimmt das QSO trotzdem an.
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("weiterhin.sqlite"))));
+    QsoRecord r2 = macheQso(2);
+    QVERIFY2(db.insertQso(r2), "Ein kaputtes Journal darf das Loggen nicht anhalten");
+    QCOMPARE(db.qsoCountForContest(QStringLiteral("IARU_R1_VHF_UHF")), 1);
+
+    QFile::setPermissions(gesperrterOrdner,
+                           QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
 }
 
 void TestLogHaltbarkeit::loggingStaysFastEnoughWithFullSync()
