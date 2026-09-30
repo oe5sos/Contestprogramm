@@ -1530,6 +1530,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
     // A second copy of every backup on a stick or in a cloud folder --
     // the log survives the laptop (see LogBackup::setMirrorDirectory).
+    // Die letzte Rettungsleine: das Journal, in das jedes QSO geschrieben
+    // wird, bevor es die Datenbank sieht (QsoJournal). Wenn die
+    // Datenbank hin ist, steht hier trotzdem alles.
+    QAction* journalAction = backupMenu->addAction(QStringLiteral("Aus dem &Journal wiederherstellen..."));
+    journalAction->setObjectName(QStringLiteral("restoreJournalAction"));
+    connect(journalAction, &QAction::triggered, this, &MainWindow::restoreFromJournal);
+
     QAction* mirrorAction = backupMenu->addAction(QStringLiteral("&Zweiter Sicherungsordner..."));
     mirrorAction->setObjectName(QStringLiteral("backupMirrorAction"));
     connect(mirrorAction, &QAction::triggered, this, &MainWindow::chooseBackupMirror);
@@ -4705,6 +4712,90 @@ void MainWindow::clearBackupMirror()
     backup->setMirrorDirectory(QString());
     m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), QString());
     statusBar()->showMessage(QStringLiteral("Zweiter Sicherungsordner entfernt — Sicherungen nur noch neben der Datenbank."), 8000);
+}
+
+// Aus dem Journal zurückholen: die ADIF-Datei einlesen und jedes QSO,
+// das noch nicht im Log steht, ergänzen. Bewusst ERGÄNZEND und nicht
+// ersetzend -- wer das hier braucht, hat schon genug verloren; ein
+// Werkzeug, das dabei auch noch etwas löscht, wäre das Letzte.
+//
+// Erkannt wird ein schon vorhandenes QSO an Rufzeichen + Band + Zeit.
+// Zwei echte QSOs mit derselben Station auf demselben Band in
+// derselben Minute gibt es im UKW-Contest nicht.
+void MainWindow::restoreFromJournal()
+{
+    QsoJournal* journal = m_appController.qsoJournal();
+    const QString vorschlag = journal ? journal->pfad() : QString();
+    const QString pfad = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Journal wählen"), vorschlag,
+        QStringLiteral("Journal/ADIF (*.adi *.adif);;Alle Dateien (*)"));
+    if (pfad.isEmpty()) {
+        return;
+    }
+    QFile datei(pfad);
+    if (!datei.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Das Journal lässt sich nicht lesen:\n%1").arg(datei.errorString()));
+        return;
+    }
+    const QVector<ImportedQso> gelesen = LogFileReader::parse(datei.readAll(), pfad);
+    datei.close();
+    if (gelesen.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("Contestprogramm"),
+                                  QStringLiteral("In dieser Datei steht kein QSO."));
+        return;
+    }
+
+    const QString contestId = m_appController.settings().activeContestId;
+    ContestDatabase& db = m_appController.database();
+    const QVector<QsoRecord> vorhandene = db.qsosForContest(contestId);
+    QSet<QString> bekannt;
+    for (const QsoRecord& q : vorhandene) {
+        bekannt.insert(QStringLiteral("%1|%2|%3").arg(q.callsign.toUpper(), q.band,
+                                                       q.timestampUtc.left(16)));
+    }
+
+    int ergaenzt = 0;
+    int uebersprungen = 0;
+    for (const ImportedQso& q : gelesen) {
+        if (q.callsign.isEmpty() || q.timestampUtc.isEmpty()) {
+            ++uebersprungen;
+            continue;
+        }
+        const QString schluessel =
+            QStringLiteral("%1|%2|%3").arg(q.callsign.toUpper(), q.band, q.timestampUtc.left(16));
+        if (bekannt.contains(schluessel)) {
+            ++uebersprungen;
+            continue;
+        }
+        QsoRecord r;
+        r.callsign = q.callsign.toUpper();
+        r.band = q.band;
+        r.mode = q.mode;
+        r.timestampUtc = q.timestampUtc;
+        r.gridSquare = q.grid;
+        r.rstSent = q.rstSent;
+        r.rstRcvd = q.rstRcvd;
+        if (q.serialSent > 0) {
+            r.serialSent = q.serialSent;
+        }
+        if (q.serialRcvd > 0) {
+            r.serialRcvd = q.serialRcvd;
+        }
+        r.contestId = contestId;
+        r.source = QStringLiteral("journal");
+        if (db.insertQso(r)) {
+            bekannt.insert(schluessel);
+            ++ergaenzt;
+        }
+    }
+    // Derselbe Weg, den auch Löschen und Korrigieren nehmen: Tabelle,
+    // Punkte, Vorschau und die eigene nächste Nummer ziehen nach.
+    refreshAfterLogChange();
+    QMessageBox::information(
+        this, QStringLiteral("Contestprogramm"),
+        QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
+            .arg(ergaenzt).arg(uebersprungen));
 }
 
 void MainWindow::restoreBackup()

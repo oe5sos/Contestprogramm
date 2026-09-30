@@ -24,6 +24,7 @@
 
 #include "app/ContestSettings.h"
 #include "data/ContestDatabase.h"
+#include "data/LogFileReader.h"
 #include "data/QsoJournal.h"
 #include "data/QsoRecord.h"
 
@@ -62,6 +63,8 @@ private slots:
     void aKillInTheMiddleOfWritingLosesNothingThatWasConfirmed();
     void afterAHardKillTheLogIsStillUsable();
     void theJournalHoldsEveryQsoEvenWhenTheDatabaseRefuses();
+    void theJournalCanBeReadBackCompletely();
+    void aLostDatabaseIsRebuiltFromTheJournal();
 };
 
 void TestLogHaltbarkeit::everyLoggedQsoSurvivesAHardKill()
@@ -245,6 +248,132 @@ void TestLogHaltbarkeit::theJournalHoldsEveryQsoEvenWhenTheDatabaseRefuses()
                       << "| im Journal:" << imJournal;
     QVERIFY2(imJournal, "Das Journal muss auch dann schreiben, wenn die Datenbank es nicht tut");
     QFile::setPermissions(dbPfad, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+}
+
+// Eine Sicherung zählt erst, wenn man sie ZURÜCKLESEN kann -- und
+// zwar vollständig. Der ADIF-Leser überging bis 2026-09-29
+// Seriennummern und Rapporte; ein damit wiederhergestelltes Log hätte
+// keine Punkte gehabt. Dieser Prüfstand schreibt ein Journal und
+// liest es wieder ein, Feld für Feld.
+void TestLogHaltbarkeit::theJournalCanBeReadBackCompletely()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pfad = dir.filePath(QStringLiteral("rueck.adi"));
+    ContestSettings einstellungen;
+    einstellungen.ownCallsign = QStringLiteral("OE5SOS");
+    einstellungen.ownGrid = QStringLiteral("JN67VV");
+
+    QsoJournal journal(pfad);
+    for (int i = 1; i <= 3; ++i) {
+        QsoRecord r = macheQso(i);
+        QVERIFY(journal.schreibe(r, einstellungen));
+    }
+
+    QFile datei(pfad);
+    QVERIFY(datei.open(QIODevice::ReadOnly));
+    const QVector<ImportedQso> gelesen = LogFileReader::parse(datei.readAll(), pfad);
+    datei.close();
+
+    qInfo().noquote() << "zurückgelesen:" << gelesen.size() << "QSOs";
+    QCOMPARE(gelesen.size(), 3);
+    const ImportedQso& erstes = gelesen.first();
+    qInfo().noquote() << "erstes QSO:" << erstes.callsign << erstes.band << erstes.mode << erstes.grid
+                      << "RST" << erstes.rstSent << "/" << erstes.rstRcvd << "Nr." << erstes.serialSent
+                      << "/" << erstes.serialRcvd << erstes.contestId;
+    QCOMPARE(erstes.callsign, QStringLiteral("DL1ABC"));
+    QCOMPARE(erstes.band, QStringLiteral("144"));
+    QCOMPARE(erstes.mode, QStringLiteral("SSB"));
+    QCOMPARE(erstes.grid, QStringLiteral("JN78CG"));
+    QCOMPARE(erstes.rstSent, QStringLiteral("59"));
+    QCOMPARE(erstes.rstRcvd, QStringLiteral("59"));
+    QCOMPARE(erstes.serialSent, 1);
+    QCOMPARE(erstes.serialRcvd, 1);
+    QCOMPARE(erstes.contestId, QStringLiteral("IARU_R1_VHF_UHF"));
+    QVERIFY2(!erstes.timestampUtc.isEmpty(), "ohne Zeit ist ein Contest-QSO nicht wiederherstellbar");
+}
+
+// Der ganze Rettungsweg, von hinten aufgezäumt: die Datenbank ist
+// weg, das Journal ist da. Danach muss wieder jedes QSO im Log stehen
+// -- mit Nummern, sonst zählt es nichts. Das ist der Fall, für den
+// das Journal überhaupt existiert.
+void TestLogHaltbarkeit::aLostDatabaseIsRebuiltFromTheJournal()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString journalPfad = dir.filePath(QStringLiteral("verlust.adi"));
+    const QString dbPfad = dir.filePath(QStringLiteral("verlust.sqlite"));
+    ContestSettings einstellungen;
+    einstellungen.ownCallsign = QStringLiteral("OE5SOS");
+    einstellungen.ownGrid = QStringLiteral("JN67VV");
+    const QString contestId = QStringLiteral("IARU_R1_VHF_UHF");
+
+    // Contest fahren: 12 QSOs, jedes zuerst ins Journal, dann in die
+    // Datenbank -- genau die Reihenfolge des Programms.
+    QsoJournal journal(journalPfad);
+    {
+        ContestDatabase db;
+        QVERIFY(db.open(dbPfad));
+        for (int i = 1; i <= 12; ++i) {
+            QsoRecord r = macheQso(i);
+            QVERIFY(journal.schreibe(r, einstellungen));
+            QVERIFY(db.insertQso(r));
+        }
+        QCOMPARE(db.qsoCountForContest(contestId), 12);
+    }
+
+    // Und jetzt ist die Datenbank hin.
+    QVERIFY(QFile::remove(dbPfad));
+
+    // Wiederherstellen: leere Datenbank, Journal einlesen, ergänzen --
+    // dieselbe Logik wie MainWindow::restoreFromJournal().
+    ContestDatabase neu;
+    QVERIFY(neu.open(dbPfad));
+    QCOMPARE(neu.qsoCountForContest(contestId), 0);
+
+    QFile datei(journalPfad);
+    QVERIFY(datei.open(QIODevice::ReadOnly));
+    const QVector<ImportedQso> gelesen = LogFileReader::parse(datei.readAll(), journalPfad);
+    datei.close();
+    QCOMPARE(gelesen.size(), 12);
+
+    int ergaenzt = 0;
+    for (const ImportedQso& q : gelesen) {
+        QsoRecord r;
+        r.callsign = q.callsign;
+        r.band = q.band;
+        r.mode = q.mode;
+        r.timestampUtc = q.timestampUtc;
+        r.gridSquare = q.grid;
+        r.rstSent = q.rstSent;
+        r.rstRcvd = q.rstRcvd;
+        if (q.serialSent > 0) {
+            r.serialSent = q.serialSent;
+        }
+        if (q.serialRcvd > 0) {
+            r.serialRcvd = q.serialRcvd;
+        }
+        r.contestId = contestId;
+        if (neu.insertQso(r)) {
+            ++ergaenzt;
+        }
+    }
+    qInfo().noquote() << "aus dem Journal wiederhergestellt:" << ergaenzt << "QSOs";
+    QCOMPARE(ergaenzt, 12);
+    QCOMPARE(neu.qsoCountForContest(contestId), 12);
+
+    // Und die Nummern sind mit zurückgekommen -- ohne sie wäre das Log
+    // wertlos.
+    const QVector<QsoRecord> wieder = neu.qsosForContest(contestId);
+    QCOMPARE(wieder.size(), 12);
+    int mitNummer = 0;
+    for (const QsoRecord& q : wieder) {
+        if (q.serialSent.has_value() && q.serialRcvd.has_value()) {
+            ++mitNummer;
+        }
+    }
+    qInfo().noquote() << mitNummer << "von" << wieder.size() << "QSOs haben beide Nummern";
+    QCOMPARE(mitNummer, 12);
 }
 
 void TestLogHaltbarkeit::loggingStaysFastEnoughWithFullSync()
