@@ -44,6 +44,7 @@ private slots:
     void itStaysInLineWhenTheRunningNumberComesBack();
     void theStatusColumnIsOnlyAsWideAsItsPill();
     void theRunningVersionIsOnTheStatusBar();
+    void itStaysInLineWhenTheViewModeChanges();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -336,6 +337,49 @@ void TestEingabezeileInFlucht::theRunningVersionIsOnTheStatusBar()
     QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE)),
              "Das Baudatum fehlt im Tooltip");
     QVERIFY2(label->isVisibleTo(&window), "Die Fassung ist nicht sichtbar");
+}
+
+// Ansicht umschalten und sofort hinsehen. Die Windows-CI hat es am
+// 2026-09-30 im Rüttel-Prüfstand gefunden: "nach ansicht:
+// Rufzeichenfeld bei 70, Spalte bei 185" -- dieselben Zahlen wie beim
+// Wiedereinschalten der laufenden Nummer, also wieder die leere
+// QSO-Nummern-Zelle, die beim Neuaufbau der Zeile fehlt. Auf macOS
+// fängt ein späterer Layout-Durchlauf es ein, auf Windows nicht.
+void TestEingabezeileInFlucht::itStaysInLineWhenTheViewModeChanges()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("ansicht.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    auto* log = window.findChild<UnifiedLogWidget*>();
+    QVERIFY(log);
+    auto* row = window.findChild<QWidget*>(QLatin1String(UnifiedLogWidget::kEntryRowObjectName));
+    QVERIFY(row);
+
+    for (const auto modus : {ContestSettings::LogViewMode::DxLogFullColumns,
+                              ContestSettings::LogViewMode::Compact,
+                              ContestSettings::LogViewMode::DxLogFullColumns}) {
+        log->setViewMode(modus);
+        QCoreApplication::processEvents();
+        QLineEdit* rufzeichen = row->findChildren<QLineEdit*>().first();
+        const int zelleX = zellenAnfang(window, rufzeichen);
+        const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
+        qInfo().noquote() << "Ansicht" << int(modus) << "-- Rufzeichenfeld bei" << zelleX
+                          << ", Call-Spalte bei" << spalteX;
+        QVERIFY2(std::abs(zelleX - spalteX) <= 1,
+                 qPrintable(QStringLiteral("Nach dem Ansichtswechsel fängt das Rufzeichenfeld bei %1 an, "
+                                            "seine Spalte bei %2")
+                                .arg(zelleX).arg(spalteX)));
+    }
 }
 
 int main(int argc, char* argv[])
