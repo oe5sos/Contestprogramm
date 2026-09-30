@@ -75,19 +75,23 @@ int main(int argc, char* argv[])
     // Sicherung wiederherstellen: the database file was replaced under
     // a closed connection; the cleanest way onto it is a fresh process.
     // The instance lock goes first, or the new start would hand over to
-    // this dying one and quit.
-    const auto restart = [&app, &instanceGuard] {
+    // this dying one and quit. `program` empty: this program again.
+    const auto restartInto = [&app, &instanceGuard](const QString& program) {
         instanceGuard.release();
-        QProcess::startDetached(QCoreApplication::applicationFilePath(), QCoreApplication::arguments().mid(1),
-                                QDir::currentPath());
+        const QStringList arguments = QCoreApplication::arguments().mid(1);
+        if (program.isEmpty() || !QProcess::startDetached(program, arguments, QDir::currentPath())) {
+            QProcess::startDetached(QCoreApplication::applicationFilePath(), arguments, QDir::currentPath());
+        }
         app.quit();
     };
-    QObject::connect(&window, &Contestprogramm::MainWindow::restartRequested, &app, restart);
+    QObject::connect(&window, &Contestprogramm::MainWindow::restartRequested, &app,
+                     [restartInto] { restartInto(QString()); });
     // Built and started while this one is running: the start handed
     // over here (single instance), but with a different build stamp --
     // the operator wants the NEW program, not the old window raised
-    // (2026-09-21). Restart into the rebuilt binary.
-    QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::newerBuildStarted, &app, restart);
+    // (2026-09-21). Restart into the program that start ran, which need
+    // not be this one's file (a new build beside the old, 2026-09-28).
+    QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::newerBuildStarted, &app, restartInto);
     QObject::connect(&instanceGuard, &Contestprogramm::SingleInstanceGuard::activateRequested, &window, [&window] {
         window.setWindowState((window.windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
         window.show();

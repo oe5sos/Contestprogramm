@@ -12,8 +12,10 @@ namespace Contestprogramm {
 
 namespace {
 constexpr int kConnectTimeoutMs = 1500;
-// "raise <build stamp>\n" -- the stamp is optional on the wire (an
-// older build sends none), see SingleInstanceGuard::setBuildStamp().
+// "raise <build stamp> <program path>\n", one line. Stamp and path are
+// optional on the wire: builds before 2026-09-21 send a bare "raise",
+// builds before 2026-09-30 "raise <stamp>". The path is percent-encoded
+// (it may hold spaces) and only sent together with a stamp.
 const QByteArray kRaiseVerb = QByteArrayLiteral("raise");
 
 QString executableStamp()
@@ -21,18 +23,37 @@ QString executableStamp()
     const QFileInfo exe(QCoreApplication::applicationFilePath());
     return exe.exists() ? QString::number(exe.lastModified().toMSecsSinceEpoch()) : QString();
 }
+
+// The program a second start named, if it is one: an absolute path to
+// an executable file. Anything else is dropped, and the restart falls
+// back to the running program's own path.
+QString handedProgram(const QByteArray& field)
+{
+    if (field.isEmpty()) {
+        return {};
+    }
+    const QString path = QString::fromUtf8(QByteArray::fromPercentEncoding(field));
+    const QFileInfo program(path);
+    return program.isAbsolute() && program.isFile() && program.isExecutable() ? path : QString();
+}
 } // namespace
 
 SingleInstanceGuard::SingleInstanceGuard(const QString& dataDir, QObject* parent)
     : QObject(parent)
     , m_dataDir(dataDir)
     , m_buildStamp(executableStamp())
+    , m_programPath(QCoreApplication::applicationFilePath())
 {
 }
 
 void SingleInstanceGuard::setBuildStamp(const QString& stamp)
 {
     m_buildStamp = stamp;
+}
+
+void SingleInstanceGuard::setProgramPath(const QString& path)
+{
+    m_programPath = path;
 }
 
 SingleInstanceGuard::~SingleInstanceGuard()
@@ -81,7 +102,11 @@ bool SingleInstanceGuard::tryAcquire()
         QLocalSocket socket;
         socket.connectToServer(serverName);
         if (socket.waitForConnected(kConnectTimeoutMs)) {
-            socket.write(kRaiseVerb + ' ' + m_buildStamp.toUtf8() + '\n');
+            QByteArray line = kRaiseVerb + ' ' + m_buildStamp.toUtf8();
+            if (!m_buildStamp.isEmpty() && !m_programPath.isEmpty()) {
+                line += ' ' + m_programPath.toUtf8().toPercentEncoding("/");
+            }
+            socket.write(line + '\n');
             socket.flush();
             // Wait for the running instance's "ok" before hanging up --
             // with the event loop running, not waitForReadyRead(): that
@@ -117,15 +142,22 @@ bool SingleInstanceGuard::tryAcquire()
     connect(m_server.get(), &QLocalServer::newConnection, this, [this, server = m_server.get()] {
         while (QLocalSocket* client = server->nextPendingConnection()) {
             const auto handle = [this, client] {
-                const QByteArray line = client->readAll().trimmed();
+                // Whole lines only: with a program path the line is long
+                // enough to arrive in two reads, and every build so far
+                // ends it with '\n'.
+                if (!client->canReadLine()) {
+                    return;
+                }
+                const QByteArray line = client->readLine().trimmed();
                 if (!line.startsWith(kRaiseVerb)) {
                     return;
                 }
                 client->write("ok\n");
                 client->flush();
-                const QString theirStamp = QString::fromUtf8(line.mid(kRaiseVerb.size()).trimmed());
+                const QList<QByteArray> fields = line.mid(kRaiseVerb.size()).simplified().split(' ');
+                const QString theirStamp = QString::fromUtf8(fields.value(0));
                 if (!theirStamp.isEmpty() && !m_buildStamp.isEmpty() && theirStamp != m_buildStamp) {
-                    emit newerBuildStarted();
+                    emit newerBuildStarted(handedProgram(fields.value(1)));
                     return;
                 }
                 emit activateRequested();

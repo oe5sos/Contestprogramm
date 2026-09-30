@@ -1,5 +1,8 @@
 #include <QtTest>
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QLocalSocket>
 #include <QPointer>
 #include <QSignalSpy>
@@ -18,6 +21,9 @@ class TestSingleInstance : public QObject
 private slots:
     void secondStartOnTheSameDirectoryHandsOverAndIsRefused();
     void aStartFromANewerBuildAsksForARestart();
+    void theRestartGetsTheProgramTheNewerBuildWasStartedAs();
+    void anOlderBuildsHandOverWithoutAProgramStillWorks();
+    void aHandedPathThatIsNotAProgramIsDropped();
     void releasingFromTheRestartSignalDoesNotPullTheSocketFromUnderItsOwnRead();
     void differentDirectoriesDoNotInterfere();
     void aFinishedInstanceFreesTheDirectory();
@@ -64,6 +70,132 @@ void TestSingleInstance::aStartFromANewerBuildAsksForARestart()
     QVERIFY(!rebuilt.tryAcquire());
     QTRY_COMPARE(newer.count(), 1);
     QCOMPARE(activated.count(), 1);
+}
+
+namespace {
+// A stand-in for a second build installed beside the running one, as on
+// 2026-09-28 (Contestprogramm-neu.app next to Contestprogramm.app): an
+// executable file in a directory with a space in its name. Named like
+// this test's own executable, so it counts as a program on Windows too
+// (there by its suffix).
+QString makeProgramBeside(const QTemporaryDir& dir)
+{
+    const QString program = dir.filePath(QStringLiteral("Contestprogramm neu.app/Contents/MacOS/"))
+        + QFileInfo(QCoreApplication::applicationFilePath()).fileName();
+    QDir().mkpath(QFileInfo(program).absolutePath());
+    QFile file(program);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return {};
+    }
+    file.write("#!/bin/sh\n");
+    file.close();
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner
+                        | QFileDevice::ReadUser | QFileDevice::ExeUser);
+    return program;
+}
+
+// What a second start of an older build puts on the wire. The socket
+// stays open until the caller is done: a named pipe hung up on right
+// after the write can lose the line (Windows, see tryAcquire()).
+bool handOverLike(QLocalSocket& socket, const QString& dataDir, const QByteArray& line)
+{
+    socket.connectToServer(SingleInstanceGuard::serverNameFor(dataDir));
+    if (!socket.waitForConnected(1500)) {
+        return false;
+    }
+    socket.write(line);
+    socket.flush();
+    return true;
+}
+} // namespace
+
+// The rebuilt program was started from a different place than the
+// running one (2026-09-28: Contestprogramm-neu.app beside
+// Contestprogramm.app). The restart must run THAT program -- the
+// running one's own path brought the old program back.
+void TestSingleInstance::theRestartGetsTheProgramTheNewerBuildWasStartedAs()
+{
+    QTemporaryDir dir;
+    QTemporaryDir installed;
+    const QString program = makeProgramBeside(installed);
+    QVERIFY(!program.isEmpty());
+    QVERIFY(program.contains(QLatin1Char(' ')));
+
+    SingleInstanceGuard first(dir.path());
+    first.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(first.tryAcquire());
+    QSignalSpy activated(&first, &SingleInstanceGuard::activateRequested);
+    QSignalSpy newer(&first, &SingleInstanceGuard::newerBuildStarted);
+
+    SingleInstanceGuard beside(dir.path());
+    beside.setBuildStamp(QStringLiteral("2000"));
+    beside.setProgramPath(program);
+    QVERIFY(!beside.tryAcquire());
+    QTRY_COMPARE(newer.count(), 1);
+    QCOMPARE(newer.at(0).at(0).toString(), program);
+
+    // A copy of the SAME build elsewhere is the same program: only raised.
+    SingleInstanceGuard copy(dir.path());
+    copy.setBuildStamp(QStringLiteral("1000"));
+    copy.setProgramPath(program);
+    QVERIFY(!copy.tryAcquire());
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(newer.count(), 1);
+}
+
+// Builds before this change send "raise <stamp>\n", the very first ones
+// a bare "raise\n". Both keep working: a different stamp still restarts
+// (with no program named, main.cpp falls back to its own path), no
+// stamp still raises.
+void TestSingleInstance::anOlderBuildsHandOverWithoutAProgramStillWorks()
+{
+    QTemporaryDir dir;
+    SingleInstanceGuard first(dir.path());
+    first.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(first.tryAcquire());
+    QSignalSpy activated(&first, &SingleInstanceGuard::activateRequested);
+    QSignalSpy newer(&first, &SingleInstanceGuard::newerBuildStarted);
+
+    QLocalSocket stampOnly;
+    QVERIFY(handOverLike(stampOnly, dir.path(), "raise 2000\n"));
+    QTRY_COMPARE(newer.count(), 1);
+    QVERIFY(newer.at(0).at(0).toString().isEmpty());
+    // It still gets its "ok" and can hang up.
+    QTRY_VERIFY(stampOnly.canReadLine());
+    QCOMPARE(stampOnly.readLine(), QByteArray("ok\n"));
+
+    QLocalSocket bare;
+    QVERIFY(handOverLike(bare, dir.path(), "raise\n"));
+    QTRY_COMPARE(activated.count(), 1);
+    QCOMPARE(newer.count(), 1);
+}
+
+// Whatever comes on the socket is not started blindly: a path that is
+// not an absolute path to an executable file is dropped, and the
+// restart falls back to the running program's own path.
+void TestSingleInstance::aHandedPathThatIsNotAProgramIsDropped()
+{
+    QTemporaryDir dir;
+    SingleInstanceGuard first(dir.path());
+    first.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(first.tryAcquire());
+    QSignalSpy newer(&first, &SingleInstanceGuard::newerBuildStarted);
+
+    const QByteArray missing = QDir(dir.path()).filePath(QStringLiteral("gibt es nicht/Contestprogramm"))
+                                   .toUtf8().toPercentEncoding("/");
+    const QByteArray notAProgram = dir.path().toUtf8().toPercentEncoding("/"); // a directory
+    const QList<QByteArray> lines = {
+        "raise 2000 " + missing + '\n',
+        "raise 2000 " + notAProgram + '\n',
+        "raise 2000 Contestprogramm\n", // relative: would be looked up on PATH
+    };
+    for (const QByteArray& line : lines) {
+        QLocalSocket socket;
+        QVERIFY(handOverLike(socket, dir.path(), line));
+        const int before = int(newer.count());
+        QTRY_COMPARE(int(newer.count()), before + 1);
+        QVERIFY2(newer.last().at(0).toString().isEmpty(), line.constData());
+    }
 }
 
 // Absturz 2026-09-28 11:01:33 (Contestprogramm-2026-09-28-110149.ips):
