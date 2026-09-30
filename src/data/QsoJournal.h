@@ -5,7 +5,12 @@
 namespace Contestprogramm {
 
 struct QsoRecord;
-class ContestSettings;
+// STRUCT, nicht class: ContestSettings ist ein struct (siehe
+// app/ContestSettings.h). MSVC nimmt das Schlüsselwort mit ins
+// Namens-Mangling, clang und gcc nicht -- deshalb baute es hier
+// anstandslos und der Windows-Linker fand schreibe() nicht
+// ("unresolved external symbol", 2026-09-30).
+struct ContestSettings;
 
 // Die zweite Spur für jedes geloggte QSO.
 //
