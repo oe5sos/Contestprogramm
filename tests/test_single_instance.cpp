@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QLocalSocket>
+#include <QPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -16,6 +18,7 @@ class TestSingleInstance : public QObject
 private slots:
     void secondStartOnTheSameDirectoryHandsOverAndIsRefused();
     void aStartFromANewerBuildAsksForARestart();
+    void releasingFromTheRestartSignalDoesNotPullTheSocketFromUnderItsOwnRead();
     void differentDirectoriesDoNotInterfere();
     void aFinishedInstanceFreesTheDirectory();
 };
@@ -61,6 +64,47 @@ void TestSingleInstance::aStartFromANewerBuildAsksForARestart()
     QVERIFY(!rebuilt.tryAcquire());
     QTRY_COMPARE(newer.count(), 1);
     QCOMPARE(activated.count(), 1);
+}
+
+// Absturz 2026-09-28 11:01:33 (Contestprogramm-2026-09-28-110149.ips):
+// a second build was started beside the running one, main.cpp's restart
+// handler ran release() straight from newerBuildStarted -- that deleted
+// the QLocalServer and with it the client socket, while the socket was
+// still inside its own readyRead. Qt emits channelReadyRead() on it right
+// after, into freed memory: EXC_BAD_ACCESS at 0x30 in doActivate. Under
+// AddressSanitizer with free_fill_byte=0 (freed memory zeroed, like the
+// crash) the unfixed code dies here at exactly the reported offsets.
+void TestSingleInstance::releasingFromTheRestartSignalDoesNotPullTheSocketFromUnderItsOwnRead()
+{
+    QTemporaryDir dir;
+    SingleInstanceGuard first(dir.path());
+    first.setBuildStamp(QStringLiteral("1000"));
+    QVERIFY(first.tryAcquire());
+    int restarts = 0;
+    bool socketOutlivedRelease = false;
+    // The same order as main.cpp's restart lambda: release() first.
+    connect(&first, &SingleInstanceGuard::newerBuildStarted, this, [&] {
+        // The connection that brought the line -- this slot runs inside
+        // its readyRead, so it must still exist when release() returns
+        // (only an ASan build notices the use itself, and only with
+        // free_fill_byte; this check fails on every platform).
+        const QPointer<QLocalSocket> client = first.findChild<QLocalSocket*>();
+        QVERIFY(client);
+        first.release();
+        socketOutlivedRelease = !client.isNull();
+        ++restarts;
+    });
+
+    SingleInstanceGuard rebuilt(dir.path());
+    rebuilt.setBuildStamp(QStringLiteral("2000"));
+    QVERIFY(!rebuilt.tryAcquire());
+    QTRY_COMPARE(restarts, 1);
+    QVERIFY(socketOutlivedRelease);
+    // Let the deferred clean-up run, then the directory is free again.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QTest::qWait(50);
+    SingleInstanceGuard successor(dir.path());
+    QVERIFY(successor.tryAcquire());
 }
 
 void TestSingleInstance::differentDirectoriesDoNotInterfere()

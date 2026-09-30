@@ -45,7 +45,16 @@ void SingleInstanceGuard::release()
     if (m_server) {
         m_server->close();
         QLocalServer::removeServer(m_server->serverName());
-        m_server.reset();
+        // Not deleted here: release() is called from newerBuildStarted
+        // (main.cpp's restart), i.e. from inside a client socket's
+        // readyRead -- and the client is the server's child. Deleting
+        // the server took the socket with it while Qt was still in its
+        // read notification, which then emitted channelReadyRead() on
+        // freed memory (crash 2026-09-28 11:01:33, second build started
+        // beside the running one). close() already stops listening and
+        // frees the name, the object itself can go once the stack is
+        // unwound.
+        m_server.release()->deleteLater();
     }
     if (m_lock) {
         m_lock->unlock();
@@ -102,8 +111,11 @@ bool SingleInstanceGuard::tryAcquire()
     m_server = std::make_unique<QLocalServer>(this);
     QLocalServer::removeServer(serverName); // leftover socket file from a crash
     m_server->listen(serverName);
-    connect(m_server.get(), &QLocalServer::newConnection, this, [this] {
-        while (QLocalSocket* client = m_server->nextPendingConnection()) {
+    // The server by pointer, not m_server: handle() below may run
+    // release() right here, which empties m_server while this loop is
+    // still asking for the next connection (none, once closed).
+    connect(m_server.get(), &QLocalServer::newConnection, this, [this, server = m_server.get()] {
+        while (QLocalSocket* client = server->nextPendingConnection()) {
             const auto handle = [this, client] {
                 const QByteArray line = client->readAll().trimmed();
                 if (!line.startsWith(kRaiseVerb)) {
