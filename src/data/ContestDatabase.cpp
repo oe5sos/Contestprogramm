@@ -77,17 +77,39 @@ QString ContestDatabase::lastError() const
     return m_lastError;
 }
 
+bool ContestDatabase::pragmaValueForTest(const QString& name, QVariant& wertAus)
+{
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("PRAGMA %1").arg(name)) || !query.next()) {
+        return false;
+    }
+    wertAus = query.value(0);
+    return true;
+}
+
 bool ContestDatabase::ensureSchema()
 {
     QSqlQuery query(m_db);
 
-    // WAL + NORMAL synchronous per the plan: fine for a single-process
-    // desktop logger, avoids the fsync-per-write cost of the FULL
-    // default while still being crash-safe for the common case.
+    // WAL + FULL synchronous.
+    //
+    // Bis 2026-09-29 stand hier NORMAL, mit der Begründung, das spare
+    // den fsync je Schreibvorgang und sei "crash-safe for the common
+    // case". Das stimmt für einen Programmabsturz -- WAL fängt den ab.
+    // Es stimmt NICHT für Stromausfall oder einen stehenden Rechner:
+    // dann kann die zuletzt bestätigte Transaktion fehlen, also genau
+    // das QSO, das man gerade geloggt hat.
+    //
+    // Martin, 2026-09-29: "primäres ziel und das muss zu 100 % passen
+    // sind meine logs, die ich eingebe. die dürfen nicht weg sein."
+    // Damit ist die Abwägung entschieden: FULL. Der Preis ist ein
+    // fsync je Commit -- bei einem QSO alle paar Sekunden ist das
+    // nicht spürbar (gemessen im Prüfstand test_log_haltbarkeit), und
+    // ein verlorenes QSO ist im Contest teurer als jede Millisekunde.
     if (!execOrRecord(query, QStringLiteral("PRAGMA journal_mode = WAL"), m_lastError)) {
         return false;
     }
-    if (!execOrRecord(query, QStringLiteral("PRAGMA synchronous = NORMAL"), m_lastError)) {
+    if (!execOrRecord(query, QStringLiteral("PRAGMA synchronous = FULL"), m_lastError)) {
         return false;
     }
 

@@ -73,6 +73,8 @@ QString adifBandCode(const QString& band)
     return b;
 }
 
+} // namespace
+
 QString toAdifRecord(const QsoRecord& record, const ContestSettings& settings)
 {
     QString r;
@@ -128,7 +130,7 @@ QString toAdifRecord(const QsoRecord& record, const ContestSettings& settings)
     return r;
 }
 
-} // namespace
+
 
 AdifExporter::AdifExporter(ContestDatabase& database)
     : m_database(&database)

@@ -13,7 +13,9 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QFile>
 #include <QHeaderView>
+#include <QTextStream>
 #include <QIntValidator>
 #include <QKeyEvent>
 #include <QLabel>
@@ -159,6 +161,7 @@ constexpr int kColumnWidths[ColCount] = {55, 70, 115, 130, 175, 75, 60, 90, 60, 
 // most of the "too-wide last column" complaint, not just the 160px
 // floor.
 constexpr int kStatusColumnMaxWidth = 110;
+
 
 // Narrow-panel fit (operator's own layout, 2026-09-21: a 620px-wide
 // "Log" panel showed a horizontal scrollbar with km/°/Status pushed
@@ -1285,6 +1288,32 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     m_feedTable->viewport()->installEventFilter(this);
     connect(m_feedTable, &QTableView::clicked, this, &UnifiedLogWidget::handleFeedRowClicked);
 
+    // Mitschrift für die Fehlersuche am Log: CP_LOG_MITSCHRIFT=<pfad>
+    // hält fest, was beim Klicken wirklich ankommt. Gebraucht für
+    // Martins Meldung vom 2026-09-29 ("möchte log ändern, funktioniert
+    // nicht"): der Prüfstand kann es nicht klären, weil QTest-Mausklicks
+    // ein Fenster brauchen, das wirklich auf dem Schirm liegt -- in der
+    // Reihe läuft keiner. Also im laufenden Programm nachsehen.
+    if (!qgetenv("CP_LOG_MITSCHRIFT").isEmpty()) {
+        auto schreibe = [](const QString& text) {
+            QFile mit(QString::fromLocal8Bit(qgetenv("CP_LOG_MITSCHRIFT")));
+            if (mit.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream(&mit) << QDateTime::currentDateTimeUtc().toString(Qt::ISODate) << ' ' << text
+                                  << '\n';
+            }
+        };
+        connect(m_feedTable, &QTableView::clicked, this, [this, schreibe](const QModelIndex& i) {
+            schreibe(QStringLiteral("clicked Zeile %1 Spalte %2 editierbar=%3")
+                          .arg(i.row()).arg(i.column())
+                          .arg(bool(m_feedModel->flags(i) & Qt::ItemIsEditable)));
+        });
+        connect(m_feedTable, &QTableView::doubleClicked, this, [this, schreibe](const QModelIndex& i) {
+            schreibe(QStringLiteral("doubleClicked Zeile %1 Spalte %2 editierbar=%3 -> edit() folgt")
+                          .arg(i.row()).arg(i.column())
+                          .arg(bool(m_feedModel->flags(i) & Qt::ItemIsEditable)));
+        });
+    }
+
     // Löschen: Rechtsklick auf die Zeile oder die Entf-Taste. Martin,
     // 2026-09-27: "fehler sollen einfach und schnell geändert und
     // gelöscht werden" -- also ohne Umweg über ein Menü am Fensterrand.
@@ -1773,16 +1802,31 @@ void UnifiedLogWidget::syncStatusColumnWidth()
     // cap; a still-wider panel just leaves a bounded, honest margin past
     // it (matching every other column's own fixed-width philosophy)
     // rather than growing one column without limit.
-    int otherVisibleWidth = 0;
-    for (int col = 0; col < ColCount; ++col) {
-        if (col != ColStatus && !m_feedTable->isColumnHidden(col)) {
-            otherVisibleWidth += m_feedTable->columnWidth(col);
-        }
+    // So schmal wie ihr Schild -- gemessen, nicht geschätzt. Martin,
+    // 2026-09-29: "bitte viel schmäler machen, ich benötige platz!!!"
+    // Die Spalte trägt nur kurze Schilder (UNGÜLTIG, DUPE, KST, CLU),
+    // und wie breit die wirklich sind, weiß allein die Schrift, in der
+    // PillDelegate sie zeichnet: dieselbe Schriftgröße, derselbe
+    // Innenabstand (+16) und dieselben 6 px Einzug links wie dort.
+    // Vorher wuchs sie bis 110 px in jede freie Lücke und las sich auf
+    // fast jeder Zeile als breiter leerer Block.
+    QFont pillenSchrift = m_feedTable->font();
+    pillenSchrift.setPixelSize(Style::kFontCaption);
+    pillenSchrift.setWeight(QFont::DemiBold);
+    const QFontMetrics pillenMasse(pillenSchrift);
+    int schildBreite = 0;
+    for (const QString& schild : {QStringLiteral("UNGÜLTIG"), QStringLiteral("DUPE"),
+                                   QStringLiteral("KST"), QStringLiteral("CLU")}) {
+        schildBreite = std::max(schildBreite, pillenMasse.horizontalAdvance(schild) + 16);
     }
-    const int viewportWidth = m_feedTable->viewport()->width();
-    const int desiredWidth =
-        qBound(kColumnWidths[ColStatus], viewportWidth - otherVisibleWidth, kStatusColumnMaxWidth);
-    m_feedTable->setColumnWidth(ColStatus, desiredWidth);
+    const int statusBreite = schildBreite + 6 + 6; // Einzug links, etwas Luft rechts
+    m_feedTable->setColumnWidth(ColStatus, statusBreite);
+
+    // Der frei gewordene Platz bleibt Rand. Erst hatte ich ihn an die
+    // Rufzeichenspalte gegeben -- die wuchs damit auf 205 px, und das
+    // ist genau das Gegenteil von dem, was Martin wollte ("ich
+    // benötige platz!!!"): ein breiter Block, nur woanders. Keine
+    // Spalte dehnt sich mehr.
 }
 
 void UnifiedLogWidget::setLogModel(LogTableModel* model)

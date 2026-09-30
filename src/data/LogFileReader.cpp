@@ -222,6 +222,16 @@ QVector<ImportedQso> LogFileReader::parseAdif(const QByteArray& data)
             qsoDate = value;
         } else if (name == QStringLiteral("TIME_ON")) {
             timeOn = value;
+        } else if (name == QStringLiteral("RST_SENT")) {
+            current.rstSent = value;
+        } else if (name == QStringLiteral("RST_RCVD")) {
+            current.rstRcvd = value;
+        } else if (name == QStringLiteral("STX")) {
+            current.serialSent = value.toInt();
+        } else if (name == QStringLiteral("SRX")) {
+            current.serialRcvd = value.toInt();
+        } else if (name == QStringLiteral("CONTEST_ID")) {
+            current.contestId = value;
         }
     }
     return result;

@@ -38,6 +38,7 @@ class TestKorrekturLive : public QObject
 private slots:
     void editingTheCallsignThroughTheCellLands();
     void editingTheLocatorThroughTheCellRecomputesTheDistance();
+    void aDoubleClickOnTheCallsignCellReallyOpensAnEditor();
     void aGridFilterHidesRowsAndSaysSo();
 
 private:
@@ -211,6 +212,81 @@ void TestKorrekturLive::aGridFilterHidesRowsAndSaysSo()
     filter->clear();
     QCoreApplication::processEvents();
     QVERIFY(hinweis->isHidden());
+}
+
+// Martin, 2026-09-29: "möchte log ändern, funktioniert nicht."
+//
+// Die Prüfstände darüber rufen setData() auf -- sie beweisen, dass das
+// MODELL eine Änderung richtig verarbeitet, aber nicht, dass man
+// überhaupt dorthin kommt. Genau dieselbe halbe Strecke wie beim
+// Herausziehen aus dem Seitenbereich. Dieser hier klickt doppelt auf
+// die Zelle, wie eine Hand es täte, und sieht nach, ob ein Editor
+// aufgeht.
+void TestKorrekturLive::aDoubleClickOnTheCallsignCellReallyOpensAnEditor()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("dblclick.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    window.activateWindow();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* modell = table->model();
+    QVERIFY(modell);
+
+    // Die Zeile des geloggten QSO finden (nicht die Eingabezeile).
+    int zeile = -1;
+    for (int r = 0; r < modell->rowCount(); ++r) {
+        const QModelIndex idx = modell->index(r, UnifiedLogWidget::ColumnCall);
+        if (modell->flags(idx) & Qt::ItemIsEditable) {
+            zeile = r;
+            break;
+        }
+    }
+    QVERIFY2(zeile >= 0, "keine bearbeitbare Rufzeichenzelle im Log");
+
+    QSignalSpy resetSpy(modell, &QAbstractItemModel::modelReset);
+    QSignalSpy doppelSpy(table, &QAbstractItemView::doubleClicked);
+    QSignalSpy klickSpy(table, &QAbstractItemView::clicked);
+    const QModelIndex zelle = modell->index(zeile, UnifiedLogWidget::ColumnCall);
+    table->scrollTo(zelle);
+    const QRect r = table->visualRect(zelle);
+    QVERIFY(r.isValid());
+    // Echte Mausereignisse, direkt an das Widget geschickt -- NICHT
+    // QTest::mouseDClick: das geht über das Fenstersystem und verpufft,
+    // solange das Fenster nicht wirklich auf einem Schirm liegt (im
+    // Prüfstandslauf nie). Genau daran ist die erste Fassung dieses
+    // Prüfstands gescheitert: clicked feuerte nicht einmal. Mit
+    // sendEvent kommt an, was ankommen soll -- dieselbe Technik, die
+    // beim Seitenbereich den Zug am Panelkopf nachgewiesen hat.
+    const QPoint mitte = r.center();
+    const QPoint global = table->viewport()->mapToGlobal(mitte);
+    auto schicke = [&](QEvent::Type art, Qt::MouseButton knopf, Qt::MouseButtons gedrueckt) {
+        QMouseEvent ereignis(art, QPointF(mitte), QPointF(global), knopf, gedrueckt, Qt::NoModifier);
+        QApplication::sendEvent(table->viewport(), &ereignis);
+    };
+    schicke(QEvent::MouseButtonPress, Qt::LeftButton, Qt::LeftButton);
+    schicke(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+    schicke(QEvent::MouseButtonDblClick, Qt::LeftButton, Qt::LeftButton);
+    schicke(QEvent::MouseButtonRelease, Qt::LeftButton, Qt::NoButton);
+    QCoreApplication::processEvents();
+
+    QList<QLineEdit*> editoren = table->viewport()->findChildren<QLineEdit*>();
+    qInfo().noquote() << "Modell-Rücksetzungen:" << resetSpy.count()
+                      << "| doubleClicked:" << doppelSpy.count() << "| clicked:" << klickSpy.count();
+    qInfo().noquote() << "nach dem Doppelklick offene Editoren:" << editoren.size()
+                      << "| editTriggers:" << int(table->editTriggers())
+                      << "| Zelle editierbar:" << bool(modell->flags(zelle) & Qt::ItemIsEditable);
+
+    QVERIFY2(!editoren.isEmpty(),
+             "Ein Doppelklick auf die Rufzeichenzelle öffnet keinen Editor -- das Log lässt sich nicht ändern");
 }
 
 int main(int argc, char* argv[])

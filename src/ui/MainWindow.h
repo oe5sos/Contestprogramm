@@ -183,6 +183,9 @@ private slots:
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void restoreBackup();
+    // QSOs aus dem Journal zurück ins aktive Log holen -- die letzte
+    // Rettungsleine, wenn die Datenbank hin ist (siehe QsoJournal).
+    void restoreFromJournal();
     // Datei > Zweiter Sicherungsordner... / ...entfernen: where every
     // backup is also copied (LogBackup::setMirrorDirectory), kept in
     // the settings table as backup_mirror_dir.
@@ -623,6 +626,8 @@ private:
     // label, not a connect/disconnect badge, same treatment as
     // m_gridRadiusLabel above.
     QLabel* m_weatherStatusLabel = nullptr;
+    // Welche Fassung läuft -- aus BuildInfo.h, also immer die gebaute.
+    QLabel* m_versionLabel = nullptr;
     QPushButton* m_modeToggleButton = nullptr;
     // See saveWindowGeometry()'s doc comment.
     QTimer* m_geometrySaveTimer = nullptr;

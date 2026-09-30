@@ -4,3 +4,7 @@ build/
 compile_commands.json
 .cache/
 build-release/
+# Prüfbau mit Speicher-/Verhaltensprüfer (AddressSanitizer + UBSan).
+# Ohne diese Zeile sammelt ein "git add -A" 4194 Objektdateien ein,
+# und GitHub weist den Push ab -- am 2026-09-29 genau so passiert.
+build-asan/

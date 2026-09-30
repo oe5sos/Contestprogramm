@@ -26,6 +26,8 @@
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 #include "ui/MainWindow.h"
+#include "BuildInfo.h"
+#include "ui/StyleKit.h"
 #include "ui/UnifiedLogWidget.h"
 
 #include <memory>
@@ -40,6 +42,8 @@ private slots:
     void theEntryRowLinesUpWithTheTableInBothViews();
     void itStaysInLineWhenTheRunningNumberIsSwitchedOff();
     void itStaysInLineWhenTheRunningNumberComesBack();
+    void theStatusColumnIsOnlyAsWideAsItsPill();
+    void theRunningVersionIsOnTheStatusBar();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -263,6 +267,75 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberComesBack()
              qPrintable(QStringLiteral("Das Rufzeichenfeld fängt bei %1 an, seine Spalte bei %2")
                             .arg(zelleX)
                             .arg(spalteX)));
+}
+
+// Martin, 2026-09-29: "bitte viel schmäler machen, ich benötige
+// platz!!!" -- über die letzte Spalte im Log. Sie wuchs bis 110 px in
+// jede freie Lücke und stand auf fast jeder Zeile leer da. Jetzt ist
+// sie so breit wie ihr breitestes Schild und keinen Deut breiter.
+void TestEingabezeileInFlucht::theStatusColumnIsOnlyAsWideAsItsPill()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("statusbreite.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+
+    // Was das breiteste Schild in seiner eigenen Schrift braucht.
+    QFont pillenSchrift = table->font();
+    pillenSchrift.setPixelSize(Style::kFontCaption);
+    pillenSchrift.setWeight(QFont::DemiBold);
+    const QFontMetrics masse(pillenSchrift);
+    const int noetig = masse.horizontalAdvance(QStringLiteral("UNGÜLTIG")) + 16 + 12;
+
+    const int breite = table->columnWidth(UnifiedLogWidget::ColumnStatus);
+    qInfo().noquote() << "Statusspalte:" << breite << "px, das Schild braucht" << noetig << "px";
+    QVERIFY2(breite >= noetig - 2,
+             qPrintable(QStringLiteral("Die Statusspalte ist %1 px breit, UNGÜLTIG braucht %2 px")
+                            .arg(breite).arg(noetig)));
+    QVERIFY2(breite <= noetig + 2,
+             qPrintable(QStringLiteral("Die Statusspalte ist mit %1 px breiter als nötig (%2 px)")
+                            .arg(breite).arg(noetig)));
+    // Und deutlich schmäler als der alte Deckel von 110 px.
+    QVERIFY2(breite < 100, "Die Statusspalte ist nicht schmäler geworden");
+}
+
+// Martin, 2026-09-30: "bitte version immer in die taskleiste legen,
+// automatisch". Automatisch heißt: aus BuildInfo.h, das bei jedem Bau
+// neu geschrieben wird -- nichts von Hand gepflegtes, das irgendwann
+// eine falsche Zahl zeigt. Genau das prüft dieser Prüfstand: die
+// angezeigte Fassung MUSS die gebaute sein.
+void TestEingabezeileInFlucht::theRunningVersionIsOnTheStatusBar()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("version.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* label = window.findChild<QLabel*>(QStringLiteral("versionStatus"));
+    QVERIFY2(label, "In der Statusleiste steht keine Fassung");
+    qInfo().noquote() << "Statusleiste zeigt:" << label->text() << "| Tooltip:" << label->toolTip();
+    QCOMPARE(label->text(), QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
+    // Commit und Baudatum im Tooltip -- beim Melden eines Fehlers ist
+    // genau das die Angabe, die zählt.
+    QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)),
+             "Der Commit fehlt im Tooltip");
+    QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE)),
+             "Das Baudatum fehlt im Tooltip");
+    QVERIFY2(label->isVisibleTo(&window), "Die Fassung ist nicht sichtbar");
 }
 
 int main(int argc, char* argv[])

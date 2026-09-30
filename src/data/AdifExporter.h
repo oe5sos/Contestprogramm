@@ -2,6 +2,8 @@
 
 #include <QString>
 
+#include "data/QsoRecord.h"
+
 namespace Contestprogramm {
 
 class ContestDatabase;
@@ -22,6 +24,12 @@ struct ContestSettings;
 // <ADIF_VER>/<PROGRAMID>/<EOH> header) -- the pattern only, not the
 // code, since this exports QsoRecord (a different schema entirely, no
 // NAME/QTH/POTA/etc.), not LogEntry.
+// Eine einzelne ADIF-Zeile aus einem QSO. Öffentlich, weil sie nicht
+// nur der Export braucht: das Journal (QsoJournal) schreibt damit
+// jedes geloggte QSO sofort auf die Platte -- dieselbe Zeile, dasselbe
+// Format, keine zweite Rechnung daneben.
+QString toAdifRecord(const QsoRecord& record, const ContestSettings& settings);
+
 class AdifExporter {
 public:
     explicit AdifExporter(ContestDatabase& database);

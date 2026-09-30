@@ -50,6 +50,11 @@ public:
     // Inserts `record`; on success sets record.id to the new row id and
     // returns true.
     bool insertQso(QsoRecord& record);
+
+    // Eine PRAGMA-Einstellung auslesen -- für Prüfstände, die belegen
+    // wollen, dass die Haltbarkeitsstufe wirklich gesetzt ist und nicht
+    // nur im Quelltext steht (siehe test_log_haltbarkeit).
+    bool pragmaValueForTest(const QString& name, QVariant& wertAus);
     QVector<QsoRecord> qsosForContest(const QString& contestId) const;
     // Single QSO by id -- used to refresh just the affected row after a
     // history-row hand-correction or invalid-toggle (see LogTableModel::

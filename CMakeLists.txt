@@ -140,6 +140,7 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/CabrilloExporter.cpp
     src/data/AdifExporter.h
     src/data/AdifExporter.cpp
+    src/data/QsoJournal.cpp
     src/data/EdiExporter.h
     src/data/EdiExporter.cpp
     src/data/ContestScoring.h
