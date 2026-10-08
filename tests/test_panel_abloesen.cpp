@@ -225,9 +225,7 @@ void TestPanelAbloesen::theMenuOffersEveryPanel()
     }
     qInfo().noquote() << "Im Menü steht:" << beschriftungen.join(QStringLiteral(", "));
 
-    // "map" gibt es seit dem 2026-10-08 nicht mehr als eigenes Panel:
-    // Karte und Kompasse sitzen zusammen in "rotorrow".
-    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"),
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
                                QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
                                QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
                                QStringLiteral("skeds"), QStringLiteral("chat")}) {

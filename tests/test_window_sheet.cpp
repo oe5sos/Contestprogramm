@@ -100,12 +100,7 @@ void TestWindowSheet::render()
     qApp->setStyleSheet(Style::appStyleSheet());
 
     MainWindow window(controller);
-    // Fenstergroesse ueber die Umgebung einstellbar: die grosse
-    // Anordnung (PanelLayoutManager::kLargeDesignCanvas, 1440x982)
-    // greift erst ueber einer bestimmten Flaeche -- ohne das zeigte
-    // jedes Blatt die kompakte.
-    window.resize(qEnvironmentVariableIntValue("SHEET_W") > 0 ? qEnvironmentVariableIntValue("SHEET_W") : 1680,
-                  qEnvironmentVariableIntValue("SHEET_H") > 0 ? qEnvironmentVariableIntValue("SHEET_H") : 1000);
+    window.resize(1680, 1000);
     window.show();
     for (int i = 0; i < 40; ++i) {
         QCoreApplication::processEvents();

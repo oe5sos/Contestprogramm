@@ -65,26 +65,6 @@ public:
     void setAzimuthDeg(double azimuthDeg);
     double azimuthDeg() const { return m_azimuthDeg; }
 
-    // Die Peilung als einzelne Zeile, wenn fuer den dreispaltigen
-    // Ableseblock kein Platz ist -- der Fall in der Spalte rechts neben
-    // dem Hauptrotor (ContestSettings::RotorPanelLayout). Ohne sie stand
-    // dort nur eine Nadel ohne eine einzige Zahl.
-    QString compactReadingText() const;
-    int headerHeight() const;
-    int minDialAreaHeight() const;
-
-    // Ohne eigenes Panelchrom zeichnen: kein Hintergrund, kein Rahmen,
-    // keine eigene Kopfzeile -- nur Zifferblatt und Ablesung, und der
-    // Bandname klein in die obere linke Ecke.
-    //
-    // Martin, 2026-10-08, zu den Entwuerfen: "wuerde sie in das
-    // eigentliche bild setzen, also kein zweites window". Mehrere
-    // Kompasse in einem Panel sahen bis dahin aus wie Fenster im
-    // Fenster: der Panelcontainer malt schon Rahmen und Kopfzeile, und
-    // jeder Kompass malte seine eigenen gleich noch einmal.
-    void setChromeless(bool chromeless);
-    bool isChromeless() const { return m_chromeless; }
-
     void setConnected(bool connected);
 
     // The currently selected/clicked candidate's bearing, per the plan's
@@ -442,7 +422,6 @@ private:
     QString m_bandLabel;
     QString m_extraBandBadge;
 
-    bool m_chromeless = false;
     double m_azimuthDeg = 0.0;
     bool m_connected = false;
     // True once a simulated turn has ever run (see startSimulatedTurn())

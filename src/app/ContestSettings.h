@@ -152,7 +152,6 @@ struct ContestSettings {
     // Möglichkeiten, dann kann individuell ausgewählt werden").
     RotorDialStyle rotorDialStyle = RotorDialStyle::FullCompass;
 
-
     // Which of the five selectable colour palettes the whole app uses
     // (core/ColorTheme.h) -- operator, 2026-09-12: "gelber Hintergrund,
     // schwarze Schrift, ev auch was in blau, hell und dunkel... DIE 4

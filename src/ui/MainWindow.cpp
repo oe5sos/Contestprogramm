@@ -116,14 +116,6 @@
 namespace Contestprogramm {
 
 namespace {
-// Breite der Rotorspalte im gemeinsamen Karten-/Rotorenpanel.
-// RotorWidget ist fuer 300 px gezeichnet (sizeHint) -- schmaler wuerde
-// das Zifferblatt seine Teile neu anordnen, und das soll es nicht.
-constexpr int kRotorColumnWidth = 300;
-} // namespace
-
-
-namespace {
 
 // Composes the exchange text sent/received in the declared field order
 // of `def.exchangeFields()` (per the plan: "hängt exchange_fields in
@@ -652,7 +644,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_unifiedLog->setLogModel(m_logModel);
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
-        /*contentHasOwnChrome=*/false, QRect(0, 834, 1440, 148),
+        /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
         // Compact design (PanelLayoutManager::kCompactDesignCanvas,
         // 1372×692): rotors and map on top, the log across the bottom
         // with room for a few history rows, the bandmap beside it.
@@ -694,26 +686,11 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // disappearing at runtime the same way the old fixed layout did,
     // since applyRotorSlot() below still only ever touches m_rotorLayout,
     // never this panel's own container.
-    // Karte und Rotoren teilen sich EIN Panel (Martin, 2026-10-08:
-    // "die 3 anzeigen vereint in einem window, rechts uebereinander die
-    // rotoren, links so gross wie moeglich die karte"). Links die
-    // Karte, die allen Platz bekommt, rechts die Kompasse
-    // uebereinander in einer Spalte fester Breite -- beide unveraendert
-    // in ihrem Aussehen ("1:1 die gleichen design").
     m_rotorRow = new QWidget(this);
     m_rotorLayout = new QHBoxLayout(m_rotorRow);
     m_rotorLayout->setContentsMargins(0, 0, 0, 0);
     m_rotorLayout->setSpacing(10);
-    m_rotorColumn = new QWidget(m_rotorRow);
-    m_rotorColumnLayout = new QVBoxLayout(m_rotorColumn);
-    m_rotorColumnLayout->setContentsMargins(0, 0, 0, 0);
-    m_rotorColumnLayout->setSpacing(8);
-    // kRotorColumnWidth: die Breite, fuer die RotorWidget gezeichnet
-    // ist (sizeHint 300). Schmaler wuerde das Zifferblatt seine Teile
-    // neu anordnen -- Martin, 2026-10-08: "keine neues design vom
-    // ziffernblatt", "wuerde die tolle grafik komplett verschlechtern".
-    m_rotorColumn->setFixedWidth(kRotorColumnWidth);
-    m_rotorLayout->addWidget(m_rotorColumn);
+    m_rotorLayout->addStretch();
     // y=632: below the merged Log panel's own bottom edge (64+560=624)
     // plus an 8px gap.
     // Height 370 (was 272, originally 236): RotorWidget::minimumSizeHint()
@@ -766,53 +743,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // smaller. This row's own bottom edge (78+365=443) is deliberately
     // NOT where the map/suggestion/rate column ends -- see the map
     // panel's own comment below for why they run taller.
-    // Einmalige Umstellung fuer bestehende Datenbanken: bis zum
-    // 2026-10-08 waren Karte und Rotoren zwei Panels. Wer ein Layout
-    // gespeichert hat, haette das vereinte Panel sonst in der alten,
-    // viel zu schmalen Rotorbox wiedergefunden (620 px -- allein die
-    // Kompassspalte braucht 300). Also: einmal die Flaeche beider
-    // alten Panels zusammenfassen und den alten Eintrag loeschen.
-    {
-        ContestDatabase& db = m_appController.database();
-        const QString alterKartenschluessel = QStringLiteral("PanelLayout_map");
-        const QString alt = db.settingValue(alterKartenschluessel);
-        if (!alt.isEmpty()) {
-            const QStringList karte = alt.split(QLatin1Char('|'));
-            const QStringList rotoren =
-                db.settingValue(QStringLiteral("PanelLayout_rotorrow")).split(QLatin1Char('|'));
-            if (karte.size() >= 4 && rotoren.size() >= 4) {
-                const QRect k(karte.at(0).toInt(), karte.at(1).toInt(), karte.at(2).toInt(), karte.at(3).toInt());
-                const QRect r(rotoren.at(0).toInt(), rotoren.at(1).toInt(), rotoren.at(2).toInt(),
-                              rotoren.at(3).toInt());
-                const QRect zusammen = k.united(r);
-                db.setSettingValue(QStringLiteral("PanelLayout_rotorrow"),
-                                   QStringLiteral("%1|%2|%3|%4|0")
-                                       .arg(zusammen.x())
-                                       .arg(zusammen.y())
-                                       .arg(qMax(zusammen.width(), 900))
-                                       .arg(qMax(zusammen.height(), 420)));
-            }
-            db.setSettingValue(alterKartenschluessel, QString());
-        }
-    }
-
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
-        QStringLiteral("rotorrow"), QStringLiteral("Karte / Rotoren"), m_rotorRow,
-        // Die ganze Breite, denn hier stehen jetzt drei Anzeigen
-        // nebeneinander (Karte + zwei Kompasse). Was frueher rechts
-        // daneben lag -- Ziel, Rate, Bandmap -- ist darunter gerueckt.
-        // Hoehe 560: zwei Kompasse uebereinander brauchen je rund 256
-        // px, damit ihre Ablesung (AKTUELL/ZIEL/ENTFERNUNG) stehen
-        // bleibt -- darunter laesst RotorWidget sie weg und zeigt nur
-        // noch die Peilung. Die Karte nimmt dieselbe Hoehe mit.
-        /*contentHasOwnChrome=*/false, // Breite 1090, nicht 1440: rechts steht der Seitenbereich
-        // (0,78 .. 1100) -- ein Panel, das darunter liegt, verliert
-        // genau die Rotorspalte hinter ihm.
-        QRect(0, 78, 1090, 600), QRect(0, 0, 1372, 400));
-    // Das Zahnrad dieses Panels gehoert der Karte (ihre Ebenen und
-    // Ansichten) -- die Rotoren stehen fest rechts uebereinander, dort
-    // gibt es nichts mehr zu waehlen. Verbunden wird es unten, bei der
-    // Karte selbst.
+        QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
+        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -896,12 +829,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Header mode: the container's PanelHeaderBar carries title, lock
     // and the ⚙ -- top right with its own symbol like every other panel
     // (operator, 2026-09-20) -- which opens the map's own layer menu.
-    // Die Karte sitzt seit dem 2026-10-08 im gemeinsamen Panel links
-    // neben der Rotorspalte, nicht mehr in einem eigenen Fenster --
-    // sie bekommt dort allen Platz, der nicht fuer die Kompasse
-    // gebraucht wird (Stretch 1 gegen deren feste Breite).
-    m_rotorLayout->insertWidget(0, m_mapWidget, 1);
-    PanelContainerWidget* mapContainer = m_rotorRowContainer;
+    PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
+        QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
+        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501), QRect(630, 0, 742, 442));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
@@ -945,8 +875,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // this class's original comment above), just less of it, freeing 30px
     // for the map's settings row instead.
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
-                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(0, 686, 330, 140),
-                                         QRect(0, 406, 310, 130));
+                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(630, 78, 270, 365),
+                                         QRect(0, 258, 310, 184));
     connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
@@ -975,8 +905,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Width 270, matching suggestion's own column above (see that
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(340, 686, 420, 140),
-                                         QRect(318, 406, 302, 130));
+                                         /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130),
+                                         QRect(318, 258, 302, 184));
     // Check Partial, under the rate panel in the same 270px column --
     // hidden in every already-saved profile (LayoutProfileManager's
     // "a panel the profile never saved starts hidden"), switched on
@@ -986,8 +916,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             [this](const QString& callsign, const QString& grid) { handleCandidateActivated(callsign, grid, 0); });
     connect(m_checkPartialWidget, &CheckPartialWidget::scpLoadRequested, this, &MainWindow::loadScpFile);
     m_panelLayoutManager->registerPanel(QStringLiteral("checkpartial"), QStringLiteral("Check"), m_checkPartialWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(1110, 686, 330, 140),
-                                         QRect(986, 406, 386, 130));
+                                         /*contentHasOwnChrome=*/false, QRect(630, 585, 270, 150));
     // Bandmap -- same "starts hidden in a saved profile" rule as Check.
     m_bandmapWidget = new BandmapWidget(this);
     connect(m_bandmapWidget, &BandmapWidget::spotActivated, this,
@@ -1002,8 +931,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         handleCandidateActivated(callsign, grid, freqHz);
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(770, 686, 330, 140),
-                                         QRect(628, 406, 350, 130));
+                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260),
+                                         QRect(1018, 450, 354, 242));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -1018,7 +947,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         reloadSkeds();
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
-                                         /*contentHasOwnChrome=*/false, QRect(0, 834, 620, 148));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
 
     // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
     // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
@@ -1041,7 +970,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // hinlegt, wo man es haben will. Das Profil merkt sich die Lage
     // dann.
     m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
-                                             /*contentHasOwnChrome=*/false, QRect(630, 834, 810, 148));
+                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
     // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
     if (chatContainer && chatContainer->headerBar()) {
         // Ohne diese Zeile gibt es das Menü zwar, aber keinen Knopf, der
@@ -1083,7 +1012,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // hinein. Martin, 2026-09-28: "karte verbindungen kann ich aber
     // nicht reinziehen" -- über das Menü ging es schon, aber ziehen ist
     // der Weg, den man erwartet (und den Longpath anbietet).
-    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"),
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
                                QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
                                QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
                                QStringLiteral("skeds"), QStringLiteral("chat")}) {
@@ -1124,7 +1053,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // otherwise report.
     m_layoutProfileManager = new LayoutProfileManager(
         m_appController.database(), *m_panelLayoutManager,
-        {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"),
+        {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
          QStringLiteral("bandmap"), QStringLiteral("skeds")},
         this);
@@ -1690,8 +1619,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     struct PanelMenuEntry { QString id; QString label; };
     static const QVector<PanelMenuEntry> kPanelMenuEntries = {
         {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
-        {QStringLiteral("rotorrow"), QStringLiteral("Karte / Rotoren")},
-
+        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
+        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
         {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
         {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
@@ -2171,7 +2100,6 @@ void MainWindow::applyRotorWidgetSettings()
             settings.band1296RotorSlot == ContestSettings::RotorSlot::Slot2 ? QStringLiteral("+23cm") : QString());
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
-    relayoutRotorRow();
     applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
@@ -2184,41 +2112,6 @@ void MainWindow::applyRotorWidgetSettings()
     }
 
     refreshTerrainSectors();
-}
-
-QVector<RotorWidget*> MainWindow::rotorWidgetsInSlotOrder() const
-{
-    // Slotreihenfolge, Luecken uebersprungen: ein abgeschalteter Rotor 1
-    // hat kein Widget, dann faengt die Liste bei Rotor 2 an. Kommt
-    // spaeter ein dritter oder vierter Slot dazu, steht er hier -- der
-    // Rest dieser Datei muss dafuer nicht angefasst werden.
-    QVector<RotorWidget*> widgets;
-    for (RotorWidget* widget : {m_rotor1Widget, m_rotor2Widget}) {
-        if (widget) {
-            widgets.append(widget);
-        }
-    }
-    return widgets;
-}
-
-void MainWindow::relayoutRotorRow()
-{
-    if (!m_rotorLayout || !m_rotorColumnLayout) {
-        return;
-    }
-    // Die Kompasse stehen rechts untereinander, so viele wie aktiv
-    // sind -- bei einem einzigen eben einer (Martin, 2026-10-08: "wenn
-    // nur 2 angelegt und aktiv sind, dann natuerlich nur 2"). Jeder
-    // behaelt sein Aussehen; geteilt wird nur die Hoehe.
-    const QVector<RotorWidget*> widgets = rotorWidgetsInSlotOrder();
-    while (QLayoutItem* item = m_rotorColumnLayout->takeAt(0)) {
-        delete item;
-    }
-    for (int i = 0; i < widgets.size(); ++i) {
-        m_rotorColumnLayout->addWidget(widgets.at(i), 1);
-        widgets.at(i)->show();
-    }
-    m_rotorColumn->setVisible(!widgets.isEmpty());
 }
 
 void MainWindow::applyRotorBeamwidths()
@@ -2309,10 +2202,7 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
     if (enabled) {
         if (!widget) {
             widget = new RotorWidget(label, m_rotorRow);
-            // Eingehaengt wird in relayoutRotorRow() -- die Anordnung
-            // entscheidet, ob dieses Widget in die Reihe oder in die
-            // Spalte rechts gehoert (Martin, 2026-10-08).
-            Q_UNUSED(insertIndex);
+            m_rotorLayout->insertWidget(insertIndex, widget);
             // `widget` as the connect() context means both connections
             // auto-disconnect the moment the widget is destroyed below
             // (the disabled-slot path) -- no dangling-pointer risk in

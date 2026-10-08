@@ -60,15 +60,6 @@ constexpr int kTextAreaHeight = kReadoutTopPad + kReadoutLabelHeight + kReadoutV
 // minimum was simply clipped at the panel's bottom edge, readout and
 // all, instead of adapting.
 constexpr int kMinDialAreaHeight = 150;
-// Die schmale Zeile fuer den Bandnamen im chromlosen Zustand
-// (setChromeless()) -- an die Stelle der ganzen Kopfzeile.
-constexpr int kChromelessLabelHeight = 14;
-// Wie klein ein chromloser Kompass werden darf. 150 px Zifferblatt sind
-// das Mass fuer den Hauptkompass mit Ablesung; einer von vieren in der
-// Spalte daneben hat nur ein Drittel der Panelhoehe und soll trotzdem
-// seine Rose und seine Zahl zeigen (Martin, 2026-10-08: "die rotoren
-// muessen natuerlich kleiner sein").
-constexpr int kMinDialAreaHeightCompact = 54;
 
 // Minimum widget width the three-column readout needs to avoid its own
 // columns overlapping -- measured, not guessed: QFontMetrics on this
@@ -403,41 +394,7 @@ QSize RotorWidget::minimumSizeHint() const
     // The readout is optional below that (textAreaHeight()) and
     // below kReadoutMinWidth (readoutFitsWidth()): the smallest legible
     // widget is the header and a small dial.
-    const int minBreite = m_chromeless ? minDialAreaHeight() + kDialMarginMin * 2 : kDialMinWidth;
-    return QSize(minBreite, headerHeight() + minDialAreaHeight());
-}
-
-int RotorWidget::headerHeight() const
-{
-    return m_chromeless ? kChromelessLabelHeight : kHeaderHeight;
-}
-
-int RotorWidget::minDialAreaHeight() const
-{
-    return m_chromeless ? kMinDialAreaHeightCompact : kMinDialAreaHeight;
-}
-
-void RotorWidget::setChromeless(bool chromeless)
-{
-    if (m_chromeless == chromeless) {
-        return;
-    }
-    m_chromeless = chromeless;
-    // Die Untergrenze gilt neu: ohne Kopfzeile und mit kleinerem
-    // Zifferblatt darf dieses Widget viel kleiner werden. Ohne diese
-    // Zeile blieb die alte Mindestgroesse (170x178) stehen und der
-    // Kompass wurde in der Spalte schlicht abgeschnitten.
-    setMinimumSize(minimumSizeHint());
-    updateGeometry();
-    update();
-}
-
-QString RotorWidget::compactReadingText() const
-{
-    if (!m_connected) {
-        return Style::unknownDash();
-    }
-    return QStringLiteral("%1°").arg(QString::number(qRound(m_azimuthDeg)).rightJustified(3, QLatin1Char('0')));
+    return QSize(kDialMinWidth, kHeaderHeight + kMinDialAreaHeight);
 }
 
 bool RotorWidget::readoutFitsWidth() const
@@ -456,7 +413,7 @@ QSize RotorWidget::sizeHint() const
 {
     // Room for the full readout under a comfortable dial -- the size
     // the default panel layout gives each rotor.
-    return QSize(kReadoutMinWidth, headerHeight() + 220 + kTextAreaHeight);
+    return QSize(kReadoutMinWidth, kHeaderHeight + 220 + kTextAreaHeight);
 }
 
 int RotorWidget::textAreaHeight() const
@@ -468,7 +425,7 @@ int RotorWidget::textAreaHeight() const
     if (!readoutFitsWidth()) {
         return 0;
     }
-    const int available = height() - headerHeight() - minDialAreaHeight();
+    const int available = height() - kHeaderHeight - kMinDialAreaHeight;
     const bool digital = m_dialStyle == RotorDialStyle::Digital;
     const int full = digital ? kDigitalTextAreaHeight : kTextAreaHeight;
     const int withoutStatus = full - (digital ? kDigitalRowGap + kDigitalStatusHeight : kReadoutRowGap + kReadoutLineHeight);
@@ -1552,29 +1509,18 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
     // Panel chrome: rounded background + border, clipped so everything
     // drawn afterwards (header, dial, readout) respects the rounded
     // corners -- HAUSSTIL: "Nie Radius 3", panel radius kPanelRadius.
-    if (!m_chromeless) {
-        QPainterPath panelPath;
-        panelPath.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), Style::kPanelRadius,
-                                 Style::kPanelRadius);
-        painter.fillPath(panelPath, QColor(Style::kPanelBg()));
-        painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
-        painter.drawPath(panelPath);
-        painter.setClipPath(panelPath);
-        drawPanelHeader(painter);
-    } else {
-        // Nur der Bandname, klein und ohne Balken -- der Rahmen und die
-        // Kopfzeile gehoeren dem Panel, in dem dieser Kompass sitzt.
-        painter.save();
-        painter.setFont(Style::capsFont(painter.font(), 9));
-        painter.setPen(QColor(Style::kTextTertiary()));
-        painter.drawText(QRect(2, 0, width() - 4, kChromelessLabelHeight),
-                         Qt::AlignLeft | Qt::AlignVCenter, m_bandLabel);
-        painter.restore();
-    }
+    QPainterPath panelPath;
+    panelPath.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), Style::kPanelRadius, Style::kPanelRadius);
+    painter.fillPath(panelPath, QColor(Style::kPanelBg()));
+    painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
+    painter.drawPath(panelPath);
+    painter.setClipPath(panelPath);
 
-    const int dialAreaTop = headerHeight();
+    drawPanelHeader(painter);
+
+    const int dialAreaTop = kHeaderHeight;
     const int textHeight = textAreaHeight();
-    const int dialAreaHeight = height() - headerHeight() - textHeight;
+    const int dialAreaHeight = height() - kHeaderHeight - textHeight;
 
     // All four paint paths (RotorDialStyle, core/RotorDialStyle.h) share
     // this one fixed dial-area/text-area split -- Digital's ring is the
@@ -1625,21 +1571,7 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
     }
 
     if (textHeight == 0) {
-        // Zu schmal oder zu niedrig fuer den dreispaltigen Block. Statt
-        // gar keiner Zahl eine einzelne Zeile mit der Peilung, unten
-        // ueber den leeren Rand des Zifferblatts gelegt -- gemessener
-        // Wert, also warm, und ein Strich, solange nichts gemessen ist
-        // (HAUSSTIL Regel 7).
-        constexpr int kCompactRow = 20;
-        if (height() >= headerHeight() + minDialAreaHeight() + kCompactRow / 2) {
-            const QRect zeile(0, height() - kCompactRow, width(), kCompactRow);
-            QFont f = Style::monoFont(painter.font(), Style::kFontSmall);
-            f.setBold(true);
-            painter.setFont(f);
-            painter.setPen(QColor(m_connected ? Style::kAmberText() : Style::kTextInactive()));
-            painter.drawText(zeile, Qt::AlignCenter, compactReadingText());
-        }
-        return;
+        return; // too low for any readout: the dial alone
     }
     const QRect textArea(0, height() - textHeight, width(), textHeight);
     if (m_dialStyle == RotorDialStyle::Digital) {
