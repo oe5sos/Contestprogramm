@@ -531,37 +531,37 @@ void TestSeitenbereich::draggingAPanelOntoTheSideAreaPutsItIn()
     manager->revealPanel(QStringLiteral("sidearea"));
     QCoreApplication::processEvents();
 
-    PanelContainerWidget* karte = manager->panel(QStringLiteral("map"));
+    PanelContainerWidget* karte = manager->panel(QStringLiteral("rotorrow"));
     QVERIFY(karte);
-    QVERIFY(!bereich->hasPage(QStringLiteral("map")));
+    QVERIFY(!bereich->hasPage(QStringLiteral("rotorrow")));
 
     // Daneben losgelassen: nichts passiert.
     const QPoint daneben = window.mapToGlobal(QPoint(10, 400));
-    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("map")),
+    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
                                Q_ARG(QPoint, daneben));
     QCoreApplication::processEvents();
     qInfo().noquote() << "daneben losgelassen -- im Bereich:"
-                      << (bereich->hasPage(QStringLiteral("map")) ? "ja" : "nein");
-    QVERIFY2(!bereich->hasPage(QStringLiteral("map")),
+                      << (bereich->hasPage(QStringLiteral("rotorrow")) ? "ja" : "nein");
+    QVERIFY2(!bereich->hasPage(QStringLiteral("rotorrow")),
              "Ein Panel, das NEBEN dem Bereich landet, darf nicht hineinfallen");
 
     // Mitten auf dem Bereich losgelassen: hinein.
     const QPoint mittendrin =
         bereichPanel->mapToGlobal(QPoint(bereichPanel->width() / 2, bereichPanel->height() / 2));
-    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("map")),
+    QMetaObject::invokeMethod(&window, "dropPanelIfOverSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
                                Q_ARG(QPoint, mittendrin));
     QCoreApplication::processEvents();
     qInfo().noquote() << "auf dem Bereich losgelassen -- im Bereich:"
                       << bereich->pageIds().join(QStringLiteral(", "))
                       << "| aktiv:" << bereich->activeId();
-    QVERIFY2(bereich->hasPage(QStringLiteral("map")), "Die Karte ist nicht in den Seitenbereich gefallen");
-    QCOMPARE(bereich->activeId(), QStringLiteral("map"));
+    QVERIFY2(bereich->hasPage(QStringLiteral("rotorrow")), "Die Karte ist nicht in den Seitenbereich gefallen");
+    QCOMPARE(bereich->activeId(), QStringLiteral("rotorrow"));
 
     // Und in der Leiste steht ihr Kürzel, nicht die interne Kennung.
-    auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_map"));
+    auto* knopf = bereich->findChild<QToolButton*>(QStringLiteral("sideRail_rotorrow"));
     QVERIFY(knopf);
     qInfo().noquote() << "Kürzel in der Leiste:" << knopf->text() << "| Tooltip:" << knopf->toolTip();
-    QCOMPARE(knopf->toolTip(), QStringLiteral("Karte / Verbindungen"));
+    QCOMPARE(knopf->toolTip(), QStringLiteral("Karte / Rotoren"));
 }
 
 // Beim Neustart lag der Bereich wieder leer da -- man hätte Chat,
@@ -651,11 +651,11 @@ void TestSeitenbereich::theActiveRailButtonLooksActive()
     for (const auto& paar : {std::pair<QString, QString>{QStringLiteral("ratemeter"), QStringLiteral("Rate")},
                               {QStringLiteral("chat"), QStringLiteral("Chat")},
                               {QStringLiteral("skeds"), QStringLiteral("Skeds")},
-                              {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")}}) {
+                              {QStringLiteral("rotorrow"), QStringLiteral("Karte / Rotoren")}}) {
         QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, paar.first),
                                    Q_ARG(QString, paar.second));
     }
-    bereich->setActive(QStringLiteral("map"));
+    bereich->setActive(QStringLiteral("rotorrow"));
     QCoreApplication::processEvents();
 
     auto* rail = bereich->findChild<QWidget*>(QLatin1String(SideAreaWidget::kRailObjectName));
@@ -669,11 +669,11 @@ void TestSeitenbereich::theActiveRailButtonLooksActive()
         }
     }
     qInfo().noquote() << "gedrückt:" << gedrueckt.join(QStringLiteral(", "));
-    QCOMPARE(gedrueckt, QStringList{QStringLiteral("sideRail_map")});
+    QCOMPARE(gedrueckt, QStringList{QStringLiteral("sideRail_rotorrow")});
 
     // Und das Aussehen: der gedrückte Knopf muss sich vom Nachbarn
     // unterscheiden, sonst sieht man die aktive Seite nicht.
-    auto* aktiv = rail->findChild<QToolButton*>(QStringLiteral("sideRail_map"));
+    auto* aktiv = rail->findChild<QToolButton*>(QStringLiteral("sideRail_rotorrow"));
     auto* still = rail->findChild<QToolButton*>(QStringLiteral("sideRail_chat"));
     QVERIFY(aktiv && still);
     const QImage bildAktiv = aktiv->grab().toImage();
@@ -736,8 +736,7 @@ void TestSeitenbereich::everyRailButtonCarriesAnIconAndItsName()
     QVERIFY(bereich);
     const QList<std::pair<QString, QString>> seiten = {
         {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
-        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
-        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
+        {QStringLiteral("rotorrow"), QStringLiteral("Karte / Rotoren")},
         {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
         {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
@@ -804,13 +803,13 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
     // daran ist das Herausziehen live gescheitert: trySetGeometry()
     // weist ein gesperrtes Panel ab, es landete an seinem alten Platz
     // statt dort, wo losgelassen wurde.
-    if (PanelContainerWidget* vorher = manager->panel(QStringLiteral("map"))) {
+    if (PanelContainerWidget* vorher = manager->panel(QStringLiteral("rotorrow"))) {
         vorher->setLocked(true);
     }
-    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("map")),
-                               Q_ARG(QString, QStringLiteral("Karte / Verbindungen")));
+    QMetaObject::invokeMethod(&window, "putPanelIntoSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
+                               Q_ARG(QString, QStringLiteral("Karte / Rotoren")));
     QCoreApplication::processEvents();
-    QVERIFY(bereich->hasPage(QStringLiteral("map")));
+    QVERIFY(bereich->hasPage(QStringLiteral("rotorrow")));
 
     PanelContainerWidget* bereichPanel = manager->panel(QStringLiteral("sidearea"));
     QVERIFY(bereichPanel);
@@ -819,12 +818,12 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
     // Rutscher beim Umschalten darf das Panel nicht herausreißen.
     const QPoint drinnen =
         bereichPanel->mapToGlobal(QPoint(bereichPanel->width() / 2, bereichPanel->height() / 2));
-    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
                                Q_ARG(QPoint, drinnen));
     QCoreApplication::processEvents();
     qInfo().noquote() << "im Bereich losgelassen -- noch drin:"
-                      << (bereich->hasPage(QStringLiteral("map")) ? "ja" : "nein");
-    QVERIFY2(bereich->hasPage(QStringLiteral("map")), "Ein Rutscher im Bereich hat das Panel herausgerissen");
+                      << (bereich->hasPage(QStringLiteral("rotorrow")) ? "ja" : "nein");
+    QVERIFY2(bereich->hasPage(QStringLiteral("rotorrow")), "Ein Rutscher im Bereich hat das Panel herausgerissen");
 
     // Nach rechts herausgezogen: liegt wieder auf der Fläche, und zwar
     // dort, wo losgelassen wurde.
@@ -832,12 +831,12 @@ void TestSeitenbereich::draggingAPanelOutOfTheRailPutsItBackOnTheCanvas()
     QVERIFY(flaeche);
     const QPoint zielAufDerFlaeche(900, 300);
     const QPoint zielGlobal = flaeche->mapToGlobal(zielAufDerFlaeche);
-    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("map")),
+    QMetaObject::invokeMethod(&window, "dragPanelOutOfSideArea", Q_ARG(QString, QStringLiteral("rotorrow")),
                                Q_ARG(QPoint, zielGlobal));
     QCoreApplication::processEvents();
 
-    QVERIFY2(!bereich->hasPage(QStringLiteral("map")), "Die Karte ist nicht aus dem Bereich herausgekommen");
-    PanelContainerWidget* karte = manager->panel(QStringLiteral("map"));
+    QVERIFY2(!bereich->hasPage(QStringLiteral("rotorrow")), "Die Karte ist nicht aus dem Bereich herausgekommen");
+    PanelContainerWidget* karte = manager->panel(QStringLiteral("rotorrow"));
     QVERIFY(karte);
     QCOMPARE(karte->parentWidget(), flaeche);
     QVERIFY2(!karte->isHidden(), "Die Karte ist unsichtbar wieder aufgetaucht");

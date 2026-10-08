@@ -1,17 +1,19 @@
-// Entwurfsblätter für die Frage vom 2026-10-08: "vielleicht kann man
-// als option 1-4 rotoren rechts neben dem hauptrotor einblenden. sprich
-// übereinander" -- und danach: "die rotoren müssen natürlich kleiner
-// sein", "vielleicht kann bei 2 rotoren die hauptanzeige mehr nach
-// links rutschen", "besser du machst ein paar vorschläge".
+// Entwurfsblätter zur Rotor-Anordnung, 2026-10-08.
 //
-// Vier Anordnungen, jede einmal mit zwei und einmal mit vier Rotoren,
-// in der wirklichen Panelgröße (618x284, das Maß des Rotoren-Panels in
-// der Standardanordnung). Gezeichnet mit denselben Farben und
-// Schriften wie das echte Widget, aber bewusst als Skizze: hier soll
-// die Anordnung entschieden werden, nicht der letzte Pixel.
+// Martin: "vielleicht kann man als option 1-4 rotoren rechts neben dem
+// hauptrotor einblenden. sprich übereinander" / "die rotoren müssen
+// natürlich kleiner sein" / "vielleicht kann bei 2 rotoren die
+// hauptanzeige mehr nach links rutschen" / "besser du machst ein paar
+// vorschläge" / "würde sie in das eigentliche bild setzen, also kein
+// zweites window" / "die graphiken natürlich übernehmen, die wir schon
+// haben".
 //
-// Läuft nur mit CP_SHEET_DIR im Environment, sonst überspringt er sich
-// selbst -- in der CI hat niemand etwas von Bildern.
+// Also: EIN Panel mit einem Rahmen und einer Kopfzeile, und darin die
+// ECHTEN RotorWidgets (chromlos, siehe RotorWidget::setChromeless) --
+// keine nachgezeichneten Skizzen, sondern dieselben Zifferblätter, die
+// das Programm auch sonst malt, in der wirklichen Panelgröße 618x284.
+//
+// Läuft nur mit CP_SHEET_DIR im Environment; in der CI tut er nichts.
 
 #include <QtTest>
 
@@ -20,8 +22,10 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
-#include <QtMath>
 
+#include "core/RotorDialStyle.h"
+#include "ui/MapWidget.h"
+#include "ui/RotorWidget.h"
 #include "ui/StyleKit.h"
 
 using namespace Contestprogramm;
@@ -30,6 +34,7 @@ namespace {
 
 constexpr int kSheetW = 618;
 constexpr int kSheetH = 284;
+constexpr int kHeaderH = 26;
 
 struct Rotor {
     QString band;
@@ -37,223 +42,225 @@ struct Rotor {
     bool connected;
 };
 
-// Eine Kompassrose im Stil des echten Widgets: Ring, Teilstriche, die
-// vier Himmelsrichtungen (nur wenn Platz ist), Nadel in Bernstein.
-void rose(QPainter& p, const QRectF& feld, double azimuthDeg, bool connected, bool beschriftung)
+// Ein echtes RotorWidget in der gewünschten Größe, chromlos, mit
+// gesetzter Peilung -- und als Bild zurück.
+QPixmap kompass(const Rotor& r, const QSize& groesse, bool zielGesetzt = false)
 {
-    const QPointF m = feld.center();
-    const double r = qMin(feld.width(), feld.height()) / 2.0 - 4.0;
-    if (r < 8.0) {
-        return;
+    RotorWidget widget(r.band);
+    widget.setChromeless(true);
+    widget.setDialStyle(RotorDialStyle::FullCompass);
+    widget.setConnected(r.connected);
+    widget.setAzimuthDeg(r.azimuthDeg);
+    if (zielGesetzt) {
+        widget.setTargetBearing(r.azimuthDeg + 24.0, 471.0, QStringLiteral("DL1ABC"));
     }
-    p.save();
-    p.setRenderHint(QPainter::Antialiasing, true);
-
-    QRadialGradient glow(m, r);
-    glow.setColorAt(0.0, QColor(255, 176, 60, connected ? 34 : 14));
-    glow.setColorAt(1.0, QColor(0, 0, 0, 0));
-    p.setBrush(glow);
-    p.setPen(Qt::NoPen);
-    p.drawEllipse(m, r, r);
-
-    p.setPen(QPen(QColor(Style::kTextScale()), 1.0));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(m, r, r);
-
-    const int schritt = r < 40 ? 30 : 10;
-    for (int grad = 0; grad < 360; grad += schritt) {
-        const double rad = qDegreesToRadians(double(grad) - 90.0);
-        const bool haupt = (grad % 90) == 0;
-        const double innen = r - (haupt ? 9.0 : 5.0);
-        p.setPen(QPen(QColor(haupt ? Style::kTextPrimary() : Style::kAmberText()), haupt ? 1.6 : 0.9));
-        p.drawLine(QPointF(m.x() + innen * qCos(rad), m.y() + innen * qSin(rad)),
-                   QPointF(m.x() + r * qCos(rad), m.y() + r * qSin(rad)));
-    }
-
-    if (beschriftung && r >= 34) {
-        p.setFont(Style::capsFont(p.font(), 9));
-        p.setPen(QColor(Style::kTextTertiary()));
-        const QStringList namen{QStringLiteral("N"), QStringLiteral("E"), QStringLiteral("S"), QStringLiteral("W")};
-        for (int i = 0; i < 4; ++i) {
-            const double rad = qDegreesToRadians(i * 90.0 - 90.0);
-            const QPointF pos(m.x() + (r - 18) * qCos(rad), m.y() + (r - 18) * qSin(rad));
-            p.drawText(QRectF(pos.x() - 8, pos.y() - 7, 16, 14), Qt::AlignCenter, namen.at(i));
-        }
-    }
-
-    // Nadel
-    const double rad = qDegreesToRadians(azimuthDeg - 90.0);
-    const QColor warm(connected ? Style::kAmberText() : Style::kTextInactive());
-    QPainterPath nadel;
-    nadel.moveTo(m.x() + (r - 6) * qCos(rad), m.y() + (r - 6) * qSin(rad));
-    nadel.lineTo(m.x() + 5 * qCos(rad + M_PI_2), m.y() + 5 * qSin(rad + M_PI_2));
-    nadel.lineTo(m.x() + 5 * qCos(rad - M_PI_2), m.y() + 5 * qSin(rad - M_PI_2));
-    nadel.closeSubpath();
-    p.setPen(Qt::NoPen);
-    p.setBrush(warm);
-    p.drawPath(nadel);
-    p.restore();
+    widget.resize(groesse);
+    QPixmap bild(groesse);
+    bild.fill(Qt::transparent);
+    widget.render(&bild, QPoint(), QRegion(), QWidget::DrawChildren);
+    return bild;
 }
 
-void kopf(QPainter& p, const QRectF& r, const QString& titel, bool klein)
+// Dieselbe Zeichnung, nur kleiner: das Widget wird in seiner richtigen
+// Groesse gerendert und das Bild massstaeblich verkleinert. Martin,
+// 2026-10-08: "keine neues design vom ziffernblatt" / "wuerde die tolle
+// grafik komplett verschlechtern" -- ein auf 80 px gequetschtes
+// Zifferblatt ordnet seine Teile neu an und sieht grob aus; ein
+// verkleinertes Bild behaelt jede Proportion.
+QPixmap kompassSkaliert(const Rotor& r, const QSize& ziel)
 {
-    p.save();
-    QLinearGradient bg(r.topLeft(), r.bottomLeft());
+    // Referenzgroesse: die, fuer die das Zifferblatt gezeichnet ist.
+    const QSize referenz(300, 300);
+    QPixmap gross = kompass(r, referenz);
+    const double faktor = qMin(ziel.width() / double(referenz.width()), ziel.height() / double(referenz.height()));
+    return gross.scaled(QSize(int(referenz.width() * faktor), int(referenz.height() * faktor)),
+                        Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+
+void panelRahmen(QPainter& p, const QString& titel)
+{
+    const QRectF alles(0.5, 0.5, kSheetW - 1.0, kSheetH - 1.0);
+    QPainterPath pfad;
+    pfad.addRoundedRect(alles, Style::kPanelRadius, Style::kPanelRadius);
+    p.fillPath(pfad, QColor(Style::kPanelBg()));
+    p.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
+    p.drawPath(pfad);
+
+    const QRectF kopf(0, 0, kSheetW, kHeaderH);
+    QLinearGradient bg(kopf.topLeft(), kopf.bottomLeft());
     bg.setColorAt(0.0, QColor(255, 255, 255, 12));
     bg.setColorAt(1.0, QColor(0, 0, 0, 30));
-    p.fillRect(r, bg);
-    p.fillRect(QRectF(r.left(), r.top(), 3, r.height()), QColor(Style::kAmberText()));
+    p.fillRect(kopf, bg);
+    p.fillRect(QRectF(0, 0, 3, kHeaderH), QColor(Style::kAmberText()));
     p.setPen(QColor(255, 255, 255, 22));
-    p.drawLine(r.bottomLeft(), r.bottomRight());
-    p.setFont(Style::capsFont(p.font(), klein ? 9 : 11));
+    p.drawLine(kopf.bottomLeft(), kopf.bottomRight());
+    p.setFont(Style::capsFont(p.font(), 11));
     p.setPen(QColor(Style::kTextPrimary()));
-    p.drawText(r.adjusted(10, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, titel);
-    p.restore();
+    p.drawText(kopf.adjusted(10, 0, -30, 0), Qt::AlignVCenter | Qt::AlignLeft, titel);
+    // Das Zahnrad rechts oben, wie im echten Panelkopf.
+    p.setFont(Style::capsFont(p.font(), 12));
+    p.setPen(QColor(Style::kTextScale()));
+    p.drawText(kopf.adjusted(0, 0, -10, 0), Qt::AlignVCenter | Qt::AlignRight, QStringLiteral("⚙"));
 }
 
-void rahmen(QPainter& p, const QRectF& r)
+QString gradText(const Rotor& r)
 {
-    p.save();
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setBrush(QColor(Style::kPanelBg()));
-    p.setPen(QPen(QColor(255, 255, 255, 18), 1.0));
-    p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
-    p.restore();
+    return r.connected
+               ? QStringLiteral("%1°").arg(QString::number(qRound(r.azimuthDeg)).rightJustified(3, QLatin1Char('0')))
+               : QStringLiteral("—");
 }
 
-void wert(QPainter& p, const QRectF& r, const QString& text, bool gross, bool warm)
+// ── Entwurf A: Spalte rechts, kleine echte Rosen ───────────────────
+void entwurfA(QPainter& p, const QVector<Rotor>& rotoren)
 {
-    p.save();
-    p.setFont(Style::monoFont(p.font(), gross ? 22 : 13, QFont::DemiBold));
-    p.setPen(QColor(warm ? Style::kAmberText() : Style::kTextInactive()));
-    p.drawText(r, Qt::AlignCenter, text);
-    p.restore();
-}
-
-QString grad(const Rotor& r)
-{
-    return r.connected ? QStringLiteral("%1°").arg(QString::number(qRound(r.azimuthDeg)).rightJustified(3, QLatin1Char('0')))
-                       : QStringLiteral("—");
-}
-
-// Der große Kompass links, in allen vier Entwürfen derselbe.
-void hauptrotor(QPainter& p, const QRectF& feld, const Rotor& r, bool mitAblesung)
-{
-    rahmen(p, feld);
-    kopf(p, QRectF(feld.left(), feld.top(), feld.width(), 26), r.band, false);
-    const double ableseHoehe = mitAblesung ? 74 : 26;
-    rose(p, QRectF(feld.left(), feld.top() + 26, feld.width(), feld.height() - 26 - ableseHoehe), r.azimuthDeg,
-         r.connected, true);
-    if (mitAblesung) {
-        const QStringList titel{QStringLiteral("AKTUELL"), QStringLiteral("ZIEL"), QStringLiteral("ENTFERNUNG")};
-        const QStringList werte{grad(r), QStringLiteral("—"), QStringLiteral("—")};
-        const double breite = (feld.width() - 24) / 3.0;
-        for (int i = 0; i < 3; ++i) {
-            const QRectF zelle(feld.left() + 8 + i * (breite + 4), feld.bottom() - 68, breite, 52);
-            p.save();
-            p.setBrush(QColor(0, 0, 0, 70));
-            p.setPen(QPen(QColor(255, 255, 255, 14), 1.0));
-            p.drawRoundedRect(zelle, 6, 6);
-            p.setFont(Style::capsFont(p.font(), 8));
-            p.setPen(QColor(Style::kTextTertiary()));
-            p.drawText(zelle.adjusted(0, 6, 0, 0), Qt::AlignHCenter | Qt::AlignTop, titel.at(i));
-            p.restore();
-            wert(p, zelle.adjusted(0, 16, 0, -4), werte.at(i), false, i == 0 && r.connected);
-        }
-    } else {
-        wert(p, QRectF(feld.left(), feld.bottom() - 26, feld.width(), 22), grad(r), true, r.connected);
-    }
-}
-
-// ── Entwurf 1: kleine Rosen in einer Spalte ────────────────────────
-void entwurf1(QPainter& p, const QVector<Rotor>& rotoren)
-{
+    panelRahmen(p, QStringLiteral("Rotoren"));
     const int n = rotoren.size() - 1;
-    const double spalte = 150;
-    hauptrotor(p, QRectF(0, 0, kSheetW - spalte - 8, kSheetH), rotoren.first(), true);
-    const double hoehe = (kSheetH - (n - 1) * 6.0) / n;
-    for (int i = 0; i < n; ++i) {
-        const QRectF feld(kSheetW - spalte, i * (hoehe + 6), spalte, hoehe);
-        rahmen(p, feld);
-        kopf(p, QRectF(feld.left(), feld.top(), feld.width(), 20), rotoren.at(i + 1).band, true);
-        rose(p, QRectF(feld.left(), feld.top() + 20, feld.width(), feld.height() - 20 - 20),
-             rotoren.at(i + 1).azimuthDeg, rotoren.at(i + 1).connected, hoehe > 110);
-        wert(p, QRectF(feld.left(), feld.bottom() - 21, feld.width(), 18), grad(rotoren.at(i + 1)), false,
-             rotoren.at(i + 1).connected);
-    }
-}
+    const int spalte = n > 2 ? 118 : 140;
+    const int hauptBreite = kSheetW - spalte - 16;
+    p.drawPixmap(8, kHeaderH + 2, kompass(rotoren.first(), QSize(hauptBreite, kSheetH - kHeaderH - 10), true));
 
-// ── Entwurf 2: flache Streifen, Rose links, Zahl rechts ────────────
-void entwurf2(QPainter& p, const QVector<Rotor>& rotoren)
-{
-    const int n = rotoren.size() - 1;
-    const double spalte = 186;
-    hauptrotor(p, QRectF(0, 0, kSheetW - spalte - 8, kSheetH), rotoren.first(), true);
-    const double hoehe = qMin(68.0, (kSheetH - (n - 1) * 6.0) / n);
+    p.save();
+    p.setPen(QColor(255, 255, 255, 18));
+    p.drawLine(kSheetW - spalte - 10, kHeaderH + 8, kSheetW - spalte - 10, kSheetH - 8);
+    p.restore();
+
+    const int hoehe = (kSheetH - kHeaderH - 8) / n;
     for (int i = 0; i < n; ++i) {
-        const QRectF feld(kSheetW - spalte, i * (hoehe + 6), spalte, hoehe);
-        rahmen(p, feld);
-        rose(p, QRectF(feld.left() + 4, feld.top() + 4, feld.height() - 8, feld.height() - 8),
-             rotoren.at(i + 1).azimuthDeg, rotoren.at(i + 1).connected, false);
-        const QRectF text(feld.left() + feld.height() + 2, feld.top(), feld.width() - feld.height() - 8, feld.height());
+        const QPixmap klein = kompassSkaliert(rotoren.at(i + 1), QSize(spalte - 20, hoehe - 22));
+        const int x = kSheetW - spalte - 2 + (spalte - 6 - klein.width()) / 2;
+        p.drawPixmap(x, kHeaderH + 6 + i * hoehe, klein);
+        // Band und Peilung daneben in der Schrift des Programms, nicht
+        // in die Rose hineingequetscht.
         p.save();
-        p.setFont(Style::capsFont(p.font(), 9));
+        p.setFont(Style::capsFont(p.font(), 8));
         p.setPen(QColor(Style::kTextTertiary()));
-        p.drawText(text.adjusted(0, 10, 0, 0), Qt::AlignTop | Qt::AlignLeft, rotoren.at(i + 1).band);
-        p.restore();
-        p.save();
-        p.setFont(Style::monoFont(p.font(), 20, QFont::DemiBold));
+        p.drawText(QRectF(kSheetW - spalte - 2, kHeaderH + 2 + i * hoehe, spalte - 6, 12),
+                   Qt::AlignHCenter | Qt::AlignTop, rotoren.at(i + 1).band);
+        p.setFont(Style::monoFont(p.font(), 13, QFont::DemiBold));
         p.setPen(QColor(rotoren.at(i + 1).connected ? Style::kAmberText() : Style::kTextInactive()));
-        p.drawText(text.adjusted(0, 0, 0, -8), Qt::AlignBottom | Qt::AlignLeft, grad(rotoren.at(i + 1)));
+        p.drawText(QRectF(kSheetW - spalte - 2, kHeaderH + 6 + i * hoehe + klein.height(), spalte - 6, 16),
+                   Qt::AlignHCenter | Qt::AlignVCenter, gradText(rotoren.at(i + 1)));
         p.restore();
     }
 }
 
-// ── Entwurf 3: nur Zahlen rechts, Hauptrotor so groß wie möglich ───
-void entwurf3(QPainter& p, const QVector<Rotor>& rotoren)
+// ── Entwurf B: kleine Rosen oben rechts ins Bild gesetzt ───────────
+void entwurfB(QPainter& p, const QVector<Rotor>& rotoren)
 {
+    panelRahmen(p, QStringLiteral("Rotoren"));
     const int n = rotoren.size() - 1;
-    const double spalte = 104;
-    hauptrotor(p, QRectF(0, 0, kSheetW - spalte - 8, kSheetH), rotoren.first(), true);
-    const QRectF leiste(kSheetW - spalte, 0, spalte, kSheetH);
-    rahmen(p, leiste);
-    kopf(p, QRectF(leiste.left(), leiste.top(), leiste.width(), 20), QStringLiteral("weitere"), true);
-    const double hoehe = (leiste.height() - 24) / n;
+    const int klein = n > 2 ? 86 : 108;
+    p.drawPixmap(8, kHeaderH + 2, kompass(rotoren.first(), QSize(kSheetW - klein - 30, kSheetH - kHeaderH - 10), true));
     for (int i = 0; i < n; ++i) {
-        const QRectF zeile(leiste.left() + 8, 24 + i * hoehe, leiste.width() - 16, hoehe);
+        const int y = kHeaderH + 4 + i * (klein + 4);
+        const QPixmap bild = kompassSkaliert(rotoren.at(i + 1), QSize(klein, klein - 14));
+        p.drawPixmap(kSheetW - klein - 10 + (klein - bild.width()) / 2, y, bild);
+        p.save();
+        p.setFont(Style::monoFont(p.font(), 12, QFont::DemiBold));
+        p.setPen(QColor(rotoren.at(i + 1).connected ? Style::kAmberText() : Style::kTextInactive()));
+        p.drawText(QRectF(kSheetW - klein - 10, y + bild.height() - 2, klein, 14), Qt::AlignCenter,
+                   rotoren.at(i + 1).band + QStringLiteral("  ") + gradText(rotoren.at(i + 1)));
+        p.restore();
+    }
+}
+
+// ── Entwurf C: rechts nur Band und Peilung, keine zweite Rose ──────
+void entwurfC(QPainter& p, const QVector<Rotor>& rotoren)
+{
+    panelRahmen(p, QStringLiteral("Rotoren"));
+    const int n = rotoren.size() - 1;
+    const int leiste = 112;
+    p.drawPixmap(8, kHeaderH + 2, kompass(rotoren.first(), QSize(kSheetW - leiste - 20, kSheetH - kHeaderH - 10), true));
+    p.save();
+    p.setPen(QColor(255, 255, 255, 18));
+    p.drawLine(kSheetW - leiste - 8, kHeaderH + 8, kSheetW - leiste - 8, kSheetH - 8);
+    p.restore();
+    const double hoehe = (kSheetH - kHeaderH - 16.0) / n;
+    for (int i = 0; i < n; ++i) {
+        const QRectF zeile(kSheetW - leiste, kHeaderH + 8 + i * hoehe, leiste - 10, hoehe);
         p.save();
         p.setFont(Style::capsFont(p.font(), 9));
         p.setPen(QColor(Style::kTextTertiary()));
-        p.drawText(zeile.adjusted(0, 6, 0, 0), Qt::AlignTop | Qt::AlignLeft, rotoren.at(i + 1).band);
+        p.drawText(zeile.adjusted(0, 4, 0, 0), Qt::AlignTop | Qt::AlignLeft, rotoren.at(i + 1).band);
+        p.setFont(Style::monoFont(p.font(), n > 2 ? 20 : 26, QFont::DemiBold));
+        p.setPen(QColor(rotoren.at(i + 1).connected ? Style::kAmberText() : Style::kTextInactive()));
+        p.drawText(zeile.adjusted(0, 14, 0, -6), Qt::AlignVCenter | Qt::AlignLeft, gradText(rotoren.at(i + 1)));
         p.restore();
-        wert(p, zeile.adjusted(0, 14, 0, -6), grad(rotoren.at(i + 1)), hoehe > 60, rotoren.at(i + 1).connected);
-        if (i + 1 < n) {
-            p.setPen(QColor(255, 255, 255, 16));
-            p.drawLine(QPointF(zeile.left(), zeile.bottom()), QPointF(zeile.right(), zeile.bottom()));
-        }
     }
 }
 
-// ── Entwurf 4: Raster rechts (2 Spalten), spart Höhe bei vieren ────
-void entwurf4(QPainter& p, const QVector<Rotor>& rotoren)
+
+// ══ Dritte Runde ═══════════════════════════════════════════════════
+// Martin, 2026-10-08: "1:1 die gleichen design, ein window, darin sind
+// rechts übereinander die beiden rotoren und links daneben deutlich
+// größer die log karte".
+//
+// Also kein Hauptrotor mehr, sondern: Karte und Rotoren teilen sich
+// EIN Panel. Links die Karte, so groß wie sie nur werden kann, rechts
+// die Kompasse übereinander -- beide Teile unverändert, wie sie das
+// Programm heute zeichnet.
+
+constexpr int kWideW = 1100;
+constexpr int kWideH = 520;
+
+QPixmap karte(const QSize& groesse, const QVector<Rotor>& rotoren, bool chromlos)
 {
-    const int n = rotoren.size() - 1;
-    const int spalten = n > 2 ? 2 : 1;
-    const double zellbreite = 96;
-    const double block = spalten * zellbreite + (spalten - 1) * 6;
-    hauptrotor(p, QRectF(0, 0, kSheetW - block - 8, kSheetH), rotoren.first(), true);
-    const int zeilen = (n + spalten - 1) / spalten;
-    const double zellhoehe = qMin(130.0, (kSheetH - (zeilen - 1) * 6.0) / zeilen);
-    for (int i = 0; i < n; ++i) {
-        const int sp = i % spalten;
-        const int ze = i / spalten;
-        const QRectF feld(kSheetW - block + sp * (zellbreite + 6), ze * (zellhoehe + 6), zellbreite, zellhoehe);
-        rahmen(p, feld);
-        kopf(p, QRectF(feld.left(), feld.top(), feld.width(), 18), rotoren.at(i + 1).band, true);
-        rose(p, QRectF(feld.left(), feld.top() + 18, feld.width(), feld.height() - 18 - 18),
-             rotoren.at(i + 1).azimuthDeg, rotoren.at(i + 1).connected, false);
-        wert(p, QRectF(feld.left(), feld.bottom() - 19, feld.width(), 16), grad(rotoren.at(i + 1)), false,
-             rotoren.at(i + 1).connected);
+    MapWidget widget;
+    widget.setOwnGrid(QStringLiteral("JN67UT"));
+    widget.setOwnLabel(QStringLiteral("OE5SOS"));
+    widget.setRotor1Heading(rotoren.size() > 0 && rotoren.at(0).connected,
+                            rotoren.isEmpty() ? 0.0 : rotoren.at(0).azimuthDeg, QStringLiteral("2m"));
+    if (rotoren.size() > 1) {
+        widget.setRotor2Heading(rotoren.at(1).connected, rotoren.at(1).azimuthDeg, QStringLiteral("70cm"));
+    }
+    widget.setScoreSummary(37, 9841, QStringLiteral("DL1ABC 471 km"));
+    Q_UNUSED(chromlos);
+    widget.resize(groesse);
+    QPixmap bild(groesse);
+    bild.fill(Qt::transparent);
+    widget.render(&bild, QPoint(), QRegion(), QWidget::DrawChildren);
+    return bild;
+}
+
+void breiterRahmen(QPainter& p, const QString& titel)
+{
+    const QRectF alles(0.5, 0.5, kWideW - 1.0, kWideH - 1.0);
+    QPainterPath pfad;
+    pfad.addRoundedRect(alles, Style::kPanelRadius, Style::kPanelRadius);
+    p.fillPath(pfad, QColor(Style::kPanelBg()));
+    p.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
+    p.drawPath(pfad);
+    const QRectF kopf(0, 0, kWideW, kHeaderH);
+    QLinearGradient bg(kopf.topLeft(), kopf.bottomLeft());
+    bg.setColorAt(0.0, QColor(255, 255, 255, 12));
+    bg.setColorAt(1.0, QColor(0, 0, 0, 30));
+    p.fillRect(kopf, bg);
+    p.fillRect(QRectF(0, 0, 3, kHeaderH), QColor(Style::kAmberText()));
+    p.setPen(QColor(255, 255, 255, 22));
+    p.drawLine(kopf.bottomLeft(), kopf.bottomRight());
+    p.setFont(Style::capsFont(p.font(), 11));
+    p.setPen(QColor(Style::kTextPrimary()));
+    p.drawText(kopf.adjusted(10, 0, -30, 0), Qt::AlignVCenter | Qt::AlignLeft, titel);
+    p.setFont(Style::capsFont(p.font(), 12));
+    p.setPen(QColor(Style::kTextScale()));
+    p.drawText(kopf.adjusted(0, 0, -10, 0), Qt::AlignVCenter | Qt::AlignRight, QStringLiteral("\u2699"));
+}
+
+// ── Entwurf D: Karte links groß, Rotoren rechts übereinander ───────
+void entwurfD(QPainter& p, const QVector<Rotor>& rotoren)
+{
+    breiterRahmen(p, QStringLiteral("Karte / Rotoren"));
+    const int spalte = 300;      // die Breite, fuer die das Zifferblatt gezeichnet ist
+    const int innenH = kWideH - kHeaderH - 12;
+    p.drawPixmap(6, kHeaderH + 6, karte(QSize(kWideW - spalte - 20, innenH), rotoren, true));
+    p.save();
+    p.setPen(QColor(255, 255, 255, 18));
+    p.drawLine(kWideW - spalte - 12, kHeaderH + 8, kWideW - spalte - 12, kWideH - 8);
+    p.restore();
+    const int hoehe = (innenH - 6) / 2;
+    for (int i = 0; i < qMin(2, rotoren.size()); ++i) {
+        p.drawPixmap(kWideW - spalte - 6, kHeaderH + 6 + i * (hoehe + 6),
+                     kompass(rotoren.at(i), QSize(spalte, hoehe)));
     }
 }
 
@@ -285,20 +292,34 @@ void TestRotorEntwuerfe::zeichneBlaetter()
         QString name;
         void (*zeichnen)(QPainter&, const QVector<Rotor>&);
     };
-    const QVector<Blatt> blaetter{{QStringLiteral("1-spalte-rosen"), entwurf1},
-                                   {QStringLiteral("2-streifen"), entwurf2},
-                                   {QStringLiteral("3-nur-zahlen"), entwurf3},
-                                   {QStringLiteral("4-raster"), entwurf4}};
+    const QVector<Blatt> blaetter{{QStringLiteral("A-spalte"), entwurfA},
+                                   {QStringLiteral("B-eingesetzt"), entwurfB},
+                                   {QStringLiteral("C-nur-zahlen"), entwurfC}};
+
+    {
+        QPixmap bild(kWideW, kWideH);
+        bild.fill(QColor(16, 20, 26));
+        QPainter p(&bild);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setRenderHint(QPainter::TextAntialiasing, true);
+        entwurfD(p, zwei);
+        p.end();
+        const QString pfad = QStringLiteral("%1/rotor-D-karte-links.png").arg(QString::fromLocal8Bit(dir));
+        QVERIFY(bild.save(pfad));
+        qInfo().noquote() << "Blatt:" << pfad;
+    }
 
     for (const Blatt& blatt : blaetter) {
-        for (const auto& satz : {qMakePair(QStringLiteral("2rotoren"), zwei), qMakePair(QStringLiteral("4rotoren"), vier)}) {
+        for (const auto& satz :
+             {qMakePair(QStringLiteral("2rotoren"), zwei), qMakePair(QStringLiteral("4rotoren"), vier)}) {
             QPixmap bild(kSheetW, kSheetH);
             bild.fill(QColor(16, 20, 26));
             QPainter p(&bild);
+            p.setRenderHint(QPainter::Antialiasing, true);
             p.setRenderHint(QPainter::TextAntialiasing, true);
             blatt.zeichnen(p, satz.second);
             p.end();
-            const QString pfad = QStringLiteral("%1/rotor-entwurf-%2-%3.png")
+            const QString pfad = QStringLiteral("%1/rotor-%2-%3.png")
                                      .arg(QString::fromLocal8Bit(dir), blatt.name, satz.first);
             QVERIFY(bild.save(pfad));
             qInfo().noquote() << "Blatt:" << pfad;

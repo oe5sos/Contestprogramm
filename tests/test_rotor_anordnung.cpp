@@ -1,28 +1,25 @@
-// Martin, 2026-10-08: "vielleicht kann man als option 1-4 rotoren
-// rechts neben dem hauptrotor einblenden. sprich übereinander. wenn nur
-// 2 angelegt und aktiv sind, dann natürlich nur 2".
+// Martin, 2026-10-08: "die 3 anzeigen vereint in einem window, rechts
+// übereinander die rotoren, links so groß wie möglich die karte" --
+// und dazu "1:1 die gleichen design" und "keine neues design vom
+// ziffernblatt".
 //
-// Also zwei Anordnungen im Rotoren-Panel: die bisherige Reihe (alle
-// gleich groß nebeneinander) und "Hauptrotor groß, weitere rechts
-// übereinander". Welche gilt, steht in ContestSettings; umgeschaltet
-// wird im Zahnrad rechts oben im Panelkopf.
-//
-// Der Prüfstand misst, wo die Kompasse wirklich landen -- nicht, welche
-// Einstellung gesetzt ist. Mit CP_SHEET_DIR im Environment legt er
-// außerdem ein Bild je Anordnung ab (wirkliche Größe), so wie
-// test_window_sheet es fürs ganze Fenster macht.
+// Karte und Kompasse teilen sich seitdem ein Panel. Der Prüfstand
+// misst, wo die drei Anzeigen wirklich landen: die Karte links und
+// breiter als alles andere, die Rotoren rechts übereinander, jeder in
+// der Breite, für die sein Zifferblatt gezeichnet ist.
 
 #include <QtTest>
 
 #include <QApplication>
-#include <QDir>
-#include <QPixmap>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
+#include "ui/MapWidget.h"
 #include "ui/RotorWidget.h"
+
+#include <memory>
 
 using namespace Contestprogramm;
 
@@ -33,19 +30,6 @@ QVector<RotorWidget*> kompasse(MainWindow& window)
     return window.findChildren<RotorWidget*>().toVector();
 }
 
-void blattAblegen(QWidget* widget, const QString& name)
-{
-    const QByteArray dir = qgetenv("CP_SHEET_DIR");
-    if (dir.isEmpty() || !widget) {
-        return;
-    }
-    QDir().mkpath(QString::fromLocal8Bit(dir));
-    const QPixmap bild = widget->grab();
-    const QString pfad = QString::fromLocal8Bit(dir) + QLatin1Char('/') + name + QStringLiteral(".png");
-    bild.save(pfad);
-    qInfo().noquote() << "Blatt:" << pfad << bild.size();
-}
-
 } // namespace
 
 class TestRotorAnordnung : public QObject
@@ -53,9 +37,8 @@ class TestRotorAnordnung : public QObject
     Q_OBJECT
 
 private slots:
-    void reiheStelltNebeneinander();
-    void hauptrotorStapeltDieUebrigenRechts();
-    void einEinzelnerRotorBleibtInDerReihe();
+    void karteLinksRotorenRechtsUebereinander();
+    void einEinzelnerRotorLaesstDerKarteMehrPlatz();
 
 private:
     std::unique_ptr<AppController> controllerFor(QTemporaryDir& dir, bool zweiterRotor);
@@ -82,88 +65,65 @@ std::unique_ptr<AppController> TestRotorAnordnung::controllerFor(QTemporaryDir& 
     return controller;
 }
 
-void TestRotorAnordnung::reiheStelltNebeneinander()
+void TestRotorAnordnung::karteLinksRotorenRechtsUebereinander()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     auto controller = controllerFor(dir, true);
     QVERIFY(controller);
-    ContestSettings settings = controller->settings();
-    settings.rotorPanelLayout = ContestSettings::RotorPanelLayout::Row;
-    controller->setSettings(settings);
 
     MainWindow window(*controller);
     window.resize(1440, 982);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
 
+    auto* karte = window.findChild<MapWidget*>();
+    QVERIFY(karte);
     const QVector<RotorWidget*> rotoren = kompasse(window);
     QCOMPARE(rotoren.size(), 2);
-    // Nebeneinander: gleiche Oberkante, verschiedene linke Kanten.
-    const QPoint a = rotoren.at(0)->mapTo(&window, QPoint(0, 0));
-    const QPoint b = rotoren.at(1)->mapTo(&window, QPoint(0, 0));
-    qInfo() << "Reihe: Rotor1" << a << "Rotor2" << b;
-    QCOMPARE(a.y(), b.y());
-    QVERIFY(a.x() != b.x());
-    blattAblegen(rotoren.at(0)->parentWidget(), QStringLiteral("rotoren-reihe"));
+
+    const QRect karteRect(karte->mapTo(&window, QPoint(0, 0)), karte->size());
+    const QRect obenRect(rotoren.at(0)->mapTo(&window, QPoint(0, 0)), rotoren.at(0)->size());
+    const QRect untenRect(rotoren.at(1)->mapTo(&window, QPoint(0, 0)), rotoren.at(1)->size());
+    qInfo() << "Karte" << karteRect << "Rotor oben" << obenRect << "Rotor unten" << untenRect;
+
+    // Die Rotoren stehen übereinander, nicht nebeneinander.
+    QCOMPARE(obenRect.left(), untenRect.left());
+    QVERIFY2(untenRect.top() >= obenRect.bottom(), "Der zweite Kompass steht nicht unter dem ersten");
+    // Beide rechts von der Karte.
+    QVERIFY2(obenRect.left() >= karteRect.right(), "Die Kompasse stehen nicht rechts neben der Karte");
+    // Und die Karte bekommt, was übrig bleibt -- deutlich mehr als die
+    // Spalte: 1440 Fensterbreite minus 300 für die Kompasse.
+    QVERIFY2(karteRect.width() > obenRect.width() * 2,
+             "Die Karte ist nicht deutlich größer als die Rotorspalte");
+    // Das Zifferblatt behält die Breite, für die es gezeichnet ist.
+    QCOMPARE(obenRect.width(), 300);
 }
 
-void TestRotorAnordnung::hauptrotorStapeltDieUebrigenRechts()
-{
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    auto controller = controllerFor(dir, true);
-    QVERIFY(controller);
-    ContestSettings settings = controller->settings();
-    settings.rotorPanelLayout = ContestSettings::RotorPanelLayout::MainPlusColumn;
-    settings.mainRotorSlot = 1;
-    controller->setSettings(settings);
-
-    MainWindow window(*controller);
-    window.resize(1440, 982);
-    window.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&window));
-
-    const QVector<RotorWidget*> rotoren = kompasse(window);
-    QCOMPARE(rotoren.size(), 2);
-    RotorWidget* haupt = nullptr;
-    RotorWidget* neben = nullptr;
-    for (RotorWidget* r : rotoren) {
-        (r->bandLabel() == QStringLiteral("2m") ? haupt : neben) = r;
-    }
-    QVERIFY(haupt && neben);
-    const QRect hauptRect(haupt->mapTo(&window, QPoint(0, 0)), haupt->size());
-    const QRect nebenRect(neben->mapTo(&window, QPoint(0, 0)), neben->size());
-    qInfo() << "Hauptrotor" << hauptRect << "daneben" << nebenRect;
-    // Rechts daneben, nicht darunter oder darüber.
-    QVERIFY2(nebenRect.left() >= hauptRect.right(), "Der zweite Rotor steht nicht rechts vom Hauptrotor");
-    // Und der Hauptrotor ist der größere.
-    QVERIFY2(hauptRect.width() >= nebenRect.width(), "Der Hauptrotor ist nicht breiter");
-    blattAblegen(haupt->parentWidget(), QStringLiteral("rotoren-hauptrotor"));
-}
-
-void TestRotorAnordnung::einEinzelnerRotorBleibtInDerReihe()
+void TestRotorAnordnung::einEinzelnerRotorLaesstDerKarteMehrPlatz()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     auto controller = controllerFor(dir, false);
     QVERIFY(controller);
-    ContestSettings settings = controller->settings();
-    settings.rotorPanelLayout = ContestSettings::RotorPanelLayout::MainPlusColumn;
-    controller->setSettings(settings);
 
     MainWindow window(*controller);
     window.resize(1440, 982);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
 
-    // "wenn nur 2 angelegt und aktiv sind, dann natürlich nur 2" -- und
-    // bei einem einzigen gibt es nichts zu stapeln: er nimmt die ganze
-    // Fläche, keine leere Spalte daneben.
     const QVector<RotorWidget*> rotoren = kompasse(window);
     QCOMPARE(rotoren.size(), 1);
-    qInfo() << "ein Rotor:" << rotoren.at(0)->size();
+    // Ein Kompass allein nimmt die ganze Höhe der Spalte -- und bleibt
+    // sichtbar, statt mit einer leeren zweiten Zelle zu teilen.
+    auto* karte = window.findChild<MapWidget*>();
+    QVERIFY(karte);
+    const QRect rotorRect(rotoren.at(0)->mapTo(&window, QPoint(0, 0)), rotoren.at(0)->size());
+    const QRect karteRect(karte->mapTo(&window, QPoint(0, 0)), karte->size());
+    qInfo() << "ein Rotor:" << rotorRect << "Karte:" << karteRect;
     QVERIFY(rotoren.at(0)->isVisible());
+    QVERIFY(rotorRect.left() >= karteRect.right());
+    QVERIFY(rotorRect.height() > 200);
 }
 
 int main(int argc, char* argv[])

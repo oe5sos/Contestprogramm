@@ -238,12 +238,6 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     bandOtherRotorSlot = rotorSlotFromString(
         database.settingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot)), bandOtherRotorSlot);
 
-    rotorPanelLayout = database.settingValue(QStringLiteral("rotor_panel_layout"),
-                                             QStringLiteral("row")) == QStringLiteral("main_plus_column")
-                           ? RotorPanelLayout::MainPlusColumn
-                           : RotorPanelLayout::Row;
-    mainRotorSlot = qBound(1, database.settingValue(QStringLiteral("rotor_panel_main_slot"),
-                                                    QStringLiteral("1")).toInt(), 9);
     rotorDialStyle = rotorDialStyleFromString(
         database.settingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle)), rotorDialStyle);
 
@@ -343,11 +337,6 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot));
 
     database.setSettingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle));
-    database.setSettingValue(QStringLiteral("rotor_panel_layout"),
-                             rotorPanelLayout == RotorPanelLayout::MainPlusColumn
-                                 ? QStringLiteral("main_plus_column")
-                                 : QStringLiteral("row"));
-    database.setSettingValue(QStringLiteral("rotor_panel_main_slot"), QString::number(mainRotorSlot));
 
     database.setSettingValue(QStringLiteral("color_theme"), colorThemeStorageKey(colorTheme));
 

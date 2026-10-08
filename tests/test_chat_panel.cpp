@@ -483,7 +483,9 @@ void TestChatPanel::everyPanelWithOptionsAlsoShowsTheGear()
 
     auto* manager = window.findChild<PanelLayoutManager*>();
     QVERIFY(manager);
-    for (const QString& id : {QStringLiteral("chat"), QStringLiteral("unifiedlog"), QStringLiteral("map")}) {
+    // "rotorrow" statt "map": Karte und Kompasse teilen sich seit dem
+    // 2026-10-08 ein Panel, und dessen Zahnrad öffnet die Kartenebenen.
+    for (const QString& id : {QStringLiteral("chat"), QStringLiteral("unifiedlog"), QStringLiteral("rotorrow")}) {
         PanelContainerWidget* panel = manager->panel(id);
         QVERIFY2(panel, qPrintable(QStringLiteral("Panel %1 fehlt").arg(id)));
         PanelHeaderBar* kopf = panel->headerBar();

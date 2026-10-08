@@ -395,7 +395,6 @@ private:
     // einen Eintrag in rotorWidgetsInSlotOrder().
     void relayoutRotorRow();
     QVector<RotorWidget*> rotorWidgetsInSlotOrder() const;
-    void showRotorPanelOptionsPopup();
     // Commands whichever rotor `freqHz` maps to (if any, and if it is
     // connected) to the candidate's bearing, and updates that rotor's
     // RotorWidget target display -- see AppController::activeRotorForBand
