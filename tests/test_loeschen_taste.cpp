@@ -71,6 +71,7 @@ private slots:
     void deleteKeyDoesTheSame();
     void backspaceInsideACellEditorDeletesACharacterNotTheQso();
     void backspaceInTheEntryRowDeletesACharacterNotTheQso();
+    void backspaceInEmptyEntryFieldMustNotDeleteAQso();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file, int anzahl);
@@ -279,6 +280,48 @@ void TestLoeschenTaste::backspaceInTheEntryRowDeletesACharacterNotTheQso()
     const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
     QVERIFY2(qsos.size() == 1,
              "Der Rückschritt beim Tippen hat ein geloggtes QSO gelöscht -- das darf er nicht");
+}
+
+// Der Fall, den der Test darueber nicht abdeckt: das Feld ist LEER.
+// Ein QLineEdit ohne Inhalt nimmt den Rueckschritt nicht an, also
+// reicht Qt ihn weiter -- und dann steht nur noch der Kurzbefehl der
+// Tabelle im Weg. Im Contest passiert das staendig: Rufzeichen
+// weggeputzt, Finger bleibt auf der Taste.
+void TestLoeschenTaste::backspaceInEmptyEntryFieldMustNotDeleteAQso()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("leer.sqlite"), 3);
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    window.activateWindow();
+    (void)QTest::qWaitForWindowActive(&window);
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+    table->setCurrentIndex(model->index(rowForCallsign(model, QStringLiteral("DL1ABC")),
+                                        UnifiedLogWidget::ColumnCall));
+
+    const QList<QLineEdit*> fields = entryFields(window);
+    QVERIFY(fields.size() >= 4);
+    QLineEdit* callField = fields.at(0);
+    callField->clear();
+    callField->setFocus();
+    QCoreApplication::processEvents();
+    for (int i = 0; i < 3; ++i) {
+        QTest::keyClick(callField, Qt::Key_Backspace);
+        QCoreApplication::processEvents();
+    }
+
+    const QVector<QsoRecord> qsos = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
+    qInfo() << "QSOs nach drei Rueckschritten im leeren Feld:" << qsos.size();
+    QVERIFY2(qsos.size() == 3,
+             "Rueckschritt im leeren Eingabefeld hat ein geloggtes QSO geloescht");
 }
 
 int main(int argc, char* argv[])

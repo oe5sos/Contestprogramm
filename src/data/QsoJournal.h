@@ -40,6 +40,20 @@ public:
     // der Aufrufer soll das sehen, statt es zu verschlucken.
     bool schreibe(const QsoRecord& record, const ContestSettings& settings);
 
+    // Was mit einem schon geloggten QSO passiert ist -- gelöscht,
+    // zurückgeholt, ungültig gesetzt -- als Zeile mit Zeitstempel in
+    // eine zweite Datei neben dem Journal ("...-vorgaenge.log").
+    //
+    // Das Journal selbst bleibt reines ADIF und wird nie verändert: was
+    // einmal drinsteht, bleibt. Es beantwortet damit aber nicht die
+    // Frage, die am 2026-10-08 offenblieb, als bei einem Prüflauf zwei
+    // QSOs im Papierkorb lagen und niemand sagen konnte, wodurch --
+    // die Datenbank merkt sich nur den Zustand, nicht den Weg dorthin.
+    // Diese Datei merkt sich den Weg.
+    bool vermerke(const QString& vorgang);
+
+    QString vorgangsPfad() const;
+
     QString pfad() const { return m_pfad; }
     QString letzterFehler() const { return m_letzterFehler; }
 

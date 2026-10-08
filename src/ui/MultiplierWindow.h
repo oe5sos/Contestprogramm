@@ -30,6 +30,10 @@ public:
     // changes (MainWindow does this before showing/raising the window).
     void setContest(const QString& contestId, const ContestDefinition* definition);
 
+    // Der eigene Standort -- die km-Spalte misst von hier zur Mitte des
+    // Grossfeldes. Leer oder zu kurz: die Spalte bleibt aus.
+    void setOwnGrid(const QString& grid);
+
 public slots:
     void refresh();
 
@@ -38,6 +42,7 @@ private:
 
     MultiplierTracker& m_tracker;
     QString m_contestId;
+    QString m_ownGrid;
     const ContestDefinition* m_definition = nullptr;
     QTableWidget* m_table = nullptr;
     PanelHeaderBar* m_header = nullptr;

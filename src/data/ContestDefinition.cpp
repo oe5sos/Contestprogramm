@@ -252,6 +252,40 @@ bool ContestDefinition::validateRules(const Rules& rules, QString* errorOut)
     if (!known(multiplierChoices(), rules.multiplierField)) {
         return fail(QStringLiteral("Unbekannter Multiplikator: \"%1\".").arg(rules.multiplierField));
     }
+    // Km-Wertung braucht beides im Austausch: den Locator, aus dem die
+    // Entfernung kommt, und die Nummer, ohne die ein QSO nach IARU R1
+    // 1.9.1 unvollstaendig ist (data/ContestScoring.cpp gibt dafuer 0
+    // Punkte). Fehlt eines davon, wertet das Programm das ganze Log mit
+    // null -- und sagt dabei nichts. Lieber hier eine Zeile im Dialog
+    // als am Contestabend eine Null in der Punktekachel.
+    if (rules.scoring == QStringLiteral("distance_km")) {
+        bool hatLocator = false;
+        bool hatNummer = false;
+        for (const ExchangeField& field : rules.exchangeFields) {
+            // Dieselben Merkmale, nach denen MainWindow die Felder
+            // sucht: der Typ "grid6" ist der Locator, das
+            // mitzaehlende Feld die Nummer -- nie der Schluesselname,
+            // den darf sich jeder Contest selbst geben.
+            if (field.type == QStringLiteral("grid6")) {
+                hatLocator = true;
+            }
+            if (field.autoIncrement) {
+                hatNummer = true;
+            }
+        }
+        if (!hatLocator) {
+            return fail(QStringLiteral(
+                "Wertung nach Entfernung braucht ein Locator-Feld im Austausch -- "
+                "ohne Locator zaehlt jedes QSO 0 Punkte."));
+        }
+        if (!hatNummer) {
+            return fail(QStringLiteral(
+                "Wertung nach Entfernung braucht ein Nummern-Feld im Austausch -- "
+                "ein QSO ohne empfangene Nummer zaehlt 0 Punkte (IARU R1 1.9.1). "
+                "Fuer einen Aktivitaetsabend ohne Nummern passt die Wertung "
+                "\"ein Punkt je QSO\"."));
+        }
+    }
     if (errorOut) {
         errorOut->clear();
     }

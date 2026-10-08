@@ -2,6 +2,7 @@
 
 #include "data/ContestDefinition.h"
 #include "data/MultiplierTracker.h"
+#include "core/Maidenhead.h"
 #include "ui/PanelHeaderBar.h"
 #include "ui/StyleKit.h"
 
@@ -36,8 +37,14 @@ MultiplierWindow::MultiplierWindow(MultiplierTracker& tracker, QWidget* parent)
     m_header = new PanelHeaderBar(QStringLiteral("Locator-Felder"), this);
 
     m_table = new QTableWidget(this);
-    m_table->setColumnCount(3);
-    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), QStringLiteral("Feld"), QStringLiteral("gearbeitet")});
+    m_table->setColumnCount(4);
+    // km dazu (Martin, 2026-10-08: "schoen waere, wenn die
+    // kilometerangabe auch noch als spalte zu sehen ist"): die
+    // Entfernung vom eigenen Standort zur Mitte des Grossfeldes, nach
+    // derselben IARU-Formel wie die Wertung (core/Maidenhead.h,
+    // iaruQrbKm). Sortierbar als Zahl, nicht als Text.
+    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), QStringLiteral("Feld"),
+                                        QStringLiteral("km"), QStringLiteral("gearbeitet")});
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->horizontalHeader()->setFont(Style::capsFont(m_table->horizontalHeader()->font()));
     m_table->setFont(Style::monoFont(m_table->font(), Style::kFontSmall));
@@ -92,7 +99,22 @@ void MultiplierWindow::applyBasisWording()
     if (m_header) {
         m_header->setTitle(title);
     }
-    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), column, QStringLiteral("gearbeitet")});
+    // Die km-Spalte gilt nur fuer Grossfelder: ein Praefix oder ein
+    // Land hat keine Mitte, von der aus sich messen liesse.
+    const bool byGrid = (basis == QStringLiteral("grid"));
+    m_table->setHorizontalHeaderLabels({QStringLiteral("Band"), column, QStringLiteral("km"),
+                                        QStringLiteral("gearbeitet")});
+    m_table->setColumnHidden(2, !byGrid || !isFullLocator(m_ownGrid));
+}
+
+void MultiplierWindow::setOwnGrid(const QString& grid)
+{
+    if (m_ownGrid == grid) {
+        return;
+    }
+    m_ownGrid = grid;
+    applyBasisWording();
+    refresh();
 }
 
 void MultiplierWindow::refresh()
@@ -108,6 +130,7 @@ void MultiplierWindow::refresh()
     m_tracker.recompute(m_contestId, *m_definition);
 
     const QStringList bands = m_tracker.bands();
+    const bool byGrid = !m_definition || m_definition->multiplierField() == QStringLiteral("grid");
 
     // Union of every band's worked keys: a multiplier worked on 144 but
     // not (yet) on 432 gets a real "nein" row for 432, rather than only
@@ -126,6 +149,16 @@ void MultiplierWindow::refresh()
             m_table->insertRow(row);
             m_table->setItem(row, 0, new QTableWidgetItem(band));
             m_table->setItem(row, 1, new QTableWidgetItem(key));
+            auto* kmItem = new QTableWidgetItem();
+            if (byGrid && isFullLocator(m_ownGrid) && key.size() >= 4) {
+                // Mitte des Grossfeldes: JN67 -> JN67MM.
+                const double km = iaruQrbKm(m_ownGrid, key.left(4) + QStringLiteral("MM"));
+                if (km >= 0.0) {
+                    kmItem->setData(Qt::DisplayRole, static_cast<int>(km + 0.5));
+                }
+            }
+            kmItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            m_table->setItem(row, 2, kmItem);
             const bool worked = workedOnBand.contains(key);
             auto* workedItem = new QTableWidgetItem(worked ? QStringLiteral("ja") : QStringLiteral("nein"));
             // Green = confirmed/worked, per HAUSSTIL's colour-meaning
@@ -133,7 +166,7 @@ void MultiplierWindow::refresh()
             // decorative choice.
             workedItem->setForeground(worked ? QColor(Style::kGreenText())
                                               : QColor(Style::kTextInactive()));
-            m_table->setItem(row, 2, workedItem);
+            m_table->setItem(row, 3, workedItem);
             ++row;
         }
     }
