@@ -152,6 +152,17 @@ struct ContestSettings {
     // Möglichkeiten, dann kann individuell ausgewählt werden").
     RotorDialStyle rotorDialStyle = RotorDialStyle::FullCompass;
 
+    // Eine dritte Antenne ohne Rotor: feste Richtung, sonst dasselbe
+    // Instrument wie die beiden drehbaren (Martin, 2026-10-08: "diese
+    // antenne wird aber als fixantenne gesehen, hat also keinen rotor.
+    // sollte nur das gleiche design haben. benenne sie als Antenne
+    // Fix"). Ausgeschaltet, solange niemand sie einschaltet -- ein
+    // bestehender Aufbau soll nicht ploetzlich ein drittes Panel
+    // bekommen.
+    bool fixedAntennaEnabled = false;
+    QString fixedAntennaLabel = QStringLiteral("Antenne Fix");
+    double fixedAntennaBearingDeg = 0.0;
+
     // Which of the five selectable colour palettes the whole app uses
     // (core/ColorTheme.h) -- operator, 2026-09-12: "gelber Hintergrund,
     // schwarze Schrift, ev auch was in blau, hell und dunkel... DIE 4

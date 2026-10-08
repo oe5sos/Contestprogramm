@@ -238,6 +238,11 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     bandOtherRotorSlot = rotorSlotFromString(
         database.settingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot)), bandOtherRotorSlot);
 
+    fixedAntennaEnabled = database.settingValue(QStringLiteral("fixed_antenna_enabled"),
+                                                QStringLiteral("0")) == QStringLiteral("1");
+    fixedAntennaLabel = database.settingValue(QStringLiteral("fixed_antenna_label"), fixedAntennaLabel);
+    fixedAntennaBearingDeg = database.settingValue(QStringLiteral("fixed_antenna_bearing"),
+                                                   QString::number(fixedAntennaBearingDeg)).toDouble();
     rotorDialStyle = rotorDialStyleFromString(
         database.settingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle)), rotorDialStyle);
 
@@ -337,6 +342,10 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot));
 
     database.setSettingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle));
+    database.setSettingValue(QStringLiteral("fixed_antenna_enabled"),
+                             fixedAntennaEnabled ? QStringLiteral("1") : QStringLiteral("0"));
+    database.setSettingValue(QStringLiteral("fixed_antenna_label"), fixedAntennaLabel);
+    database.setSettingValue(QStringLiteral("fixed_antenna_bearing"), QString::number(fixedAntennaBearingDeg));
 
     database.setSettingValue(QStringLiteral("color_theme"), colorThemeStorageKey(colorTheme));
 

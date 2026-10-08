@@ -211,6 +211,9 @@ private slots:
     void applyRotorWidgetSettings();
     // The rotor dials' beam cones take the map's beamwidth preferences.
     void applyRotorBeamwidths();
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled) anlegen,
+    // auffrischen oder wieder entfernen.
+    void applyFixedAntennaSettings();
     // Rebuilds MapWidget's worked/spotted station set from the current
     // contest's logged QSOs (ContestDatabase::qsosWithGrid) plus both
     // ChatFeedModels' currently-visible, not-yet-worked rows -- called
@@ -574,6 +577,10 @@ private:
     QHBoxLayout* m_rotorLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;
     RotorWidget* m_rotor2Widget = nullptr;
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled): dasselbe
+    // Instrument, nur ohne Rotor dahinter -- kein RotctldClient, keine
+    // Verbindung, keine Zielvorgabe.
+    RotorWidget* m_fixedAntennaWidget = nullptr;
     MapWidget* m_mapWidget = nullptr;
     // The rotorrow panel's own container -- kept (unlike most other
     // panels, whose container is looked up via m_panelLayoutManager->
