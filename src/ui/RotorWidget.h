@@ -65,6 +65,12 @@ public:
     void setAzimuthDeg(double azimuthDeg);
     double azimuthDeg() const { return m_azimuthDeg; }
 
+    // Die Peilung als einzelne Zeile, wenn fuer den dreispaltigen
+    // Ableseblock kein Platz ist -- der Fall in der Spalte rechts neben
+    // dem Hauptrotor (ContestSettings::RotorPanelLayout). Ohne sie stand
+    // dort nur eine Nadel ohne eine einzige Zahl.
+    QString compactReadingText() const;
+
     void setConnected(bool connected);
 
     // The currently selected/clicked candidate's bearing, per the plan's

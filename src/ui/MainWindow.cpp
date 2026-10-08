@@ -690,6 +690,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_rotorLayout = new QHBoxLayout(m_rotorRow);
     m_rotorLayout->setContentsMargins(0, 0, 0, 0);
     m_rotorLayout->setSpacing(10);
+    // Die Spalte fuer die Anordnung "Hauptrotor gross, weitere rechts
+    // uebereinander" (ContestSettings::rotorPanelLayout). Sie bleibt
+    // leer und versteckt, solange die Reihen-Anordnung gilt -- dann
+    // sieht dieses Panel exakt aus wie vorher.
+    m_rotorColumn = new QWidget(m_rotorRow);
+    m_rotorColumnLayout = new QVBoxLayout(m_rotorColumn);
+    m_rotorColumnLayout->setContentsMargins(0, 0, 0, 0);
+    m_rotorColumnLayout->setSpacing(8);
+    m_rotorColumn->hide();
+    m_rotorLayout->addWidget(m_rotorColumn);
     m_rotorLayout->addStretch();
     // y=632: below the merged Log panel's own bottom edge (64+560=624)
     // plus an 8px gap.
@@ -746,6 +756,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
         /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+    // Die Anordnung der Kompasse gehoert dem Panel, nicht einem
+    // einzelnen Rotor -- also ins Zahnrad rechts oben im Panelkopf
+    // (Martins Regel vom 2026-09-20), nicht in das ⚙ der einzelnen
+    // RotorWidgets, wo schon der Anzeigestil und die Zweitantenne
+    // sitzen.
+    if (m_rotorRowContainer && m_rotorRowContainer->headerBar()) {
+        m_rotorRowContainer->headerBar()->setOptionsAffordanceEnabled(true);
+        connect(m_rotorRowContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showRotorPanelOptionsPopup);
+    }
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -2100,6 +2120,7 @@ void MainWindow::applyRotorWidgetSettings()
             settings.band1296RotorSlot == ContestSettings::RotorSlot::Slot2 ? QStringLiteral("+23cm") : QString());
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
+    relayoutRotorRow();
     applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
@@ -2112,6 +2133,157 @@ void MainWindow::applyRotorWidgetSettings()
     }
 
     refreshTerrainSectors();
+}
+
+void MainWindow::showRotorPanelOptionsPopup()
+{
+    // Jedes Mal frisch gebaut, nicht als Mitglied gehalten: ein
+    // dauerhaftes QMenu, das mit seinem Panel in einen anderen
+    // Container umgehaengt wird, stuerzte beim popup() ab -- derselbe
+    // Fund wie beim Kartenpanel am 2026-09-21 (cbf5b8f).
+    QMenu menu(this);
+    const ContestSettings settings = m_appController.settings();
+    const int aktive = rotorWidgetsInSlotOrder().size();
+
+    auto* reihe = menu.addAction(QStringLiteral("Nebeneinander, gleich groß"));
+    reihe->setCheckable(true);
+    reihe->setChecked(settings.rotorPanelLayout == ContestSettings::RotorPanelLayout::Row);
+    auto* haupt = menu.addAction(QStringLiteral("Hauptrotor groß, weitere rechts übereinander"));
+    haupt->setCheckable(true);
+    haupt->setChecked(settings.rotorPanelLayout == ContestSettings::RotorPanelLayout::MainPlusColumn);
+    // Mit nur einem aktiven Rotor gibt es nichts zu stapeln -- der
+    // Eintrag bleibt sichtbar (damit die Anordnung einstellbar ist,
+    // bevor der zweite Rotor eingeschaltet wird), sagt aber, warum
+    // gerade nichts passiert.
+    if (aktive < 2) {
+        haupt->setToolTip(QStringLiteral("Wirkt, sobald mindestens zwei Rotoren aktiv sind"));
+    }
+
+    connect(reihe, &QAction::triggered, this, [this]() {
+        ContestSettings s = m_appController.settings();
+        s.rotorPanelLayout = ContestSettings::RotorPanelLayout::Row;
+        m_appController.setSettings(s);
+        relayoutRotorRow();
+    });
+    connect(haupt, &QAction::triggered, this, [this]() {
+        ContestSettings s = m_appController.settings();
+        s.rotorPanelLayout = ContestSettings::RotorPanelLayout::MainPlusColumn;
+        m_appController.setSettings(s);
+        relayoutRotorRow();
+    });
+
+    if (aktive >= 2) {
+        menu.addSeparator();
+        auto* ueberschrift = menu.addAction(QStringLiteral("Großer Rotor"));
+        ueberschrift->setEnabled(false);
+        const QVector<QPair<int, RotorWidget*>> steckplaetze{{1, m_rotor1Widget}, {2, m_rotor2Widget}};
+        for (const auto& eintrag : steckplaetze) {
+            if (!eintrag.second) {
+                continue;
+            }
+            auto* wahl = menu.addAction(QStringLiteral("Rotor %1 (%2)")
+                                            .arg(eintrag.first)
+                                            .arg(eintrag.second->bandLabel()));
+            wahl->setCheckable(true);
+            wahl->setChecked(settings.mainRotorSlot == eintrag.first);
+            const int slot = eintrag.first;
+            connect(wahl, &QAction::triggered, this, [this, slot]() {
+                ContestSettings s = m_appController.settings();
+                s.mainRotorSlot = slot;
+                if (s.rotorPanelLayout != ContestSettings::RotorPanelLayout::MainPlusColumn) {
+                    // Wer hier waehlt, will die Anordnung auch sehen.
+                    s.rotorPanelLayout = ContestSettings::RotorPanelLayout::MainPlusColumn;
+                }
+                m_appController.setSettings(s);
+                relayoutRotorRow();
+            });
+        }
+    }
+
+    if (PanelHeaderBar* bar = m_rotorRowContainer ? m_rotorRowContainer->headerBar() : nullptr) {
+        menu.exec(bar->mapToGlobal(QPoint(bar->width() - 8, bar->height())));
+    } else {
+        menu.exec(QCursor::pos());
+    }
+}
+
+QVector<RotorWidget*> MainWindow::rotorWidgetsInSlotOrder() const
+{
+    // Slotreihenfolge, Luecken uebersprungen: ein abgeschalteter Rotor 1
+    // hat kein Widget, dann faengt die Liste bei Rotor 2 an. Kommt
+    // spaeter ein dritter oder vierter Slot dazu, steht er hier -- der
+    // Rest dieser Datei muss dafuer nicht angefasst werden.
+    QVector<RotorWidget*> widgets;
+    for (RotorWidget* widget : {m_rotor1Widget, m_rotor2Widget}) {
+        if (widget) {
+            widgets.append(widget);
+        }
+    }
+    return widgets;
+}
+
+void MainWindow::relayoutRotorRow()
+{
+    if (!m_rotorLayout || !m_rotorColumnLayout) {
+        return;
+    }
+    const QVector<RotorWidget*> widgets = rotorWidgetsInSlotOrder();
+    const ContestSettings settings = m_appController.settings();
+
+    // Erst alles aushaengen (ohne zu zerstoeren: setParent(nullptr)
+    // wuerde die Widgets zu eigenen Fenstern machen, also nur aus den
+    // Layouts nehmen und am m_rotorRow lassen).
+    for (RotorWidget* widget : widgets) {
+        m_rotorLayout->removeWidget(widget);
+        m_rotorColumnLayout->removeWidget(widget);
+    }
+    while (QLayoutItem* item = m_rotorColumnLayout->takeAt(0)) {
+        delete item;
+    }
+
+    if (settings.rotorPanelLayout == ContestSettings::RotorPanelLayout::Row || widgets.size() < 2) {
+        // Wie bisher: alle gleich gross nebeneinander. Bei einem
+        // einzigen Rotor gibt es ohnehin nichts zu stapeln.
+        m_rotorColumn->hide();
+        for (int i = 0; i < widgets.size(); ++i) {
+            m_rotorLayout->insertWidget(i, widgets.at(i));
+            widgets.at(i)->show();
+        }
+        return;
+    }
+
+    // Hauptrotor: der gewaehlte Slot, falls er aktiv ist, sonst der
+    // erste aktive. Alle uebrigen kommen rechts daneben, in
+    // Slotreihenfolge, so viele wie aktiv sind.
+    const int gewaehlt = settings.mainRotorSlot;
+    RotorWidget* haupt = widgets.first();
+    if (gewaehlt == 2 && m_rotor2Widget) {
+        haupt = m_rotor2Widget;
+    } else if (gewaehlt == 1 && m_rotor1Widget) {
+        haupt = m_rotor1Widget;
+    }
+
+    // 2:1 -- der Hauptrotor soll sichtbar der groessere sein, sonst
+    // waere die Anordnung nur eine andere Art, zwei gleich grosse
+    // Kompasse hinzustellen. Qt bedient erst die sizeHints und verteilt
+    // dann den Rest nach diesen Faktoren, darum zusaetzlich eine Decke
+    // fuer die Spalte: sie darf hoechstens ein gutes Drittel der Breite
+    // nehmen, damit auch bei vier gestapelten Rotoren links genug fuer
+    // die grosse Rose bleibt.
+    m_rotorLayout->insertWidget(0, haupt, 2);
+    haupt->show();
+    int index = 0;
+    for (RotorWidget* widget : widgets) {
+        if (widget == haupt) {
+            continue;
+        }
+        m_rotorColumnLayout->insertWidget(index++, widget, 1);
+        widget->show();
+    }
+    m_rotorLayout->setStretchFactor(m_rotorColumn, 1);
+    const int breite = m_rotorRow->width();
+    m_rotorColumn->setMaximumWidth(breite > 0 ? qMax(160, breite * 2 / 5) : 16777215);
+    m_rotorColumn->show();
 }
 
 void MainWindow::applyRotorBeamwidths()
@@ -2202,7 +2374,10 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
     if (enabled) {
         if (!widget) {
             widget = new RotorWidget(label, m_rotorRow);
-            m_rotorLayout->insertWidget(insertIndex, widget);
+            // Eingehaengt wird in relayoutRotorRow() -- die Anordnung
+            // entscheidet, ob dieses Widget in die Reihe oder in die
+            // Spalte rechts gehoert (Martin, 2026-10-08).
+            Q_UNUSED(insertIndex);
             // `widget` as the connect() context means both connections
             // auto-disconnect the moment the widget is destroyed below
             // (the disabled-slot path) -- no dangling-pointer risk in

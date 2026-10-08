@@ -13,6 +13,7 @@ class QAction;
 class QCloseEvent;
 class QShortcut;
 class QHBoxLayout;
+class QVBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMoveEvent;
@@ -386,6 +387,15 @@ private:
     // disconnected-looking widget left sitting in the row) if `enabled`
     // is now false.
     void applyRotorSlot(bool enabled, const QString& label, RotctldClient& client, RotorWidget*& widget, int insertIndex);
+
+    // Haengt die vorhandenen Rotor-Kompasse neu ein, nach der gewaehlten
+    // Anordnung (ContestSettings::rotorPanelLayout). Arbeitet ueber die
+    // Liste der lebenden Widgets, nicht ueber feste Slotnummern -- ein
+    // dritter oder vierter Rotor braucht hier spaeter nichts weiter als
+    // einen Eintrag in rotorWidgetsInSlotOrder().
+    void relayoutRotorRow();
+    QVector<RotorWidget*> rotorWidgetsInSlotOrder() const;
+    void showRotorPanelOptionsPopup();
     // Commands whichever rotor `freqHz` maps to (if any, and if it is
     // connected) to the candidate's bearing, and updates that rotor's
     // RotorWidget target display -- see AppController::activeRotorForBand
@@ -572,6 +582,10 @@ private:
     QString m_rotctldError2;
     QWidget* m_rotorRow = nullptr;
     QHBoxLayout* m_rotorLayout = nullptr;
+    // Die Spalte rechts neben dem grossen Rotor; nur in der Anordnung
+    // "Hauptrotor" sichtbar, sonst leer und versteckt.
+    QWidget* m_rotorColumn = nullptr;
+    QVBoxLayout* m_rotorColumnLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;
     RotorWidget* m_rotor2Widget = nullptr;
     MapWidget* m_mapWidget = nullptr;

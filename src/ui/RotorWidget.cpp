@@ -397,6 +397,14 @@ QSize RotorWidget::minimumSizeHint() const
     return QSize(kDialMinWidth, kHeaderHeight + kMinDialAreaHeight);
 }
 
+QString RotorWidget::compactReadingText() const
+{
+    if (!m_connected) {
+        return Style::unknownDash();
+    }
+    return QStringLiteral("%1°").arg(QString::number(qRound(m_azimuthDeg)).rightJustified(3, QLatin1Char('0')));
+}
+
 bool RotorWidget::readoutFitsWidth() const
 {
     // Three columns of the SMALLER value font (the one readoutValueFontPx()
@@ -1571,7 +1579,21 @@ void RotorWidget::paintEvent(QPaintEvent* /*event*/)
     }
 
     if (textHeight == 0) {
-        return; // too low for any readout: the dial alone
+        // Zu schmal oder zu niedrig fuer den dreispaltigen Block. Statt
+        // gar keiner Zahl eine einzelne Zeile mit der Peilung, unten
+        // ueber den leeren Rand des Zifferblatts gelegt -- gemessener
+        // Wert, also warm, und ein Strich, solange nichts gemessen ist
+        // (HAUSSTIL Regel 7).
+        constexpr int kCompactRow = 20;
+        if (height() >= kHeaderHeight + kMinDialAreaHeight + kCompactRow / 2) {
+            const QRect zeile(0, height() - kCompactRow, width(), kCompactRow);
+            QFont f = Style::monoFont(painter.font(), Style::kFontSmall);
+            f.setBold(true);
+            painter.setFont(f);
+            painter.setPen(QColor(m_connected ? Style::kAmberText() : Style::kTextInactive()));
+            painter.drawText(zeile, Qt::AlignCenter, compactReadingText());
+        }
+        return;
     }
     const QRect textArea(0, height() - textHeight, width(), textHeight);
     if (m_dialStyle == RotorDialStyle::Digital) {

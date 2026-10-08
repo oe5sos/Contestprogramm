@@ -152,6 +152,22 @@ struct ContestSettings {
     // Möglichkeiten, dann kann individuell ausgewählt werden").
     RotorDialStyle rotorDialStyle = RotorDialStyle::FullCompass;
 
+    // Wie die Rotoren im Panel stehen (Martin, 2026-10-08: "vielleicht
+    // kann man als option 1-4 rotoren rechts neben dem hauptrotor
+    // einblenden. sprich uebereinander. wenn nur 2 angelegt und aktiv
+    // sind, dann natuerlich nur 2").
+    //
+    // Reihe:      alle gleich gross nebeneinander (wie bisher).
+    // Hauptrotor: einer gross links, alle weiteren rechts daneben
+    //             uebereinander -- so viele, wie aktiv sind, nicht mehr.
+    //
+    // mainRotorSlot sagt, welcher der grosse ist. Ist dieser Slot
+    // abgeschaltet, nimmt der erste aktive seinen Platz ein; sind gar
+    // keine aktiv, steht das Panel leer da wie eh und je.
+    enum class RotorPanelLayout { Row, MainPlusColumn };
+    RotorPanelLayout rotorPanelLayout = RotorPanelLayout::Row;
+    int mainRotorSlot = 1;
+
     // Which of the five selectable colour palettes the whole app uses
     // (core/ColorTheme.h) -- operator, 2026-09-12: "gelber Hintergrund,
     // schwarze Schrift, ev auch was in blau, hell und dunkel... DIE 4
