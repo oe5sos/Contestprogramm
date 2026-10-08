@@ -46,6 +46,16 @@ QString prefixOfPart(const QString& part)
 
 } // namespace
 
+bool isBeaconCallsign(const QString& callsign)
+{
+    const QStringList parts = callsign.trimmed().toUpper().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    if (parts.size() < 2) {
+        return false;
+    }
+    const QString last = parts.last();
+    return last == QStringLiteral("B") || last == QStringLiteral("BCN");
+}
+
 QString wpxPrefix(const QString& callsign)
 {
     QStringList parts;

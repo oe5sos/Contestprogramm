@@ -314,10 +314,14 @@ void TestContestRulesOverride::ownContestNeedsNoShippedFile()
         "name": "Vorlage",
         "bands": ["144"],
         "dupe_scope": ["callsign", "band"],
+        "scoring": "qso_count",
         "exchange_fields": [ { "key": "rst", "label": "RST", "type": "rst" } ]
     })"), &error);
     QVERIFY2(shipped.isValid(), qPrintable(error));
 
+    // Wertung "ein Punkt je QSO", weil diese Vorlage keinen Locator im
+    // Austausch hat: die Entfernungswertung verlangt seit 2026-10-08
+    // Locator UND Nummer, sonst zählte das ganze Log 0 Punkte.
     ContestRulesEditor editor({shipped}, shipped.id());
     const QString newId = editor.createDraftContest(QStringLiteral("Öster Probe 2027"));
     QCOMPARE(newId, QStringLiteral("OESTER_PROBE_2027"));

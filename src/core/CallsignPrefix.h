@@ -42,4 +42,13 @@ QString wpxPrefix(const QString& callsign);
 // wie es ueber Funk ausgetauscht wurde (Regel 1.9.1).
 QString baseCallsign(const QString& callsign);
 
+// Eine Bake, kein Gegenüber: Rufzeichen mit dem Zusatz /B (auf UKW die
+// übliche Schreibweise im Cluster und im ON4KST-Chat, daneben /BCN).
+// Baken gehören in die Bandmap -- sie sind das Ausbreitungsinstrument
+// schlechthin, DXLog zeigt sie dort dauerhaft an -- aber sie sind nie
+// eine Station, die man anrufen und loggen kann. Vor dem 2026-10-08
+// konnte der Betriebsassistent "OE5XBM/B" als nächstes Ziel
+// vorschlagen und eine Anrufnachricht dafür entwerfen.
+bool isBeaconCallsign(const QString& callsign);
+
 } // namespace Contestprogramm

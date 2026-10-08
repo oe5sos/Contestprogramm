@@ -445,7 +445,17 @@ QString ContestRulesEditor::createDraftContest(const QString& name)
         serial.label = QStringLiteral("Nr.");
         serial.type = QStringLiteral("int");
         serial.autoIncrement = true;
-        rules.exchangeFields = {rst, serial};
+        // Locator dazu: die Vorgabe-Wertung ist die Entfernung, und die
+        // braucht ihn (ContestDefinition::validateRules lehnt die
+        // Kombination seit 2026-10-08 ab -- vorher wertete ein so
+        // angelegter Contest stumm jedes QSO mit 0 Punkten). Wer einen
+        // Kurzwellen-Contest ohne Locator baut, nimmt das Feld wieder
+        // heraus und stellt die Wertung auf "ein Punkt je QSO".
+        ContestDefinition::ExchangeField grid;
+        grid.key = QStringLiteral("grid");
+        grid.label = QStringLiteral("Locator");
+        grid.type = QStringLiteral("grid6");
+        rules.exchangeFields = {rst, serial, grid};
     }
     if (rules.bands.isEmpty()) {
         rules.bands = {QStringLiteral("144")};

@@ -4,6 +4,7 @@
 
 #include "app/AppController.h"
 #include "core/BandUtils.h"
+#include "core/CallsignPrefix.h"
 #include "core/BandmapModel.h"
 #include "core/BeamHeading.h"
 #include "core/ColorTheme.h"
@@ -2594,6 +2595,13 @@ void MainWindow::refreshSuggestionPanel()
             if (alreadyWorked || !inRange) {
                 continue;
             }
+            // Eine Bake steht im Feed und in der Bandmap -- sie zeigt,
+            // wohin das Band offen ist -- aber sie antwortet nicht.
+            // Ohne diese Zeile schlug der Assistent "OE5XBM/B" als
+            // nächstes Ziel vor und entwarf einen Anruf an sie.
+            if (isBeaconCallsign(model.candidateAt(row).callsign)) {
+                continue;
+            }
             NextTargetSuggester::Candidate entry;
             entry.candidate = model.candidateAt(row);
             entry.score = model.scoreAt(row);
@@ -3279,6 +3287,12 @@ void MainWindow::handleLogRequested()
     refreshBandmap();
     refreshScoreboard();
     refreshSkeds();
+    // Das Rate-Panel hat einen eigenen 15-s-Takt. Ohne diese Zeile
+    // stand nach einem QSO bis zu 15 Sekunden lang der alte Punktestand
+    // darin, waehrend das Kartenpanel daneben schon den neuen zeigte --
+    // zwei Anzeigen desselben Werts, die sich widersprechen (gemessen
+    // am 2026-10-08: 2 QSOs / 569 Punkte auf der Karte, 0 / 0 im Rate).
+    m_rateMeterWidget->refresh();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -3738,6 +3752,13 @@ void MainWindow::handleHistoryDeleteRequested(int qsoId)
         return;
     }
     m_lastDeletedQsoId = qsoId;
+    if (QsoJournal* journal = m_appController.qsoJournal()) {
+        journal->vermerke(QStringLiteral("GELOESCHT  %1  %2  Nr. %3  %4")
+                              .arg(record->callsign, record->band,
+                                   record->serialSent ? QString::number(*record->serialSent)
+                                                      : QStringLiteral("--"),
+                                   record->timestampUtc));
+    }
     refreshAfterLogChange();
     statusBar()->showMessage(
         QStringLiteral("%1 gelöscht (Nr. %2) — Strg+Z macht es rückgängig")
@@ -3760,10 +3781,39 @@ void MainWindow::undoLastDelete()
     }
     const auto record = m_appController.database().qsoById(m_lastDeletedQsoId);
     m_lastDeletedQsoId = -1;
+    if (QsoJournal* journal = m_appController.qsoJournal(); journal && record) {
+        journal->vermerke(QStringLiteral("ZURUECKGEHOLT  %1  %2  Nr. %3  %4")
+                              .arg(record->callsign, record->band,
+                                   record->serialSent ? QString::number(*record->serialSent)
+                                                      : QStringLiteral("--"),
+                                   record->timestampUtc));
+    }
     refreshAfterLogChange();
-    statusBar()->showMessage(record ? QStringLiteral("%1 ist wieder im Log.").arg(record->callsign)
-                                     : QStringLiteral("QSO ist wieder im Log."),
-                              6000);
+    // Die Nummer des gelöschten QSO wird sofort wieder vergeben (siehe
+    // refreshAfterLogChange()). Wer in der Zwischenzeit weitergeloggt
+    // hat und dann Strg+Z drückt, hat dieselbe gesendete Nummer zweimal
+    // im Log -- der Auswerter zählt das als Fehler. Die Log-Prüfung
+    // meldet es, aber erst, wenn man hinsieht; hier steht es sofort da.
+    QString doppelt;
+    if (record && record->serialSent) {
+        QStringList andere;
+        for (const QsoRecord& q : m_appController.database().qsosForContest(record->contestId)) {
+            if (q.id != record->id && q.band == record->band && q.serialSent
+                && *q.serialSent == *record->serialSent) {
+                andere << q.callsign;
+            }
+        }
+        if (!andere.isEmpty()) {
+            doppelt = QStringLiteral("  ACHTUNG: Nr. %1 ging auf %2 auch an %3 — eine der beiden Nummern "
+                                     "muss geändert werden.")
+                          .arg(*record->serialSent)
+                          .arg(record->band, andere.join(QStringLiteral(", ")));
+        }
+    }
+    statusBar()->showMessage((record ? QStringLiteral("%1 ist wieder im Log.").arg(record->callsign)
+                                     : QStringLiteral("QSO ist wieder im Log."))
+                                 + doppelt,
+                              doppelt.isEmpty() ? 6000 : 30000);
 }
 
 // Alles, was den Log-Inhalt liest, nach einer Änderung an ihm -- die
@@ -3786,6 +3836,10 @@ void MainWindow::refreshAfterLogChange()
     refreshMapWidget();
     refreshSuggestionPanel();
     reloadCheckPartialSources();
+    // Punkte, QSO-Zahl und ODX stehen auch im Rate-Panel; ein geloeschtes
+    // oder zurueckgeholtes QSO aendert sie sofort, nicht erst beim
+    // naechsten Takt.
+    m_rateMeterWidget->refresh();
     updateStatusBar();
 }
 
