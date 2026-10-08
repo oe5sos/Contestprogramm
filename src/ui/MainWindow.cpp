@@ -805,7 +805,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         // px, damit ihre Ablesung (AKTUELL/ZIEL/ENTFERNUNG) stehen
         // bleibt -- darunter laesst RotorWidget sie weg und zeigt nur
         // noch die Peilung. Die Karte nimmt dieselbe Hoehe mit.
-        /*contentHasOwnChrome=*/false, QRect(0, 78, 1440, 600), QRect(0, 0, 1372, 400));
+        /*contentHasOwnChrome=*/false, // Breite 1090, nicht 1440: rechts steht der Seitenbereich
+        // (0,78 .. 1100) -- ein Panel, das darunter liegt, verliert
+        // genau die Rotorspalte hinter ihm.
+        QRect(0, 78, 1090, 600), QRect(0, 0, 1372, 400));
     // Das Zahnrad dieses Panels gehoert der Karte (ihre Ebenen und
     // Ansichten) -- die Rotoren stehen fest rechts uebereinander, dort
     // gibt es nichts mehr zu waehlen. Verbunden wird es unten, bei der
