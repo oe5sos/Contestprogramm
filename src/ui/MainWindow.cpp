@@ -2041,8 +2041,12 @@ void MainWindow::applyActiveContestDefinition()
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
+        // Auf UKW ohne Multiplikator-Kachel (def->hasMultipliers()):
+        // dort zaehlen Kilometer, nicht Faktoren.
         m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring(),
-                                      def->multiplierField(), &m_appController.countryIndex());
+                                      def->hasMultipliers() ? def->multiplierField()
+                                                            : QStringLiteral("none"),
+                                      &m_appController.countryIndex());
     }
     reloadCheckPartialSources();
     refreshScoreboard();
@@ -3524,7 +3528,9 @@ void MainWindow::refreshMultiplierHint(const QString& grid)
     }
 
     MultiplierTracker& tracker = m_appController.multiplierTracker();
-    const QString key = call.isEmpty() ? QString() : tracker.multiplierKeyFor(grid, call);
+    const QString key = (call.isEmpty() || !def || !def->hasMultipliers())
+                            ? QString()
+                            : tracker.multiplierKeyFor(grid, call);
     if (def && !key.isEmpty()) {
         QStringList worked;
         for (const QString& band : def->bands()) {
@@ -4964,7 +4970,8 @@ void MainWindow::refreshBandmap()
                                                           settings.activeContestId, dupeScope);
         // Ein Spot, der einen fehlenden Multiplikator brächte, ist mehr
         // wert als ein QSO -- die Bandmap sagt es, wie N1MM und DXLog.
-        spot.neededMultiplier = !spot.worked && !m_currentBand.isEmpty()
+        const ContestDefinition* mdef = findContestDefinition(settings.activeContestId);
+        spot.neededMultiplier = mdef && mdef->hasMultipliers() && !spot.worked && !m_currentBand.isEmpty()
             && tracker.isNeededMultiplier(m_currentBand, spot.grid, spot.callsign);
     }
     m_bandmapWidget->setBand(m_currentBand);
@@ -5140,6 +5147,9 @@ void MainWindow::openMultiplierWindow()
         m_multiplierWindow->setWindowFlag(Qt::Window, true);
     }
     const ContestSettings settings = m_appController.settings();
+    // Vor setContest(): die km-Spalte entscheidet beim Aufbau, ob sie
+    // ueberhaupt etwas zu zeigen hat.
+    m_multiplierWindow->setOwnGrid(settings.ownGrid);
     m_multiplierWindow->setContest(settings.activeContestId, findContestDefinition(settings.activeContestId));
     m_multiplierWindow->show();
     m_multiplierWindow->raise();

@@ -57,6 +57,25 @@ public:
     // existing contest_definitions/*.json files need no change.
     const QString& multiplierField() const { return m_multiplierField; }
 
+    // Hat dieser Contest ueberhaupt Multiplikatoren?
+    //
+    // Martin, 2026-10-08: "multiplikatoren nur bei kurzwelle!" --
+    // und das Programm ist grundsaetzlich fuer UKW. Auf UKW stimmt das
+    // auch mit der Ausschreibung ueberein: IARU Region 1 wertet
+    // Kilometer, Punkt. Ein Grossfeld ist dort kein Faktor, sondern
+    // Information ("welche Felder habe ich schon"), und die steht im
+    // Fenster "Locator-Felder" samt Entfernung.
+    //
+    // Darum: Entfernungswertung heisst keine Multiplikatoren, egal was
+    // multiplier_field sagt. Auf Kurzwelle (qso_count + prefix/dxcc)
+    // bleibt alles, wie es war -- Bandmap-Markierung, Check-Zeile,
+    // Kachel im Rate-Panel.
+    bool hasMultipliers() const
+    {
+        return m_multiplierField != QStringLiteral("none")
+               && m_scoring != QStringLiteral("distance_km");
+    }
+
     // How a valid QSO scores -- see data/ContestScoring.h. "distance_km"
     // (1 point per km, the IARU-R1/ÖVSV/DARC VHF-UHF rule and the
     // default when the JSON key "scoring" is absent) or "qso_count"
