@@ -74,6 +74,9 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_rotor1BaudCombo(new QComboBox(this))
     , m_rotor2EnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_rotor2LabelEdit(new QLineEdit(this))
+    , m_fixedAntennaCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
+    , m_fixedAntennaLabelEdit(new QLineEdit(this))
+    , m_fixedAntennaBearingSpin(new QDoubleSpinBox(this))
     , m_rotor2HostEdit(new QLineEdit(this))
     , m_rotor2PortSpin(new QSpinBox(this))
     , m_rotor2SecondAntennaCheck(new QCheckBox(QStringLiteral("Zweitantenne aktiv"), this))
@@ -261,6 +264,15 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_rotor2EnabledCheck->setChecked(initial.rotor2Enabled);
     m_rotor2LabelEdit->setText(initial.rotor2Label);
     m_rotor2LabelEdit->setMaxLength(24);
+    m_fixedAntennaCheck->setChecked(initial.fixedAntennaEnabled);
+    m_fixedAntennaLabelEdit->setText(initial.fixedAntennaLabel);
+    m_fixedAntennaLabelEdit->setMaxLength(24);
+    m_fixedAntennaLabelEdit->setPlaceholderText(QStringLiteral("Antenne Fix"));
+    m_fixedAntennaBearingSpin->setRange(0.0, 359.0);
+    m_fixedAntennaBearingSpin->setDecimals(0);
+    m_fixedAntennaBearingSpin->setSuffix(QStringLiteral(" °"));
+    m_fixedAntennaBearingSpin->setWrapping(true);
+    m_fixedAntennaBearingSpin->setValue(initial.fixedAntennaBearingDeg);
     m_rotor2HostEdit->setText(initial.rotor2Host);
     m_rotor2PortSpin->setRange(1, 65535);
     m_rotor2PortSpin->setValue(initial.rotor2Port);
@@ -485,6 +497,23 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* rotor2Group = new QGroupBox(QStringLiteral("Rotor 2"), this);
     rotor2Group->setLayout(rotor2Form);
 
+    // Eine Antenne ohne Rotor: steht fest in eine Richtung und zeigt
+    // dasselbe Instrument wie die beiden drehbaren (Martin,
+    // 2026-10-08). Darum auch nur zwei Angaben -- was sie ist und
+    // wohin sie schaut.
+    auto* fixedForm = new QFormLayout();
+    fixedForm->addRow(QStringLiteral("Aktiv:"), m_fixedAntennaCheck);
+    fixedForm->addRow(QStringLiteral("Bezeichnung:"), m_fixedAntennaLabelEdit);
+    fixedForm->addRow(QStringLiteral("Feste Richtung:"), m_fixedAntennaBearingSpin);
+    auto* fixedGroup = new QGroupBox(QStringLiteral("Antenne Fix (ohne Rotor)"), this);
+    fixedGroup->setLayout(fixedForm);
+    const auto fixedEnabledChanged = [this](bool an) {
+        m_fixedAntennaLabelEdit->setEnabled(an);
+        m_fixedAntennaBearingSpin->setEnabled(an);
+    };
+    connect(m_fixedAntennaCheck, &QCheckBox::toggled, this, fixedEnabledChanged);
+    fixedEnabledChanged(m_fixedAntennaCheck->isChecked());
+
     // Explicit per-band rotor assignment -- combo items are the current
     // labels of whichever slot(s) are enabled, plus "Kein Rotor" (see
     // refreshBandRotorCombos()). "144 MHz"/"432 MHz"/"1296 MHz" name the
@@ -565,6 +594,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     scrollLayout->addWidget(callbookGroup);
     scrollLayout->addWidget(rotor1Group);
     scrollLayout->addWidget(rotor2Group);
+    scrollLayout->addWidget(fixedGroup);
     scrollLayout->addWidget(bandRoutingGroup);
     scrollLayout->addWidget(rotorDisplayGroup);
     scrollLayout->addWidget(appearanceGroup);
@@ -653,6 +683,11 @@ ContestSettings SettingsDialog::settings() const
     result.rotor1Device = m_rotor1DeviceEdit->text().trimmed();
     result.rotor1Baud = m_rotor1BaudCombo->currentData().toInt();
 
+    result.fixedAntennaEnabled = m_fixedAntennaCheck->isChecked();
+    result.fixedAntennaLabel = m_fixedAntennaLabelEdit->text().trimmed().isEmpty()
+                                   ? QStringLiteral("Antenne Fix")
+                                   : m_fixedAntennaLabelEdit->text().trimmed();
+    result.fixedAntennaBearingDeg = m_fixedAntennaBearingSpin->value();
     result.rotor2Enabled = m_rotor2EnabledCheck->isChecked();
     result.rotor2Label = m_rotor2LabelEdit->text().trimmed();
     result.rotor2Host = m_rotor2HostEdit->text().trimmed();

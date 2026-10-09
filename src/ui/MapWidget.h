@@ -144,6 +144,14 @@ public:
     // Opening angle (full -3 dB beamwidth) of each rotor's antennas --
     // the cone's width. A map preference (⚙ menu), persisted with the
     // layer toggles; 30° unless set.
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled) -- eine
+    // Keule wie die der Rotoren, nur dass sie steht. Martin,
+    // 2026-10-08: "bitte auch die keule". `vorhanden` false nimmt sie
+    // wieder aus der Karte.
+    void setFixedAntennaHeading(bool vorhanden, double azimuthDeg, const QString& label);
+    void setFixedAntennaBeamwidthDeg(double degrees);
+    double fixedAntennaBeamwidthDeg() const { return m_fixedBeamwidthDeg; }
+
     void setRotor1BeamwidthDeg(double degrees);
     void setRotor2BeamwidthDeg(double degrees);
     double rotor1BeamwidthDeg() const { return m_beamwidth1Deg; }
@@ -314,6 +322,10 @@ private:
     double m_rotor1SecondOffsetDeg = 0.0;
     bool m_rotor2SecondEnabled = false;
     double m_rotor2SecondOffsetDeg = 0.0;
+    bool m_fixedAntennaPresent = false;
+    double m_fixedAntennaAzimuthDeg = 0.0;
+    QString m_fixedAntennaLabel;
+    double m_fixedBeamwidthDeg = 30.0;
     double m_beamwidth1Deg = 30.0;
     double m_beamwidth2Deg = 30.0;
     int m_scoreQsos = -1;
