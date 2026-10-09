@@ -2101,6 +2101,7 @@ void MainWindow::applyRotorWidgetSettings()
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
     applyFixedAntennaSettings();
+    pushFixedAntennaToMap();
     applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
@@ -2167,6 +2168,21 @@ void MainWindow::applyFixedAntennaSettings()
     m_fixedAntennaWidget->setDialStyle(settings.rotorDialStyle);
 }
 
+// Die Keule der festen Antenne auf der Karte -- Martin, 2026-10-08:
+// "bitte auch die keule". Sie steht, also gibt es hier nichts
+// nachzufuehren: einmal gesetzt, wenn sich die Einstellungen aendern.
+void MainWindow::pushFixedAntennaToMap()
+{
+    if (!m_mapWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    m_mapWidget->setFixedAntennaHeading(settings.fixedAntennaEnabled, settings.fixedAntennaBearingDeg,
+                                        settings.fixedAntennaLabel.trimmed().isEmpty()
+                                            ? QStringLiteral("Antenne Fix")
+                                            : settings.fixedAntennaLabel.trimmed());
+}
+
 void MainWindow::applyRotorBeamwidths()
 {
     // The map's "Öffnungswinkel Rotor N" preference (persisted with the
@@ -2180,6 +2196,9 @@ void MainWindow::applyRotorBeamwidths()
     }
     if (m_rotor2Widget) {
         m_rotor2Widget->setBeamwidthDeg(m_mapWidget->rotor2BeamwidthDeg());
+    }
+    if (m_fixedAntennaWidget) {
+        m_fixedAntennaWidget->setBeamwidthDeg(m_mapWidget->fixedAntennaBeamwidthDeg());
     }
 }
 

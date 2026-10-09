@@ -214,6 +214,7 @@ private slots:
     // Die feste Antenne (ContestSettings::fixedAntennaEnabled) anlegen,
     // auffrischen oder wieder entfernen.
     void applyFixedAntennaSettings();
+    void pushFixedAntennaToMap();
     // Rebuilds MapWidget's worked/spotted station set from the current
     // contest's logged QSOs (ContestDatabase::qsosWithGrid) plus both
     // ChatFeedModels' currently-visible, not-yet-worked rows -- called

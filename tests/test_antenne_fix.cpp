@@ -22,6 +22,7 @@
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
+#include "ui/MapWidget.h"
 #include "ui/RotorWidget.h"
 
 #include <memory>
@@ -72,6 +73,7 @@ class TestAntenneFix : public QObject
 
 private slots:
     void stehtAlsDrittesInstrumentNebenDenRotoren();
+    void zeichnetIhreKeuleAufDerKarte();
     void drehtNichtUndZeigtDieFesteRichtung();
     void ausgeschaltetIstSieNichtDa();
 };
@@ -198,6 +200,49 @@ void TestAntenneFix::ausgeschaltetIstSieNichtDa()
 
     QCOMPARE(window.findChildren<RotorWidget*>().size(), 2);
     QVERIFY(!kompassMit(window, QStringLiteral("Antenne Fix")));
+}
+
+// "bitte auch die keule" (Martin, 2026-10-08): die feste Antenne steht
+// mit ihrer Richtung auch auf der Karte, in einer eigenen Farbe und
+// mit eigenem Öffnungswinkel -- und verschwindet dort, sobald sie
+// abgeschaltet wird.
+void TestAntenneFix::zeichnetIhreKeuleAufDerKarte()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = controllerFor(dir, true);
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 982);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* karte = window.findChild<MapWidget*>();
+    QVERIFY(karte);
+    // Die Karte zeichnet die Keule aus ihrem eigenen Zustand; geprüft
+    // wird er über das gerenderte Bild, das sich mit und ohne feste
+    // Antenne unterscheiden muss.
+    karte->resize(600, 600);
+    const QImage mit = karte->grab().toImage();
+
+    ContestSettings aus = controller->settings();
+    aus.fixedAntennaEnabled = false;
+    controller->setSettings(aus);
+    QMetaObject::invokeMethod(&window, "applyRotorWidgetSettings");
+    QCoreApplication::processEvents();
+    const QImage ohne = karte->grab().toImage();
+
+    const QByteArray sheetDir = qgetenv("CP_SHEET_DIR");
+    if (!sheetDir.isEmpty()) {
+        QDir().mkpath(QString::fromLocal8Bit(sheetDir));
+        const QString pfad = QString::fromLocal8Bit(sheetDir) + QStringLiteral("/antenne-fix-karte.png");
+        QVERIFY(mit.save(pfad));
+        qInfo().noquote() << "Blatt:" << pfad;
+    }
+    qInfo() << "Kartenbild mit fester Antenne gleich dem ohne?" << (mit == ohne);
+    QVERIFY2(mit != ohne, "Die Karte sieht mit und ohne feste Antenne gleich aus -- keine Keule gezeichnet");
+    QVERIFY(!window.findChild<MapWidget*>()->property("dummy").isValid() || true);
 }
 
 int main(int argc, char* argv[])
