@@ -746,6 +746,15 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
         /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+    // Martin, 2026-10-09: "es sollte auch in jeder leiste die optionen
+    // geben die bestimmen, was im fenster darunter passiert! ... als
+    // 1,2 oder 3 antenne zB". Also hier, im Kopf des Panels, nicht im
+    // Einstellungsdialog: welche Instrumente darunter stehen.
+    if (m_rotorRowContainer && m_rotorRowContainer->headerBar()) {
+        m_rotorRowContainer->headerBar()->setOptionsAffordanceEnabled(true);
+        connect(m_rotorRowContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showRotorPanelOptionsPopup);
+    }
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -2124,6 +2133,88 @@ void MainWindow::applyRotorWidgetSettings()
 // die Richtung kommt aus den Einstellungen und steht, bis sie dort
 // geaendert wird. Sie sitzt rechts neben den Rotoren, in derselben
 // Reihe.
+// Was im Rotoren-Panel steht: ein Haken je Instrument. Drei moegliche
+// (Rotor 1, Rotor 2, Antenne Fix), angezeigt werden die angehakten --
+// einer, zwei oder drei. Dazu die Richtung der festen Antenne, denn sie
+// gehoert zu dem, was dieses Panel zeigt, und niemand sucht sie im
+// Einstellungsdialog.
+void MainWindow::showRotorPanelOptionsPopup()
+{
+    // Jedes Mal frisch gebaut, nicht als Mitglied gehalten: ein
+    // dauerhaftes QMenu, das mit seinem Panel in einen anderen
+    // Container umgehaengt wird, stuerzte beim popup() ab -- derselbe
+    // Fund wie beim Kartenpanel am 2026-09-21 (cbf5b8f).
+    QMenu menu(this);
+    const ContestSettings settings = m_appController.settings();
+
+    auto* ueberschrift = menu.addAction(QStringLiteral("Angezeigte Antennen"));
+    ueberschrift->setEnabled(false);
+
+    const auto haken = [&menu](const QString& text, bool an) {
+        QAction* a = menu.addAction(text);
+        a->setCheckable(true);
+        a->setChecked(an);
+        return a;
+    };
+
+    QAction* r1 = haken(QStringLiteral("Rotor 1 — %1").arg(settings.rotor1Label), settings.rotor1Enabled);
+    QAction* r2 = haken(QStringLiteral("Rotor 2 — %1").arg(settings.rotor2Label), settings.rotor2Enabled);
+    QAction* fix = haken(settings.fixedAntennaLabel.trimmed().isEmpty()
+                             ? QStringLiteral("Antenne Fix (ohne Rotor)")
+                             : QStringLiteral("%1 (ohne Rotor)").arg(settings.fixedAntennaLabel.trimmed()),
+                         settings.fixedAntennaEnabled);
+
+    connect(r1, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.rotor1Enabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+    connect(r2, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.rotor2Enabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+    connect(fix, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.fixedAntennaEnabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+
+    if (settings.fixedAntennaEnabled) {
+        menu.addSeparator();
+        auto* richtung = menu.addAction(QStringLiteral("Feste Richtung: %1°")
+                                            .arg(QString::number(qRound(settings.fixedAntennaBearingDeg))
+                                                     .rightJustified(3, QLatin1Char('0'))));
+        connect(richtung, &QAction::triggered, this, [this]() {
+            ContestSettings s = m_appController.settings();
+            bool ok = false;
+            const int grad = QInputDialog::getInt(this, QStringLiteral("Antenne Fix"),
+                                                  QStringLiteral("Feste Richtung in Grad:"),
+                                                  qRound(s.fixedAntennaBearingDeg), 0, 359, 1, &ok);
+            if (!ok) {
+                return;
+            }
+            s.fixedAntennaBearingDeg = grad;
+            m_appController.setSettings(s);
+            applyRotorWidgetSettings();
+        });
+    }
+
+    menu.addSeparator();
+    auto* mehr = menu.addAction(QStringLiteral("Rotoren einrichten…"));
+    connect(mehr, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    if (PanelHeaderBar* bar = m_rotorRowContainer ? m_rotorRowContainer->headerBar() : nullptr) {
+        const QSize groesse = menu.sizeHint();
+        menu.exec(bar->mapToGlobal(QPoint(bar->width() - groesse.width() - 6, bar->height())));
+    } else {
+        menu.exec(QCursor::pos());
+    }
+}
+
 void MainWindow::applyFixedAntennaSettings()
 {
     const ContestSettings settings = m_appController.settings();

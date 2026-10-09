@@ -213,6 +213,7 @@ private slots:
     void applyRotorBeamwidths();
     // Die feste Antenne (ContestSettings::fixedAntennaEnabled) anlegen,
     // auffrischen oder wieder entfernen.
+    void showRotorPanelOptionsPopup();
     void applyFixedAntennaSettings();
     void pushFixedAntennaToMap();
     // Rebuilds MapWidget's worked/spotted station set from the current

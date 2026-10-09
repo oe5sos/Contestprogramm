@@ -17,12 +17,16 @@
 #include <QDir>
 #include <QPainter>
 #include <QPixmap>
+#include <QPushButton>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
 #include "app/ContestSettings.h"
 #include "ui/MainWindow.h"
 #include "ui/MapWidget.h"
+#include "ui/PanelContainerWidget.h"
+#include "ui/PanelHeaderBar.h"
+#include "ui/PanelLayoutManager.h"
 #include "ui/RotorWidget.h"
 
 #include <memory>
@@ -72,6 +76,7 @@ class TestAntenneFix : public QObject
     Q_OBJECT
 
 private slots:
+    void dasZahnradDerLeisteSchaltetDieAntennen();
     void stehtAlsDrittesInstrumentNebenDenRotoren();
     void zeichnetIhreKeuleAufDerKarte();
     void drehtNichtUndZeigtDieFesteRichtung();
@@ -243,6 +248,58 @@ void TestAntenneFix::zeichnetIhreKeuleAufDerKarte()
     qInfo() << "Kartenbild mit fester Antenne gleich dem ohne?" << (mit == ohne);
     QVERIFY2(mit != ohne, "Die Karte sieht mit und ohne feste Antenne gleich aus -- keine Keule gezeichnet");
     QVERIFY(!window.findChild<MapWidget*>()->property("dummy").isValid() || true);
+}
+
+// Martin, 2026-10-09: "es sollte auch in jeder leiste die optionen
+// geben die bestimmen, was im fenster darunter passiert! ... als 1,2
+// oder 3 antenne zB". Das Zahnrad im Kopf des Rotoren-Panels muss also
+// da sein und die drei Instrumente ein- und ausschalten.
+void TestAntenneFix::dasZahnradDerLeisteSchaltetDieAntennen()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = controllerFor(dir, false);   // feste Antenne zunächst aus
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 982);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    PanelContainerWidget* panel = manager->panel(QStringLiteral("rotorrow"));
+    QVERIFY2(panel, "Das Rotoren-Panel fehlt");
+    PanelHeaderBar* kopf = panel->headerBar();
+    QVERIFY2(kopf, "Das Rotoren-Panel hat keinen Kopf");
+    auto* zahnrad = kopf->findChild<QPushButton*>(QStringLiteral("panelHeaderOptionsButton"));
+    QVERIFY2(zahnrad, "Im Kopf des Rotoren-Panels fehlt das Zahnrad");
+    QVERIFY2(zahnrad->isVisible(), "Das Zahnrad ist da, aber unsichtbar");
+
+    // Zwei Instrumente, solange die feste Antenne aus ist.
+    QCOMPARE(window.findChildren<RotorWidget*>().size(), 2);
+
+    // Einschalten über dieselbe Einstellung, die der Menüeintrag setzt:
+    // drei Instrumente. (Das Menü selbst ist ein QMenu::exec und damit
+    // modal -- geprüft wird, dass der Weg dahinter trägt.)
+    ContestSettings s = controller->settings();
+    s.fixedAntennaEnabled = true;
+    controller->setSettings(s);
+    QMetaObject::invokeMethod(&window, "applyRotorWidgetSettings");
+    QCoreApplication::processEvents();
+    QCOMPARE(window.findChildren<RotorWidget*>().size(), 3);
+
+    // Und wieder auf eine: Rotor 2 und die feste Antenne aus.
+    s = controller->settings();
+    s.rotor2Enabled = false;
+    s.fixedAntennaEnabled = false;
+    controller->setSettings(s);
+    QMetaObject::invokeMethod(&window, "applyRotorWidgetSettings");
+    QCoreApplication::processEvents();
+    // applyRotorSlot() raeumt einen abgeschalteten Rotor mit
+    // deleteLater() ab -- bis dahin haengt das Widget noch am Baum.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCOMPARE(window.findChildren<RotorWidget*>().size(), 1);
 }
 
 int main(int argc, char* argv[])
