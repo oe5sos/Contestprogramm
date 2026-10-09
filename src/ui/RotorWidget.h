@@ -65,6 +65,19 @@ public:
     void setAzimuthDeg(double azimuthDeg);
     double azimuthDeg() const { return m_azimuthDeg; }
 
+    // Eine feste Antenne: dasselbe Instrument, aber nichts dreht sich.
+    // Martin, 2026-10-08: "diese antenne wird aber als fixantenne
+    // gesehen, hat also keinen rotor. sollte nur das gleiche design
+    // haben. benenne sie als Antenne Fix".
+    //
+    // Praktisch heisst das: die Nadel steht auf der eingestellten
+    // Richtung, es gibt kein Ziel und kein Drehen (Doppelklick und
+    // Zielfeld tun nichts), und statt "verbunden/getrennt" -- eine
+    // Aussage ueber eine Steuerleitung, die es hier gar nicht gibt --
+    // steht in der Fusszeile die feste Richtung.
+    void setFixedAntenna(bool fixed);
+    bool isFixedAntenna() const { return m_fixedAntenna; }
+
     void setConnected(bool connected);
 
     // The currently selected/clicked candidate's bearing, per the plan's
@@ -424,6 +437,7 @@ private:
 
     double m_azimuthDeg = 0.0;
     bool m_connected = false;
+    bool m_fixedAntenna = false;
     // True once a simulated turn has ever run (see startSimulatedTurn())
     // and cleared the moment a real connection lands (setConnected(true))
     // -- marks m_azimuthDeg as a software demo value, not a real rotor

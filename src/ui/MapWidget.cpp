@@ -361,6 +361,13 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     };
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), m_beamwidth1Deg, &MapWidget::setRotor1BeamwidthDeg);
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), m_beamwidth2Deg, &MapWidget::setRotor2BeamwidthDeg);
+    // Nur anbieten, wenn es die feste Antenne überhaupt gibt -- sonst
+    // stünde im Menü ein Winkel für etwas, das niemand eingeschaltet
+    // hat.
+    if (m_fixedAntennaPresent) {
+        beamwidthMenu(QStringLiteral("Öffnungswinkel Antenne Fix"), m_fixedBeamwidthDeg,
+                      &MapWidget::setFixedAntennaBeamwidthDeg);
+    }
     // Sprungweiten statt Klicken: von 300 km auf die Weltkarte wären es
     // mit den beiden Zoomtasten zwanzig Klicks.
     QMenu* rangeMenu = menu->addMenu(QStringLiteral("Reichweite"));
@@ -542,6 +549,28 @@ void MapWidget::setRotor2SecondAntenna(bool enabled, double offsetDeg)
     update();
 }
 
+void MapWidget::setFixedAntennaHeading(bool vorhanden, double azimuthDeg, const QString& label)
+{
+    if (m_fixedAntennaPresent == vorhanden && qFuzzyCompare(m_fixedAntennaAzimuthDeg + 1.0, azimuthDeg + 1.0)
+        && m_fixedAntennaLabel == label) {
+        return;
+    }
+    m_fixedAntennaPresent = vorhanden;
+    m_fixedAntennaAzimuthDeg = azimuthDeg;
+    m_fixedAntennaLabel = label;
+    update();
+}
+
+void MapWidget::setFixedAntennaBeamwidthDeg(double degrees)
+{
+    const double neu = qBound(5.0, degrees, 120.0);
+    if (qFuzzyCompare(m_fixedBeamwidthDeg + 1.0, neu + 1.0)) {
+        return;
+    }
+    m_fixedBeamwidthDeg = neu;
+    update();
+}
+
 void MapWidget::setRotor1BeamwidthDeg(double degrees)
 {
     const double clamped = std::clamp(degrees, kMinBeamwidthDeg, kMaxBeamwidthDeg);
@@ -601,12 +630,13 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
         .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
-             flag(m_layers.greyline));
+             flag(m_layers.greyline))
+        .arg(m_fixedBeamwidthDeg, 0, 'f', 0);
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -664,11 +694,14 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_showRotor2Heading);
         } else if (key == QStringLiteral("horizon")) {
             apply(m_showHorizon);
-        } else if (key == QStringLiteral("bw1") || key == QStringLiteral("bw2")) {
+        } else if (key == QStringLiteral("bw1") || key == QStringLiteral("bw2")
+                   || key == QStringLiteral("bwfix")) {
             bool ok = false;
             const double deg = value.toDouble(&ok);
             if (ok) {
-                double& member = key == QStringLiteral("bw1") ? m_beamwidth1Deg : m_beamwidth2Deg;
+                double& member = key == QStringLiteral("bw1")   ? m_beamwidth1Deg
+                                 : key == QStringLiteral("bw2") ? m_beamwidth2Deg
+                                                                : m_fixedBeamwidthDeg;
                 const double clamped = std::clamp(deg, kMinBeamwidthDeg, kMaxBeamwidthDeg);
                 if (!qFuzzyCompare(member, clamped)) {
                     member = clamped;
@@ -1217,6 +1250,20 @@ QVector<MapWidget::Beam> MapWidget::beams() const
             second.labelPx = Style::kFontCaption;
             out.append(second);
         }
+    }
+    // Die feste Antenne: durchgezogen wie eine gemessene Richtung --
+    // sie IST gemessen, nur eben ein fuer alle Mal -- in einem Gruen,
+    // das weder mit Rotor 1 (Bernstein) noch mit Rotor 2 (Grau)
+    // verwechselt werden kann.
+    if (m_fixedAntennaPresent) {
+        Beam fest;
+        fest.azimuthDeg = wrap360(m_fixedAntennaAzimuthDeg);
+        fest.halfWidthDeg = m_fixedBeamwidthDeg / 2.0;
+        fest.color = QColor(Style::kGreenText());
+        fest.label = (m_fixedAntennaLabel.isEmpty() ? QString() : m_fixedAntennaLabel + QLatin1Char(' '))
+                     + degrees(m_fixedAntennaAzimuthDeg);
+        fest.labelPx = Style::kFontCaption;
+        out.append(fest);
     }
     if (m_showRotor2Heading && m_rotor2Connected) {
         Beam main;

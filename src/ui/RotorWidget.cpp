@@ -298,6 +298,23 @@ void RotorWidget::setBandLabel(const QString& label)
     update();
 }
 
+void RotorWidget::setFixedAntenna(bool fixed)
+{
+    if (m_fixedAntenna == fixed) {
+        return;
+    }
+    m_fixedAntenna = fixed;
+    if (fixed) {
+        // Eine feste Antenne hat kein Ziel -- und ihre Richtung ist
+        // bekannt, nicht "unbekannt mangels Verbindung": die Zelle
+        // AKTUELL zeigt sie, wie sie es bei einem verbundenen Rotor
+        // auch taete.
+        clearTargetBearing();
+        m_connected = true;
+    }
+    update();
+}
+
 void RotorWidget::setConnected(bool connected)
 {
     if (m_connected == connected) {
@@ -447,6 +464,11 @@ void RotorWidget::resizeEvent(QResizeEvent* event)
 
 void RotorWidget::mousePressEvent(QMouseEvent* event)
 {
+    if (m_fixedAntenna) {
+        // Kein Ziel, kein Drehen: siehe setFixedAntenna().
+        QWidget::mousePressEvent(event);
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
         return;
@@ -468,7 +490,9 @@ void RotorWidget::mouseDoubleClickEvent(QMouseEvent* event)
     // comment). This override exists only so Qt doesn't fall back to its
     // default double-click handling (which would otherwise also
     // re-dispatch as a second ordinary press) inside the dial ring.
-    if (event->button() != Qt::LeftButton) {
+    if (event->button() != Qt::LeftButton || m_fixedAntenna) {
+        // Eine feste Antenne dreht nicht -- ein Klick ins Zifferblatt
+        // darf ihr auch keine Richtung vortaeuschen.
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
@@ -620,7 +644,7 @@ void RotorWidget::drawPanelHeader(QPainter& painter) const
     // driving m_azimuthDeg toward the target (see its own comment) --
     // same "unbekannt zeigt nichts falsches an" rule this codebase
     // applies everywhere else (HAUSSTIL rule 7).
-    if (m_hasTarget && (m_connected || m_simulated)) {
+    if (!m_fixedAntenna && m_hasTarget && (m_connected || m_simulated)) {
         const double rawDiff = std::fmod(std::abs(m_azimuthDeg - m_targetBearingDeg), 360.0);
         const double angleDiff = std::min(rawDiff, 360.0 - rawDiff);
         const bool onTarget = angleDiff <= kArrivalToleranceDeg;
@@ -1483,8 +1507,20 @@ void RotorWidget::drawConnectionStatusRow(QPainter& painter, const QRect& row) c
     const QColor inactiveColor{Style::kTextInactive()};
     const QFont capLabelFont = Style::capsFont(painter.font());
 
-    const QColor dotColor = m_connected ? greenColor : inactiveColor;
-    const QString statusText = m_connected ? QStringLiteral(" verbunden") : QStringLiteral(" getrennt");
+    const QColor dotColor = m_fixedAntenna ? QColor(Style::kTextScale())
+                                           : (m_connected ? greenColor : inactiveColor);
+    // Bei der festen Antenne steht hier ihr Name und ihre Richtung.
+    // In die Kopfzeile gehoert er nicht: Martin, 2026-09-14, zu genau
+    // dieser Stelle -- "die markierung 2m und 23 und 70 cm weglassen,
+    // kostet platz". Die Fusszeile hat den Platz, und bei einem
+    // Instrument ohne Rotor steht dort ohnehin nichts ueber eine
+    // Verbindung, die es nicht gibt.
+    const QString statusText =
+        m_fixedAntenna
+            ? QStringLiteral(" %1 · fest auf %2°")
+                  .arg(m_bandLabel.isEmpty() ? QStringLiteral("Antenne Fix") : m_bandLabel,
+                       QString::number(qRound(m_azimuthDeg)).rightJustified(3, QLatin1Char('0')))
+            : (m_connected ? QStringLiteral(" verbunden") : QStringLiteral(" getrennt"));
     constexpr int kDotSize = 6;
     const QFontMetrics fm(capLabelFont);
     const int textWidth = fm.horizontalAdvance(statusText);

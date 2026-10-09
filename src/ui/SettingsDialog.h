@@ -194,6 +194,11 @@ private:
     // Rotor slot 2 -- see ContestSettings::rotor2Enabled etc.
     QCheckBox* m_rotor2EnabledCheck;
     QLineEdit* m_rotor2LabelEdit;
+    // Die feste Antenne: kein Host, kein Port, kein Modell -- nur
+    // Bezeichnung und Richtung.
+    QCheckBox* m_fixedAntennaCheck;
+    QLineEdit* m_fixedAntennaLabelEdit;
+    QDoubleSpinBox* m_fixedAntennaBearingSpin;
     QLineEdit* m_rotor2HostEdit;
     QSpinBox* m_rotor2PortSpin;
     QCheckBox* m_rotor2SecondAntennaCheck;

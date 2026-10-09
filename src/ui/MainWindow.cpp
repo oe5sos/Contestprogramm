@@ -2100,6 +2100,8 @@ void MainWindow::applyRotorWidgetSettings()
             settings.band1296RotorSlot == ContestSettings::RotorSlot::Slot2 ? QStringLiteral("+23cm") : QString());
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
+    applyFixedAntennaSettings();
+    pushFixedAntennaToMap();
     applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
@@ -2112,6 +2114,73 @@ void MainWindow::applyRotorWidgetSettings()
     }
 
     refreshTerrainSectors();
+}
+
+// Die feste Antenne -- dasselbe Instrument wie die beiden drehbaren,
+// nur ohne Rotor dahinter (Martin, 2026-10-08: "diese antenne wird
+// aber als fixantenne gesehen, hat also keinen rotor. sollte nur das
+// gleiche design haben. benenne sie als Antenne Fix"). Kein
+// RotctldClient, also auch nichts zu verbinden oder zu ueberwachen:
+// die Richtung kommt aus den Einstellungen und steht, bis sie dort
+// geaendert wird. Sie sitzt rechts neben den Rotoren, in derselben
+// Reihe.
+void MainWindow::applyFixedAntennaSettings()
+{
+    const ContestSettings settings = m_appController.settings();
+    if (!settings.fixedAntennaEnabled) {
+        if (m_fixedAntennaWidget) {
+            m_rotorLayout->removeWidget(m_fixedAntennaWidget);
+            delete m_fixedAntennaWidget;
+            m_fixedAntennaWidget = nullptr;
+        }
+        return;
+    }
+    const QString label = settings.fixedAntennaLabel.trimmed().isEmpty()
+                              ? QStringLiteral("Antenne Fix")
+                              : settings.fixedAntennaLabel.trimmed();
+    if (!m_fixedAntennaWidget) {
+        m_fixedAntennaWidget = new RotorWidget(label, m_rotorRow);
+        m_fixedAntennaWidget->setFixedAntenna(true);
+        // Hinter den vorhandenen Kompassen, vor dem Stretch am Ende.
+        int index = 0;
+        if (m_rotor1Widget) {
+            ++index;
+        }
+        if (m_rotor2Widget) {
+            ++index;
+        }
+        m_rotorLayout->insertWidget(index, m_fixedAntennaWidget);
+        // Der Anzeigestil gilt fuer alle Instrumente gemeinsam, also
+        // auch hier -- dieselbe Runde wie bei den drehbaren.
+        connect(m_fixedAntennaWidget, &RotorWidget::dialStyleRequested, m_fixedAntennaWidget,
+                [this](RotorDialStyle style) {
+                    ContestSettings s = m_appController.settings();
+                    if (s.rotorDialStyle == style) {
+                        return;
+                    }
+                    s.rotorDialStyle = style;
+                    m_appController.setSettings(s);
+                    applyRotorWidgetSettings();
+                });
+    }
+    m_fixedAntennaWidget->setBandLabel(label);
+    m_fixedAntennaWidget->setAzimuthDeg(settings.fixedAntennaBearingDeg);
+    m_fixedAntennaWidget->setDialStyle(settings.rotorDialStyle);
+}
+
+// Die Keule der festen Antenne auf der Karte -- Martin, 2026-10-08:
+// "bitte auch die keule". Sie steht, also gibt es hier nichts
+// nachzufuehren: einmal gesetzt, wenn sich die Einstellungen aendern.
+void MainWindow::pushFixedAntennaToMap()
+{
+    if (!m_mapWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    m_mapWidget->setFixedAntennaHeading(settings.fixedAntennaEnabled, settings.fixedAntennaBearingDeg,
+                                        settings.fixedAntennaLabel.trimmed().isEmpty()
+                                            ? QStringLiteral("Antenne Fix")
+                                            : settings.fixedAntennaLabel.trimmed());
 }
 
 void MainWindow::applyRotorBeamwidths()
@@ -2127,6 +2196,9 @@ void MainWindow::applyRotorBeamwidths()
     }
     if (m_rotor2Widget) {
         m_rotor2Widget->setBeamwidthDeg(m_mapWidget->rotor2BeamwidthDeg());
+    }
+    if (m_fixedAntennaWidget) {
+        m_fixedAntennaWidget->setBeamwidthDeg(m_mapWidget->fixedAntennaBeamwidthDeg());
     }
 }
 
