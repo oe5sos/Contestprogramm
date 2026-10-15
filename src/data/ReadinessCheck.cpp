@@ -15,9 +15,16 @@ const char* const kGroupData = "Daten";
 
 QString stamp(const QDateTime& utc)
 {
-    static const char* const kDays[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
-    return QStringLiteral("%1 %2 UTC")
-        .arg(QLatin1String(kDays[utc.date().dayOfWeek() - 1]), utc.toString(QStringLiteral("dd.MM. HH:mm")));
+    // Index 0 carries the empty name on purpose: QDate::dayOfWeek()
+    // answers 0 for an INVALID date, and the old "dayOfWeek() - 1"
+    // read kDays[-1] off the front of the array for it. Every caller
+    // here checks isValid() first, so this never fired -- but a day
+    // name is not worth a read out of bounds standing in the code.
+    // Same shape as UtcClockWidget's own table.
+    static const char* const kDays[] = {"", "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+    const int day = utc.date().dayOfWeek();
+    const char* const name = (day >= 1 && day <= 7) ? kDays[day] : "";
+    return QStringLiteral("%1 %2 UTC").arg(QLatin1String(name), utc.toString(QStringLiteral("dd.MM. HH:mm")));
 }
 
 QString linkText(LinkState state)

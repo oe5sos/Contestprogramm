@@ -55,8 +55,8 @@ QString callSpan(const CheckPartialMatch& match)
 
 CheckPartialWidget::CheckPartialWidget(QWidget* parent)
     : QWidget(parent)
-    , m_matchesLabel(new QLabel(this))
     , m_multiplierLabel(new QLabel(this))
+    , m_matchesLabel(new QLabel(this))
     , m_statusLabel(new QLabel(this))
 {
     Style::applyPanelFrameStyle(this);

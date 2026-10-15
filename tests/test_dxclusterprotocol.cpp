@@ -23,6 +23,7 @@ private slots:
     void telnetIacIsStrippedFromBuffer();
 
     void liveConnectSendsCallsignAndReceivesBothSpotFormats();
+    void aPeerThatNeverSendsANewlineCannotGrowTheBufferForever();
 };
 
 void TestDxClusterProtocol::initTestCase()
@@ -110,6 +111,52 @@ void TestDxClusterProtocol::liveConnectSendsCallsignAndReceivesBothSpotFormats()
     QCOMPARE(second.source, QStringLiteral("cluster"));
 
     QVERIFY(client.isConnected());
+}
+
+// 24 hours is a long time to keep appending to a buffer nothing ever
+// drains. A peer that sends data with no newline in it (a wedged link,
+// a port that is not a cluster at all, binary noise) used to grow
+// m_readBuffer without any limit; past the cap the partial line is
+// dropped, the operator is told, and the connection carries on.
+void TestDxClusterProtocol::aPeerThatNeverSendsANewlineCannotGrowTheBufferForever()
+{
+    MockDxClusterServer server;
+    QVERIFY(server.startListening());
+
+    DxClusterClient client;
+    QSignalSpy connectedSpy(&client, &DxClusterClient::connected);
+    QSignalSpy errorSpy(&client, &DxClusterClient::connectionError);
+    QSignalSpy spotSpy(&client, &DxClusterClient::spotReceived);
+
+    client.connectToCluster(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5TST"));
+    QVERIFY(QTest::qWaitFor([&]() { return !connectedSpy.isEmpty(); }, 2000));
+
+    // 1.5 MB in 64 KB helpings, not one newline among them.
+    const QByteArray chunk(64 * 1024, 'x');
+    for (int i = 0; i < 24; ++i) {
+        QVERIFY(QTest::qWaitFor([&]() { return server.sendRaw(chunk); }, 2000));
+        QCoreApplication::processEvents();
+    }
+
+    QVERIFY(QTest::qWaitFor([&]() { return !errorSpy.isEmpty(); }, 5000));
+    const QString message = errorSpy.at(0).at(0).toString();
+    QVERIFY2(message.contains(QStringLiteral("verworfen")), qPrintable(message));
+
+    // Still connected, and once the junk line is finally terminated the
+    // next proper spot is parsed as usual. (The junk itself, and
+    // anything stuck to it before the first newline, is gone -- that
+    // part was never a readable line to begin with.)
+    //
+    // Counted from where the spy stands NOW, not from zero: the mock
+    // server sends its own two spots on connect, and whether those
+    // arrive before the junk or get swallowed by it is a matter of
+    // timing -- not something this test is about.
+    QVERIFY(client.isConnected());
+    const int spotsBefore = spotSpy.size();
+    QVERIFY(server.sendRaw(QByteArrayLiteral("\r\n")));
+    QVERIFY(server.sendRaw(QByteArrayLiteral("DX de OE5XXX:    144300.0  OE3ABC        JN88TC         1210Z\r\n")));
+    QVERIFY(QTest::qWaitFor([&]() { return spotSpy.size() > spotsBefore; }, 3000));
+    QCOMPARE(spotSpy.at(spotsBefore).at(0).value<SpotCandidate>().callsign, QStringLiteral("OE3ABC"));
 }
 
 // Not QTEST_APPLESS_MAIN: the live-connect test needs QTest::qWaitFor's

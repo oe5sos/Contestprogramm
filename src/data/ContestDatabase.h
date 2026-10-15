@@ -41,6 +41,15 @@ public:
     // that open several independent databases in one process need
     // distinct names. Returns false and sets lastError() on failure.
     bool open(const QString& path, const QString& connectionName = QStringLiteral("qt_sql_default_connection"));
+    // Opens an EXISTING database file for reading only: no schema
+    // creation, no migrations, no journal/synchronous pragmas -- SQLite
+    // is told QSQLITE_OPEN_READONLY, so the file cannot be written and
+    // is not created when it is missing (open() would silently make an
+    // empty one). For looking INTO a backup copy without touching it;
+    // see data/BackupRestore.h::summarizeBackup, which is the whole
+    // reason this exists. Every read accessor below works as usual;
+    // every write one fails with a "readonly database" lastError().
+    bool openReadOnly(const QString& path, const QString& connectionName);
     void close();
     bool isOpen() const;
     // The file behind the open connection (empty when closed).

@@ -2,6 +2,7 @@
 #include "core/Maidenhead.h"
 
 #include <QSet>
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QVariant>
@@ -37,6 +38,10 @@ bool ContestDatabase::open(const QString& path, const QString& connectionName)
         m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     }
     m_db.setDatabaseName(path);
+    // Explicitly cleared: a connection name reused after an
+    // openReadOnly() would otherwise still carry QSQLITE_OPEN_READONLY
+    // and every write would fail on a perfectly writable database.
+    m_db.setConnectOptions();
 
     if (!m_db.open()) {
         m_lastError = m_db.lastError().text();
@@ -48,6 +53,39 @@ bool ContestDatabase::open(const QString& path, const QString& connectionName)
         close();
         return false;
     }
+    return true;
+}
+
+bool ContestDatabase::openReadOnly(const QString& path, const QString& connectionName)
+{
+    close();
+
+    // SQLite happily CREATES a database at a path that has none, so a
+    // missing or mistyped file would otherwise open as an empty log
+    // rather than failing -- checked here, before the driver sees it.
+    if (!QFileInfo::exists(path)) {
+        m_lastError = QStringLiteral("file does not exist: %1").arg(path);
+        return false;
+    }
+
+    m_connectionName = connectionName;
+    if (QSqlDatabase::contains(m_connectionName)) {
+        m_db = QSqlDatabase::database(m_connectionName);
+    } else {
+        m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
+    }
+    m_db.setDatabaseName(path);
+    m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+
+    if (!m_db.open()) {
+        m_lastError = m_db.lastError().text();
+        return false;
+    }
+
+    // Deliberately no ensureSchema(): that is what would write to the
+    // file (see the header). A database this program wrote already has
+    // the schema; one it did not is not ours to migrate.
+    m_open = true;
     return true;
 }
 

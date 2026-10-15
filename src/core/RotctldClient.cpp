@@ -194,6 +194,17 @@ void RotctldClient::pump()
     if (m_queue.isEmpty()) { return; }
     if (m_socket.state() != QAbstractSocket::ConnectedState) { return; }
 
+    // Nothing is outstanding, so whatever is still in the buffer cannot
+    // belong to the command about to go out -- it is the tail of a
+    // reply that was longer than this client reads (a rigctld/rotctld
+    // that appends a line, a stray banner). Dropped here rather than
+    // left to be read as the NEXT command's answer: that shifted every
+    // reply from then on by one (the frequency query read the PTT's
+    // "0", and 0 Hz names no band, so the log's band quietly stopped
+    // following the radio -- see tests/test_rigctldprotocol.cpp::
+    // leftoverReplyLineNeverShiftsTheNextAnswer).
+    m_buffer.clear();
+
     const Command c = m_queue.dequeue();
     m_awaiting = c.expect;
     m_socket.write(c.bytes);

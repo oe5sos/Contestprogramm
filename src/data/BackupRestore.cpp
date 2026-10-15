@@ -5,7 +5,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QUuid>
+
+#include <memory>
 
 namespace Contestprogramm {
 
@@ -38,14 +41,32 @@ QString summarizeBackup(const QString& backupPath)
 {
     ContestDatabase db;
     const QString connection = QStringLiteral("backup-summary-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
-    if (!db.open(backupPath, connection)) {
-        return QStringLiteral("nicht lesbar");
+    // Read-only, so merely LOOKING at a backup in the restore dialog
+    // cannot rewrite it (ensureSchema()'s pragmas and migrations would,
+    // and would leave a -wal/-shm pair beside it) -- see
+    // ContestDatabase::openReadOnly and tests/test_backup_restore.cpp::
+    // summaryLeavesTheBackupFileExactlyAsItWas.
+    //
+    // Fallback: a copy whose own file SQLite refuses to open read-only
+    // (an older one still carrying a -wal that would need replaying) is
+    // read from a throwaway duplicate instead. Still never the original.
+    std::unique_ptr<QTemporaryDir> scratch;
+    if (!db.openReadOnly(backupPath, connection)) {
+        if (!QFileInfo::exists(backupPath)) {
+            return QStringLiteral("nicht lesbar");
+        }
+        scratch = std::make_unique<QTemporaryDir>();
+        if (!scratch->isValid()) {
+            return QStringLiteral("nicht lesbar");
+        }
+        const QString duplicate = scratch->filePath(QStringLiteral("sicherung.sqlite"));
+        if (!QFile::copy(backupPath, duplicate) || !db.open(duplicate, connection)) {
+            return QStringLiteral("nicht lesbar");
+        }
     }
     QStringList parts;
-    int total = 0;
     for (const QString& contestId : db.contestIdsInLog()) {
         const int count = db.qsoCountForContest(contestId);
-        total += count;
         parts << QStringLiteral("%1 QSOs · %2").arg(count).arg(contestId);
     }
     db.close();

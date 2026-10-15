@@ -1,5 +1,7 @@
 #include "data/ContestDefinition.h"
 
+#include "data/FileWrite.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -71,7 +73,21 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         return def;
     }
     for (const QJsonValue& v : root.value(QStringLiteral("dupe_scope")).toArray()) {
-        def.m_dupeScope.append(v.toString());
+        const QString scope = v.toString().trimmed();
+        if (!scope.isEmpty()) {
+            def.m_dupeScope.append(scope);
+        }
+    }
+    // An EMPTY dupe scope is not "no dupe rule", it is a rule that
+    // matches every QSO of the contest -- DupeChecker's WHERE clause
+    // would be contest_id alone, so the second contact of the weekend
+    // and every one after it would be flagged a dupe and scored 0.
+    // Rejected here, where a bad rules file is still a startup error
+    // rather than a silently empty log (see DupeChecker::firstMatchId,
+    // which also refuses to run on an empty scope).
+    if (def.m_dupeScope.isEmpty()) {
+        if (errorOut) { *errorOut = QStringLiteral("\"dupe_scope\" must not be empty"); }
+        return ContestDefinition();
     }
 
     if (!root.value(QStringLiteral("exchange_fields")).isArray()) {
@@ -388,15 +404,16 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
         return false;
     }
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    // Checked: a half-written rules file is a contest definition that
+    // will not parse on the next start, and the editor would have said
+    // it saved fine.
+    QString writeError;
+    if (!writeFileChecked(path, QJsonDocument(root).toJson(QJsonDocument::Indented), &writeError)) {
         if (errorOut) {
-            *errorOut = QStringLiteral("cannot open %1: %2").arg(path, file.errorString());
+            *errorOut = QStringLiteral("cannot write %1: %2").arg(path, writeError);
         }
         return false;
     }
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    file.close();
     return true;
 }
 

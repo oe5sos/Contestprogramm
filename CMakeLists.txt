@@ -160,6 +160,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/ContestStatistics.cpp
     src/data/LogFileReader.h
     src/data/LogFileReader.cpp
+    src/data/FileWrite.h
+    src/data/FileWrite.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h

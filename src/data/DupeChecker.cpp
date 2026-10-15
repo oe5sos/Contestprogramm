@@ -30,6 +30,17 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
 {
     m_lastError.clear();
 
+    // An empty scope would leave the WHERE clause as contest_id alone,
+    // i.e. "has anything at all been logged in this contest" -- every
+    // QSO after the first would come back a dupe. A definition can no
+    // longer carry one (ContestDefinition::fromJson rejects it), and a
+    // caller that passes one anyway gets "not a dupe", which is the
+    // safe answer: a real double QSO costs points, a QSO wrongly
+    // scored 0 costs the whole contact.
+    if (dupeScope.isEmpty()) {
+        return std::nullopt;
+    }
+
     // Trim + case-fold the same way AdifLog::isSameQso does, so a
     // callsign typed in lower case or with stray whitespace still
     // matches an existing log entry.

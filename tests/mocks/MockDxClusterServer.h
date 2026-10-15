@@ -33,6 +33,11 @@ public:
     // callsign, per DxClusterClient::handleLine's login-prompt branch).
     QByteArray callsignReceived() const { return m_callsignReceived; }
 
+    // Writes bytes to the connected client as they are -- for the
+    // buffer-cap test, which needs a lot of data with no newline in it.
+    // Returns false when nobody is connected yet.
+    bool sendRaw(const QByteArray& bytes);
+
 signals:
     void spotsSent();
 

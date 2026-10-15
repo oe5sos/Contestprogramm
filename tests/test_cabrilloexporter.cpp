@@ -45,6 +45,7 @@ private slots:
     void invalidQsoIsExcluded();
     void hfLogCarriesKilohertzAndTheContestsOwnName();
     void categoriesComeFromTheDialogAndAreRemembered();
+    void qsoLinesComeOutInTheOrderTheContactsHappened();
 };
 
 void TestCabrilloExporter::exportsGoldenBlock()
@@ -299,6 +300,50 @@ void TestCabrilloExporter::categoriesComeFromTheDialogAndAreRemembered()
 // QCoreApplication seit 2026-09-22: der Kategorien-Dialog unten ist ein
 // Fenster (QApplication ist selbst eine QCoreApplication, für die
 // Datenbank ändert sich damit nichts).
+// A hand-corrected timestamp (MainWindow::handleHistoryTimeEditRequested)
+// moves a QSO in time but not in the table, which is ordered by id. The
+// EDI export sorts for exactly that reason; Cabrillo did not, and shipped
+// the contacts in the order they were typed instead of the order they
+// happened.
+void TestCabrilloExporter::qsoLinesComeOutInTheOrderTheContactsHappened()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("reihenfolge.sqlite")), QStringLiteral("cabrillo_order")));
+
+    const auto add = [&db](const QString& call, const QString& stamp) {
+        QsoRecord r;
+        r.callsign = call;
+        r.band = QStringLiteral("144");
+        r.mode = QStringLiteral("SSB");
+        r.timestampUtc = stamp;
+        r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
+        r.exchangeSent = QStringLiteral("59 001");
+        r.exchangeRcvd = QStringLiteral("59 001");
+        QVERIFY(db.insertQso(r));
+    };
+    // Logged in this order; the middle one was later corrected to an
+    // earlier time.
+    add(QStringLiteral("OE1AAA"), QStringLiteral("2026-10-03T08:00:00Z"));
+    add(QStringLiteral("OE2BBB"), QStringLiteral("2026-10-03T07:30:00Z"));
+    add(QStringLiteral("OE3CCC"), QStringLiteral("2026-10-03T09:00:00Z"));
+
+    ContestDefinition definition;
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    const QString text = CabrilloExporter(db).exportContest(QStringLiteral("IARU_R1_VHF_UHF"), definition, settings);
+
+    const int first = text.indexOf(QStringLiteral("OE2BBB"));
+    const int second = text.indexOf(QStringLiteral("OE1AAA"));
+    const int third = text.indexOf(QStringLiteral("OE3CCC"));
+    QVERIFY2(first > 0, qPrintable(text));
+    QVERIFY2(second > first, qPrintable(text));
+    QVERIFY2(third > second, qPrintable(text));
+    db.close();
+}
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
