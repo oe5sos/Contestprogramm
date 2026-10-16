@@ -60,6 +60,7 @@ private slots:
     void ediRoundTripThroughTheExporter();
     void parsesAdifFromAnotherLogger();
     void seitenbandSchreibweisenWerdenZurBetriebsart();
+    void ediOhneBetriebsartLiestSichTrotzdem();
     void controllerWritesALastBackupOnTheWayOut();
 };
 
@@ -184,6 +185,28 @@ void TestLogFileReader::seitenbandSchreibweisenWerdenZurBetriebsart()
     // Was eine eigene Betriebsart IST, bleibt eine: FT8 ist nicht SSB,
     // und ein Umschreiben "auf gut Glück" wäre hier falsch.
     QCOMPARE(qsos.at(5).mode, QStringLiteral("FT8"));
+}
+
+// Und die EDI-Seite derselben Sache: die Spezifikation erlaubt eine
+// leere Modusspalte ausdruecklich ("If the mode is not important it can
+// be left blank"), der Code 0 heisst "non of below". So ein QSO kommt
+// ohne Betriebsart herein -- und muss sich trotzdem speichern lassen,
+// siehe tests/test_contestdatabase.cpp
+// (einQsoOhneBetriebsartGehtNichtVerloren).
+void TestLogFileReader::ediOhneBetriebsartLiestSichTrotzdem()
+{
+    const QByteArray edi(
+        "[REG1TEST;1]\r\n"
+        "PBand=144 MHz\r\n"
+        "[QSORecords;2]\r\n"
+        "261003;1401;DL1ABC;0;59;001;59;003;;JN58SD;188;;N;;\r\n"
+        "261003;1405;OK2XYZ;;59;002;59;004;;JN99AA;300;;N;;\r\n");
+    const QVector<ImportedQso> qsos = LogFileReader::parseEdi(edi);
+    QCOMPARE(qsos.size(), 2);
+    QCOMPARE(qsos.at(0).callsign, QStringLiteral("DL1ABC"));
+    QVERIFY(qsos.at(0).mode.isEmpty());
+    QVERIFY(qsos.at(1).mode.isEmpty());
+    QCOMPARE(qsos.at(1).band, QStringLiteral("144"));
 }
 
 void TestLogFileReader::controllerWritesALastBackupOnTheWayOut()

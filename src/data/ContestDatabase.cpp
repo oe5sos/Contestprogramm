@@ -321,10 +321,25 @@ bool ContestDatabase::insertQso(QsoRecord& record)
         " :serial_sent, :serial_rcvd, :rst_sent, :rst_rcvd, :exchange_sent, :exchange_rcvd, :contest_id, :is_dupe, "
         " :is_invalid, :source, :notes)"));
 
-    query.bindValue(QStringLiteral(":callsign"), record.callsign);
-    query.bindValue(QStringLiteral(":band"), record.band);
-    query.bindValue(QStringLiteral(":mode"), record.mode);
-    query.bindValue(QStringLiteral(":timestamp_utc"), record.timestampUtc);
+    // Die vier Spalten callsign/band/mode/timestamp_utc sind NOT NULL,
+    // und eine leere QString ist in Qt eine NULL -- gebunden hätte sie
+    // die ganze Zeile zum Absturz der Einfügung gebracht. Bei der
+    // Betriebsart ist "unbekannt" aber ein rechtmäßiger Zustand:
+    // REG1TEST sagt zur Modusspalte ausdrücklich "If the mode is not
+    // important it can be left blank", der Code 0 heißt dort "non of
+    // below", und data/LogFileReader.cpp macht daraus eine leere
+    // Betriebsart. So ein QSO wurde beim Journal-Import abgewiesen und
+    // verschwand ohne ein Wort (es zählte dort weder als ergänzt noch
+    // als übersprungen) -- auf genau dem Weg, der nach einem Absturz
+    // das Log zurückholen soll. Lieber ein QSO mit leerer Betriebsart
+    // im Log, das der Bediener sehen und berichtigen kann.
+    const auto nichtNull = [](const QString& text) {
+        return text.isNull() ? QString::fromLatin1("") : text;
+    };
+    query.bindValue(QStringLiteral(":callsign"), nichtNull(record.callsign));
+    query.bindValue(QStringLiteral(":band"), nichtNull(record.band));
+    query.bindValue(QStringLiteral(":mode"), nichtNull(record.mode));
+    query.bindValue(QStringLiteral(":timestamp_utc"), nichtNull(record.timestampUtc));
     query.bindValue(QStringLiteral(":freq_hz"),
                      record.freqHz ? QVariant(static_cast<qlonglong>(*record.freqHz)) : QVariant(QMetaType(QMetaType::LongLong)));
     query.bindValue(QStringLiteral(":grid_square"), record.gridSquare);

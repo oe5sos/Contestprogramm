@@ -5042,6 +5042,8 @@ void MainWindow::restoreFromJournal()
 
     int ergaenzt = 0;
     int uebersprungen = 0;
+    int gescheitert = 0;
+    QString letzterFehler;
     for (const ImportedQso& q : gelesen) {
         if (q.callsign.isEmpty() || q.timestampUtc.isEmpty()) {
             ++uebersprungen;
@@ -5084,15 +5086,28 @@ void MainWindow::restoreFromJournal()
         if (db.insertQso(r)) {
             bekannt.insert(schluessel);
             ++ergaenzt;
+        } else {
+            // Nicht verschlucken: ein QSO, das die Datenbank abweist,
+            // zählte vorher weder als ergänzt noch als übersprungen --
+            // es fehlte am Ende einfach, und niemand sagte es.
+            ++gescheitert;
+            if (letzterFehler.isEmpty()) {
+                letzterFehler = db.lastError();
+            }
         }
     }
     // Derselbe Weg, den auch Löschen und Korrigieren nehmen: Tabelle,
     // Punkte, Vorschau und die eigene nächste Nummer ziehen nach.
     refreshAfterLogChange();
-    QMessageBox::information(
-        this, QStringLiteral("Contestprogramm"),
-        QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
-            .arg(ergaenzt).arg(uebersprungen));
+    QString bericht = QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
+                           .arg(ergaenzt)
+                           .arg(uebersprungen);
+    if (gescheitert > 0) {
+        bericht += QStringLiteral("\n\nNicht gespeichert: %1 QSO(s) -- die Datenbank hat sie abgewiesen:\n%2")
+                       .arg(gescheitert)
+                       .arg(letzterFehler);
+    }
+    QMessageBox::information(this, QStringLiteral("Contestprogramm"), bericht);
 }
 
 void MainWindow::restoreBackup()
