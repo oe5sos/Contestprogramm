@@ -160,6 +160,31 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
              qPrintable(QStringLiteral("Der Return dauerte %1 ms bei %2 QSOs")
                             .arg(returnMs, 0, 'f', 1)
                             .arg(vorher)));
+
+    // Und der andere Weg, den seine Finger ständig gehen: ein Zeichen
+    // ins Rufzeichenfeld. Daran hängen Dupe-Prüfung, Check Partial,
+    // die Info-Zeile und der Vorschlag aus früheren Logs -- in
+    // derselben Lage gemessen, nicht am leeren Log.
+    felder.at(0)->setFocus();
+    QVector<double> anschlaege;
+    const QString tippen = QStringLiteral("OK1DDD");
+    for (const QChar& c : tippen) {
+        QElapsedTimer t;
+        t.start();
+        QTest::keyClicks(felder.at(0), QString(c));
+        anschlaege << t.nsecsElapsed() / 1000000.0;
+    }
+    std::sort(anschlaege.begin(), anschlaege.end());
+    const double anschlagMs = anschlaege.at(anschlaege.size() / 2);
+    QStringList alleAnschlaege;
+    for (double d : anschlaege) { alleAnschlaege << QStringLiteral("%1").arg(d, 0, 'f', 1); }
+    qInfo().noquote() << QStringLiteral("ein Anschlag im Rufzeichenfeld: %1 ms (alle: %2)")
+                             .arg(anschlagMs, 0, 'f', 1)
+                             .arg(alleAnschlaege.join(QStringLiteral(" · ")));
+    QVERIFY2(anschlagMs < 100.0,
+             qPrintable(QStringLiteral("Ein Anschlag dauerte %1 ms bei %2 QSOs")
+                            .arg(anschlagMs, 0, 'f', 1)
+                            .arg(vorher)));
 }
 
 int main(int argc, char* argv[])
