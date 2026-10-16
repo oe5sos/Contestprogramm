@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QLabel>
 #include <QLineEdit>
+#include <QHeaderView>
 #include <QTableView>
 #include <QTemporaryDir>
 
@@ -74,6 +75,8 @@ private slots:
     void quittingWithACorrectionStillOpenDoesNotCrash();
     void tabWalksOnAcrossRowsAndShiftTabWalksBack();
     void returnAfterACorrectionGoesBackToTheEntryRow();
+    void nachJedemTabulatorStehtEinEditorOffen();
+    void shiftTabAmAnfangLaesstDenEditorStehen();
     void aCorrectionNeverTouchesTheBand();
 
 private:
@@ -509,6 +512,154 @@ void TestDurchgangTastatur::tabWalksOnAcrossRowsAndShiftTabWalksBack()
              "Shift+Tab landete nicht auf einer korrigierbaren Zelle");
     const QPair<int, int> nachPos(zurueck.row(), zurueck.column());
     QVERIFY2(nachPos != vorPos, "Shift+Tab bewegte sich nicht");
+}
+
+// Der Tabulator darf nicht nur die Zelle wechseln, er muss sie auch
+// AUFMACHEN. Die Tabelle öffnet einen Editor nur bei Doppelklick oder
+// auf die Bearbeiten-Taste (setEditTriggers), nicht beim Tippen: landet
+// der Tabulator auf einer Zelle ohne offenen Editor, tippt der Bediener
+// ins Leere. Genau das Bild, das Martin am 2026-09-29 gemeldet hat
+// ("möchte log ändern, funktioniert nicht").
+void TestDurchgangTastatur::nachJedemTabulatorStehtEinEditorOffen()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("editoroffen.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    logByKeyboard(window, QStringLiteral("DL1ABC"), 14, QStringLiteral("JN58SD"));
+    logByKeyboard(window, QStringLiteral("OK2XYZ"), 7, QStringLiteral("JN99AA"));
+    logByKeyboard(window, QStringLiteral("HB9ZZZ"), 3, QStringLiteral("JN47PH"));
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+    const int zeile = rowForCallsign(model, QStringLiteral("DL1ABC"));
+    QVERIFY(zeile >= 0);
+
+    // Den Editor dort aufmachen, wo eine Korrektur anfängt.
+    const QModelIndex start = model->index(zeile, UnifiedLogWidget::ColumnCall);
+    table->setCurrentIndex(start);
+    table->edit(start);
+    QCoreApplication::processEvents();
+
+    // Der offene Editor auf der aktuellen Zelle -- oder nullptr.
+    const auto editorAufDerZelle = [table]() -> QLineEdit* {
+        for (QLineEdit* e : table->viewport()->findChildren<QLineEdit*>()) {
+            if (!e->isVisible()) {
+                continue;
+            }
+            if (table->indexAt(e->geometry().center()) == table->currentIndex()) {
+                return e;
+            }
+        }
+        return nullptr;
+    };
+
+    QVERIFY2(editorAufDerZelle(), "Schon der erste Editor steht nicht offen");
+
+    // Acht Mal Tab: über die korrigierbaren Spalten einer Zeile hinaus
+    // in die nächste und wieder weiter -- also auch über die
+    // Zeilengrenze, an der das Weitertragen über einen Durchlauf des
+    // Ereignisrings geht.
+    for (int schritt = 1; schritt <= 8; ++schritt) {
+        QLineEdit* editor = editorAufDerZelle();
+        QVERIFY2(editor, qPrintable(QStringLiteral("Vor Schritt %1 steht kein Editor offen").arg(schritt)));
+        QTest::keyClick(editor, Qt::Key_Tab);
+        QCoreApplication::processEvents();
+        QTest::qWait(30);
+        const QModelIndex jetzt = table->currentIndex();
+        qInfo().noquote() << "Schritt" << schritt << "steht auf" << jetzt.row() << jetzt.column()
+                          << "Editor offen:" << (editorAufDerZelle() != nullptr);
+        if (editorAufDerZelle()) {
+            continue;
+        }
+        // Kein Editor mehr offen: dann MUSS das Log zu Ende sein und
+        // der Cursor in der Eingabezeile stehen -- die Korrekturrunde
+        // ist vorbei, das naechste QSO entsteht dort. Alles andere
+        // hiesse: der Bediener tippt ins Leere.
+        const QList<QLineEdit*> felder = entryFields(window);
+        QVERIFY2(!felder.isEmpty(), "Keine Eingabezeile gefunden");
+        QVERIFY2(felder.at(0)->hasFocus(),
+                 qPrintable(QStringLiteral("Nach Schritt %1 (Zeile %2, Spalte %3) steht kein Editor offen "
+                                            "und auch nicht der Cursor im Rufzeichenfeld "
+                                            "-- hier tippt der Bediener ins Leere")
+                                .arg(schritt).arg(jetzt.row()).arg(jetzt.column())));
+        qInfo().noquote() << "Am Ende des Logs angekommen; Cursor steht im Rufzeichenfeld.";
+        return;
+    }
+    QFAIL("Der Tabulator kam in acht Schritten nicht an das Ende des Logs");
+}
+
+// Und die Gegenrichtung: Shift+Tab ueber die erste Zeile hinaus. Dort
+// gibt es kein "weiterloggen", also muss der Editor stehen bleiben --
+// ein Shift+Tab, das nichts tut, ist eine Antwort, ein verschwundener
+// Editor ist keine.
+void TestDurchgangTastatur::shiftTabAmAnfangLaesstDenEditorStehen()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("anfang.sqlite"));
+    QVERIFY(controller);
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+    logByKeyboard(window, QStringLiteral("DL1ABC"), 14, QStringLiteral("JN58SD"));
+
+    auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(table);
+    QAbstractItemModel* model = table->model();
+    const int zeile = rowForCallsign(model, QStringLiteral("DL1ABC"));
+    QVERIFY(zeile >= 0);
+
+    // Die erste korrigierbare Spalte der ersten Zeile, in der
+    // Reihenfolge, in der die Spalten DASTEHEN.
+    QHeaderView* kopf = table->horizontalHeader();
+    QModelIndex erste;
+    for (int v = 0; v < kopf->count(); ++v) {
+        const int logisch = kopf->logicalIndex(v);
+        if (kopf->isSectionHidden(logisch)) {
+            continue;
+        }
+        const QModelIndex kandidat = model->index(zeile, logisch);
+        if (model->flags(kandidat) & Qt::ItemIsEditable) {
+            erste = kandidat;
+            break;
+        }
+    }
+    QVERIFY(erste.isValid());
+
+    table->setCurrentIndex(erste);
+    table->edit(erste);
+    QCoreApplication::processEvents();
+
+    const auto offenerEditor = [table]() -> QLineEdit* {
+        for (QLineEdit* e : table->viewport()->findChildren<QLineEdit*>()) {
+            if (e->isVisible()) {
+                return e;
+            }
+        }
+        return nullptr;
+    };
+    QLineEdit* editor = offenerEditor();
+    QVERIFY(editor);
+
+    QTest::keyClick(editor, Qt::Key_Backtab);
+    QCoreApplication::processEvents();
+    QTest::qWait(30);
+
+    qInfo().noquote() << "nach Shift+Tab am Anfang: Zelle" << table->currentIndex().row()
+                      << table->currentIndex().column() << "Editor offen:" << (offenerEditor() != nullptr);
+    QVERIFY2(offenerEditor(), "Shift+Tab am Anfang des Logs liess den Editor verschwinden");
+    QCOMPARE(table->currentIndex(), erste);
 }
 
 // Martin, 2026-09-28: "nach einer änderung muss wieder zur nächsten

@@ -2309,7 +2309,34 @@ void UnifiedLogWidget::editNextCorrectableCell(const QModelIndex& from, int dire
             --zeile;
         }
         if (zeile < 0 || zeile >= m_feedModel->rowCount()) {
-            return; // oben oder unten angekommen: hier hoert es auf
+            // Oben oder unten angekommen -- und hier darf der Tabulator
+            // nicht einfach aufhoeren. Die Ansicht hat ihren eigenen
+            // Sprung schon gemacht (siehe die Verbindung in
+            // tabulatorTraegtWeiter): der Cursor stand danach auf
+            // irgendeiner Zelle -- gemessen auf der Entfernungsspalte,
+            // die gar nicht korrigierbar ist -- und KEIN Editor war
+            // offen. Die Tabelle macht einen nur bei Doppelklick oder
+            // Bearbeiten-Taste auf (setEditTriggers), also tippte der
+            // Bediener von da an ins Leere. Genau das Bild aus Martins
+            // Meldung vom 2026-09-29 ("moechte log aendern,
+            // funktioniert nicht").
+            m_feedTable->setCurrentIndex(from);
+            if (direction > 0) {
+                // Nach dem letzten korrigierbaren Feld des letzten QSOs
+                // ist die Korrekturrunde zu Ende -- dann gehoert der
+                // Cursor dorthin, wo das naechste QSO entsteht, genau
+                // wie nach einem Return (Martin, 2026-09-28: "nach
+                // einer aenderung muss wieder zur naechsten zeile im
+                // contest spring").
+                focusCallsign();
+            } else {
+                // Rueckwaerts ueber die erste Zeile hinaus: dort gibt
+                // es kein "weiterloggen", also bleibt der Editor
+                // stehen, wo er war. Ein Shift+Tab, das nichts tut, ist
+                // eine Antwort; ein verschwundener Editor ist keine.
+                m_feedTable->edit(from);
+            }
+            return;
         }
         const QModelIndex ziel = m_feedModel->index(zeile, sichtbar.at(pos));
         if (ziel.isValid() && (m_feedModel->flags(ziel) & Qt::ItemIsEditable)) {
