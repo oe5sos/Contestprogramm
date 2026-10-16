@@ -178,7 +178,11 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
     // nichts Besonderes; wer hier 300 stehen lässt, sieht genau diese
     // Stationen nicht. Keine Fehlermeldung, nur ein Hinweis: es ist
     // eine Entscheidung, keine Panne.
-    if (ctx.radiusKm > 0.0) {
+    if (ctx.radiusKm <= 0.0) {
+        add(Level::Ok, kGroupStation, QStringLiteral("Reichweite"),
+            QStringLiteral("Keine Grenze -- jede Chat- und Clusterzeile erscheint."),
+            QStringLiteral("radius"));
+    } else {
         const QString wert = QStringLiteral("%1 km").arg(ctx.radiusKm, 0, 'f', 0);
         if (ctx.radiusKm < 500.0) {
             add(Level::Hint, kGroupStation, QStringLiteral("Reichweite"),

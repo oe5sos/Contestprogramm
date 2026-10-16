@@ -174,7 +174,8 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_radiusSpin->setToolTip(QStringLiteral(
         "Weite der Karte beim Start -- und die Grenze für Chat und Vorschlagsliste: "
         "Stationen weiter weg werden dort nicht angezeigt.\n"
-        "Vom Berg aus sind im UKW-Contest 500 bis 800 km üblich."));
+        "Vom Berg aus sind im UKW-Contest 500 bis 800 km üblich.\n"
+        "0 heißt: keine Grenze."));
     m_radiusSpin->setValue(initial.radiusKm);
 
     for (const ContestDefinition& def : m_availableContests) {
