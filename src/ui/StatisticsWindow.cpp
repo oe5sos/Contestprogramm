@@ -187,7 +187,7 @@ void StatisticsWindow::refresh()
         m_bandTable->setItem(row, 3, numberItem(grouped(band.points)));
         m_bandTable->setItem(row, 4, numberItem(QString::number(band.largeSquares)));
         m_bandTable->setItem(row, 5, new QTableWidgetItem(
-                                         band.odxKm > 0 ? QStringLiteral("%1 %2 %3 km").arg(band.odxCall, band.odxGrid).arg(grouped(band.odxKm))
+                                         !band.odxCall.isEmpty() ? QStringLiteral("%1 %2 %3 km").arg(band.odxCall, band.odxGrid).arg(grouped(band.odxKm))
                                                         : dash));
     }
     m_bandTable->resizeColumnsToContents();

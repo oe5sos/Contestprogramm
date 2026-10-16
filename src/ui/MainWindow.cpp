@@ -2755,7 +2755,7 @@ void MainWindow::refreshMapWidget()
                                                   settings.ownGrid, def ? def->bands() : QStringList(),
                                                   def ? def->scoring() : QStringLiteral("distance_km"));
     m_mapWidget->setScoreSummary(score.validQsos, score.points,
-                                 score.odxKm > 0 ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
+                                 !score.odxCall.isEmpty() ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
 }
 
 void MainWindow::refreshSuggestionPanel()

@@ -442,7 +442,13 @@ QVector<RateMeterWidget::Reading> RateMeterWidget::readings() const
     out.append({QStringLiteral("Stunde"), QString::number(m_breakdown.lastHour), QString(), bestHour, bestHourShort,
                 primary});
 
-    if (m_scoreKnown && m_score.odxKm > 0) {
+    // An odxCall, nicht an odxKm: ein Band, auf dem nur Stationen im
+    // eigenen Großfeld gearbeitet wurden, HAT einen weitesten -- bei
+    // 0 km. Die Wertung setzt ihn ausdrücklich (ContestScoring.cpp) und
+    // der EDI-Kopf trägt ihn als CODXC; "> 0" ließ ihn hier
+    // verschwinden, und dann sagte der Schirm etwas anderes als die
+    // Datei, die eingereicht wird.
+    if (m_scoreKnown && !m_score.odxCall.isEmpty()) {
         out.append({QStringLiteral("ODX"), groupedNumber(m_score.odxKm), QStringLiteral("km"),
                     QStringLiteral("%1 · %2").arg(m_score.odxCall, m_score.odxGrid), m_score.odxCall, primary});
     } else {
