@@ -288,6 +288,7 @@ private slots:
     void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
     void clickingOpenInBeamWalksThroughTheOpenStations();
     void secondAntennaMenuEntryReportsTheStationSetting();
+    void dieZahlenspalteSchneidetKeineBeschriftungAb();
 };
 
 void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
@@ -722,6 +723,84 @@ void TestMapWidgetLive::optionsMenuOffersRangePresets()
     QVERIFY2(world, qPrintable(labels.join(QStringLiteral(", "))));
     world->trigger();
     QCOMPARE(widget.visibleRangeKm(), 20000.0);
+}
+
+// Die Zahlenspalte rechts malt ihre Beschriftungen mit drawText() an
+// einen festen Punkt -- ohne Breite. Zu lang, und sie laufen aus der
+// Spalte heraus und werden am Fensterrand mitten im Wort abgeschnitten
+// ("BEAM · ROTOR 1 · 2M · GETRE"). Das passiert genau dann, wenn die
+// Rotoren noch NICHT haengen: an die Rotorbezeichnung kommt dann noch
+// "· getrennt".
+void TestMapWidgetLive::dieZahlenspalteSchneidetKeineBeschriftungAb()
+{
+    // Mit dem Stil des Programms, nicht mit Qts Vorgabe: die
+    // Kapitaelchenschrift ist breiter, und genau darauf kommt es hier
+    // an (so rendert auch tests/test_window_sheet.cpp).
+    Style::setActiveTheme(ColorTheme::Bernstein);
+    qApp->setStyleSheet(Style::appStyleSheet());
+
+    MapWidget widget;
+    widget.resize(900, 600);
+    widget.setOwnGrid(QStringLiteral("JN67UT"));
+    widget.setScoreSummary(10, 2872, QStringLiteral("SP9JJJ 521 km"));
+    widget.setRotor1Heading(true, 42.0, QStringLiteral("2 m"));
+    widget.setRotorLinkLive(1, false);
+    widget.setRotor2Heading(true, 128.0, QStringLiteral("70 cm"));
+    widget.setRotorLinkLive(2, false);
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QCoreApplication::processEvents();
+
+    const QImage bild = widget.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    QVERIFY(!bild.isNull());
+
+    // Der rechte Rand der Zeichenflaeche (kCanvasMargin = 8): dort darf
+    // keine Schrift mehr stehen. Gemessen wird die gesamte Hoehe der
+    // Spalte; der Hintergrund ist die Farbe der oberen linken Ecke der
+    // Spalte.
+    // Erst unterhalb der Bedienzeile (Zoom, Entfernung) messen -- die
+    // reicht mit Absicht bis an den Rand.
+    const int rand = 8;
+    const int obenFrei = 48;
+    const QRgb hintergrund = bild.pixel(bild.width() - rand - 2, bild.height() / 2);
+    {
+        int maxX = 0;
+        for (int y = obenFrei; y < bild.height(); ++y) {
+            for (int x = bild.width() - 1; x > bild.width() - 300; --x) {
+                if (bild.pixel(x, y) != hintergrund) { maxX = std::max(maxX, x); break; }
+            }
+        }
+        qInfo() << "Spaltenbreite 174, rechtester Schriftbildpunkt:" << maxX << "von" << bild.width();
+    }
+    QStringList getroffen;
+    for (int x = bild.width() - rand; x < bild.width(); ++x) {
+        for (int y = obenFrei; y < bild.height(); ++y) {
+            if (bild.pixel(x, y) != hintergrund) {
+                getroffen << QStringLiteral("(%1,%2)").arg(x).arg(y);
+                if (getroffen.size() > 6) {
+                    break;
+                }
+            }
+        }
+    }
+    QVERIFY2(getroffen.isEmpty(),
+             qPrintable(QStringLiteral("Am rechten Rand steht Schrift -- abgeschnitten bei %1")
+                            .arg(getroffen.join(QStringLiteral(" ")))));
+
+    // Und mit haengenden Rotoren, wo die Bandbezeichnung wieder
+    // mitkommt ("Beam · Rotor 1 · 2 m"): auch die muss in die Spalte
+    // passen.
+    widget.setRotorLinkLive(1, true);
+    widget.setRotorLinkLive(2, true);
+    QCoreApplication::processEvents();
+    const QImage bild2 = widget.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    for (int x = bild2.width() - rand; x < bild2.width(); ++x) {
+        for (int y = obenFrei; y < bild2.height(); ++y) {
+            QVERIFY2(bild2.pixel(x, y) == hintergrund,
+                     qPrintable(QStringLiteral("Mit haengenden Rotoren steht bei (%1,%2) Schrift am Rand")
+                                    .arg(x).arg(y)));
+        }
+    }
 }
 
 int main(int argc, char* argv[])

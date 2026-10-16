@@ -31,6 +31,7 @@
 #include <QApplication>
 #include <QDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPixmap>
 #include <QRegularExpression>
 #include <QTemporaryDir>
@@ -51,6 +52,8 @@
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
 #include "ui/EdiExportDialog.h"
+#include "ui/MainWindow.h"
+#include "ui/UnifiedLogWidget.h"
 #include "ui/EsmTemplatesDialog.h"
 #include "ui/LogCheckWindow.h"
 #include "ui/MultiplierWindow.h"
@@ -125,6 +128,7 @@ private slots:
     void initTestCase();
     void alleFensterBeiLeeremLog();
     void alleFensterMitEinemUnbrauchbarenQso();
+    void hauptfensterMitVerschwundenemContest();
 
 private:
     void alleFenster(bool mitQso, const QString& dateiname);
@@ -263,6 +267,56 @@ void TestFensterBeiLeeremLog::alleFensterBeiLeeremLog()
 void TestFensterBeiLeeremLog::alleFensterMitEinemUnbrauchbarenQso()
 {
     alleFenster(true, QStringLiteral("unbrauchbar.sqlite"));
+}
+
+// Die Kennung in den Einstellungen zeigt auf einen Contest, den es
+// nicht mehr gibt. Über den Regeleditor faengt das Programm das ab
+// (MainWindow schaltet dann auf den ersten vorhandenen), aber die
+// Kennung kann auch anders stehenbleiben: eine eigene Regeldatei, die
+// jemand im Dateisystem wegraeumt, oder eine Datenbank von einem
+// anderen Rechner. Dann steht das Programm mit einer Kennung da, zu
+// der es keine Regeln gibt -- und muss trotzdem bedienbar sein.
+void TestFensterBeiLeeremLog::hauptfensterMitVerschwundenemContest()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    AppController controller;
+    QVERIFY(controller.openDatabase(dir.filePath(QStringLiteral("verschwunden.sqlite"))));
+    ContestSettings settings = controller.settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("GIBTESNICHT");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller.setSettings(settings);
+    QVERIFY(controller.findContestDefinition(QStringLiteral("GIBTESNICHT")) == nullptr);
+
+    MainWindow window(controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    QCoreApplication::processEvents();
+
+    const QPixmap bild = window.grab();
+    QVERIFY(!bild.isNull());
+    keineUnsinnsBeschriftung(&window, QStringLiteral("MainWindow ohne Regeln"));
+
+    // Und das Loggen: ohne Austauschfelder kann nichts geloggt werden,
+    // aber ein Tastendruck darf nicht abstuerzen.
+    auto* row = window.findChild<QWidget*>(QLatin1String(UnifiedLogWidget::kEntryRowObjectName));
+    QVERIFY(row);
+    const QList<QLineEdit*> felder = row->findChildren<QLineEdit*>();
+    qInfo().noquote() << "Eingabefelder ohne Regeln:" << felder.size()
+                      << "aktiver Contest:" << controller.settings().activeContestId;
+    if (!felder.isEmpty()) {
+        felder.at(0)->setFocus();
+        QTest::keyClicks(felder.at(0), QStringLiteral("DL1ABC"));
+        QTest::keyClick(felder.at(0), Qt::Key_Return);
+        QCoreApplication::processEvents();
+    }
+    qInfo().noquote() << "QSOs danach:"
+                      << controller.database().qsosForContest(controller.settings().activeContestId).size();
 }
 
 int main(int argc, char* argv[])
