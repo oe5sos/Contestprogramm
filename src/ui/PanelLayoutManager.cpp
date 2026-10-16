@@ -4,6 +4,8 @@
 #include "ui/PanelContainerWidget.h"
 
 #include <QEvent>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QTimer>
 #include <QWidget>
 
@@ -20,6 +22,67 @@ QString layoutKeyFor(const QString& id)
 }
 
 const QString kOrderKey = QStringLiteral("PanelLayoutOrder");
+
+// Die gemerkte Fensterlage eines abgelösten Panels auf einen Schirm
+// bringen, den es HEUTE gibt.
+//
+// Zu Hause zwei Schirme, am Feuerkogel einer: wer ein Panel auf den
+// zweiten legt, hat dessen Koordinaten in der Datenbank. Auf dem
+// Laptop allein liegt dort nichts mehr -- das Fenster geht auf, ist
+// unsichtbar und nicht erreichbar, und mit ihm der Weg zurück, denn
+// der Griff zum Andocken sitzt in seiner eigenen Kopfzeile. Gemessen
+// mit einem Schirm von 800x800 und einer gemerkten Lage bei 5200,3400
+// (tests/test_panel_abloesen.cpp).
+//
+// Angefasst wird nur, was wirklich unerreichbar wäre: liegt die Lage
+// auf einem vorhandenen Schirm und ist ihre obere linke Ecke greifbar,
+// bleibt sie auf den Bildpunkt genau stehen.
+QRect erreichbareFensterlage(const QRect& gemerkt)
+{
+    // Platz für die Titelzeile: setGeometry() setzt die INNENfläche,
+    // der Rahmen sitzt darüber. Ohne diesen Abstand liegt die
+    // Titelzeile unter der Menüleiste und das Fenster lässt sich nicht
+    // mehr ziehen.
+    constexpr int kTitelzeile = 30;
+
+    const QScreen* ziel = nullptr;
+    for (const QScreen* schirm : QGuiApplication::screens()) {
+        if (schirm->availableGeometry().intersects(gemerkt)) {
+            ziel = schirm;
+            break;
+        }
+    }
+
+    if (!ziel) {
+        // Kein Schirm mehr an dieser Stelle: in die Mitte des
+        // Hauptschirms, damit es dem Bediener auffällt und greifbar
+        // ist.
+        const QScreen* haupt = QGuiApplication::primaryScreen();
+        if (!haupt) {
+            return gemerkt;
+        }
+        const QRect frei = haupt->availableGeometry();
+        QRect lage(QPoint(0, 0), gemerkt.size().boundedTo(frei.size()));
+        lage.moveCenter(frei.center());
+        if (lage.top() < frei.top() + kTitelzeile) {
+            lage.moveTop(frei.top() + kTitelzeile);
+        }
+        return lage;
+    }
+
+    const QRect frei = ziel->availableGeometry();
+    QRect lage = gemerkt;
+    lage.setSize(lage.size().boundedTo(frei.size()));
+    const int x = qBound(frei.left(), lage.left(), qMax(frei.left(), frei.right() - lage.width() + 1));
+    const int y = qBound(frei.top() + kTitelzeile, lage.top(),
+                         qMax(frei.top() + kTitelzeile, frei.bottom() - lage.height() + 1));
+    if (frei.contains(QPoint(lage.left(), lage.top())) && lage.top() >= frei.top() + kTitelzeile
+        && lage.size() == gemerkt.size()) {
+        return gemerkt;   // war in Ordnung, bleibt auf den Bildpunkt
+    }
+    lage.moveTo(x, y);
+    return lage;
+}
 
 } // namespace
 
@@ -253,7 +316,7 @@ void PanelLayoutManager::loadLayoutForPanel(const QString& id, PanelContainerWid
         container->setDockTarget(m_canvas);
         container->setFloating(true);
         if (fxOk && fyOk && fwOk && fhOk) {
-            container->setGeometry(QRect(fx, fy, fw, fh));
+            container->setGeometry(erreichbareFensterlage(QRect(fx, fy, fw, fh)));
         }
     }
 }
