@@ -1038,6 +1038,7 @@ UnifiedLogWidget::UnifiedLogWidget(QWidget* parent)
     // that column (only an invalid row's strike-through changes its
     // font at all).
     m_callsignEdit->setFont(Style::monoFont(m_callsignEdit->font(), Style::kFontBody));
+    m_callsignEdit->setObjectName(QLatin1String(kCallsignEditObjectName));
     m_callsignEdit->setStyleSheet(flatFieldStyle(false));
     upshiftWhileTyping(m_callsignEdit);
     m_callsignEdit->setFrame(false);
