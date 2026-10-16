@@ -59,6 +59,7 @@ private slots:
     void bandLabels();
     void ediRoundTripThroughTheExporter();
     void parsesAdifFromAnotherLogger();
+    void seitenbandSchreibweisenWerdenZurBetriebsart();
     void controllerWritesALastBackupOnTheWayOut();
 };
 
@@ -154,6 +155,35 @@ void TestLogFileReader::parsesAdifFromAnotherLogger()
     QVERIFY(qsos.at(1).grid.isEmpty());
     QCOMPARE(qsos.at(2).callsign, QStringLiteral("HB9ZZZ"));
     QVERIFY(qsos.at(2).timestampUtc.isEmpty());
+}
+
+// Fremde Logprogramme schreiben in ADIF die SEITENBAND-Schreibweise
+// ("USB"/"LSB"), nicht die Betriebsart. Unverändert übernommen ist das
+// für dieses Programm eine eigene Betriebsart -- und damit ist das
+// nächste QSO mit derselben Station kein Dupe mehr (der Dupe-Umfang
+// führt die Betriebsart mit, siehe resources/contest_definitions).
+// Ein nicht erkanntes Dupe kostet nicht nur die Punkte, es wird in der
+// Prüfung als nicht abgezogenes Dupe angerechnet.
+void TestLogFileReader::seitenbandSchreibweisenWerdenZurBetriebsart()
+{
+    const QByteArray adif(
+        "<ADIF_VER:5>3.1.4<EOH>\n"
+        "<CALL:6>DL1ABC<BAND:2>2m<MODE:3>USB<QSO_DATE:8>20251004<TIME_ON:4>0930<EOR>\n"
+        "<CALL:6>DL2ABC<BAND:2>2m<MODE:3>LSB<QSO_DATE:8>20251004<TIME_ON:4>0931<EOR>\n"
+        "<CALL:6>DL3ABC<BAND:2>2m<MODE:3>CWR<QSO_DATE:8>20251004<TIME_ON:4>0932<EOR>\n"
+        "<CALL:6>DL4ABC<BAND:2>2m<MODE:5>RTTYR<QSO_DATE:8>20251004<TIME_ON:4>0933<EOR>\n"
+        "<CALL:6>DL5ABC<BAND:2>2m<MODE:2>PH<QSO_DATE:8>20251004<TIME_ON:4>0934<EOR>\n"
+        "<CALL:6>DL6ABC<BAND:2>2m<MODE:3>FT8<QSO_DATE:8>20251004<TIME_ON:4>0935<EOR>\n");
+    const QVector<ImportedQso> qsos = LogFileReader::parseAdif(adif);
+    QCOMPARE(qsos.size(), 6);
+    QCOMPARE(qsos.at(0).mode, QStringLiteral("SSB"));
+    QCOMPARE(qsos.at(1).mode, QStringLiteral("SSB"));
+    QCOMPARE(qsos.at(2).mode, QStringLiteral("CW"));
+    QCOMPARE(qsos.at(3).mode, QStringLiteral("RTTY"));
+    QCOMPARE(qsos.at(4).mode, QStringLiteral("SSB"));
+    // Was eine eigene Betriebsart IST, bleibt eine: FT8 ist nicht SSB,
+    // und ein Umschreiben "auf gut Glück" wäre hier falsch.
+    QCOMPARE(qsos.at(5).mode, QStringLiteral("FT8"));
 }
 
 void TestLogFileReader::controllerWritesALastBackupOnTheWayOut()

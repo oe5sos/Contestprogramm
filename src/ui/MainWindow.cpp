@@ -2004,20 +2004,15 @@ QString MainWindow::contestModeForRigctldMode(const QString& rigMode)
     // (RIG_MODE_* -> "USB"/"LSB"/"CW"/"CWR"/"FM"/"RTTY"/... per
     // hamlib/rig.h); UnifiedLogWidget's mode combo only offers the four
     // contest-relevant buckets set up in applyActiveContestDefinition().
-    const QString upper = rigMode.trimmed().toUpper();
-    if (upper == QStringLiteral("USB") || upper == QStringLiteral("LSB")) {
-        return QStringLiteral("SSB");
-    }
-    if (upper == QStringLiteral("CW") || upper == QStringLiteral("CWR")) {
-        return QStringLiteral("CW");
-    }
-    if (upper == QStringLiteral("FM") || upper == QStringLiteral("WFM")) {
-        return QStringLiteral("FM");
-    }
-    if (upper == QStringLiteral("RTTY") || upper == QStringLiteral("RTTYR")) {
-        return QStringLiteral("RTTY");
-    }
-    return QString();
+    // Die Tabelle steht in core/BandUtils.h (contestModeName), weil
+    // der Import fremder Logdateien dieselbe braucht. Hier gilt
+    // zusätzlich: was keine der vier Contest-Betriebsarten ist, setzt
+    // nichts -- das Gerät kann in AM, PSK oder PKTFM stehen, und dann
+    // soll die Auswahl im Eingabefeld bleiben, wo sie ist.
+    const QString mode = contestModeName(rigMode);
+    static const QStringList kContestModes = {QStringLiteral("SSB"), QStringLiteral("CW"),
+                                              QStringLiteral("FM"), QStringLiteral("RTTY")};
+    return kContestModes.contains(mode) ? mode : QString();
 }
 
 void MainWindow::applyActiveContestDefinition()

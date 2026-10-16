@@ -44,4 +44,22 @@ qint64 bandBaseHz(const QString& band);
 // Contest in aller Regel nicht.
 QString usualModeForFrequencyHz(qint64 hz);
 
+// Die Betriebsart, wie dieses Programm sie führt ("SSB", "CW", "FM",
+// "RTTY"), aus einer fremden Schreibweise. Fremde Logdateien und
+// Funkgeräte nennen das SEITENBAND statt der Betriebsart ("USB" auf
+// UKW, "LSB" unterhalb von 10 MHz), Cabrillo-nahe Programme schreiben
+// "PH" und "RY", Hamlib kennt zusätzlich die umgekehrten Lagen "CWR"
+// und "RTTYR".
+//
+// Wichtig ist das nicht der Schönheit wegen: der Dupe-Umfang führt die
+// Betriebsart mit. Ein importiertes QSO mit "USB" ist für die
+// Dupe-Prüfung eine ANDERE Betriebsart als "SSB", und dasselbe
+// Rufzeichen noch einmal gilt dann nicht als Dupe -- was in der
+// Logprüfung des Contests als nicht abgezogenes Dupe gezählt wird.
+//
+// Was eine eigene Betriebsart IST, bleibt unverändert (gross
+// geschrieben): "FT8" ist nicht "SSB", und Raten wäre hier schlimmer
+// als Durchlassen.
+QString contestModeName(const QString& rawMode);
+
 } // namespace Contestprogramm
