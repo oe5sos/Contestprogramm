@@ -29,6 +29,7 @@
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QSizePolicy>
 #include <QStyle>
 #include <QStyledItemDelegate>
@@ -276,6 +277,10 @@ QString operatingModeStatusText(ContestSettings::OperatingMode mode)
 // die ganze Eingabezeile. Vorher hatten die Beschriftungen 10 und die
 // Eingabefelder 0: dieselbe Zeile war in sich uneinheitlich eingerückt,
 // und das fiel neben der Tabelle darüber auf.
+// Der Austausch-Feldtyp ("int", "grid6", "rst", "text", ...) am
+// QLineEdit selbst -- siehe eventFilter()s Leertasten-Zweig.
+constexpr const char* kFieldTypeProperty = "cpExchangeFieldType";
+
 constexpr int kEntryRowHPadding = 6;
 
 // Beim Tippen gleich in Großbuchstaben anzeigen. Gespeichert wurde
@@ -1963,6 +1968,9 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     for (const ContestDefinition::ExchangeField& field : m_exchangeFields) {
         auto* edit = new QLineEdit(host);
         edit->setPlaceholderText(field.label);
+        // Der Feldtyp wandert mit, damit eventFilter() die Leertaste
+        // nur dort abfangen kann, wo ein Leerzeichen nie sinnvoll ist.
+        edit->setProperty(kFieldTypeProperty, field.type);
         edit->setFont(Style::monoFont(edit->font(), Style::kFontBody));
         edit->setStyleSheet(flatFieldStyle(false));
         edit->setFrame(false);
@@ -2993,6 +3001,24 @@ bool UnifiedLogWidget::eventFilter(QObject* watched, QEvent* event)
         }
         if (keyEvent->key() == Qt::Key_Space && keyEvent->modifiers() == Qt::NoModifier) {
             if (auto* current = qobject_cast<QLineEdit*>(watched)) {
+                // Nur dort, wo ein Leerzeichen nachweislich sinnlos ist:
+                // Rufzeichen, RST, Nummer, CQ-Zone, Locator. Ein FREIES
+                // Textfeld braucht es ("St. Veit", "OE 05"), und genau
+                // als "text" legt der Regeleditor neue Austauschfelder
+                // an (ContestRulesEditor.cpp) -- dort war ein
+                // Leerzeichen vorher nicht einzutippen. Ein Typ, den
+                // dieses Programm nicht kennt, zählt als Text: er hat
+                // auch keinen Validator, ist also ein freies Feld.
+                static const QSet<QString> kSpaceJumpsOn = {
+                    QStringLiteral("int"), QStringLiteral("cqzone"),
+                    QStringLiteral("grid6"), QStringLiteral("rst"),
+                };
+                const QVariant fieldType = current->property(kFieldTypeProperty);
+                // Kein Typ am Feld = das Rufzeichenfeld, dort springt
+                // die Leertaste wie eh und je.
+                if (fieldType.isValid() && !kSpaceJumpsOn.contains(fieldType.toString())) {
+                    return QWidget::eventFilter(watched, event);
+                }
                 padSerialField(current);
                 if (QLineEdit* next = nextRelevantField(current)) {
                     next->setFocus();
