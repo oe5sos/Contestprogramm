@@ -3474,7 +3474,14 @@ void MainWindow::handleLogRequested()
     refreshMapWidget();
     refreshSuggestionPanel();
     updateStatusBar();
-    reloadCheckPartialSources();
+    // Nicht alles neu einlesen, nur dieses eine Rufzeichen eintragen:
+    // der volle Weg holt das ganze Log, die importierten Locatoren und
+    // die früheren Logs aus der Datenbank und baut die Tabelle zweimal
+    // neu auf -- gemessen 54 ms nach jedem Return bei 1 200 QSOs. Für
+    // Korrekturen, Löschungen und den Contestwechsel bleibt er, dort
+    // ändert sich wirklich die Grundlage
+    // (siehe refreshAfterLogChange()).
+    m_checkPartialIndex.addLogCall(record.callsign, record.band);
     refreshBandmap();
     refreshScoreboard();
     refreshSkeds();
@@ -5217,6 +5224,17 @@ void MainWindow::refreshScoreboard()
         return;
     }
     const ContestSettings settings = m_appController.settings();
+    // Abgeschaltet: dann braucht der Scoreboard-Sender weder die
+    // Einstellungen noch das Log. Das Lesen des ganzen Logs kostete
+    // bei 1 200 QSOs rund 25 ms -- nach jedem geloggten QSO, für
+    // niemanden (gemessen 2026-10-16,
+    // tests/test_enter_am_contestende.cpp).
+    if (!settings.scoreboardEnabled || settings.scoreboardUrl.trimmed().isEmpty()) {
+        ScoreboardConfig aus;
+        aus.enabled = false;
+        m_scoreboard->setConfig(aus);
+        return;
+    }
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     ScoreboardConfig config;
     config.enabled = settings.scoreboardEnabled;

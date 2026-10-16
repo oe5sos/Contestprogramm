@@ -73,6 +73,18 @@ void CheckPartialIndex::addSeenCall(const QString& callsign, const QString& grid
     }
 }
 
+void CheckPartialIndex::addLogCall(const QString& callsign, const QString& band)
+{
+    const QString call = normalizeCall(callsign);
+    if (call.isEmpty()) {
+        return;
+    }
+    m_logCalls.append({callsign, band});
+    Known& known = m_known[call];
+    known.sources |= CheckPartialMatch::Log;
+    known.bands.insert(band.trimmed());
+}
+
 void CheckPartialIndex::clearSeen()
 {
     m_seenGrid.clear();

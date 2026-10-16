@@ -156,6 +156,8 @@ private:
     // The last refresh(), kept for painting.
     bool m_hasSource = false;
     RateBreakdown m_breakdown;
+    // Die zuletzt GEMELDETE Rate; -1 heißt "noch nie gemeldet".
+    int m_letzteGemeldeteRate = -1;
     bool m_scoreKnown = false;
     ContestScore m_score;
     int m_largeSquares = 0; // Multiplikatoren über alle Bänder, nach m_multiplierBasis

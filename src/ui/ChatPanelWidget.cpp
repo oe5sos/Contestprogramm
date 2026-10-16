@@ -58,6 +58,11 @@ public:
             connect(neu, &QAbstractItemModel::modelReset, this, &MergedChatModel::rebuild);
             connect(neu, &QAbstractItemModel::rowsInserted, this, &MergedChatModel::rebuild);
             connect(neu, &QAbstractItemModel::dataChanged, this, &MergedChatModel::rebuild);
+            // Und für den Fall, dass die neue Zeile durch den Filter
+            // fällt und es gar keine sichtbare gibt: in der Ansicht
+            // "alles zeigen" steht sie hier trotzdem (siehe
+            // ChatFeedModel::feedChanged()).
+            connect(neu, &ChatFeedModel::feedChanged, this, &MergedChatModel::rebuild);
         }
         rebuild();
     }

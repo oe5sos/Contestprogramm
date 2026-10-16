@@ -302,7 +302,10 @@ void RateMeterWidget::refresh()
         m_score = ContestScore();
         m_largeSquares = 0;
         update();
-        emit last10MinRateChanged(0);
+        if (m_letzteGemeldeteRate != 0) {
+            m_letzteGemeldeteRate = 0;
+            emit last10MinRateChanged(0);
+        }
         return;
     }
 
@@ -360,7 +363,19 @@ void RateMeterWidget::refresh()
     }
 
     update();
-    emit last10MinRateChanged(m_breakdown.last10Min);
+    // Nur melden, wenn sich die Zahl wirklich geändert hat. An diesem
+    // Signal hängt die Tempo-Regel der beiden Chatlisten
+    // (ChatFeedModel::setCurrentRatePerTenMinutes), und die baut ihre
+    // Sichtliste neu auf. Seit das Rate-Panel nach JEDEM geloggten QSO
+    // aufgefrischt wird (2026-10-08, damit es nicht 15 Sekunden lang
+    // den alten Punktestand zeigt), hieß das: zwei vollständige
+    // Neuaufbauten je QSO, auch wenn die Rate dieselbe geblieben ist.
+    // Gemessen bei 1 200 QSOs und vollen Listen: 70 ms von den
+    // insgesamt 100 ms dieser Auffrischung.
+    if (m_breakdown.last10Min != m_letzteGemeldeteRate) {
+        m_letzteGemeldeteRate = m_breakdown.last10Min;
+        emit last10MinRateChanged(m_breakdown.last10Min);
+    }
 }
 
 // "144: 31 · 432: 16" (or "31 · 16" without names) -- per-band QSO

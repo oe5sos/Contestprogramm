@@ -138,7 +138,8 @@ void ChatFeedModel::setShowRawFeed(bool show)
     rebuildVisibleRows();
 }
 
-bool ChatFeedModel::computeWorked(const QString& callsign, qint64 freqHz) const
+bool ChatFeedModel::computeWorked(const QString& callsign, qint64 freqHz,
+                                  const DupeChecker::WorkedStations* vorab) const
 {
     if (m_activeContestId.isEmpty()) {
         return false;
@@ -146,13 +147,21 @@ bool ChatFeedModel::computeWorked(const QString& callsign, qint64 freqHz) const
     static const QStringList kCallsignBandScope{QStringLiteral("callsign"), QStringLiteral("band")};
     const QString spotBand = freqHz > 0 ? bandLabelForFrequencyHz(freqHz) : QString();
     if (!spotBand.isEmpty()) {
-        return m_dupeChecker.isDupe(callsign, spotBand, QString(), m_activeContestId, kCallsignBandScope);
+        return vorab ? vorab->workedOnBand(callsign, spotBand)
+                     : m_dupeChecker.isDupe(callsign, spotBand, QString(), m_activeContestId,
+                                            kCallsignBandScope);
     }
     if (m_contestBands.isEmpty()) {
-        return m_dupeChecker.isDupe(callsign, QString(), QString(), m_activeContestId, kCallsignOnlyScope);
+        return vorab ? vorab->workedAtAll(callsign)
+                     : m_dupeChecker.isDupe(callsign, QString(), QString(), m_activeContestId,
+                                            kCallsignOnlyScope);
     }
     for (const QString& band : m_contestBands) {
-        if (!m_dupeChecker.isDupe(callsign, band, QString(), m_activeContestId, kCallsignBandScope)) {
+        const bool gearbeitet = vorab
+                                    ? vorab->workedOnBand(callsign, band)
+                                    : m_dupeChecker.isDupe(callsign, band, QString(), m_activeContestId,
+                                                           kCallsignBandScope);
+        if (!gearbeitet) {
             return false; // still open on this band
         }
     }
@@ -209,23 +218,15 @@ void ChatFeedModel::refreshWorkedAndScores()
     // Gemessen mit 1 500 Einträgen: 60 ms unmittelbar nach dem Return
     // (tests/test_chat_dauerlast.cpp).
     //
-    // Dieselbe Station steht aber vielfach in der Liste -- jeder Spot
-    // und jede Chatzeile von ihr ist ein eigener Eintrag. Deshalb
-    // einmal je Rufzeichen und Band fragen und die Antwort innerhalb
-    // DIESES Durchlaufs wiederverwenden; gefragt wird weiterhin der
-    // DupeChecker, damit es nur eine Stelle gibt, die weiß, was
-    // "gearbeitet" heißt.
-    QHash<QString, bool> schonGefragt;
+    // Deshalb den Contest EINMAL lesen statt je Eintrag zu fragen:
+    // DupeChecker::workedStations() gibt alle gearbeiteten Stationen
+    // auf einmal zurück, mit derselben Regel (Grundrufzeichen,
+    // ungültige QSOs zählen nicht). Gemessen bei 1 200 QSOs und einer
+    // vollen Chatliste: 130 Einzelabfragen kosteten 60 ms je Liste,
+    // die eine Abfrage kostet Bruchteile davon.
+    const DupeChecker::WorkedStations gearbeitet = m_dupeChecker.workedStations(m_activeContestId);
     for (Entry& entry : m_allEntries) {
-        const QString schluessel = entry.candidate.callsign.trimmed().toUpper() + QLatin1Char('|')
-                                 + QString::number(entry.candidate.freqHz);
-        const auto it = schonGefragt.constFind(schluessel);
-        entry.worked = it != schonGefragt.constEnd()
-                           ? it.value()
-                           : schonGefragt.insert(schluessel,
-                                                 computeWorked(entry.candidate.callsign,
-                                                               entry.candidate.freqHz))
-                                 .value();
+        entry.worked = computeWorked(entry.candidate.callsign, entry.candidate.freqHz, &gearbeitet);
         entry.score = computeScore(entry.candidate, entry.worked, entry.geo);
     }
     rebuildVisibleRows();
@@ -251,8 +252,25 @@ void ChatFeedModel::setRecentPropagationTracker(RecentPropagationTracker* tracke
 
 void ChatFeedModel::setCurrentRatePerTenMinutes(double ratePerTenMinutes)
 {
+    // Wache wie bei den übrigen Setzern: der Neuaufbau ist ein
+    // vollständiger Modell-Reset über alle Einträge, und die Rate
+    // kommt nach jedem geloggten QSO herein -- meist mit demselben
+    // Wert wie vorher.
+    if (qFuzzyCompare(m_ratePerTenMinutes + 1.0, ratePerTenMinutes + 1.0)) {
+        return;
+    }
+    // Und selbst eine echte Änderung ändert die Sichtliste nur, wenn
+    // sie das TEMPO wechselt: ChatVisibilityPolicy::visibilityMask()
+    // kennt nur die drei Stufen (ruhig / mittel / lebhaft), nicht die
+    // Zahl dahinter. In einem Pile-up geht die Zahl mit jedem QSO um
+    // eins hoch -- ohne diese Unterscheidung wäre das jedesmal ein
+    // vollständiger Neuaufbau beider Listen.
+    const ChatVisibilityPolicy::Tempo vorher = ChatVisibilityPolicy::tempoForRate(m_ratePerTenMinutes);
+    const ChatVisibilityPolicy::Tempo nachher = ChatVisibilityPolicy::tempoForRate(ratePerTenMinutes);
     m_ratePerTenMinutes = ratePerTenMinutes;
-    rebuildVisibleRows();
+    if (vorher != nachher) {
+        rebuildVisibleRows();
+    }
 }
 
 ChatFeedModel::FeedLine ChatFeedModel::lineAt(int index) const
@@ -298,15 +316,40 @@ bool ChatFeedModel::bandBelongsToContest(qint64 freqHz) const
 
 void ChatFeedModel::rebuildVisibleRows()
 {
+    const QVector<int> neu = sichtbareZeilen();
+    if (neu == m_visibleIndices) {
+        // Dieselben Zeilen in derselben Reihenfolge -- dann hat sich
+        // nur ihr INHALT geändert (Bewertung, "gearbeitet"), nicht die
+        // Zusammensetzung. Ein vollständiger Reset wäre hier teuer und
+        // unhöflich: die Ansicht fragt danach jede Zelle neu ab, und
+        // Bildlauf und Auswahl springen. dataChanged() lässt beides
+        // stehen und holt nur, was wirklich zu sehen ist.
+        if (!neu.isEmpty()) {
+            emit dataChanged(index(0, 0), index(neu.size() - 1, ColumnCount - 1));
+        } else {
+            // Keine sichtbare Zeile, über die sich etwas melden ließe --
+            // und trotzdem ist etwas passiert: eine Zeile, die der
+            // Filter aussortiert, steht in der Ansicht "alles zeigen"
+            // des Chatpanels sehr wohl (siehe feedChanged()).
+            emit feedChanged();
+        }
+        return;
+    }
     beginResetModel();
-    m_visibleIndices.clear();
+    m_visibleIndices = neu;
+    endResetModel();
+}
+
+QVector<int> ChatFeedModel::sichtbareZeilen() const
+{
+    QVector<int> sichtbar;
 
     if (m_showRaw) {
+        sichtbar.reserve(m_allEntries.size());
         for (int i = 0; i < m_allEntries.size(); ++i) {
-            m_visibleIndices.append(i);
+            sichtbar.append(i);
         }
-        endResetModel();
-        return;
+        return sichtbar;
     }
 
     // Hard exclusion first, per the plan's Adaptive-Chat-Filterung (a):
@@ -326,11 +369,10 @@ void ChatFeedModel::rebuildVisibleRows()
     const QVector<bool> mask = ChatVisibilityPolicy::visibilityMask(survivorScores, tempo);
     for (int i = 0; i < survivorIndices.size(); ++i) {
         if (mask.at(i)) {
-            m_visibleIndices.append(survivorIndices.at(i));
+            sichtbar.append(survivorIndices.at(i));
         }
     }
-
-    endResetModel();
+    return sichtbar;
 }
 
 void ChatFeedModel::addCandidate(const SpotCandidate& candidate)
