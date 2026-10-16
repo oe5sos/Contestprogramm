@@ -131,14 +131,21 @@ void TestDxClusterProtocol::aPeerThatNeverSendsANewlineCannotGrowTheBufferForeve
     client.connectToCluster(QStringLiteral("127.0.0.1"), server.port(), QStringLiteral("OE5TST"));
     QVERIFY(QTest::qWaitFor([&]() { return !connectedSpy.isEmpty(); }, 2000));
 
-    // 1.5 MB in 64 KB helpings, not one newline among them.
+    // 64 KB at a time, not one newline among them, and kept up until
+    // the cap actually bites. Deliberately NOT a fixed number of
+    // helpings: how much of a local TCP write has reached the reader by
+    // the time the next one goes out is a platform matter (a fixed 1.5
+    // MB passed on macOS and Linux and ran out the clock on Windows --
+    // CI, 2026-10-15). qWaitFor pumps the event loop between calls, so
+    // the client gets to read in between.
     const QByteArray chunk(64 * 1024, 'x');
-    for (int i = 0; i < 24; ++i) {
-        QVERIFY(QTest::qWaitFor([&]() { return server.sendRaw(chunk); }, 2000));
-        QCoreApplication::processEvents();
-    }
-
-    QVERIFY(QTest::qWaitFor([&]() { return !errorSpy.isEmpty(); }, 5000));
+    QVERIFY2(QTest::qWaitFor([&]() {
+                 if (errorSpy.isEmpty()) {
+                     server.sendRaw(chunk);
+                 }
+                 return !errorSpy.isEmpty();
+             }, 30000),
+             "der Puffer-Deckel hat nicht gegriffen");
     const QString message = errorSpy.at(0).at(0).toString();
     QVERIFY2(message.contains(QStringLiteral("verworfen")), qPrintable(message));
 
