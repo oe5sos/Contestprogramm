@@ -1,6 +1,9 @@
 #include "core/terrain/SrtmTileLoader.h"
 
 #include <QDir>
+#include "data/FileWrite.h"
+
+#include <QDebug>
 #include <QFile>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -253,9 +256,19 @@ void SrtmTileLoader::finishLoadingTile(const QString& tileName, const QVector<qi
 {
     m_tiles.insert(tileName, samples);
     if (!rawBytesToCache.isEmpty()) {
-        QFile cacheFile(m_cacheDir + QLatin1Char('/') + tileName + QStringLiteral(".hgt"));
-        if (cacheFile.open(QIODevice::WriteOnly)) {
-            cacheFile.write(rawBytesToCache);
+        // Geprüft geschrieben (data/FileWrite.h): eine halb
+        // geschriebene Kachel -- volle Platte, abgezogener Stick --
+        // wird beim nächsten Start zwar als zu klein erkannt und
+        // verworfen (siehe loadFromDiskCache), aber dann holt das
+        // Programm sie JEDES MAL neu über das Netz. Am Contest-Standort
+        // ist genau das der teure Fall. Lieber gar keine Kachel im
+        // Zwischenspeicher als eine halbe.
+        const QString pfad = m_cacheDir + QLatin1Char('/') + tileName + QStringLiteral(".hgt");
+        QString fehler;
+        if (!writeFileChecked(pfad, rawBytesToCache, &fehler)) {
+            QFile::remove(pfad);
+            qWarning().noquote() << QStringLiteral("SRTM-Kachel %1 nicht zwischengespeichert: %2")
+                                        .arg(tileName, fehler);
         }
     }
     emit tileLoaded(tileName);

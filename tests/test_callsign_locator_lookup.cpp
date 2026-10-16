@@ -37,6 +37,7 @@ private slots:
     void qrzLookupXmlParsesGridOnSuccess();
     void qrzLookupXmlDetectsSessionFailure();
     void qrzLookupXmlNotFoundIsNotTreatedAsSessionFailure();
+    void whatComesBackFromTheCallbookIsCheckedLikeTheCsvIs();
 
     void hamQthSessionXmlParsesSessionIdOnSuccess();
     void hamQthSessionXmlParsesErrorOnFailure();
@@ -406,6 +407,65 @@ void TestCallsignLocatorLookup::settingsDialogRoundTripsCallbookFields()
     QCOMPARE(result.callbookProvider, ContestSettings::CallbookProvider::HamQth);
     QCOMPARE(result.callbookUsername, QStringLiteral("oe5sos"));
     QCOMPARE(result.callbookPassword, QStringLiteral("hunter2"));
+}
+
+
+// Was aus der Rufzeichendatenbank kommt, geht zwei Wege: in das
+// Locator-Feld der Eingabe und -- dauerhaft -- in die lokale Tabelle
+// imported_locators. Der CSV-Import prüft jede Zeile mit
+// isValidGridSquare(); der Netz-Weg tat es nicht. Und QRZ/HamQTH sind
+// Einträge von Hand: klein geschrieben, achtstellig, mit Leerzeichen
+// oder schlicht Unsinn kommt alles vor.
+//
+// Ein unbrauchbarer Locator kostet nicht nur dieses QSO (ohne gültigen
+// Locator zählt es 0 Punkte), er bleibt im Zwischenspeicher und wird
+// beim nächsten Mal wieder vorgeschlagen.
+void TestCallsignLocatorLookup::whatComesBackFromTheCallbookIsCheckedLikeTheCsvIs()
+{
+    const auto qrzMit = [](const QString& grid) {
+        return QStringLiteral("<?xml version=\"1.0\" ?><QRZDatabase><Callsign>"
+                              "<call>OE1W</call><grid>%1</grid></Callsign></QRZDatabase>").arg(grid);
+    };
+    const auto hamQthMit = [](const QString& grid) {
+        return QStringLiteral("<?xml version=\"1.0\" ?><HamQTH><search>"
+                              "<callsign>oe1w</callsign><grid>%1</grid></search></HamQTH>").arg(grid);
+    };
+
+    // Klein geschrieben: gültig, gehört nur groß -- der Rest des
+    // Programms vergleicht Locatoren in Großbuchstaben.
+    for (const QString& xml : {qrzMit(QStringLiteral("jn77tx")), hamQthMit(QStringLiteral("jn77tx"))}) {
+        const auto result = xml.contains(QStringLiteral("QRZ"))
+                                ? CallsignLocatorLookup::parseQrzLookupXml(xml)
+                                : CallsignLocatorLookup::parseHamQthLookupXml(xml);
+        QVERIFY2(result.found, qPrintable(xml));
+        QCOMPARE(result.grid, QStringLiteral("JN77TX"));
+    }
+
+    // Mit Leerzeichen drumherum.
+    QCOMPARE(CallsignLocatorLookup::parseQrzLookupXml(qrzMit(QStringLiteral(" JN77TX "))).grid,
+             QStringLiteral("JN77TX"));
+
+    // Achtstellig (QRZ führt solche Einträge): auf die sechs Stellen
+    // gekürzt, die dieses Programm rechnet, statt verworfen.
+    const auto acht = CallsignLocatorLookup::parseQrzLookupXml(qrzMit(QStringLiteral("JN77TX12")));
+    QVERIFY(acht.found);
+    QCOMPARE(acht.grid, QStringLiteral("JN77TX"));
+
+    // Vierstellig: gültig, bleibt wie er ist.
+    const auto vier = CallsignLocatorLookup::parseQrzLookupXml(qrzMit(QStringLiteral("JN77")));
+    QVERIFY(vier.found);
+    QCOMPARE(vier.grid, QStringLiteral("JN77"));
+
+    // Und Unsinn gilt als "nicht gefunden" -- nicht als Locator, der
+    // dann im Zwischenspeicher sitzen bleibt.
+    for (const QString& murks : {QStringLiteral("ZZ99ZZ"), QStringLiteral("Wien"),
+                                 QStringLiteral("JN7"), QStringLiteral("48.2N 16.4E")}) {
+        const auto result = CallsignLocatorLookup::parseQrzLookupXml(qrzMit(murks));
+        QVERIFY2(!result.found, qPrintable(QStringLiteral("\"%1\" wurde als Locator genommen").arg(murks)));
+        QVERIFY2(result.grid.isEmpty(), qPrintable(result.grid));
+        const auto hq = CallsignLocatorLookup::parseHamQthLookupXml(hamQthMit(murks));
+        QVERIFY2(!hq.found, qPrintable(QStringLiteral("HamQTH: \"%1\" wurde als Locator genommen").arg(murks)));
+    }
 }
 
 int main(int argc, char* argv[])

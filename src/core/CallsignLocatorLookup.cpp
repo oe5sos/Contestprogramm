@@ -24,6 +24,8 @@
 #include <QUrlQuery>
 #include <QXmlStreamReader>
 
+#include <optional>
+
 namespace Contestprogramm {
 
 namespace {
@@ -53,6 +55,37 @@ QString firstElementText(const QString& xml, const QString& tagName)
 QString normalizeCallsign(const QString& callsign)
 {
     return callsign.trimmed().toUpper();
+}
+
+// Der Locator aus einer Rufzeichendatenbank, brauchbar gemacht -- oder
+// nichts.
+//
+// Was von QRZ/HamQTH kommt, ist von Hand eingetragen: klein
+// geschrieben, mit Leerzeichen, achtstellig, oder gar kein Locator
+// ("Wien", "48.2N 16.4E"). Der CSV-Import prüft jede Zeile seit jeher
+// mit isValidGridSquare(); der Netz-Weg tat es nicht und reichte durch,
+// was auch immer im <grid>-Element stand -- in das Locator-Feld der
+// Eingabe UND dauerhaft in die Tabelle imported_locators, aus der es
+// beim nächsten Mal wieder vorgeschlagen wird.
+//
+// Ein QSO ohne gültigen Locator zählt 0 Punkte (data/ContestScoring.h),
+// deshalb ist "nichts" hier besser als "irgendwas": ohne Vorschlag
+// tippt der Operator den Locator, mit falschem Vorschlag übernimmt er
+// ihn womöglich.
+std::optional<QString> usableGrid(const QString& raw)
+{
+    QString grid = raw.trimmed().toUpper();
+    grid.remove(QLatin1Char(' '));
+    // Achtstellige Locatoren gibt es in den Datenbanken; dieses
+    // Programm rechnet mit sechs Stellen (core/Maidenhead.h), also
+    // gekürzt statt verworfen -- die ersten sechs Stellen stimmen ja.
+    if (grid.size() > 6) {
+        grid = grid.left(6);
+    }
+    if (!isValidGridSquare(grid)) {
+        return std::nullopt;
+    }
+    return grid;
 }
 
 } // namespace
@@ -251,10 +284,18 @@ CallsignLocatorLookup::SessionResult CallsignLocatorLookup::parseQrzSessionXml(c
 CallsignLocatorLookup::GridLookupResult CallsignLocatorLookup::parseQrzLookupXml(const QString& xml)
 {
     GridLookupResult result;
-    const QString grid = firstElementText(xml, QStringLiteral("grid"));
-    if (!grid.isEmpty()) {
+    const QString rawGrid = firstElementText(xml, QStringLiteral("grid"));
+    if (const std::optional<QString> grid = usableGrid(rawGrid)) {
         result.found = true;
-        result.grid = grid;
+        result.grid = *grid;
+        return result;
+    }
+    if (!rawGrid.isEmpty()) {
+        // Es STAND etwas da, nur nichts Brauchbares. Nicht gefunden --
+        // und gesagt, was es war, sonst sucht man den Grund im Netz.
+        // (Ohne das Wort "session", das die Sitzungs-Erkennung unten
+        // auslösen würde.)
+        result.error = QStringLiteral("Locator \"%1\" ist keiner").arg(rawGrid.simplified());
         return result;
     }
     result.error = firstElementText(xml, QStringLiteral("Error"));
@@ -283,10 +324,18 @@ CallsignLocatorLookup::SessionResult CallsignLocatorLookup::parseHamQthSessionXm
 CallsignLocatorLookup::GridLookupResult CallsignLocatorLookup::parseHamQthLookupXml(const QString& xml)
 {
     GridLookupResult result;
-    const QString grid = firstElementText(xml, QStringLiteral("grid"));
-    if (!grid.isEmpty()) {
+    const QString rawGrid = firstElementText(xml, QStringLiteral("grid"));
+    if (const std::optional<QString> grid = usableGrid(rawGrid)) {
         result.found = true;
-        result.grid = grid;
+        result.grid = *grid;
+        return result;
+    }
+    if (!rawGrid.isEmpty()) {
+        // Es STAND etwas da, nur nichts Brauchbares. Nicht gefunden --
+        // und gesagt, was es war, sonst sucht man den Grund im Netz.
+        // (Ohne das Wort "session", das die Sitzungs-Erkennung unten
+        // auslösen würde.)
+        result.error = QStringLiteral("Locator \"%1\" ist keiner").arg(rawGrid.simplified());
         return result;
     }
     result.error = firstElementText(xml, QStringLiteral("error"));
