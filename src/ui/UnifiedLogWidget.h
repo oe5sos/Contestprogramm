@@ -181,6 +181,15 @@ public:
     static constexpr const char* kEntryRowScrollObjectName = "unifiedLogEntryRowScroll";
     static constexpr const char* kFeedTableObjectName = "unifiedLogFeedTable";
     static constexpr const char* kStatusPillObjectName = "unifiedLogStatusPill";
+    // Das Rufzeichenfeld der Eingabezeile. Mit Namen, weil
+    // findChildren<QLineEdit*>().first() unbestimmt ist: ein
+    // Ansichtswechsel tauscht den Exchange-Teil der Zeile per
+    // replaceWidget() + deleteLater() aus, und bis die Löschung
+    // abgearbeitet ist, hängen die ALTEN Felder weiter als Kinder
+    // darunter (gemessen 2026-10-16: 7 statt 4). Welches first()
+    // dann liefert, entscheidet die Kindreihenfolge -- auf dem
+    // CI-Rechner ein verwaistes, hier das richtige.
+    static constexpr const char* kCallsignEditObjectName = "unifiedLogCallsignEdit";
     // The DXLog-style status strip (see setOperatingMode()'s doc
     // comment below) sitting between the entry row and the feed table,
     // and its own two labels -- same "objectName test hook" convention

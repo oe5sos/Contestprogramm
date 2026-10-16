@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QCryptographicHash>
+
 #include <QApplication>
 #include <QDir>
 #include <QSignalSpy>
@@ -45,6 +47,7 @@ class TestBackupRestore : public QObject
 private slots:
     void listsBackupsNewestFirstWithTheirTime();
     void summaryReadsTheCopyWithoutTouchingTheLiveConnection();
+    void summaryLeavesTheBackupFileExactlyAsItWas();
     void restoreReplacesTheLiveFileAndItsCompanions();
     void dialogShowsTheListAndTheSelectionsSummary();
     void mainWindowRestoreBacksUpClosesReplacesAndAsksForARestart();
@@ -89,7 +92,52 @@ void TestBackupRestore::summaryReadsTheCopyWithoutTouchingTheLiveConnection()
     QVERIFY2(summary.contains(QStringLiteral("1 QSOs · OE_VHF_UHF")), qPrintable(summary));
     QVERIFY(live.isOpen()); // untouched
     QCOMPARE(live.filePath(), dir.filePath(QStringLiteral("live.sqlite")));
-    QCOMPARE(summarizeBackup(dir.filePath(QStringLiteral("nothing.sqlite"))), QStringLiteral("keine QSOs"));
+    // A path with no backup at it reads as "nicht lesbar", not as an
+    // empty log: summarizeBackup no longer lets SQLite create a
+    // database there just to report it has no QSOs.
+    QCOMPARE(summarizeBackup(dir.filePath(QStringLiteral("nothing.sqlite"))), QStringLiteral("nicht lesbar"));
+}
+
+// Reading a backup must not WRITE to it. Opening it the ordinary way
+// runs ensureSchema() against it -- "PRAGMA journal_mode = WAL", the
+// CREATE TABLE IF NOT EXISTS set, the ALTER TABLE migrations -- so
+// merely selecting a copy in the restore dialog rewrote the very file
+// the operator is about to trust their contest log to, and left a
+// -wal/-shm pair beside it. A backup is evidence: it is read, never
+// touched.
+void TestBackupRestore::summaryLeavesTheBackupFileExactlyAsItWas()
+{
+    QTemporaryDir dir;
+    ContestDatabase live;
+    QVERIFY(live.open(dir.filePath(QStringLiteral("live.sqlite")), QStringLiteral("untouched_live")));
+    QsoRecord a = qso(QStringLiteral("DL1ABC"), QStringLiteral("IARU_R1_UHF"));
+    QVERIFY(live.insertQso(a));
+    const QString copy = dir.filePath(QStringLiteral("copy.sqlite"));
+    QVERIFY(live.backupTo(copy));
+    live.close();
+
+    const auto digest = [](const QString& path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) { return QByteArray(); }
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&file);
+        return hash.result();
+    };
+    const QByteArray before = digest(copy);
+    QVERIFY(!before.isEmpty());
+
+    const QString summary = summarizeBackup(copy);
+    QVERIFY2(summary.contains(QStringLiteral("1 QSOs · IARU_R1_UHF")), qPrintable(summary));
+
+    QCOMPARE(digest(copy), before);
+    QVERIFY(!QFile::exists(copy + QStringLiteral("-wal")));
+    QVERIFY(!QFile::exists(copy + QStringLiteral("-shm")));
+
+    // And a path that is not a backup at all must say so rather than
+    // quietly creating an empty database there and reporting it.
+    const QString missing = dir.filePath(QStringLiteral("nicht-da.sqlite"));
+    QCOMPARE(summarizeBackup(missing), QStringLiteral("nicht lesbar"));
+    QVERIFY(!QFile::exists(missing));
 }
 
 void TestBackupRestore::restoreReplacesTheLiveFileAndItsCompanions()

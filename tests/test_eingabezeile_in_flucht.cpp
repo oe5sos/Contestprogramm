@@ -132,15 +132,27 @@ void TestEingabezeileInFlucht::theEntryRowLinesUpWithTheTableInBothViews()
                                 ContestSettings::LogViewMode::DxLogFullColumns}) {
         log->setViewMode(ansicht);
         QCoreApplication::processEvents();
+        // Ein Ansichtswechsel tauscht den Exchange-Teil der Zeile per
+        // replaceWidget() + deleteLater() aus. Bis die Löschung
+        // abgearbeitet ist, hängen die ALTEN Felder weiter als Kinder
+        // darunter -- gemessen 2026-10-16: 7 QLineEdits statt 4, drei
+        // davon ohne Platz im Layout. Hier abgeräumt, damit gemessen
+        // wird, was dasteht, und nicht, was noch nicht weg ist.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
         const QString name = ansicht == ContestSettings::LogViewMode::Compact
                                  ? QStringLiteral("Kompakt")
                                  : QStringLiteral("DXLog-Vollspalten");
 
         // Das Rufzeichenfeld ist die Zelle, an der man eine verrutschte
         // Zeile am deutlichsten sieht -- und die, in die getippt wird.
-        const QList<QLineEdit*> felder = row->findChildren<QLineEdit*>();
-        QVERIFY2(!felder.isEmpty(), "Die Eingabezeile hat keine Felder");
-        QLineEdit* rufzeichen = felder.first();
+        // Beim Namen genommen, nicht als "das erste QLineEdit": welches
+        // first() liefert, entscheidet die Kindreihenfolge, und die ist
+        // nach einem Ansichtswechsel nicht die Reihenfolge auf dem
+        // Schirm (siehe oben). Genau daran ist der macOS-Lauf vom
+        // 2026-10-16 gescheitert, während hier alles grün war.
+        auto* rufzeichen = row->findChild<QLineEdit*>(QLatin1String(UnifiedLogWidget::kCallsignEditObjectName));
+        QVERIFY2(rufzeichen, "Das Rufzeichenfeld der Eingabezeile fehlt");
         const int zelleX = zellenAnfang(window, rufzeichen);
         const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
         // Die Einzelbreiten vor dem Rufzeichen -- dort muss ein Versatz
@@ -210,7 +222,16 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberIsSwitchedOff()
     QCoreApplication::processEvents();
 
     QVERIFY(table->isColumnHidden(UnifiedLogWidget::ColumnSerial));
-    QLineEdit* rufzeichen = row->findChildren<QLineEdit*>().first();
+    // Erst die ausgetauschten Felder abräumen, dann das richtige beim
+    // Namen nehmen: welches findChildren().first() liefert, entscheidet
+    // die Kindreihenfolge, und die ist nach einem Ansichts- oder
+    // Spaltenwechsel nicht die Reihenfolge auf dem Schirm (gemessen
+    // 2026-10-16: 7 QLineEdits statt 4). Genau daran ist der
+    // macOS-Lauf vom 2026-10-16 gescheitert, während hier alles grün war.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
+    auto* rufzeichen = row->findChild<QLineEdit*>(QLatin1String(UnifiedLogWidget::kCallsignEditObjectName));
+    QVERIFY2(rufzeichen, "Das Rufzeichenfeld der Eingabezeile fehlt");
     const int zelleX = zellenAnfang(window, rufzeichen);
     const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
     qInfo().noquote() << "ohne laufende Nummer -- Rufzeichenfeld bei" << zelleX << ", Call-Spalte bei" << spalteX;
@@ -250,6 +271,8 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberComesBack()
     // steht erst danach fest, und genau dann muss die Zeile folgen.
     QCoreApplication::processEvents();
     QVERIFY(!table->isColumnHidden(UnifiedLogWidget::ColumnSerial));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
     for (QLineEdit* feld : row->findChildren<QLineEdit*>()) {
         qInfo().noquote() << "Feld" << feld->objectName() << feld->placeholderText() << "bei"
                           << zellenAnfang(window, feld) << "Breite" << feld->width();
@@ -258,7 +281,16 @@ void TestEingabezeileInFlucht::itStaysInLineWhenTheRunningNumberComesBack()
         qInfo().noquote() << "Spalte" << spalte << "versteckt" << table->isColumnHidden(spalte) << "bei"
                           << spaltenAnfang(table, spalte);
     }
-    QLineEdit* rufzeichen = row->findChildren<QLineEdit*>().first();
+    // Erst die ausgetauschten Felder abräumen, dann das richtige beim
+    // Namen nehmen: welches findChildren().first() liefert, entscheidet
+    // die Kindreihenfolge, und die ist nach einem Ansichts- oder
+    // Spaltenwechsel nicht die Reihenfolge auf dem Schirm (gemessen
+    // 2026-10-16: 7 QLineEdits statt 4). Genau daran ist der
+    // macOS-Lauf vom 2026-10-16 gescheitert, während hier alles grün war.
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    QCoreApplication::processEvents();
+    auto* rufzeichen = row->findChild<QLineEdit*>(QLatin1String(UnifiedLogWidget::kCallsignEditObjectName));
+    QVERIFY2(rufzeichen, "Das Rufzeichenfeld der Eingabezeile fehlt");
     const int zelleX = zellenAnfang(window, rufzeichen);
     const int spalteX = spaltenAnfang(table, UnifiedLogWidget::ColumnCall);
     qInfo().noquote() << "laufende Nummer wieder an -- Rufzeichenfeld bei" << zelleX << ", Call-Spalte bei"

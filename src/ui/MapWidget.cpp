@@ -90,7 +90,6 @@ constexpr int kAgingRefreshIntervalMs = 60000;
 // just dots -- the log has the names, the map should show the shape.
 constexpr int kFreshLabelMinutes = 60;
 constexpr double kStationClickTolerancePx = 9.0;
-constexpr double kDefaultBeamwidthDeg = 30.0;
 constexpr double kMinBeamwidthDeg = 5.0;
 constexpr double kMaxBeamwidthDeg = 120.0;
 const int kBeamwidthChoices[] = {10, 15, 20, 25, 30, 40, 50, 60};

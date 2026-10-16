@@ -138,18 +138,6 @@ QLineEdit* findEditByPlaceholder(const QWidget& widget, const QString& placehold
     return nullptr;
 }
 
-SpotCandidate makeCandidate(const QString& callsign, const QString& grid, const QString& source)
-{
-    SpotCandidate candidate;
-    candidate.callsign = callsign;
-    candidate.grid = grid;
-    candidate.rawLine = callsign + QStringLiteral(" ") + grid;
-    candidate.timestampUtc = QDateTime::currentDateTimeUtc();
-    candidate.source = source;
-    candidate.freqHz = 144300000;
-    return candidate;
-}
-
 QsoRecord makeLoggedRecord(int id, const QString& callsign)
 {
     QsoRecord record;

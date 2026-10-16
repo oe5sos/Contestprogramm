@@ -143,6 +143,10 @@ private:
 
     QTcpSocket* m_socket;
     QByteArray  m_readBuffer;
+    // Hard cap on the unparsed read buffer -- see onReadyRead(). A
+    // ON4KST line is tens of bytes; a megabyte without a single
+    // newline in it is a broken peer, not a long line.
+    static constexpr int kMaxBufferBytes = 1024 * 1024;
     QTimer*     m_reconnectTimer;
     QTimer*     m_connectTimer; // one connect attempt's deadline; restarted per attempt, never stale
 

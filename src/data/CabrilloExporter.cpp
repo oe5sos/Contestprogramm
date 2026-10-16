@@ -171,6 +171,16 @@ QString CabrilloExporter::exportContest(const QString& contestId,
     // CATEGORY-BAND/CATEGORY-MODE either.
     records.erase(std::remove_if(records.begin(), records.end(), [](const QsoRecord& r) { return r.isInvalid; }),
                   records.end());
+    // Chronological, like the EDI export already is: the file is read
+    // as a sequence of contacts, and a hand-corrected timestamp (see
+    // MainWindow::handleHistoryTimeEditRequested) otherwise leaves the
+    // log in insertion order, which is no longer the order it happened.
+    std::stable_sort(records.begin(), records.end(), [](const QsoRecord& a, const QsoRecord& b) {
+        if (a.timestampUtc != b.timestampUtc) {
+            return a.timestampUtc < b.timestampUtc;
+        }
+        return a.id < b.id;
+    });
 
     QSet<QString> distinctBands;
     QSet<QString> distinctModes;

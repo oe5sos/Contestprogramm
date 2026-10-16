@@ -25,6 +25,11 @@ public:
     }
 
     bool startListening() { return m_server.listen(QHostAddress::LocalHost, 0); }
+
+    // A rigctld/rig that answers the mode query with one line MORE than
+    // the two this client reads (an extra "RPRT 0", a VFO line): the
+    // leftover must not be handed to the NEXT command as its reply.
+    void setExtraLineAfterMode(const QByteArray& line) { m_extraAfterMode = line; }
     quint16 port() const { return m_server.serverPort(); }
 
     QList<QByteArray> commandsReceived() const { return m_commandsReceived; }
@@ -66,6 +71,9 @@ private:
             m_client->write("RPRT 0\n");
         } else if (line == "m") {
             m_client->write("USB\n2400\n");
+            if (!m_extraAfterMode.isEmpty()) {
+                m_client->write(m_extraAfterMode);
+            }
         } else if (line == "t") {
             m_client->write("0\n");
         } else if (line.startsWith("T ")) {
@@ -76,6 +84,7 @@ private:
     QTcpServer m_server;
     QTcpSocket* m_client = nullptr;
     QByteArray m_buffer;
+    QByteArray m_extraAfterMode;
     QList<QByteArray> m_commandsReceived;
 };
 
@@ -96,6 +105,7 @@ private slots:
 
     void liveClientReceivesFrequencyModeAndPtt();
     void liveClientSendsSetFrequencyCommand();
+    void leftoverReplyLineNeverShiftsTheNextAnswer();
 };
 
 void TestRigctldProtocol::frequencyReplyParses()
@@ -224,6 +234,40 @@ void TestRigctldProtocol::liveClientSendsSetFrequencyCommand()
         return false;
     }, 3000);
     QVERIFY(sawSetFrequency);
+}
+
+// An unread leftover line in the buffer used to be handed to the next
+// command as its reply, shifting every answer from then on by one: the
+// PTT query got the mode query's extra line, the next frequency query
+// got the PTT's "0" -- and 0 Hz names no band at all, so the log's band
+// (dupe scope, serial sequence, EDI/Cabrillo export) silently stopped
+// following the radio. The buffer is dropped when a new command goes
+// out with nothing outstanding, so a stray line costs one reply, not
+// the whole session.
+void TestRigctldProtocol::leftoverReplyLineNeverShiftsTheNextAnswer()
+{
+    MockRigctldServer server;
+    server.setExtraLineAfterMode(QByteArrayLiteral("RPRT 0\n"));
+    QVERIFY(server.startListening());
+
+    RigctldClient client;
+    client.setPollIntervalMs(200);
+    client.setTarget(QStringLiteral("127.0.0.1"), server.port());
+    client.connectToRig();
+
+    const bool sawRounds = QTest::qWaitFor([&server]() {
+        int frequencyQueries = 0;
+        for (const QByteArray& cmd : server.commandsReceived()) {
+            if (cmd == "f") { ++frequencyQueries; }
+        }
+        return frequencyQueries >= 3;
+    }, 5000);
+    QVERIFY(sawRounds);
+
+    QCOMPARE(client.frequencyHz(), static_cast<qint64>(145200000));
+    QCOMPARE(client.mode(), QStringLiteral("USB"));
+    QCOMPARE(client.passbandHz(), 2400);
+    QVERIFY(!client.pttActive());
 }
 
 int main(int argc, char* argv[])

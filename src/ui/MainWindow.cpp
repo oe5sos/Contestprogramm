@@ -27,6 +27,7 @@
 #include "data/AdifExporter.h"
 #include "data/BackupRestore.h"
 #include "data/CabrilloExporter.h"
+#include "data/FileWrite.h"
 #include "data/ContestScoring.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
@@ -1503,7 +1504,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
-    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+    // settingsAction, NOT windowSettingsAction (the gear menu's own
+    // entry, created at the top of this constructor and already
+    // connected there). Wiring that one again here did two things at
+    // once: this file-menu entry did nothing when clicked, and the
+    // gear menu's entry opened the modal dialog twice in a row --
+    // close it, and it came straight back. See
+    // tests/test_menu_actions.cpp.
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
     // A proper contest-selection window, per the operator's explicit
     // request, distinct from the combo box buried in SettingsDialog --
     // see ui/ContestPickerDialog.h's class comment for scope.
@@ -3899,6 +3907,10 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     // does (a corrected grid can turn a QSO into a completed multiplier,
     // or out of one).
     refreshMultiplierAndFeedScores();
+    // A corrected grid is a different distance, and distance IS the
+    // score here, so the Rate panel's points and ODX have to follow the
+    // correction at once, not at the next 15-second tick.
+    m_rateMeterWidget->refresh();
     refreshMapWidget();
     refreshSuggestionPanel();
 }
@@ -4037,6 +4049,12 @@ void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
     rescoreDupes();
     recheckDupeIndicator();
     refreshMultiplierAndFeedScores();
+    // An invalidated QSO is out of the log for every purpose, so the
+    // panel has to drop its count and points right away rather than at
+    // the next 15-second tick. (rescoreDupes() refreshes too, but only
+    // when a dupe flag actually moved -- striking a QSO nothing else
+    // referred to moves none.)
+    m_rateMeterWidget->refresh();
     refreshMapWidget();
     refreshSuggestionPanel();
 }
@@ -4321,14 +4339,12 @@ void MainWindow::exportCabrillo()
     CabrilloExporter exporter(m_appController.database());
     const QString text = exporter.exportContest(settings.activeContestId, *def, settings, categories);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QString writeError;
+    if (!writeFileChecked(path, text.toUtf8(), &writeError)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(file.errorString()));
+                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(writeError));
         return;
     }
-    file.write(text.toUtf8());
-    file.close();
 
     statusBar()->showMessage(QStringLiteral("Cabrillo-Log exportiert: %1").arg(path), 5000);
 }
@@ -4351,14 +4367,12 @@ void MainWindow::exportAdif()
     AdifExporter exporter(m_appController.database());
     const QString text = exporter.exportContest(settings.activeContestId, settings);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QString writeError;
+    if (!writeFileChecked(path, text.toUtf8(), &writeError)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(file.errorString()));
+                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(writeError));
         return;
     }
-    file.write(text.toUtf8());
-    file.close();
 
     statusBar()->showMessage(QStringLiteral("ADIF-Log exportiert: %1").arg(path), 5000);
 }
@@ -4877,9 +4891,11 @@ void MainWindow::archiveActiveContest()
                 gewaehlt << kasten->objectName().mid(QStringLiteral("newLogBand_").size());
             }
         }
-        ContestSettings settings = m_appController.settings();
-        settings.activeBands = gewaehlt;
-        m_appController.setSettings(settings);
+        // Eigener Name: diese Funktion hat weiter oben schon ein
+        // `settings` (der Stand VOR dem Archivieren).
+        ContestSettings mitNeuenBaendern = m_appController.settings();
+        mitNeuenBaendern.activeBands = gewaehlt;
+        m_appController.setSettings(mitNeuenBaendern);
     }
     // Everything that reads the active contest's QSOs, same sequence
     // openContestPicker() uses after a contest switch.

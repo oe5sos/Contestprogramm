@@ -1,5 +1,7 @@
 #include "ui/SettingsDialog.h"
 
+#include "ui/StyleKit.h"
+
 #include "core/CallsignLocatorLookup.h"
 #include "core/Maidenhead.h"
 #include "core/RotorModels.h"
@@ -415,6 +417,29 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* catForm = new QFormLayout();
     catForm->addRow(QStringLiteral("rigctld-Host:"), m_rigctldHostEdit);
     catForm->addRow(QStringLiteral("rigctld-Port:"), m_rigctldPortSpin);
+    // Unlike the rotor (which this program starts itself, see
+    // core/RotctldProcess.h), rigctld is started by the operator -- so
+    // the call it has to be started with belongs here, next to the
+    // host/port that have to match it, rather than in a manual nobody
+    // reads at six in the morning on a mountain. Model numbers are
+    // Hamlib's own ("rigctl -l" lists them, and they move between
+    // Hamlib releases); the two TS-590 variants are spelled out
+    // because that is the radio this station is getting (Hamlib 4.7.2).
+    auto* catHint = new QLabel(
+        QStringLiteral("rigctld läuft nicht von selbst — vorher im Terminal starten, z. B.\n"
+                       "rigctld -m 2037 -r /dev/cu.usbserial-XXXX -s 115200 -T 127.0.0.1\n"
+                       "Modell: 2031 = TS-590S, 2037 = TS-590SG · alle: rigctl -l\n"
+                       "Gerät: ls /dev/cu.* · Baudrate muss zum Menü des Geräts passen "
+                       "(TS-590S Nr. 62, TS-590SG Nr. 68), PTT dort auf CAT."),
+        this);
+    catHint->setWordWrap(true);
+    // Selectable, because the point of the line is that it gets copied
+    // into a terminal; mono, because a device path is read character by
+    // character.
+    catHint->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    catHint->setFont(Style::monoFont(catHint->font(), Style::kFontSmall));
+    catHint->setObjectName(QStringLiteral("rigctldHint"));
+    catForm->addRow(catHint);
 
     auto* catGroup = new QGroupBox(QStringLiteral("CAT (rigctld)"), this);
     catGroup->setLayout(catForm);
@@ -643,8 +668,8 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // time). Centers on the FINAL width/height just set above, not
     // whatever position Qt would have otherwise placed an unsized
     // dialog at.
-    if (QWidget* parent = parentWidget()) {
-        move(parent->geometry().center() - QPoint(width() / 2, height() / 2));
+    if (QWidget* owner = parentWidget()) {
+        move(owner->geometry().center() - QPoint(width() / 2, height() / 2));
     } else if (screen) {
         move(screen->availableGeometry().center() - QPoint(width() / 2, height() / 2));
     }

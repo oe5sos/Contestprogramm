@@ -294,8 +294,8 @@ void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
 {
     MapWidget widget;
     QVector<MapWidget::Station> stations;
-    stations.append(MapWidget::Station{QStringLiteral("OE5SOS"), QStringLiteral("JN77QT"), true});
-    stations.append(MapWidget::Station{QStringLiteral("OE1XYZ"), QStringLiteral("JN88TC"), false});
+    stations.append(MapWidget::Station{QStringLiteral("OE5SOS"), QStringLiteral("JN77QT"), true, 0, QDateTime()});
+    stations.append(MapWidget::Station{QStringLiteral("OE1XYZ"), QStringLiteral("JN88TC"), false, 0, QDateTime()});
     widget.setStations(stations);
 
     QCOMPARE(widget.stations().size(), 2);

@@ -182,6 +182,19 @@ void DxClusterClient::onReadyRead()
     m_readBuffer.append(m_socket->readAll());
     stripTelnetIAC();
 
+    // A server that never sends a newline (a wedged link, a port that
+    // answers with something that is not this protocol, binary noise)
+    // would otherwise grow this buffer for as long as the contest runs
+    // -- 24 hours of it. One line can never legitimately be this long,
+    // so past the cap the unusable partial line is dropped and the
+    // operator is told, instead of the program quietly eating memory.
+    if (m_readBuffer.size() > kMaxBufferBytes) {
+        const int dropped = m_readBuffer.size();
+        m_readBuffer.clear();
+        emit connectionError(QStringLiteral("%1 Byte ohne Zeilenende verworfen").arg(dropped));
+        return;
+    }
+
     while (true) {
         const int idx = m_readBuffer.indexOf('\n');
         if (idx < 0) {
