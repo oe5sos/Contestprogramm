@@ -40,6 +40,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test)
 find_package(ZLIB REQUIRED)
 
 set(CONTESTPROGRAMM_CORE_SOURCES
+    src/core/AsciiText.h
+    src/core/AsciiText.cpp
     src/core/Maidenhead.h
     src/core/Maidenhead.cpp
     src/core/SpotCandidate.h

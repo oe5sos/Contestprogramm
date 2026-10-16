@@ -1,6 +1,7 @@
 #include "data/EdiExporter.h"
 
 #include "app/ContestSettings.h"
+#include "core/AsciiText.h"
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
@@ -25,33 +26,146 @@ QDateTime parseTimestamp(const QString& timestampUtc)
     return QDateTime::fromString(timestampUtc, Qt::ISODate);
 }
 
+// Die Grenzen, die REG1TEST (Issue 1,1) selbst nennt. Abschnitt
+// "Line length": "If line length is already specified it must not be
+// exceeded, other lines must not exceed a length of 75 characters."
+// Dazu aus der Tabelle der QSO-Spalten die Maximallängen -- und die
+// Tabelle rechnet selbst vor, dass 61 Zeichen plus 14 Trenner genau
+// die 75 ergeben. Wer die Spalten nicht begrenzt, sprengt also die
+// Zeile mit.
+constexpr int kLineLimit = 75;
+constexpr int kMaxCallLength = 14;        // "Call = 3 to 14 characters"
+constexpr int kMaxRstLength = 3;          // "0 or 2 or 3 characters"
+constexpr int kMaxExchangeLength = 6;     // "0 or 1 to 6 characters"
+// Die Locatorspalte ("0 or 4 or 6 characters") braucht keine eigene
+// Zahl: normalizedGridSquare() (core/Maidenhead.h) liefert entweder
+// einen gültigen vier- oder sechsstelligen Locator oder nichts.
+
 // A header value is one line and must not contain the record
 // separator; a stray ";" in a street name would otherwise shift every
 // column a reader parses after it.
+//
+// asciiOnly(): die Spezifikation lässt nur die Zeichen 10, 13 und
+// 32-127 zu (Abschnitt "Characters"), und Martins Land heißt
+// "Österreich". Siehe core/AsciiText.h -- hier wird umgeschrieben,
+// nicht hinausgeschrieben.
 QString headerValue(const QString& raw)
 {
-    QString value = raw.simplified();
+    QString value = asciiOnly(raw).simplified();
     value.replace(QLatin1Char(';'), QLatin1Char(','));
     return value;
 }
 
+// Eine Kopfzeile "Schlüssel=Wert" mit der Zeilengrenze. Gekürzt wird
+// der Wert, nicht der Schlüssel: eine ausführliche Antennen- oder
+// Standortbeschreibung ist schnell länger als 75 Zeichen, und eine
+// zu lange Zeile ist etwas, das die Spezifikation ausdrücklich
+// verbietet -- eine gekürzte Beschreibung nicht.
+QString headerLine(const QString& key, const QString& raw)
+{
+    QString value = headerValue(raw);
+    const int room = kLineLimit - key.size() - 1;
+    if (value.size() > room) {
+        value.truncate(qMax(0, room));
+        value = value.trimmed();
+    }
+    return key + QLatin1Char('=') + value;
+}
+
+// Dasselbe für eine SPALTE einer QSO-Zeile. Die Kopfzeilen waren seit
+// jeher geschützt, die QSO-Zeilen nicht -- ein Semikolon im Rufzeichen,
+// im RST oder im Locator schob jede Spalte dahinter um eine weiter,
+// und der Robot liest die Zeile falsch oder lehnt die Einreichung ab.
+// Tippbar ist es (das Rufzeichenfeld hat keinen Validator), und was
+// über einen Import in die Datenbank kommt, hat diesen Weg gar nicht
+// erst genommen. simplified() nimmt dabei auch Zeilenumbrüche mit, die
+// eine Zeile in zwei teilen würden.
+QString columnValue(const QString& raw)
+{
+    QString value = asciiOnly(raw).simplified();
+    value.replace(QLatin1Char(';'), QLatin1Char(','));
+    return value;
+}
+
+// Die Rufzeichenspalte. "Call = 3 to 14 characters" sagt die Tabelle,
+// und ein Rufzeichen hat nie ein Leerzeichen -- über einen Import
+// (data/LogFileReader.h) kann aber beides hereinkommen. Länger als 14
+// Zeichen ist kein Rufzeichen mehr, sondern ein Versehen; abgeschnitten
+// bleibt die Datei lesbar, in voller Länge sprengt sie zusätzlich die
+// 75-Zeichen-Grenze der Zeile.
+QString callColumn(const QString& raw)
+{
+    QString value = columnValue(raw).toUpper();
+    value.remove(QLatin1Char(' '));
+    if (value.size() > kMaxCallLength) {
+        value.truncate(kMaxCallLength);
+    }
+    return value;
+}
+
+// RST: "0 or 2 or 3 characters". Das Eingabefeld lässt vier zu
+// ("5999" tippt sich leicht), ein Import beliebig viele.
+QString rstColumn(const QString& raw)
+{
+    QString value = columnValue(raw);
+    value.remove(QLatin1Char(' '));
+    if (value.size() > kMaxRstLength) {
+        value.truncate(kMaxRstLength);
+    }
+    return value;
+}
+
+// Der Locator des Gegenübers: "0 or 4 or 6 characters, World Wide
+// Locator" -- dazwischen gibt es nichts. Achtstellige Locatoren stehen
+// in vielen Logs und kommen über den Journal-Import herein; ihre ersten
+// sechs Stellen sind der richtige Locator. Was sich auch so nicht zu
+// einem Locator machen lässt, bleibt leer: eine Spalte mit drei
+// Zeichen wäre ein Formatfehler für die ganze Datei, und das QSO
+// selbst meldet die Logprüfung ohnehin als "bad_locator".
+QString locatorColumn(const QString& raw)
+{
+    if (const std::optional<QString> grid = normalizedGridSquare(raw)) {
+        return *grid;
+    }
+    return QString();
+}
+
 // MOpe1 is the one header key where ";" IS the separator (a list of
-// operator calls), so only line breaks are removed here.
+// operator calls), so only line breaks are removed here -- und deshalb
+// darf diese Zeile nicht durch headerLine() laufen, die Semikolons zu
+// Kommas macht. Die Zeilengrenze gilt aber auch hier.
 QString operatorList(const QString& raw)
 {
     QStringList calls;
-    for (const QString& part : raw.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+    for (const QString& part : asciiOnly(raw).split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
         const QString call = part.simplified().toUpper();
         if (!call.isEmpty()) {
             calls << call;
         }
     }
-    return calls.join(QLatin1Char(';'));
+    QString value = calls.join(QLatin1Char(';'));
+    const int room = kLineLimit - 6;   // "MOpe1=" davor
+    if (value.size() > room) {
+        // Lieber ein Rufzeichen weniger als eine zu lange Zeile: an
+        // der letzten vollständigen Angabe abschneiden, nicht mitten
+        // in einem Rufzeichen.
+        value.truncate(room);
+        const int lastSep = value.lastIndexOf(QLatin1Char(';'));
+        value = lastSep > 0 ? value.left(lastSep) : value;
+    }
+    return value;
 }
 
+// "0 or 3 or 4 characters, with leading zeros". Eine Nummer jenseits
+// von 9999 gibt es in 24 Stunden auf einem Band nicht; über einen
+// Import kann sie trotzdem dastehen, und dann ist die leere Spalte die
+// einzige, die das Format noch erlaubt.
 QString serialText(const std::optional<int>& serial)
 {
     if (!serial) {
+        return QString();
+    }
+    if (*serial < 0 || *serial > 9999) {
         return QString();
     }
     return QStringLiteral("%1").arg(*serial, 3, 10, QLatin1Char('0'));
@@ -86,7 +200,11 @@ QString extraExchange(const QsoRecord& record)
             }
         }
     }
-    return headerValue(tokens.join(QLatin1Char(' ')));
+    QString value = headerValue(tokens.join(QLatin1Char(' ')));
+    if (value.size() > kMaxExchangeLength) {
+        value.truncate(kMaxExchangeLength);
+    }
+    return value;
 }
 
 QString largeSquare(const QString& grid)
@@ -211,6 +329,11 @@ QString EdiExporter::exportBand(const QString& contestId,
 
     const QString ownCall = settings.ownCallsign.trimmed().toUpper();
     const QString ownGrid = settings.ownGrid.trimmed().toUpper();
+    // PWWLo: "Maximum length is six characters". Im
+    // Einstellungsfenster lässt sich mehr eintippen, und ein
+    // achtstelliger eigener Locator stand schon in mancher
+    // Programmeinstellung; gerechnet wird ohnehin mit sechs Stellen.
+    const QString ownGridColumn = normalizedGridSquare(ownGrid).value_or(ownGrid.left(6));
 
     QVector<QsoRecord> records;
     for (const QsoRecord& record : all) {
@@ -246,14 +369,14 @@ QString EdiExporter::exportBand(const QString& contestId,
         QStringList fields;
         fields << when.date().toString(QStringLiteral("yyMMdd"))
                << when.time().toString(QStringLiteral("HHmm"))
-               << record.callsign.trimmed().toUpper()
+               << callColumn(record.callsign)
                << QString::number(modeCode(record.mode))
-               << record.rstSent.trimmed()
+               << rstColumn(record.rstSent)
                << serialText(record.serialSent)
-               << record.rstRcvd.trimmed()
+               << rstColumn(record.rstRcvd)
                << serialText(record.serialRcvd)
                << extraExchange(record)
-               << record.gridSquare.trimmed().toUpper()
+               << locatorColumn(record.gridSquare)
                << QString::number(qsoPts)
                << QString()   // new exchange -- no exchange multipliers in these contests
                << newWwl
@@ -264,31 +387,31 @@ QString EdiExporter::exportBand(const QString& contestId,
 
     QStringList lines;
     lines << QStringLiteral("[REG1TEST;1]");
-    lines << QStringLiteral("TName=%1").arg(headerValue(definition.name()));
+    lines << headerLine(QStringLiteral("TName"), definition.name());
     lines << QStringLiteral("TDate=%1").arg(tDate);
     lines << QStringLiteral("PCall=%1").arg(ownCall);
-    lines << QStringLiteral("PWWLo=%1").arg(ownGrid);
+    lines << QStringLiteral("PWWLo=%1").arg(ownGridColumn);
     lines << QStringLiteral("PExch=");
-    lines << QStringLiteral("PAdr1=%1").arg(headerValue(station.locationLine1));
-    lines << QStringLiteral("PAdr2=%1").arg(headerValue(station.locationLine2));
-    lines << QStringLiteral("PSect=%1").arg(headerValue(station.section));
+    lines << headerLine(QStringLiteral("PAdr1"), station.locationLine1);
+    lines << headerLine(QStringLiteral("PAdr2"), station.locationLine2);
+    lines << headerLine(QStringLiteral("PSect"), station.section);
     lines << QStringLiteral("PBand=%1").arg(bandLabel(band));
-    lines << QStringLiteral("PClub=%1").arg(headerValue(station.club));
-    lines << QStringLiteral("RName=%1").arg(headerValue(station.name));
+    lines << headerLine(QStringLiteral("PClub"), station.club);
+    lines << headerLine(QStringLiteral("RName"), station.name);
     lines << QStringLiteral("RCall=%1").arg(ownCall);
-    lines << QStringLiteral("RAdr1=%1").arg(headerValue(station.street));
+    lines << headerLine(QStringLiteral("RAdr1"), station.street);
     lines << QStringLiteral("RAdr2=");
-    lines << QStringLiteral("RPoCo=%1").arg(headerValue(station.postalCode));
-    lines << QStringLiteral("RCity=%1").arg(headerValue(station.city));
-    lines << QStringLiteral("RCoun=%1").arg(headerValue(station.country));
-    lines << QStringLiteral("RPhon=%1").arg(headerValue(station.phone));
-    lines << QStringLiteral("RHBBS=%1").arg(headerValue(station.email));
+    lines << headerLine(QStringLiteral("RPoCo"), station.postalCode);
+    lines << headerLine(QStringLiteral("RCity"), station.city);
+    lines << headerLine(QStringLiteral("RCoun"), station.country);
+    lines << headerLine(QStringLiteral("RPhon"), station.phone);
+    lines << headerLine(QStringLiteral("RHBBS"), station.email);
     lines << QStringLiteral("MOpe1=%1").arg(operatorList(station.operators));
     lines << QStringLiteral("MOpe2=");
-    lines << QStringLiteral("STXEq=%1").arg(headerValue(station.txEquipment));
+    lines << headerLine(QStringLiteral("STXEq"), station.txEquipment);
     lines << QStringLiteral("SPowe=%1").arg(station.powerWatts > 0 ? QString::number(station.powerWatts) : QString());
-    lines << QStringLiteral("SRXEq=%1").arg(headerValue(station.rxEquipment));
-    lines << QStringLiteral("SAnte=%1").arg(headerValue(station.antenna));
+    lines << headerLine(QStringLiteral("SRXEq"), station.rxEquipment);
+    lines << headerLine(QStringLiteral("SAnte"), station.antenna);
     lines << QStringLiteral("SAntH=%1;%2")
                  .arg(static_cast<int>(std::lround(settings.antennaHeightM)))
                  .arg(static_cast<int>(std::lround(settings.ownElevationM)));

@@ -21,6 +21,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QScrollBar>
 #include <QTableView>
 #include <QTemporaryDir>
 
@@ -70,6 +71,7 @@ private slots:
     void everyPanelWithOptionsAlsoShowsTheGear();
     void linesThatMentionMeStandOutInMagenta();
     void shortwaveClusterSpotsStayOutOfAVhfContestChat();
+    void werHochgescrolltHatWirdNichtWeggerissen();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -622,6 +624,66 @@ void TestChatPanel::shortwaveClusterSpotsStayOutOfAVhfContestChat()
         alle << tabelle->model()->index(r, ChatPanelWidget::ColumnCall).data().toString();
     }
     QVERIFY2(alle.contains(QStringLiteral("XE1AOH")), "der Kurzwellen-Spot ist ganz verschwunden");
+}
+
+// Im UKW-Contest werden die Skeds über diesen Chat ausgemacht, und
+// alle paar Sekunden kommt eine Zeile herein. Wer hochscrollt, um
+// etwas nachzulesen, darf davon nicht jedesmal ans Ende zurückgerissen
+// werden -- und erst recht nicht ganz nach oben, wo eine
+// zurückgesetzte Ansicht anfängt.
+void TestChatPanel::werHochgescrolltHatWirdNichtWeggerissen()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("bildlauf.sqlite"));
+    QVERIFY(controller);
+
+    ChatPanelWidget panel;
+    panel.setFeedModels(&controller->on4kstFeedModel(), &controller->clusterFeedModel());
+    panel.setShowAll(true);
+    panel.resize(900, 220);   // klein genug, dass gescrollt werden muss
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+
+    for (int i = 0; i < 60; ++i) {
+        controller->on4kstFeedModel().addCandidate(
+            macheZeile(QStringLiteral("DL%1ABC").arg(i % 10), QStringLiteral("JN58SD"),
+                       QStringLiteral("Zeile %1").arg(i), QStringLiteral("on4kst"), i, 144300000));
+    }
+    QCoreApplication::processEvents();
+
+    auto* table = panel.findChild<QTableView*>(QLatin1String(ChatPanelWidget::kTableObjectName));
+    QVERIFY(table);
+    QScrollBar* leiste = table->verticalScrollBar();
+    QVERIFY2(leiste->maximum() > 5, "Zu wenig Zeilen zum Scrollen");
+
+    // Mitgelaufen: die Ansicht steht unten.
+    QCOMPARE(leiste->value(), leiste->maximum());
+
+    // Jetzt liest der Bediener weiter oben.
+    const int gewaehlt = leiste->maximum() / 3;
+    leiste->setValue(gewaehlt);
+    QCoreApplication::processEvents();
+
+    controller->on4kstFeedModel().addCandidate(
+        macheZeile(QStringLiteral("S51NEU"), QStringLiteral("JN76TA"), QStringLiteral("neue Zeile"),
+                   QStringLiteral("on4kst"), 99, 144325000));
+    QCoreApplication::processEvents();
+
+    qInfo() << "Bildlauf vorher" << gewaehlt << "nachher" << leiste->value() << "von" << leiste->maximum();
+    QVERIFY2(leiste->value() != leiste->maximum(),
+             "Die ankommende Zeile hat die Ansicht ans Ende gerissen");
+    QVERIFY2(qAbs(leiste->value() - gewaehlt) <= 2,
+             qPrintable(QStringLiteral("Die Ansicht sprang von %1 auf %2").arg(gewaehlt).arg(leiste->value())));
+
+    // Und wer unten steht, läuft weiter mit.
+    leiste->setValue(leiste->maximum());
+    QCoreApplication::processEvents();
+    controller->on4kstFeedModel().addCandidate(
+        macheZeile(QStringLiteral("S52NEU"), QStringLiteral("JN76TA"), QStringLiteral("noch eine"),
+                   QStringLiteral("on4kst"), 100, 144326000));
+    QCoreApplication::processEvents();
+    QCOMPARE(leiste->value(), leiste->maximum());
 }
 
 int main(int argc, char* argv[])

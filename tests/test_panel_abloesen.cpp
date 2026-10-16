@@ -14,6 +14,8 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QLineEdit>
 #include <QMenu>
 #include <QTemporaryDir>
@@ -40,6 +42,7 @@ private slots:
     void theContentSurvivesTheTrip();
     void theMenuOffersEveryPanel();
     void aDetachedPanelComesBackDetachedAfterARestart();
+    void einPanelVomAbgezogenenZweitschirmBleibtErreichbar();
 
 private:
     std::unique_ptr<AppController> makeController(QTemporaryDir& dir, const QString& file);
@@ -282,6 +285,69 @@ void TestPanelAbloesen::aDetachedPanelComesBackDetachedAfterARestart()
         qInfo().noquote() << "nach dem Neustart abgelöst:" << bandmap->isFloating() << bandmap->geometry();
         QVERIFY2(bandmap->isFloating(), "Das abgelöste Panel ist wieder angedockt");
         QCOMPARE(bandmap->geometry(), fensterLage);
+    }
+}
+
+// Zu Hause zwei Schirme, am Feuerkogel einer: das Panel lag auf dem
+// zweiten, und dessen Koordinaten liegen auf dem Laptop allein
+// nirgends mehr. Ein Fenster, das dort aufgeht, ist unsichtbar und
+// nicht erreichbar -- und mit ihm der Weg zurück (der Griff zum
+// Andocken sitzt in seiner eigenen Kopfzeile).
+void TestPanelAbloesen::einPanelVomAbgezogenenZweitschirmBleibtErreichbar()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("zweitschirm.sqlite"));
+    QVERIFY(controller);
+
+    // Was gestern gespeichert wurde, als der zweite Schirm noch hing:
+    // angedockte Lage, abgelöst, und die Fensterlage weit jenseits
+    // jedes heute vorhandenen Schirms. Von Hand geschrieben, weil
+    // genau das der Zustand ist, den kein Fenstersystem heute noch
+    // erzeugen würde.
+    controller->database().setSettingValue(
+        QStringLiteral("PanelLayout_bandmap"),
+        QStringLiteral("40|40|400|320|false|float|5200|3400|400|320"));
+
+    MainWindow window(*controller);
+    window.resize(1440, 900);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    auto* manager = window.findChild<PanelLayoutManager*>();
+    QVERIFY(manager);
+    PanelContainerWidget* bandmap = manager->panel(QStringLiteral("bandmap"));
+    QVERIFY(bandmap);
+
+    const QRect lage = bandmap->isFloating() ? bandmap->geometry()
+                                             : bandmap->mapTo(window.window(), QPoint(0, 0)).isNull()
+                                                   ? bandmap->geometry()
+                                                   : bandmap->geometry();
+    qInfo().noquote() << "abgelöst:" << bandmap->isFloating() << "Lage:" << lage;
+
+    if (bandmap->isFloating()) {
+        // Abgelöst wiedergekommen: dann muss die Lage auf einem Schirm
+        // liegen, den es heute gibt.
+        bool aufEinemSchirm = false;
+        for (const QScreen* schirm : QGuiApplication::screens()) {
+            if (schirm->availableGeometry().intersects(lage)) {
+                aufEinemSchirm = true;
+                break;
+            }
+            qInfo().noquote() << "Schirm:" << schirm->availableGeometry();
+        }
+        QVERIFY2(aufEinemSchirm,
+                 qPrintable(QStringLiteral("Das abgelöste Panel steht bei %1,%2 und damit auf keinem "
+                                            "vorhandenen Schirm -- unsichtbar und nicht erreichbar")
+                                .arg(lage.x())
+                                .arg(lage.y())));
+        // Und die Titelzeile muss greifbar sein, sonst lässt sich das
+        // Fenster nicht einmal verschieben.
+        const QRect verfuegbar = bandmap->screen()->availableGeometry();
+        QVERIFY2(verfuegbar.contains(lage.topLeft()),
+                 qPrintable(QStringLiteral("Die obere linke Ecke (%1,%2) liegt außerhalb von %3,%4 %5x%6")
+                                .arg(lage.x()).arg(lage.y())
+                                .arg(verfuegbar.x()).arg(verfuegbar.y())
+                                .arg(verfuegbar.width()).arg(verfuegbar.height())));
     }
 }
 

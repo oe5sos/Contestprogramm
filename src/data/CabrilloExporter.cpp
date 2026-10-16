@@ -2,6 +2,7 @@
 
 #include "BuildInfo.h"
 #include "app/ContestSettings.h"
+#include "core/AsciiText.h"
 #include "core/BandUtils.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
@@ -75,6 +76,30 @@ QString cabrilloCategoryBand(const QString& band)
         }
     }
     return band;
+}
+
+// Cabrillo trennt die Spalten der QSO-Zeile mit Leerzeichen. Im
+// Austausch sind sie gewollt ("59 001 JN67UT" sind drei Spalten), in
+// einem RUFZEICHEN nie: ein Leerzeichen darin schöbe alles dahinter um
+// eine Spalte, und ein Robot liest positionsweise. Über die
+// Eingabezeile ist das nicht zu tippen (die Leertaste springt dort
+// weiter), über einen Import (data/LogFileReader.h) oder das Feld für
+// das eigene Rufzeichen in den Einstellungen sehr wohl.
+QString callsignColumn(const QString& raw)
+{
+    QString value = asciiOnly(raw).simplified();
+    value.remove(QLatin1Char(' '));
+    return value;
+}
+
+// Cabrillo v3: "The Cabrillo file format is ASCII text." Umlaute
+// schreibt dieses Programm also aus, statt sie als UTF-8-Doppelbyte in
+// eine Datei zu legen, die ASCII sein soll -- siehe core/AsciiText.h.
+// Betroffen sind die Freitextzeilen (CLUB) und der Austausch, der in
+// manchen Contesten einen Namen trägt ("Jörg").
+QString textColumn(const QString& raw)
+{
+    return asciiOnly(raw).simplified();
 }
 
 QString formatDate(const QString& timestampUtc)
@@ -194,13 +219,14 @@ QString CabrilloExporter::exportContest(const QString& contestId,
 
     QStringList lines;
     lines << QStringLiteral("START-OF-LOG: 3.0");
-    lines << QStringLiteral("CALLSIGN: %1").arg(settings.ownCallsign);
+    lines << QStringLiteral("CALLSIGN: %1").arg(callsignColumn(settings.ownCallsign));
     // The robot reads this, so it must be the contest's own Cabrillo
     // name ("CQ-WW-CW"), not this program's internal id. A definition
     // without the key keeps the old behaviour -- better a wrong name
     // than an empty field, and the VHF/UHF contests submit EDI anyway.
-    lines << QStringLiteral("CONTEST: %1").arg(definition.cabrilloName().isEmpty() ? definition.id()
-                                                                                   : definition.cabrilloName());
+    lines << QStringLiteral("CONTEST: %1").arg(textColumn(definition.cabrilloName().isEmpty()
+                                                                   ? definition.id()
+                                                                   : definition.cabrilloName()));
     lines << QStringLiteral("CATEGORY-OPERATOR: %1").arg(categories.operatorCategory);
     lines << QStringLiteral("CATEGORY-ASSISTED: %1").arg(categories.assisted);
     lines << QStringLiteral("CATEGORY-BAND: %1").arg(categoryBand);
@@ -209,15 +235,15 @@ QString CabrilloExporter::exportContest(const QString& contestId,
     lines << QStringLiteral("CATEGORY-STATION: %1").arg(categories.station);
     lines << QStringLiteral("CATEGORY-TRANSMITTER: %1").arg(categories.transmitter);
     if (!categories.club.trimmed().isEmpty()) {
-        lines << QStringLiteral("CLUB: %1").arg(categories.club.trimmed());
+        lines << QStringLiteral("CLUB: %1").arg(textColumn(categories.club));
     }
     if (!categories.email.trimmed().isEmpty()) {
-        lines << QStringLiteral("EMAIL: %1").arg(categories.email.trimmed());
+        lines << QStringLiteral("EMAIL: %1").arg(textColumn(categories.email));
     }
     // GRID-LOCATOR, not LOCATION: the latter carries a section/country
     // ("DX", "OE"), and a Maidenhead square in it is simply the wrong
     // field.
-    lines << QStringLiteral("GRID-LOCATOR: %1").arg(settings.ownGrid);
+    lines << QStringLiteral("GRID-LOCATOR: %1").arg(callsignColumn(settings.ownGrid));
     lines << QStringLiteral("CREATED-BY: Contestprogramm %1").arg(QStringLiteral(CONTESTPROGRAMM_VERSION));
 
     for (const QsoRecord& record : records) {
@@ -226,10 +252,13 @@ QString CabrilloExporter::exportContest(const QString& contestId,
                      .arg(cabrilloModeCode(record.mode))
                      .arg(formatDate(record.timestampUtc))
                      .arg(formatTime(record.timestampUtc))
-                     .arg(settings.ownCallsign)
-                     .arg(record.exchangeSent)
-                     .arg(record.callsign)
-                     .arg(record.exchangeRcvd);
+                     .arg(callsignColumn(settings.ownCallsign))
+                     // Der Austausch darf Leerzeichen haben -- er IST
+                     // mehrspaltig -- nur keine doppelten und keine
+                     // Zeilenumbrüche.
+                     .arg(textColumn(record.exchangeSent))
+                     .arg(callsignColumn(record.callsign))
+                     .arg(textColumn(record.exchangeRcvd));
     }
 
     lines << QStringLiteral("END-OF-LOG:");

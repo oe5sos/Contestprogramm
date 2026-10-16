@@ -117,4 +117,25 @@ qint64 bandBaseHz(const QString& band)
     return 0;
 }
 
+QString contestModeName(const QString& rawMode)
+{
+    const QString m = rawMode.trimmed().toUpper();
+    if (m == QStringLiteral("USB") || m == QStringLiteral("LSB") || m == QStringLiteral("PH")
+        || m == QStringLiteral("PHONE") || m == QStringLiteral("SSB")) {
+        return QStringLiteral("SSB");
+    }
+    if (m == QStringLiteral("CW") || m == QStringLiteral("CWR")) {
+        return QStringLiteral("CW");
+    }
+    if (m == QStringLiteral("FM") || m == QStringLiteral("WFM") || m == QStringLiteral("NFM")
+        || m == QStringLiteral("FMN")) {
+        return QStringLiteral("FM");
+    }
+    if (m == QStringLiteral("RTTY") || m == QStringLiteral("RTTYR") || m == QStringLiteral("RY")) {
+        return QStringLiteral("RTTY");
+    }
+    return m;
+}
+
 } // namespace Contestprogramm
+

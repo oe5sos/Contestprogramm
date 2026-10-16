@@ -2,6 +2,10 @@
 
 #include "core/GeoFilter.h"
 #include "core/SpotCandidate.h"
+// Vollständig eingebunden statt vorwärts deklariert: die Schnittstelle
+// unten nennt DupeChecker::WorkedStations (siehe
+// refreshWorkedAndScores()).
+#include "data/DupeChecker.h"
 
 #include <QAbstractTableModel>
 #include <QString>
@@ -10,7 +14,6 @@
 
 namespace Contestprogramm {
 
-class DupeChecker;
 class MultiplierTracker;
 class RecentPropagationTracker;
 
@@ -156,6 +159,16 @@ public:
     // closes.
     void refreshWorkedAndScores();
 
+signals:
+    // Es ist etwas hereingekommen oder hat sich geändert, OHNE dass
+    // sich die Zusammensetzung der sichtbaren Zeilen geändert hätte --
+    // zum Beispiel eine Zeile, die der Filter aussortiert. Das
+    // Chatpanel zeigt wahlweise ALLE Zeilen, nicht nur die sichtbaren
+    // (ui/ChatPanelWidget.cpp, "alles zeigen"), und braucht deshalb
+    // ein Signal, das auch dann kommt, wenn das Modell selbst keine
+    // sichtbare Zeile vorzuweisen hat.
+    void feedChanged();
+
 public slots:
     void addCandidate(const SpotCandidate& candidate);
 
@@ -169,7 +182,15 @@ private:
 
     double computeScore(const SpotCandidate& candidate, bool worked, const GeoFilter::Result& geo) const;
     void rebuildVisibleRows();
-    bool computeWorked(const QString& callsign, qint64 freqHz) const;
+    // Welche Einträge sichtbar wären -- ohne etwas zu ändern, damit
+    // rebuildVisibleRows() vergleichen kann (siehe dort).
+    QVector<int> sichtbareZeilen() const;
+    // `vorab` ist die einmal gelesene Liste der gearbeiteten Stationen
+    // (DupeChecker::workedStations) -- gesetzt, wenn hunderte Einträge
+    // hintereinander beantwortet werden; sonst nullptr, dann wird je
+    // Station gefragt.
+    bool computeWorked(const QString& callsign, qint64 freqHz,
+                       const DupeChecker::WorkedStations* vorab = nullptr) const;
 
     GeoFilter& m_geoFilter;
     DupeChecker& m_dupeChecker;

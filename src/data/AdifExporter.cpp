@@ -1,6 +1,7 @@
 #include "data/AdifExporter.h"
 
 #include "app/ContestSettings.h"
+#include "core/BandUtils.h"
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
 
@@ -85,7 +86,12 @@ QString toAdifRecord(const QsoRecord& record, const ContestSettings& settings)
     // record.mode ("SSB"/"CW"/"FM"/"RTTY") already matches ADIF's MODE
     // enumeration directly -- unlike Cabrillo, which needs its own
     // PH/FM/RY/DG codes (see CabrilloExporter::cabrilloModeCode).
-    field(r, QStringLiteral("MODE"), record.mode.trimmed().toUpper());
+    // contestModeName() steht hier für die Zeilen, die vor dem
+    // 2026-10-16 über einen Import in die Datenbank gekommen sind und
+    // dort "USB" oder "LSB" tragen: das ist in ADIF keine Betriebsart,
+    // sondern ein Seitenband, und ein Logbuch am anderen Ende weist
+    // die Zeile zurück.
+    field(r, QStringLiteral("MODE"), contestModeName(record.mode));
 
     // The whole point of this exporter (see AdifExporter.h): the exact
     // frequency, Hz -> MHz, only ever written here, never in Cabrillo

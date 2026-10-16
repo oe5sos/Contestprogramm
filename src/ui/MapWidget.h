@@ -273,7 +273,7 @@ private:
     void drawStations(QPainter& painter, const QRectF& area) const;
     void drawHomeMarker(QPainter& painter, const QRectF& area) const;
     void drawNumbersColumn(QPainter& painter, const QRectF& column) const;
-    void drawLegend(QPainter& painter, const QPointF& bottomLeft) const;
+    void drawLegend(QPainter& painter, const QPointF& bottomLeft, double width) const;
 
     QString m_ownGrid;
     QString m_ownLabel;

@@ -165,6 +165,17 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
 
     m_radiusSpin->setRange(0.0, 5000.0);
     m_radiusSpin->setSuffix(QStringLiteral(" km"));
+    // Der Radius tut ZWEIERLEI, und das zweite stand nirgends: er ist
+    // die Weite der Karte beim Start UND die Grenze, hinter der eine
+    // Chat- oder Clusterzeile gar nicht mehr erscheint
+    // (core/GeoFilter.h). Im UKW-Contest zählen die Kilometer -- wer
+    // hier 300 stehen lässt, sieht die Stationen nicht, die die Punkte
+    // bringen.
+    m_radiusSpin->setToolTip(QStringLiteral(
+        "Weite der Karte beim Start -- und die Grenze für Chat und Vorschlagsliste: "
+        "Stationen weiter weg werden dort nicht angezeigt.\n"
+        "Vom Berg aus sind im UKW-Contest 500 bis 800 km üblich.\n"
+        "0 heißt: keine Grenze."));
     m_radiusSpin->setValue(initial.radiusKm);
 
     for (const ContestDefinition& def : m_availableContests) {
@@ -195,9 +206,17 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_contestEndEdit->setEnabled(hasContestEnd);
     connect(m_contestEndSetCheck, &QCheckBox::toggled, m_contestEndEdit, &QWidget::setEnabled);
 
+    // Die beiden TCI-Felder stehen in keinem Layout mehr (siehe die
+    // Begründung weiter unten bei networkForm). Ein Kind ohne Layout
+    // bekommt von Qt eine Vorgabegeometrie und läge sonst sichtbar in
+    // der linken oberen Ecke des Dialogs -- also ausdrücklich
+    // verstecken. Gelesen und zurückgeschrieben werden sie weiterhin,
+    // damit ein vorhandener Eintrag erhalten bleibt.
     m_tciHostEdit->setText(initial.tciHost);
+    m_tciHostEdit->hide();
     m_tciPortSpin->setRange(1, 65535);
     m_tciPortSpin->setValue(initial.tciPort);
+    m_tciPortSpin->hide();
 
     m_rigctldHostEdit->setText(initial.rigctldHost);
     // Das Funkgerät: oben die kurze, nach Wahrscheinlichkeit geordnete
@@ -460,7 +479,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     stationForm->addRow(QString(), m_gpsStatusLabel);
     stationForm->addRow(QStringLiteral("Standorthöhe:"), m_elevationSpin);
     stationForm->addRow(QStringLiteral("Antennenhöhe:"), m_antennaHeightSpin);
-    stationForm->addRow(QStringLiteral("Radius:"), m_radiusSpin);
+    stationForm->addRow(QStringLiteral("Radius (Karte + Chatfilter):"), m_radiusSpin);
     stationForm->addRow(QStringLiteral("Aktiver Contest:"), m_contestCombo);
     stationForm->addRow(QStringLiteral("Contest-Ende (UTC):"), contestEndRow);
 
@@ -502,19 +521,26 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // CAT rig. ON4KST credentials are used by On4kstClient, but live
     // connection to the real server is deliberately left to the
     // operator (see AppController::applyNetworkSettings).
+    // TCI-Host/-Port standen hier bis zum 2026-10-16 -- zwei Felder,
+    // die nichts taten: einen TciClient gibt es in diesem Programm
+    // nicht (AppController.h nennt ihn als nicht gebautes Stück des
+    // Plans), CAT geht über rigctld. Wer vor dem Contest die Adresse
+    // seines Geräts dort einträgt, wartet hinterher auf eine
+    // Verbindung, die niemand aufbaut. Die Einstellungen selbst
+    // (ContestSettings::tciHost/tciPort) bleiben, damit ein
+    // vorhandener Eintrag nicht verlorengeht; angeboten werden sie
+    // wieder, wenn es etwas gibt, das sie benutzt.
     auto* networkForm = new QFormLayout();
-    networkForm->addRow(QStringLiteral("TCI-Host:"), m_tciHostEdit);
-    networkForm->addRow(QStringLiteral("TCI-Port:"), m_tciPortSpin);
     networkForm->addRow(QStringLiteral("ON4KST-Benutzer:"), m_on4kstUserEdit);
     networkForm->addRow(QStringLiteral("ON4KST-Passwort:"), m_on4kstPassEdit);
     // DxClusterClient -- a second, independent spot source alongside
     // ON4KST (see ContestSettings::clusterHost/clusterPort). No fixed
     // public host the way ON4KST has one, so both fields are always
-    // active/editable here, unlike TCI-Host/-Port above.
+    // active/editable here.
     networkForm->addRow(QStringLiteral("DX-Cluster-Host:"), m_clusterHostEdit);
     networkForm->addRow(QStringLiteral("DX-Cluster-Port:"), m_clusterPortSpin);
 
-    auto* networkGroup = new QGroupBox(QStringLiteral("Netzwerk (ON4KST/Cluster/TCI, teils noch nicht aktiv)"), this);
+    auto* networkGroup = new QGroupBox(QStringLiteral("Netzwerk (ON4KST, DX-Cluster)"), this);
     networkGroup->setLayout(networkForm);
 
     // Callsign->grid autofill: local import first (offline, see

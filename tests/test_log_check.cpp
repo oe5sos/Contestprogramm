@@ -98,6 +98,7 @@ private slots:
     void serialScopeContestCountsAcrossBands();
     void forbiddenModeAndOwnCallsignAreErrors();
     void oddCallsignAndRstShapeAreWarnings();
+    void eineBakeImLogIstEinFehler();
     void sameCallWithTwoLocatorsIsAWarning();
     void implausibleDistanceAndBandMismatchesAreWarnings();
     void unmarkedDupeIsAWarningAndMarkedDupesAreExemptFromExchangeTests();
@@ -275,6 +276,33 @@ void TestLogCheck::forbiddenModeAndOwnCallsignAreErrors()
     QCOMPARE(find(result, QStringLiteral("own_call"))->callsign, QStringLiteral("OE5SOS"));
     // Without a mode list any mode passes.
     QVERIFY(!codes(checkLog(log, context()), LogCheckIssue::Severity::Error).contains(QStringLiteral("mode_not_allowed")));
+}
+
+// Eine Bake antwortet nicht -- sie steht aber in der Bandmap und im
+// Chat, und ein Klick darauf füllt die Eingabezeile. Wer dann Return
+// drückt, hat sie im Log. Der Auswerter streicht so ein "QSO" und
+// rechnet es als Fehler an; das Programm weiß längst, was eine Bake
+// ist (core/CallsignPrefix.h, isBeaconCallsign -- der
+// Betriebsassistent schlug schon einmal eine als nächstes Ziel vor),
+// nur die Logprüfung sagte nichts.
+void TestLogCheck::eineBakeImLogIstEinFehler()
+{
+    QVector<QsoRecord> log;
+    log << qso(QStringLiteral("DL1ABC"), QStringLiteral("144"), 1, QStringLiteral("JN58SD"), QStringLiteral("2026-10-03T15:00:00Z"))
+        << qso(QStringLiteral("OE5XBM/B"), QStringLiteral("144"), 2, QStringLiteral("JN68PC"), QStringLiteral("2026-10-03T15:01:00Z"))
+        << qso(QStringLiteral("DB0FAI/BCN"), QStringLiteral("144"), 3, QStringLiteral("JN57MT"), QStringLiteral("2026-10-03T15:02:00Z"));
+    const LogCheckResult result = checkLog(log, context());
+    const QStringList fehler = codes(result, LogCheckIssue::Severity::Error);
+    QVERIFY2(fehler.contains(QStringLiteral("beacon")), qPrintable(fehler.join(QStringLiteral(", "))));
+    QCOMPARE(find(result, QStringLiteral("beacon"))->callsign, QStringLiteral("OE5XBM/B"));
+    // Beide Schreibweisen, und das richtige QSO bleibt unbehelligt.
+    int baken = 0;
+    for (const LogCheckIssue& issue : result.issues) {
+        if (issue.code == QStringLiteral("beacon")) {
+            ++baken;
+        }
+    }
+    QCOMPARE(baken, 2);
 }
 
 void TestLogCheck::oddCallsignAndRstShapeAreWarnings()

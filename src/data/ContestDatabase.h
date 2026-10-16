@@ -50,6 +50,11 @@ public:
     // reason this exists. Every read accessor below works as usual;
     // every write one fails with a "readonly database" lastError().
     bool openReadOnly(const QString& path, const QString& connectionName);
+    // Trägt diese Datei überhaupt ein Log dieses Programms? Eine
+    // gültige SQLite-Datei ist noch keine Sicherung -- geprüft, bevor
+    // data/BackupRestore.h::restoreDatabaseFile das laufende Log durch
+    // sie ersetzt.
+    bool hasQsoTable() const;
     void close();
     bool isOpen() const;
     // The file behind the open connection (empty when closed).

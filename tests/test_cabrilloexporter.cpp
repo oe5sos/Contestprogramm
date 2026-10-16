@@ -46,6 +46,7 @@ private slots:
     void hfLogCarriesKilohertzAndTheContestsOwnName();
     void categoriesComeFromTheDialogAndAreRemembered();
     void qsoLinesComeOutInTheOrderTheContactsHappened();
+    void aSpaceInACallsignCannotShiftTheColumns();
 };
 
 void TestCabrilloExporter::exportsGoldenBlock()
@@ -341,6 +342,49 @@ void TestCabrilloExporter::qsoLinesComeOutInTheOrderTheContactsHappened()
     QVERIFY2(first > 0, qPrintable(text));
     QVERIFY2(second > first, qPrintable(text));
     QVERIFY2(third > second, qPrintable(text));
+    db.close();
+}
+
+// Cabrillo liest positionsweise, getrennt durch Leerzeichen. Im
+// Austausch sind sie gewollt, in einem Rufzeichen nie -- sonst steht
+// jede Spalte dahinter eine zu weit.
+void TestCabrilloExporter::aSpaceInACallsignCannotShiftTheColumns()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("spalten.sqlite")), QStringLiteral("cabrillo_spalten")));
+
+    QsoRecord r;
+    r.callsign = QStringLiteral("DL1 ABC");   // wie aus einem Import
+    r.band = QStringLiteral("144");
+    r.mode = QStringLiteral("SSB");
+    r.timestampUtc = QStringLiteral("2026-10-03T08:00:00Z");
+    r.contestId = QStringLiteral("X");
+    r.exchangeSent = QStringLiteral("59 001 JN67UT");
+    r.exchangeRcvd = QStringLiteral("59  002  JN58SD"); // doppelte Leerzeichen
+    QVERIFY(db.insertQso(r));
+
+    ContestDefinition definition;
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5 SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    const QString text = CabrilloExporter(db).exportContest(QStringLiteral("X"), definition, settings);
+
+    QString qsoZeile;
+    for (const QString& line : text.split(QLatin1Char('\n'))) {
+        if (line.startsWith(QStringLiteral("QSO: "))) {
+            qsoZeile = line;
+            break;
+        }
+    }
+    QVERIFY2(!qsoZeile.isEmpty(), qPrintable(text));
+    // Band, Mode, Datum, Zeit, eigenes Call, 3x Austausch gesendet,
+    // fremdes Call, 3x Austausch empfangen = 12 Spalten nach "QSO:".
+    const QStringList spalten = qsoZeile.mid(5).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    QCOMPARE(spalten.size(), 12);
+    QCOMPARE(spalten.at(4), QStringLiteral("OE5SOS"));
+    QCOMPARE(spalten.at(8), QStringLiteral("DL1ABC"));
     db.close();
 }
 

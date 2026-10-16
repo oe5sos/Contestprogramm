@@ -104,4 +104,45 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
     return std::nullopt;
 }
 
+bool DupeChecker::WorkedStations::workedOnBand(const QString& callsign, const QString& band) const
+{
+    return byCallAndBand.contains(baseCallsign(callsign) + QLatin1Char('|')
+                                  + band.trimmed().toUpper());
+}
+
+bool DupeChecker::WorkedStations::workedAtAll(const QString& callsign) const
+{
+    return byCall.contains(baseCallsign(callsign));
+}
+
+DupeChecker::WorkedStations DupeChecker::workedStations(const QString& contestId) const
+{
+    m_lastError.clear();
+    WorkedStations result;
+
+    QSqlQuery query(m_database.db());
+    query.prepare(QStringLiteral(
+        "SELECT DISTINCT callsign, band FROM qsos WHERE contest_id = :contest_id AND is_invalid = 0"));
+    query.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return result;
+    }
+    QSet<QString> bands;
+    while (query.next()) {
+        const QString base = baseCallsign(query.value(0).toString());
+        if (base.isEmpty()) {
+            continue;
+        }
+        const QString band = query.value(1).toString().trimmed().toUpper();
+        result.byCall.insert(base);
+        result.byCallAndBand.insert(base + QLatin1Char('|') + band);
+        if (!band.isEmpty()) {
+            bands.insert(band);
+        }
+    }
+    result.bands = QStringList(bands.constBegin(), bands.constEnd());
+    return result;
+}
+
 } // namespace Contestprogramm

@@ -217,7 +217,11 @@ QVector<ImportedQso> LogFileReader::parseAdif(const QByteArray& data)
         } else if (name == QStringLiteral("BAND")) {
             current.band = bandFromLabel(value);
         } else if (name == QStringLiteral("MODE")) {
-            current.mode = value.toUpper();
+            // Nicht wörtlich: fremde Logs schreiben hier das
+            // Seitenband ("USB"/"LSB"), und das wäre für die
+            // Dupe-Prüfung eine eigene Betriebsart. Siehe
+            // core/BandUtils.h, contestModeName().
+            current.mode = contestModeName(value);
         } else if (name == QStringLiteral("QSO_DATE")) {
             qsoDate = value;
         } else if (name == QStringLiteral("TIME_ON")) {
@@ -232,6 +236,10 @@ QVector<ImportedQso> LogFileReader::parseAdif(const QByteArray& data)
             current.serialRcvd = value.toInt();
         } else if (name == QStringLiteral("CONTEST_ID")) {
             current.contestId = value;
+        } else if (name == QStringLiteral("STX_STRING")) {
+            current.exchangeSent = value;
+        } else if (name == QStringLiteral("SRX_STRING")) {
+            current.exchangeRcvd = value;
         }
     }
     return result;

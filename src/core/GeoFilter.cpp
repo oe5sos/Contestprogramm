@@ -30,7 +30,11 @@ GeoFilter::Result GeoFilter::classify(const SpotCandidate& candidate) const
     result.distanceKnown = true;
     result.distanceKm = calculateDistanceKm(m_ownGrid, candidate.grid);
     result.bearingDeg = calculateBearingInDegrees(m_ownGrid, candidate.grid);
-    result.inRange = result.distanceKm <= m_radiusKm;
+    // Radius 0 heißt "keine Grenze", nicht "alles weg". Das Feld im
+    // Einstellungsfenster lässt 0 ausdrücklich zu, und dort liest es
+    // sich wie "kein Filter" -- gerechnet hätte es jede Station
+    // verschwinden lassen, deren Entfernung überhaupt bekannt ist.
+    result.inRange = m_radiusKm <= 0.0 || result.distanceKm <= m_radiusKm;
 
     if (m_terrainDataManager) {
         result.terrain = m_terrainDataManager->classification(candidate.grid, m_terrainFrequencyMhz);

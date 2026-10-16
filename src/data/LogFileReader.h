@@ -31,6 +31,14 @@ struct ImportedQso {
     int serialSent = 0;   // STX, 0 = nicht dabei
     int serialRcvd = 0;   // SRX, 0 = nicht dabei
     QString contestId;    // CONTEST_ID
+
+    // Der getauschte Text, wie er im Log steht ("59 003 JN58SD").
+    // Steht in der Journalzeile als STX_STRING/SRX_STRING (siehe
+    // data/AdifExporter.cpp) -- ohne ihn blieben nach einem
+    // Wiederherstellen die Austauschspalten im Log leer, obwohl alles
+    // dagewesen wäre.
+    QString exchangeSent; // STX_STRING
+    QString exchangeRcvd; // SRX_STRING
 };
 
 class LogFileReader {

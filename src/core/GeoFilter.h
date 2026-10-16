@@ -30,6 +30,7 @@ public:
     };
 
     void setOwnGrid(const QString& grid);
+    // 0 (oder weniger) heißt "keine Grenze" -- siehe classify().
     void setRadiusKm(double radiusKm);
 
     // Optional -- not set (the default, and Phase 1's own untouched

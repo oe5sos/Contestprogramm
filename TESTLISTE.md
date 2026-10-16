@@ -9,6 +9,11 @@ bewusst aufgeschoben.
 - [ ] **Zweiter Sicherungsordner setzen.** USB-Stick anstecken,
       *Datei › Sicherung › Zweiter Sicherungsordner…*. Ohne das liegt
       jede Sicherung nur auf derselben Platte wie das Log.
+- [ ] **Eine EDI-Datei wirklich einreichen.** Das Programm hält jetzt
+      die REG1TEST-Spezifikation Feld für Feld ein (Zeichensatz,
+      Zeilenlänge, Spaltenlängen -- `tests/test_edi_spezifikation.cpp`),
+      aber ob der Robot des jeweiligen Contests sie annimmt, zeigt nur
+      die Einreichung selbst. Am besten vorab mit einem Übungslog.
 - [ ] **Alltagsdurchgang vor dem Contest**: ein paar QSOs loggen, eines
       korrigieren, eines löschen, eines ungültig setzen, Band wechseln.
 - [ ] **Chatraum-Nummern prüfen.** Belegt ist nur 2 (144/432). Ob

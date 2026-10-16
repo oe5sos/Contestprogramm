@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QLineEdit>
 
 #include "data/ContestDefinition.h"
 #include "ui/UnifiedLogWidget.h"
@@ -66,6 +67,7 @@ private slots:
     void applyKnownExchangeGeneralizesToTypeAndAutoIncrement();
     void resetForNextEntryClearsAllDynamicFields();
     void rebuildDropsFieldsNoLongerPresent();
+    void spaceTypesASpaceInAFreeTextFieldButJumpsOnElsewhere();
 };
 
 void TestEntryBarDynamicFields::rebuildsRowFromExchangeFields()
@@ -163,6 +165,50 @@ void TestEntryBarDynamicFields::rebuildDropsFieldsNoLongerPresent()
 
 // Not QTEST_APPLESS_MAIN: UnifiedLogWidget is a QWidget subclass, which
 // needs a live QApplication (not just QCoreApplication) to construct.
+
+// Die Leertaste springt in der Eingabezeile zum nächsten Feld -- in
+// Rufzeichen, RST, Nummer und Locator ist ein Leerzeichen ja nie
+// sinnvoll. In einem FREIEN TEXTFELD schon: der Regeleditor legt neue
+// Austauschfelder genau als "text" an (ContestRulesEditor.cpp), und ein
+// Contest, der Name, QTH oder Sektion austauscht, braucht dort ein
+// Leerzeichen ("St. Veit", "OE 05"). Vorher war es in diesem einen
+// Feld nicht einzutippen.
+void TestEntryBarDynamicFields::spaceTypesASpaceInAFreeTextFieldButJumpsOnElsewhere()
+{
+    UnifiedLogWidget widget;
+    widget.setExchangeFields(threeFieldRenamed()); // nr (int), locator (grid6), name (text)
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+
+    const auto feldMit = [&widget](const QString& platzhalter) -> QLineEdit* {
+        for (QLineEdit* edit : widget.findChildren<QLineEdit*>()) {
+            if (edit->placeholderText() == platzhalter) {
+                return edit;
+            }
+        }
+        return nullptr;
+    };
+
+    QLineEdit* name = feldMit(QStringLiteral("Name"));
+    QVERIFY2(name, "Das Textfeld der Eingabezeile fehlt");
+    name->setFocus();
+    name->setText(QStringLiteral("St."));
+    name->setCursorPosition(name->text().size());
+    QTest::keyClick(name, Qt::Key_Space);
+    QTest::keyClicks(name, QStringLiteral("Veit"));
+    QCOMPARE(widget.exchangeReceived().value(QStringLiteral("name")), QStringLiteral("St. Veit"));
+
+    // Und überall sonst bleibt die Leertaste der Sprung: im Locator
+    // (grid6) kommt kein Leerzeichen an.
+    QLineEdit* locator = feldMit(QStringLiteral("Locator"));
+    QVERIFY(locator);
+    locator->setFocus();
+    locator->setText(QStringLiteral("JN67"));
+    locator->setCursorPosition(locator->text().size());
+    QTest::keyClick(locator, Qt::Key_Space);
+    QCOMPARE(widget.exchangeReceived().value(QStringLiteral("locator")), QStringLiteral("JN67"));
+}
+
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);

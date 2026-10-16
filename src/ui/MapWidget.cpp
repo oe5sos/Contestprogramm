@@ -1428,15 +1428,40 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
 {
     const double x = column.left();
     double y = column.top() + 10.0;
+    // Beschnitten statt abgeschnitten: drawText() an einem Punkt kennt
+    // keine Breite, und was nicht in die Spalte passt, lief bisher
+    // darüber hinaus und wurde am Rand des Widgets mitten im Wort
+    // gekappt -- "BEAM · ROTOR 1 · 2M · GETRE". Zu sehen war das genau
+    // dann, wenn die Rotoren noch NICHT hängen: dann hängt an der
+    // Bezeichnung noch "· getrennt". Mit den Auslassungspunkten sieht
+    // man wenigstens, dass da mehr steht.
+    const auto gekuerzt = [&painter, &column](const QString& text) {
+        return QFontMetricsF(painter.font()).elidedText(text, Qt::ElideRight, column.width());
+    };
+    // Passt die volle Beschriftung nicht, fällt zuerst die
+    // Bandbezeichnung weg -- NICHT das Wort "getrennt". Das steht hier,
+    // weil der Rotor gerade nicht antwortet, und ist das Wichtigste an
+    // der ganzen Zeile; die Bandbezeichnung steht ohnehin auch im
+    // Rotorpanel. Auslassungspunkte erst, wenn auch die kurze Fassung
+    // zu lang ist.
+    const auto passendeBeschriftung = [&column, this](const QStringList& fassungen) {
+        const QFontMetricsF fm(Style::capsFont(font(), Style::kFontCaption));
+        for (const QString& fassung : fassungen) {
+            if (fm.horizontalAdvance(fassung.toUpper()) <= column.width()) {
+                return fassung;
+            }
+        }
+        return fassungen.last();
+    };
     const auto caption = [&](const QString& text) {
         painter.setFont(Style::capsFont(font(), Style::kFontCaption));
         painter.setPen(QColor(Style::kTextScale()));
-        painter.drawText(QPointF(x, y), text.toUpper());
+        painter.drawText(QPointF(x, y), gekuerzt(text.toUpper()));
     };
     const auto value = [&](const QString& text, const QColor& color, int px) {
         painter.setFont(Style::monoFont(font(), px, QFont::DemiBold));
         painter.setPen(color);
-        painter.drawText(QPointF(x, y + px + 4), text);
+        painter.drawText(QPointF(x, y + px + 4), gekuerzt(text));
         y += px + 26;
     };
 
@@ -1445,13 +1470,13 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     // nicht im großen Wert -- dort trüge es sonst dasselbe Gewicht wie
     // die Peilung selbst.
     {
-        QString beamCaption = m_rotor1Label.isEmpty()
-            ? QStringLiteral("Beam · Rotor 1")
-            : QStringLiteral("Beam · Rotor 1 · %1").arg(m_rotor1Label);
-        if (m_rotor1Connected && !m_rotor1Live) {
-            beamCaption += QStringLiteral(" · getrennt");
-        }
-        caption(beamCaption);
+        const QString band = m_rotor1Label.isEmpty() ? QString()
+                                                     : QStringLiteral(" · %1").arg(m_rotor1Label);
+        const QString zustand = (m_rotor1Connected && !m_rotor1Live) ? QStringLiteral(" · getrennt")
+                                                                     : QString();
+        caption(passendeBeschriftung({QStringLiteral("Beam · Rotor 1%1%2").arg(band, zustand),
+                                      QStringLiteral("Beam · Rotor 1%1").arg(zustand),
+                                      QStringLiteral("Rotor 1%1").arg(zustand)}));
     }
     QString beamText = Style::unknownDash();
     if (m_rotor1Connected) {
@@ -1463,12 +1488,11 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     value(beamText, m_rotor1Live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive()),
           Style::kFontReading);
     if (m_rotor2Connected && m_showRotor2Heading) {
-        QString rotor2Caption = m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2")
-                                                        : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label);
-        if (!m_rotor2Live) {
-            rotor2Caption += QStringLiteral(" · getrennt");
-        }
-        caption(rotor2Caption);
+        const QString band2 = m_rotor2Label.isEmpty() ? QString()
+                                                       : QStringLiteral(" · %1").arg(m_rotor2Label);
+        const QString zustand2 = m_rotor2Live ? QString() : QStringLiteral(" · getrennt");
+        caption(passendeBeschriftung({QStringLiteral("Rotor 2%1%2").arg(band2, zustand2),
+                                      QStringLiteral("Rotor 2%1").arg(zustand2)}));
         QString text = QStringLiteral("%1°").arg(wrap360(m_rotor2AzimuthDeg), 0, 'f', 0);
         if (m_rotor2SecondEnabled) {
             text += QStringLiteral(" · %1°").arg(wrap360(m_rotor2AzimuthDeg + m_rotor2SecondOffsetDeg), 0, 'f', 0);
@@ -1550,34 +1574,39 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
         value(sunText, QColor(Style::kTextSecondary()), Style::kFontBody);
     }
 
-    drawLegend(painter, QPointF(x, column.bottom() - 4.0));
+    drawLegend(painter, QPointF(x, column.bottom() - 4.0), column.width());
 }
 
-void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft) const
+void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft, double width) const
 {
     painter.setFont(Style::capsFont(font(), Style::kFontCaption));
     const QColor text{Style::kTextTertiary()};
     double y = bottomLeft.y();
     const double x = bottomLeft.x();
+    // Die Zeile beginnt 14 Bildpunkte rechts vom Zeichen; so viel
+    // weniger Platz hat ihre Schrift. Siehe drawNumbersColumn().
+    const auto gekuerzt = [&painter, width](const QString& t) {
+        return QFontMetricsF(painter.font()).elidedText(t, Qt::ElideRight, qMax(0.0, width - 14.0));
+    };
     if (hasHorizon() && m_showHorizon) {
         painter.setPen(Qt::NoPen);
         painter.setBrush(withAlpha(Style::kAmberDim(), 160));
         painter.drawRect(QRectF(x, y - 9.0, 9.0, 8.0));
         painter.setPen(text);
-        painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("BERGE VERDECKEN"));
+        painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("BERGE VERDECKEN")));
         y -= 16.0;
     }
     painter.setPen(QPen(markerColor(false), 1.5));
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(QPointF(x + 4.0, y - 5.0), 4.0, 4.0);
     painter.setPen(text);
-    painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("GESPOTTET · OFFEN"));
+    painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("GESPOTTET · OFFEN")));
     y -= 16.0;
     painter.setPen(Qt::NoPen);
     painter.setBrush(markerColor(true));
     painter.drawEllipse(QPointF(x + 4.0, y - 5.0), 3.0, 3.0);
     painter.setPen(text);
-    painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("GEARBEITET"));
+    painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("GEARBEITET")));
 }
 
 void MapWidget::paintEvent(QPaintEvent* /*event*/)

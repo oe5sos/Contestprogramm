@@ -51,6 +51,11 @@ struct ReadinessContext {
     double ownExactLongitude = 0.0;
     double ownElevationM = 0.0;
     double antennaHeightM = 0.0;
+    // Der Radius aus den Einstellungen. Er ist nicht nur die
+    // Kartenweite: core/GeoFilter.h blendet jede Chat- und Clusterzeile
+    // AUS, deren Station weiter weg ist. Deshalb gehört er in den
+    // Startcheck -- siehe dort.
+    double radiusKm = 0.0;
     // The machine's clock against a web server's (core/ClockCheck.h):
     // unchecked while the first round runs, unreachable without
     // internet, else the offset local minus server in seconds.

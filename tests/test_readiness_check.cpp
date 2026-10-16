@@ -104,6 +104,7 @@ private slots:
     void bandmapStartsOnTheContestsFirstBand();
     void countryListOnlyAppearsWhereItMatters();
     void fileMenuIsGroupedAndLosesNothing();
+    void derRadiusStehtImStartcheck();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -132,6 +133,37 @@ void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
     QCOMPARE(itemWithCode(checkReadiness(off), QStringLiteral("transverter"))->level, ReadinessItem::Level::Hint);
     off.contestBands = {QStringLiteral("144")};
     QVERIFY(!itemWithCode(checkReadiness(off), QStringLiteral("transverter")));
+}
+
+// Der Radius ist nicht nur die Kartenweite: core/GeoFilter.h blendet
+// jede Chat- und Clusterzeile aus, deren Station weiter weg ist. Im
+// UKW-Contest zählen die Kilometer -- wer die Vorgabe von 300 km
+// stehen lässt, sieht genau die Stationen nicht, die die Punkte
+// bringen. Der Startcheck sagt es jetzt, bevor es zu spät ist.
+void TestReadinessCheck::derRadiusStehtImStartcheck()
+{
+    ReadinessContext knapp = readyContext();
+    knapp.radiusKm = 300.0;
+    const ReadinessResult engResult = checkReadiness(knapp);
+    const ReadinessItem* eng = itemWithCode(engResult, QStringLiteral("radius"));
+    QVERIFY2(eng, "Kein Eintrag zur Reichweite im Startcheck");
+    QCOMPARE(eng->level, ReadinessItem::Level::Hint);
+    QVERIFY2(eng->detail.contains(QStringLiteral("300 km")), qPrintable(eng->detail));
+    QVERIFY2(eng->detail.contains(QStringLiteral("Chat")), qPrintable(eng->detail));
+
+    ReadinessContext weit = readyContext();
+    weit.radiusKm = 800.0;
+    // Das Ergebnis in einer Variablen halten: itemWithCode() zeigt
+    // hinein, und ein Zeiger auf ein Zwischenergebnis wäre nach dem
+    // Semikolon nichts mehr wert.
+    const ReadinessResult weitResult = checkReadiness(weit);
+    const ReadinessItem* gross = itemWithCode(weitResult, QStringLiteral("radius"));
+    QVERIFY(gross);
+    QCOMPARE(gross->level, ReadinessItem::Level::Ok);
+    QVERIFY2(gross->detail.contains(QStringLiteral("800 km")), qPrintable(gross->detail));
+
+    // Und ein Hinweis macht den Startcheck nicht "nicht bereit".
+    QVERIFY(engResult.ready());
 }
 
 void TestReadinessCheck::missingStationDataIsAnError()

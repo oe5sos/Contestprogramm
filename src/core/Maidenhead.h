@@ -34,6 +34,8 @@
 
 #include <QString>
 
+#include <optional>
+
 namespace Contestprogramm {
 
 // Centre of the given Maidenhead square. Accepts 4- or 6-character
@@ -54,6 +56,15 @@ double calculateBearingInDegrees(const QString& gridSquare1,
 // A locator is usable for distance/bearing from four characters on:
 // two letters, two digits, optionally two more letters.
 bool isValidGridSquare(const QString& gridSquare);
+
+// Derselbe Locator, auf die Form gebracht, mit der dieses Programm
+// rechnet: ohne Leerzeichen, gross, und achtstellige Locatoren (die in
+// Datenbanken und in fremden Logdateien vorkommen) auf ihre ersten
+// sechs Stellen gekuerzt -- die stimmen ja. Was danach kein Locator
+// ist, kommt als std::nullopt zurueck; "irgendwas" ist hier schlechter
+// als "nichts", denn ein falscher Locator wandert in die Wertung und
+// in die Abgabedatei.
+std::optional<QString> normalizedGridSquare(const QString& raw);
 
 // Ein vollstaendiger, sechsstelliger Locator (JN67VV). Die IARU-R1-
 // Regeln verlangen ihn im Austausch (GC 2023, 1.9.1: "the complete QTH

@@ -219,6 +219,16 @@ LogCheckResult checkLog(const QVector<QsoRecord>& records, const LogCheckContext
         if (!call.isEmpty() && call == context.ownCallsign) {
             out.add(Severity::Error, record, QStringLiteral("own_call"),
                     QStringLiteral("Eigenes Rufzeichen geloggt"));
+        } else if (isBeaconCallsign(call)) {
+            // Eine Bake antwortet nicht. Sie steht aber in der Bandmap
+            // und im Chat, und ein Klick darauf füllt die
+            // Eingabezeile -- ein Return weiter steht sie im Log. Der
+            // Auswerter streicht so ein "QSO" und rechnet es an.
+            // (Dass das Programm Baken kennt, war schon nötig, damit
+            // der Betriebsassistent nicht eine als nächstes Ziel
+            // vorschlägt: core/CallsignPrefix.h.)
+            out.add(Severity::Error, record, QStringLiteral("beacon"),
+                    QStringLiteral("Bake geloggt -- sie antwortet nicht und zählt nicht"));
         } else if (!callsignLooksSane(call)) {
             out.add(Severity::Warning, record, QStringLiteral("callsign_odd"),
                     QStringLiteral("Rufzeichen sieht falsch aus: \"%1\"").arg(call));

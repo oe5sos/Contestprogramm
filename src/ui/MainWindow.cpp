@@ -2004,20 +2004,15 @@ QString MainWindow::contestModeForRigctldMode(const QString& rigMode)
     // (RIG_MODE_* -> "USB"/"LSB"/"CW"/"CWR"/"FM"/"RTTY"/... per
     // hamlib/rig.h); UnifiedLogWidget's mode combo only offers the four
     // contest-relevant buckets set up in applyActiveContestDefinition().
-    const QString upper = rigMode.trimmed().toUpper();
-    if (upper == QStringLiteral("USB") || upper == QStringLiteral("LSB")) {
-        return QStringLiteral("SSB");
-    }
-    if (upper == QStringLiteral("CW") || upper == QStringLiteral("CWR")) {
-        return QStringLiteral("CW");
-    }
-    if (upper == QStringLiteral("FM") || upper == QStringLiteral("WFM")) {
-        return QStringLiteral("FM");
-    }
-    if (upper == QStringLiteral("RTTY") || upper == QStringLiteral("RTTYR")) {
-        return QStringLiteral("RTTY");
-    }
-    return QString();
+    // Die Tabelle steht in core/BandUtils.h (contestModeName), weil
+    // der Import fremder Logdateien dieselbe braucht. Hier gilt
+    // zusätzlich: was keine der vier Contest-Betriebsarten ist, setzt
+    // nichts -- das Gerät kann in AM, PSK oder PKTFM stehen, und dann
+    // soll die Auswahl im Eingabefeld bleiben, wo sie ist.
+    const QString mode = contestModeName(rigMode);
+    static const QStringList kContestModes = {QStringLiteral("SSB"), QStringLiteral("CW"),
+                                              QStringLiteral("FM"), QStringLiteral("RTTY")};
+    return kContestModes.contains(mode) ? mode : QString();
 }
 
 void MainWindow::applyActiveContestDefinition()
@@ -2755,7 +2750,7 @@ void MainWindow::refreshMapWidget()
                                                   settings.ownGrid, def ? def->bands() : QStringList(),
                                                   def ? def->scoring() : QStringLiteral("distance_km"));
     m_mapWidget->setScoreSummary(score.validQsos, score.points,
-                                 score.odxKm > 0 ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
+                                 !score.odxCall.isEmpty() ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
 }
 
 void MainWindow::refreshSuggestionPanel()
@@ -3479,7 +3474,14 @@ void MainWindow::handleLogRequested()
     refreshMapWidget();
     refreshSuggestionPanel();
     updateStatusBar();
-    reloadCheckPartialSources();
+    // Nicht alles neu einlesen, nur dieses eine Rufzeichen eintragen:
+    // der volle Weg holt das ganze Log, die importierten Locatoren und
+    // die früheren Logs aus der Datenbank und baut die Tabelle zweimal
+    // neu auf -- gemessen 54 ms nach jedem Return bei 1 200 QSOs. Für
+    // Korrekturen, Löschungen und den Contestwechsel bleibt er, dort
+    // ändert sich wirklich die Grundlage
+    // (siehe refreshAfterLogChange()).
+    m_checkPartialIndex.addLogCall(record.callsign, record.band);
     refreshBandmap();
     refreshScoreboard();
     refreshSkeds();
@@ -4971,6 +4973,16 @@ void MainWindow::chooseBackupMirror()
     if (chosen.isEmpty()) {
         return;
     }
+    // Markierung auf dem Datenträger anlegen, bevor irgendetwas
+    // kopiert wird: an ihr erkennt mirror() später, dass der Ordner
+    // noch derselbe ist (siehe LogBackup::prepareMirrorDirectory).
+    QString markeFehler;
+    if (!backup->prepareMirrorDirectory(chosen, &markeFehler)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Der zweite Sicherungsordner lässt sich nicht einrichten:\n%1\n\n%2")
+                                  .arg(chosen, markeFehler));
+        return;
+    }
     backup->setMirrorDirectory(chosen);
     m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), chosen);
     // A first copy right away, so the stick is never empty.
@@ -5037,6 +5049,8 @@ void MainWindow::restoreFromJournal()
 
     int ergaenzt = 0;
     int uebersprungen = 0;
+    int gescheitert = 0;
+    QString letzterFehler;
     for (const ImportedQso& q : gelesen) {
         if (q.callsign.isEmpty() || q.timestampUtc.isEmpty()) {
             ++uebersprungen;
@@ -5053,7 +5067,19 @@ void MainWindow::restoreFromJournal()
         r.band = q.band;
         r.mode = q.mode;
         r.timestampUtc = q.timestampUtc;
-        r.gridSquare = q.grid;
+        // Achtstellige Locatoren ("JN58SD12") stehen in vielen
+        // ADIF-Dateien. Unverändert übernommen zählt das QSO null
+        // Punkte (core/Maidenhead.h rechnet mit vier oder sechs
+        // Stellen) und die Abgabedatei trägt eine Spalte, die das
+        // Format nicht kennt. Die ersten sechs Stellen stimmen, also
+        // zurechtgebogen; was gar kein Locator ist, bleibt stehen, wie
+        // es dasteht -- die Logprüfung meldet es dann als
+        // "bad_locator", und das soll sie auch.
+        if (const std::optional<QString> grid = normalizedGridSquare(q.grid)) {
+            r.gridSquare = *grid;
+        } else {
+            r.gridSquare = q.grid.trimmed().toUpper();
+        }
         r.rstSent = q.rstSent;
         r.rstRcvd = q.rstRcvd;
         if (q.serialSent > 0) {
@@ -5062,20 +5088,38 @@ void MainWindow::restoreFromJournal()
         if (q.serialRcvd > 0) {
             r.serialRcvd = q.serialRcvd;
         }
+        // Der getauschte Text, soweit die Datei ihn trägt: das eigene
+        // Journal tut es (STX_STRING/SRX_STRING), und ohne ihn blieben
+        // die Austauschspalten im wiederhergestellten Log leer.
+        r.exchangeSent = q.exchangeSent;
+        r.exchangeRcvd = q.exchangeRcvd;
         r.contestId = contestId;
         r.source = QStringLiteral("journal");
         if (db.insertQso(r)) {
             bekannt.insert(schluessel);
             ++ergaenzt;
+        } else {
+            // Nicht verschlucken: ein QSO, das die Datenbank abweist,
+            // zählte vorher weder als ergänzt noch als übersprungen --
+            // es fehlte am Ende einfach, und niemand sagte es.
+            ++gescheitert;
+            if (letzterFehler.isEmpty()) {
+                letzterFehler = db.lastError();
+            }
         }
     }
     // Derselbe Weg, den auch Löschen und Korrigieren nehmen: Tabelle,
     // Punkte, Vorschau und die eigene nächste Nummer ziehen nach.
     refreshAfterLogChange();
-    QMessageBox::information(
-        this, QStringLiteral("Contestprogramm"),
-        QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
-            .arg(ergaenzt).arg(uebersprungen));
+    QString bericht = QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
+                           .arg(ergaenzt)
+                           .arg(uebersprungen);
+    if (gescheitert > 0) {
+        bericht += QStringLiteral("\n\nNicht gespeichert: %1 QSO(s) -- die Datenbank hat sie abgewiesen:\n%2")
+                       .arg(gescheitert)
+                       .arg(letzterFehler);
+    }
+    QMessageBox::information(this, QStringLiteral("Contestprogramm"), bericht);
 }
 
 void MainWindow::restoreBackup()
@@ -5185,6 +5229,17 @@ void MainWindow::refreshScoreboard()
         return;
     }
     const ContestSettings settings = m_appController.settings();
+    // Abgeschaltet: dann braucht der Scoreboard-Sender weder die
+    // Einstellungen noch das Log. Das Lesen des ganzen Logs kostete
+    // bei 1 200 QSOs rund 25 ms -- nach jedem geloggten QSO, für
+    // niemanden (gemessen 2026-10-16,
+    // tests/test_enter_am_contestende.cpp).
+    if (!settings.scoreboardEnabled || settings.scoreboardUrl.trimmed().isEmpty()) {
+        ScoreboardConfig aus;
+        aus.enabled = false;
+        m_scoreboard->setConfig(aus);
+        return;
+    }
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     ScoreboardConfig config;
     config.enabled = settings.scoreboardEnabled;
@@ -5692,6 +5747,7 @@ void MainWindow::refreshReadiness()
     }
     ctx.ownElevationM = settings.ownElevationM;
     ctx.antennaHeightM = settings.antennaHeightM;
+    ctx.radiusKm = settings.radiusKm;
 
     // The clock, asked anew once a minute while the window is open; the
     // answer arrives later and refreshes this snapshot again.

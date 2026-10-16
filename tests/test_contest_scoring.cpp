@@ -37,6 +37,7 @@ class TestContestScoring : public QObject
     Q_OBJECT
 
 private slots:
+    void theOdxOfABandWorkedOnlyInsideTheOwnSquareIsStillAnOdx();
     void distancePointsAreWholeKilometresWithAFloorOfOne();
     void dupesAndInvalidQsosNeverScore();
     void sumsPerBandInDefinitionOrderWithOdxAndSquares();
@@ -204,6 +205,36 @@ void TestContestScoring::definitionRejectsUnknownScoring()
     const ContestDefinition def = ContestDefinition::loadFromJson(QByteArray(json), &error);
     QVERIFY(!def.isValid());
     QVERIFY(error.contains(QStringLiteral("bonus_points")));
+}
+
+// Ein Band, auf dem nur Stationen im eigenen Großfeld gearbeitet
+// wurden: 0 km, aber es GIBT einen weitesten. Die Wertung setzt ihn
+// ausdrücklich ("ein QSO im eigenen Feld ... ist trotzdem dessen
+// ODX"), und der EDI-Kopf trägt ihn als CODXC. Die Anzeigen prüften
+// dagegen auf "odxKm > 0" und ließen ihn verschwinden -- der Schirm
+// sagte etwas anderes als die Datei, die eingereicht wird.
+void TestContestScoring::theOdxOfABandWorkedOnlyInsideTheOwnSquareIsStillAnOdx()
+{
+    const QVector<QsoRecord> records = {
+        makeQso(QStringLiteral("OE5XYZ"), QStringLiteral("432"), kOwn, 0.0),
+    };
+    const ContestScore score = computeContestScore(records, kOwn, {QStringLiteral("432")});
+    const BandScore* band = score.band(QStringLiteral("432"));
+    QVERIFY(band);
+    QCOMPARE(band->validQsos, 1);
+    QCOMPARE(band->odxKm, 0);
+    QCOMPARE(band->odxCall, QStringLiteral("OE5XYZ"));
+    QCOMPARE(band->odxGrid, kOwn);
+    QCOMPARE(score.odxCall, QStringLiteral("OE5XYZ"));
+    QCOMPARE(score.odxKm, 0);
+
+    // Ein QSO OHNE brauchbaren Locator wird dagegen nie zum ODX: es hat
+    // keine Entfernung, nicht die Entfernung null.
+    const QVector<QsoRecord> ohneLocator = {
+        makeQso(QStringLiteral("DL0ABC"), QStringLiteral("144"), QString(), -1.0),
+    };
+    const ContestScore leer = computeContestScore(ohneLocator, kOwn, {QStringLiteral("144")});
+    QVERIFY2(leer.odxCall.isEmpty(), qPrintable(leer.odxCall));
 }
 
 QTEST_APPLESS_MAIN(TestContestScoring)
