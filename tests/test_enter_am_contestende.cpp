@@ -185,6 +185,32 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
              qPrintable(QStringLiteral("Ein Anschlag dauerte %1 ms bei %2 QSOs")
                             .arg(anschlagMs, 0, 'f', 1)
                             .arg(vorher)));
+
+    // Der dritte Weg, der im Betrieb ständig läuft: eine ankommende
+    // Chat- oder Clusterzeile. Sie kommt nicht vom Bediener, hält ihn
+    // aber genauso auf -- alles im selben Faden.
+    QVector<double> zeilen;
+    for (int i = 0; i < 10; ++i) {
+        SpotCandidate c;
+        c.callsign = QStringLiteral("YU%1XYZ").arg(i);
+        c.grid = QStringLiteral("JN95AA");
+        c.freqHz = 144200000LL + i * 1000;
+        c.timestampUtc = QDateTime::currentDateTimeUtc();
+        c.source = QStringLiteral("on4kst");
+        QElapsedTimer t;
+        t.start();
+        controller->on4kstFeedModel().addCandidate(c);
+        QCoreApplication::processEvents();
+        zeilen << t.nsecsElapsed() / 1000000.0;
+    }
+    std::sort(zeilen.begin(), zeilen.end());
+    const double zeileMs = zeilen.at(zeilen.size() / 2);
+    qInfo().noquote() << QStringLiteral("eine ankommende Chatzeile: %1 ms (schnellste %2, langsamste %3)")
+                             .arg(zeileMs, 0, 'f', 1)
+                             .arg(zeilen.first(), 0, 'f', 1)
+                             .arg(zeilen.last(), 0, 'f', 1);
+    QVERIFY2(zeileMs < 100.0,
+             qPrintable(QStringLiteral("Eine ankommende Zeile dauerte %1 ms").arg(zeileMs, 0, 'f', 1)));
 }
 
 int main(int argc, char* argv[])

@@ -5088,6 +5088,11 @@ void MainWindow::restoreFromJournal()
         if (q.serialRcvd > 0) {
             r.serialRcvd = q.serialRcvd;
         }
+        // Der getauschte Text, soweit die Datei ihn trägt: das eigene
+        // Journal tut es (STX_STRING/SRX_STRING), und ohne ihn blieben
+        // die Austauschspalten im wiederhergestellten Log leer.
+        r.exchangeSent = q.exchangeSent;
+        r.exchangeRcvd = q.exchangeRcvd;
         r.contestId = contestId;
         r.source = QStringLiteral("journal");
         if (db.insertQso(r)) {

@@ -7,6 +7,7 @@
 #include "app/ContestSettings.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestDefinition.h"
+#include "data/AdifExporter.h"
 #include "data/EdiExporter.h"
 #include "data/LogFileReader.h"
 #include "data/QsoRecord.h"
@@ -43,6 +44,7 @@ QsoRecord makeQso(const QString& call, const QString& band, const QString& mode,
     r.serialRcvd = 7;
     r.rstSent = mode == QStringLiteral("CW") ? QStringLiteral("599") : QStringLiteral("59");
     r.rstRcvd = r.rstSent;
+    r.exchangeSent = QStringLiteral("%1 %2 JN67UT").arg(r.rstSent).arg(serial, 3, 10, QLatin1Char('0'));
     r.exchangeRcvd = QStringLiteral("%1 007 %2").arg(r.rstRcvd, grid);
     r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
     return r;
@@ -59,6 +61,7 @@ private slots:
     void bandLabels();
     void ediRoundTripThroughTheExporter();
     void parsesAdifFromAnotherLogger();
+    void adifRundlaufDurchDenEigenenExport();
     void seitenbandSchreibweisenWerdenZurBetriebsart();
     void ediOhneBetriebsartLiestSichTrotzdem();
     void controllerWritesALastBackupOnTheWayOut();
@@ -134,6 +137,58 @@ void TestLogFileReader::ediRoundTripThroughTheExporter()
     QCOMPARE(qsos.at(1).callsign, QStringLiteral("OE3XYZ"));
     QCOMPARE(qsos.at(1).mode, QStringLiteral("CW"));
     QCOMPARE(qsos.at(1).timestampUtc, QStringLiteral("2026-10-03T23:59:00Z"));
+}
+
+// Der Rundlauf durch die EIGENEN Dateien: was der ADIF-Export
+// schreibt, muss der eigene Leser wieder hereinbekommen. Für EDI steht
+// das seit jeher fest (oben), für ADIF nicht -- dabei ist das der Weg,
+// den das Journal nach einem Absturz nimmt
+// (MainWindow::restoreFromJournal liest ADIF).
+void TestLogFileReader::adifRundlaufDurchDenEigenenExport()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("adif_rund.sqlite")), QStringLiteral("adif_rund")));
+
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.activeContestId = QStringLiteral("IARU_R1_VHF_UHF");
+
+    QsoRecord q1 = makeQso(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
+                           QStringLiteral("14:01"), 1, QStringLiteral("JN58SD"), 187.4);
+    QsoRecord q2 = makeQso(QStringLiteral("OK2XYZ"), QStringLiteral("432"), QStringLiteral("CW"),
+                           QStringLiteral("23:59"), 2, QStringLiteral("JN88TC"), 214.6);
+    QVERIFY(db.insertQso(q1));
+    QVERIFY(db.insertQso(q2));
+
+    const QByteArray adif = AdifExporter(db).exportContest(settings.activeContestId, settings).toUtf8();
+    const QVector<ImportedQso> zurueck = LogFileReader::parse(adif, QStringLiteral("journal.adi"));
+    QCOMPARE(zurueck.size(), 2);
+
+    QCOMPARE(zurueck.at(0).callsign, QStringLiteral("DL1ABC"));
+    QCOMPARE(zurueck.at(0).band, QStringLiteral("144"));
+    QCOMPARE(zurueck.at(0).mode, QStringLiteral("SSB"));
+    QCOMPARE(zurueck.at(0).grid, QStringLiteral("JN58SD"));
+    QCOMPARE(zurueck.at(0).timestampUtc, q1.timestampUtc);
+    QCOMPARE(zurueck.at(0).rstSent, q1.rstSent);
+    QCOMPARE(zurueck.at(0).rstRcvd, q1.rstRcvd);
+    QCOMPARE(zurueck.at(0).serialSent, q1.serialSent.value_or(0));
+    QCOMPARE(zurueck.at(0).serialRcvd, q1.serialRcvd.value_or(0));
+    QCOMPARE(zurueck.at(0).contestId, q1.contestId);
+
+    QCOMPARE(zurueck.at(1).callsign, QStringLiteral("OK2XYZ"));
+    QCOMPARE(zurueck.at(1).band, QStringLiteral("432"));
+    QCOMPARE(zurueck.at(1).mode, QStringLiteral("CW"));
+    QCOMPARE(zurueck.at(1).timestampUtc, q2.timestampUtc);
+
+    // Und der getauschte Text selbst. Er steht in der Journalzeile
+    // (STX_STRING/SRX_STRING, siehe data/AdifExporter.cpp) -- wird er
+    // beim Lesen übergangen, steht im wiederhergestellten Log in den
+    // Austauschspalten nichts, obwohl alles dagewesen wäre.
+    QCOMPARE(zurueck.at(0).exchangeSent, q1.exchangeSent);
+    QCOMPARE(zurueck.at(0).exchangeRcvd, q1.exchangeRcvd);
 }
 
 void TestLogFileReader::parsesAdifFromAnotherLogger()

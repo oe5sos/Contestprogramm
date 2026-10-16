@@ -236,6 +236,10 @@ QVector<ImportedQso> LogFileReader::parseAdif(const QByteArray& data)
             current.serialRcvd = value.toInt();
         } else if (name == QStringLiteral("CONTEST_ID")) {
             current.contestId = value;
+        } else if (name == QStringLiteral("STX_STRING")) {
+            current.exchangeSent = value;
+        } else if (name == QStringLiteral("SRX_STRING")) {
+            current.exchangeRcvd = value;
         }
     }
     return result;
