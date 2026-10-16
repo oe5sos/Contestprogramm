@@ -299,8 +299,21 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
         }
 
         // 5. Die Eingabezeile steht in der Flucht.
-        const QList<QLineEdit*> felder = row->findChildren<QLineEdit*>();
-        if (!felder.isEmpty() && !table->isColumnHidden(UnifiedLogWidget::ColumnCall)) {
+        // Erst die ausgetauschten Felder abräumen: ein Ansichts- oder
+        // Spaltenwechsel tauscht den Exchange-Teil der Zeile per
+        // replaceWidget() + deleteLater() aus, und bis die Löschung
+        // abgearbeitet ist, hängen die ALTEN Felder weiter als Kinder
+        // darunter -- nicht versteckt, nur ohne Platz im Layout, also
+        // von der Hilfsfunktion oben nicht auszusortieren.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCoreApplication::processEvents();
+        // Und das Rufzeichenfeld beim Namen nehmen statt als „das
+        // erste": welches das ist, entscheidet sonst die
+        // Kindreihenfolge. Genau daran ist der Windows-Lauf vom
+        // 2026-10-16 gescheitert ("Rufzeichenfeld bei 70, Spalte bei
+        // 185") -- dasselbe wie in test_eingabezeile_in_flucht.
+        auto* rufzeichen = row->findChild<QLineEdit*>(QLatin1String(UnifiedLogWidget::kCallsignEditObjectName));
+        if (rufzeichen && !table->isColumnHidden(UnifiedLogWidget::ColumnCall)) {
             // Das Layout wirklich rechnen lassen, bevor gemessen wird:
             // setFixedSize() allein verschiebt noch nichts, die
             // Positionen kommen erst beim nächsten Durchlauf. Ohne das
@@ -308,7 +321,7 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
             if (QLayout* l = row->layout()) {
                 l->activate();
             }
-            const int zelleX = felder.first()->mapTo(row, QPoint(0, 0)).x();
+            const int zelleX = rufzeichen->mapTo(row, QPoint(0, 0)).x();
             const int spalteX = table->horizontalHeader()->sectionPosition(UnifiedLogWidget::ColumnCall);
             if (std::abs(zelleX - spalteX) > 1) {
                 // Zeigen, WO die Abweichung entsteht: jede Zelle vor dem
@@ -327,7 +340,7 @@ void TestRuetteln::freeHandedOperationKeepsTheLogConsistent()
                                           .arg(w->width())
                                           .arg(l->itemAt(i)->geometry().x())
                                           .arg(l->itemAt(i)->geometry().width());
-                        if (w == felder.first()) {
+                        if (w == rufzeichen) {
                             break;
                         }
                     }
