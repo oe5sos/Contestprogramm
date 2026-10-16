@@ -9,12 +9,32 @@
 #include "ui/StyleKit.h"
 
 #include <QColor>
+#include <QHash>
 #include <QDateTime>
 
 namespace Contestprogramm {
 
 namespace {
 const QStringList kCallsignOnlyScope{QStringLiteral("callsign")};
+
+// Wie viele Zeilen das Modell überhaupt behält.
+//
+// Jede ankommende Zeile baut die Sichtliste neu auf (die
+// Sichtbarkeitsregel ist relativ zu allen übrigen Bewertungen, siehe
+// rebuildVisibleRows()), und nach jedem geloggten QSO läuft
+// refreshWorkedAndScores() mit einer Dupe-Abfrage je Eintrag darüber.
+// Beides wächst mit der Liste. Gemessen (tests/test_chat_dauerlast.cpp,
+// Debug, Apple Silicon): eine ankommende Zeile kostete nach 1 000
+// Zeilen 0,8 ms, nach 10 000 schon 4,6 ms und nach 20 000 12,3 ms --
+// und ein 24-Stunden-Contest mit 30 Zeilen je Minute sind 43 200. Der
+// Prüfstand kam gar nicht so weit, er lief vorher in seine
+// 300-Sekunden-Grenze.
+//
+// 1 500 Zeilen sind bei dieser Rate knapp eine Stunde Rückschau --
+// mehr braucht ein Chatfenster nicht, das ein LIVE-Bild ist und kein
+// Archiv (der Chat gehört nicht zum Log, und ein Spot von vor sechs
+// Stunden ist tot). Die ältesten fallen heraus.
+constexpr int kMaxEntries = 1500;
 } // namespace
 
 ChatFeedModel::ChatFeedModel(GeoFilter& geoFilter, DupeChecker& dupeChecker, QObject* parent)
@@ -175,11 +195,31 @@ void ChatFeedModel::setActiveContest(const QString& contestId)
 
 void ChatFeedModel::refreshWorkedAndScores()
 {
-    // Cheap: one isDupe() query per already-seen candidate, and this
-    // only runs on an explicit trigger (contest switch, a QSO logged/
-    // edited/invalidated), never per incoming spot.
+    // Läuft nach JEDEM geloggten QSO (und bei Contestwechsel,
+    // Korrektur, Ungültigsetzen) -- also mitten im Betrieb, im selben
+    // Faden wie die Eingabezeile. Der Aufwand steckt in den
+    // Datenbankabfragen: computeWorked() fragt je Eintrag, und bei
+    // einer Chatzeile OHNE Frequenz sogar je Contestband einmal.
+    // Gemessen mit 1 500 Einträgen: 60 ms unmittelbar nach dem Return
+    // (tests/test_chat_dauerlast.cpp).
+    //
+    // Dieselbe Station steht aber vielfach in der Liste -- jeder Spot
+    // und jede Chatzeile von ihr ist ein eigener Eintrag. Deshalb
+    // einmal je Rufzeichen und Band fragen und die Antwort innerhalb
+    // DIESES Durchlaufs wiederverwenden; gefragt wird weiterhin der
+    // DupeChecker, damit es nur eine Stelle gibt, die weiß, was
+    // "gearbeitet" heißt.
+    QHash<QString, bool> schonGefragt;
     for (Entry& entry : m_allEntries) {
-        entry.worked = computeWorked(entry.candidate.callsign, entry.candidate.freqHz);
+        const QString schluessel = entry.candidate.callsign.trimmed().toUpper() + QLatin1Char('|')
+                                 + QString::number(entry.candidate.freqHz);
+        const auto it = schonGefragt.constFind(schluessel);
+        entry.worked = it != schonGefragt.constEnd()
+                           ? it.value()
+                           : schonGefragt.insert(schluessel,
+                                                 computeWorked(entry.candidate.callsign,
+                                                               entry.candidate.freqHz))
+                                 .value();
         entry.score = computeScore(entry.candidate, entry.worked, entry.geo);
     }
     rebuildVisibleRows();
@@ -296,6 +336,10 @@ void ChatFeedModel::addCandidate(const SpotCandidate& candidate)
     entry.score = computeScore(candidate, entry.worked, entry.geo);
 
     m_allEntries.append(entry);
+    if (m_allEntries.size() > kMaxEntries) {
+        const int zuViel = m_allEntries.size() - kMaxEntries;
+        m_allEntries.erase(m_allEntries.begin(), m_allEntries.begin() + zuViel);
+    }
     // A full rebuild (reset model) rather than the previous incremental
     // beginInsertRows: at Busy tempo, ChatVisibilityPolicy's top-
     // fraction cutoff is relative to every current survivor's score, so
