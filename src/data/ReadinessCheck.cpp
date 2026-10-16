@@ -172,6 +172,27 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
         }
     }
 
+    // Der Radius blendet aus, was weiter weg ist -- im Chat UND in der
+    // Vorschlagsliste (core/GeoFilter.h: `inRange`). Im UKW-Contest
+    // zählen die Kilometer, und von einem Berg aus sind 500 bis 800 km
+    // nichts Besonderes; wer hier 300 stehen lässt, sieht genau diese
+    // Stationen nicht. Keine Fehlermeldung, nur ein Hinweis: es ist
+    // eine Entscheidung, keine Panne.
+    if (ctx.radiusKm > 0.0) {
+        const QString wert = QStringLiteral("%1 km").arg(ctx.radiusKm, 0, 'f', 0);
+        if (ctx.radiusKm < 500.0) {
+            add(Level::Hint, kGroupStation, QStringLiteral("Reichweite"),
+                QStringLiteral("%1 -- weiter entfernte Stationen erscheinen nicht im Chat und nicht in "
+                               "der Vorschlagsliste. Vom Berg aus sind 500-800 km üblich.")
+                    .arg(wert),
+                QStringLiteral("radius"));
+        } else {
+            add(Level::Ok, kGroupStation, QStringLiteral("Reichweite"),
+                QStringLiteral("%1 -- so weit reicht der Chatfilter.").arg(wert),
+                QStringLiteral("radius"));
+        }
+    }
+
     // ---- Contest -------------------------------------------------------
     if (!ctx.contestFound) {
         add(Level::Error, kGroupContest, QStringLiteral("Contest"),

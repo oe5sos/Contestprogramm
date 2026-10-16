@@ -165,6 +165,16 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
 
     m_radiusSpin->setRange(0.0, 5000.0);
     m_radiusSpin->setSuffix(QStringLiteral(" km"));
+    // Der Radius tut ZWEIERLEI, und das zweite stand nirgends: er ist
+    // die Weite der Karte beim Start UND die Grenze, hinter der eine
+    // Chat- oder Clusterzeile gar nicht mehr erscheint
+    // (core/GeoFilter.h). Im UKW-Contest zählen die Kilometer -- wer
+    // hier 300 stehen lässt, sieht die Stationen nicht, die die Punkte
+    // bringen.
+    m_radiusSpin->setToolTip(QStringLiteral(
+        "Weite der Karte beim Start -- und die Grenze für Chat und Vorschlagsliste: "
+        "Stationen weiter weg werden dort nicht angezeigt.\n"
+        "Vom Berg aus sind im UKW-Contest 500 bis 800 km üblich."));
     m_radiusSpin->setValue(initial.radiusKm);
 
     for (const ContestDefinition& def : m_availableContests) {
@@ -468,7 +478,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     stationForm->addRow(QString(), m_gpsStatusLabel);
     stationForm->addRow(QStringLiteral("Standorthöhe:"), m_elevationSpin);
     stationForm->addRow(QStringLiteral("Antennenhöhe:"), m_antennaHeightSpin);
-    stationForm->addRow(QStringLiteral("Radius:"), m_radiusSpin);
+    stationForm->addRow(QStringLiteral("Radius (Karte + Chatfilter):"), m_radiusSpin);
     stationForm->addRow(QStringLiteral("Aktiver Contest:"), m_contestCombo);
     stationForm->addRow(QStringLiteral("Contest-Ende (UTC):"), contestEndRow);
 

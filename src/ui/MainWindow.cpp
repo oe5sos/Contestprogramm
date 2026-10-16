@@ -5747,6 +5747,7 @@ void MainWindow::refreshReadiness()
     }
     ctx.ownElevationM = settings.ownElevationM;
     ctx.antennaHeightM = settings.antennaHeightM;
+    ctx.radiusKm = settings.radiusKm;
 
     // The clock, asked anew once a minute while the window is open; the
     // answer arrives later and refreshes this snapshot again.
