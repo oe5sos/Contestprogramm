@@ -77,6 +77,20 @@ QString cabrilloCategoryBand(const QString& band)
     return band;
 }
 
+// Cabrillo trennt die Spalten der QSO-Zeile mit Leerzeichen. Im
+// Austausch sind sie gewollt ("59 001 JN67UT" sind drei Spalten), in
+// einem RUFZEICHEN nie: ein Leerzeichen darin schöbe alles dahinter um
+// eine Spalte, und ein Robot liest positionsweise. Über die
+// Eingabezeile ist das nicht zu tippen (die Leertaste springt dort
+// weiter), über einen Import (data/LogFileReader.h) oder das Feld für
+// das eigene Rufzeichen in den Einstellungen sehr wohl.
+QString callsignColumn(const QString& raw)
+{
+    QString value = raw.simplified();
+    value.remove(QLatin1Char(' '));
+    return value;
+}
+
 QString formatDate(const QString& timestampUtc)
 {
     const QDateTime dt = QDateTime::fromString(timestampUtc, Qt::ISODate);
@@ -226,10 +240,13 @@ QString CabrilloExporter::exportContest(const QString& contestId,
                      .arg(cabrilloModeCode(record.mode))
                      .arg(formatDate(record.timestampUtc))
                      .arg(formatTime(record.timestampUtc))
-                     .arg(settings.ownCallsign)
-                     .arg(record.exchangeSent)
-                     .arg(record.callsign)
-                     .arg(record.exchangeRcvd);
+                     .arg(callsignColumn(settings.ownCallsign))
+                     // Der Austausch darf Leerzeichen haben -- er IST
+                     // mehrspaltig -- nur keine doppelten und keine
+                     // Zeilenumbrüche.
+                     .arg(record.exchangeSent.simplified())
+                     .arg(callsignColumn(record.callsign))
+                     .arg(record.exchangeRcvd.simplified());
     }
 
     lines << QStringLiteral("END-OF-LOG:");

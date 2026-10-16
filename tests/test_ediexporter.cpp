@@ -94,6 +94,7 @@ private slots:
     void invalidQsoIsLeftOutEverywhere();
     void stationInfoRoundTripsThroughTheDatabase();
     void suggestedFileNamesAreFilesystemSafe();
+    void noFieldCanBreakTheSemicolonColumns();
 };
 
 void TestEdiExporter::bandLabelsUseReg1testSpellings()
@@ -310,6 +311,58 @@ void TestEdiExporter::suggestedFileNamesAreFilesystemSafe()
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication
 // (see test_cabrilloexporter.cpp).
+
+// Im REG1TEST ist das Semikolon das Trennzeichen. Die KOPFZEILEN sind
+// dagegen geschützt (headerValue() macht aus ";" ein ","), die
+// QSO-Zeilen waren es nicht: ein Semikolon im Rufzeichen, im RST oder
+// im Locator schob jede Spalte dahinter um eine weiter, und der Robot
+// liest die ganze Zeile falsch -- oder die ganze Einreichung.
+//
+// Tippbar ist es: das Rufzeichenfeld hat keinen Validator, nur
+// Großschreibung. Und was über einen Import (data/LogFileReader.h) in
+// die Datenbank kommt, hat diesen Weg gar nicht erst genommen.
+void TestEdiExporter::noFieldCanBreakTheSemicolonColumns()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("semikolon.sqlite")), QStringLiteral("edi_semi")));
+
+    QString defError;
+    const ContestDefinition definition = ContestDefinition::loadFromJson(QByteArray(kIaruJson), &defError);
+    QVERIFY2(definition.isValid(), qPrintable(defError));
+
+    QsoRecord q = makeQso(QStringLiteral("DL1;ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
+                          QStringLiteral("14:01"), 1, 3, QStringLiteral("JN58SD"), 187.4);
+    q.rstRcvd = QStringLiteral("5;9");
+    q.gridSquare = QStringLiteral("JN58;D");
+    QVERIFY(db.insertQso(q));
+
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    EdiStationInfo station;
+    const QString text = EdiExporter(db).exportBand(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("144"),
+                                                     definition, settings, station);
+
+    // Die QSO-Zeile hat genau 15 Spalten -- egal, was in den Feldern
+    // stand.
+    bool inRecords = false;
+    int zeilen = 0;
+    for (const QString& line : text.split(QStringLiteral("\r\n"))) {
+        if (line.startsWith(QStringLiteral("[QSORecords"))) {
+            inRecords = true;
+            continue;
+        }
+        if (!inRecords || line.trimmed().isEmpty()) {
+            continue;
+        }
+        ++zeilen;
+        QCOMPARE(line.split(QLatin1Char(';')).size(), 15);
+    }
+    QCOMPARE(zeilen, 1);
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);

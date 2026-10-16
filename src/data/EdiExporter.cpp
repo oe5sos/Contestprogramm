@@ -35,6 +35,21 @@ QString headerValue(const QString& raw)
     return value;
 }
 
+// Dasselbe für eine SPALTE einer QSO-Zeile. Die Kopfzeilen waren seit
+// jeher geschützt, die QSO-Zeilen nicht -- ein Semikolon im Rufzeichen,
+// im RST oder im Locator schob jede Spalte dahinter um eine weiter,
+// und der Robot liest die Zeile falsch oder lehnt die Einreichung ab.
+// Tippbar ist es (das Rufzeichenfeld hat keinen Validator), und was
+// über einen Import in die Datenbank kommt, hat diesen Weg gar nicht
+// erst genommen. simplified() nimmt dabei auch Zeilenumbrüche mit, die
+// eine Zeile in zwei teilen würden.
+QString columnValue(const QString& raw)
+{
+    QString value = raw.simplified();
+    value.replace(QLatin1Char(';'), QLatin1Char(','));
+    return value;
+}
+
 // MOpe1 is the one header key where ";" IS the separator (a list of
 // operator calls), so only line breaks are removed here.
 QString operatorList(const QString& raw)
@@ -246,14 +261,14 @@ QString EdiExporter::exportBand(const QString& contestId,
         QStringList fields;
         fields << when.date().toString(QStringLiteral("yyMMdd"))
                << when.time().toString(QStringLiteral("HHmm"))
-               << record.callsign.trimmed().toUpper()
+               << columnValue(record.callsign.toUpper())
                << QString::number(modeCode(record.mode))
-               << record.rstSent.trimmed()
+               << columnValue(record.rstSent)
                << serialText(record.serialSent)
-               << record.rstRcvd.trimmed()
+               << columnValue(record.rstRcvd)
                << serialText(record.serialRcvd)
                << extraExchange(record)
-               << record.gridSquare.trimmed().toUpper()
+               << columnValue(record.gridSquare.toUpper())
                << QString::number(qsoPts)
                << QString()   // new exchange -- no exchange multipliers in these contests
                << newWwl
