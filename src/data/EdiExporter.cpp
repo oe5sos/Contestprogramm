@@ -37,7 +37,9 @@ constexpr int kLineLimit = 75;
 constexpr int kMaxCallLength = 14;        // "Call = 3 to 14 characters"
 constexpr int kMaxRstLength = 3;          // "0 or 2 or 3 characters"
 constexpr int kMaxExchangeLength = 6;     // "0 or 1 to 6 characters"
-constexpr int kMaxLocatorLength = 6;      // "0 or 4 or 6 characters"
+// Die Locatorspalte ("0 or 4 or 6 characters") braucht keine eigene
+// Zahl: normalizedGridSquare() (core/Maidenhead.h) liefert entweder
+// einen gültigen vier- oder sechsstelligen Locator oder nichts.
 
 // A header value is one line and must not contain the record
 // separator; a stray ";" in a street name would otherwise shift every
