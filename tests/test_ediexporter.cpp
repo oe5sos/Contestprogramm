@@ -168,7 +168,11 @@ void TestEdiExporter::exportsGoldenBandFile()
         QStringLiteral("PClub=ADL 505"),
         QStringLiteral("RName=Martin Fischer"),
         QStringLiteral("RCall=OE5SOS"),
-        QStringLiteral("RAdr1=Musterstraße 1"),
+        // Das "ß" steht in den Einstellungen und kommt als "ss"
+        // heraus: REG1TEST, Abschnitt "Characters", lässt nur die
+        // Zeichen 10, 13 und 32-127 zu (siehe core/AsciiText.h und
+        // tests/test_edi_spezifikation.cpp).
+        QStringLiteral("RAdr1=Musterstrasse 1"),
         QStringLiteral("RAdr2="),
         QStringLiteral("RPoCo=4810"),
         QStringLiteral("RCity=Gmunden"),
@@ -202,9 +206,18 @@ void TestEdiExporter::exportsGoldenBandFile()
     const QString expected = expectedLines.join(QStringLiteral("\r\n")) + QStringLiteral("\r\n");
     QCOMPARE(actual, expected);
 
-    // Latin-1 is what the format's readers expect; the one non-ASCII
-    // character above must survive the encoding the dialog writes.
-    QVERIFY(actual.toLatin1().contains("Musterstra\xdf" "e 1"));
+    // Vorher stand hier, Latin-1 sei "was die Leser des Formats
+    // erwarten", und geprüft wurde, dass das Byte 0xDF heil durchkommt.
+    // Die Spezifikation sagt etwas anderes (Abschnitt "Characters":
+    // erlaubt sind 10, 13, 32-127), also darf in der ganzen Datei kein
+    // Byte jenseits von 127 stehen -- geschrieben wird sie mit
+    // toLatin1(), also ist jedes solche Byte auch wirklich in der
+    // Datei.
+    const QByteArray bytes = actual.toLatin1();
+    for (char c : bytes) {
+        QVERIFY2(static_cast<unsigned char>(c) <= 127, qPrintable(actual));
+    }
+    QVERIFY(bytes.contains("Musterstrasse 1"));
 }
 
 void TestEdiExporter::secondBandGetsItsOwnFileAndSharedDates()

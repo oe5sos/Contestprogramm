@@ -19,6 +19,7 @@ private slots:
     void knownPairDistanceAndBearingTransatlantic();
     void gridRoundTrip();
     void gridValidation();
+    void gridNormalisierung();
     void intermediatePointAlongGreatCircle();
     void destinationPointFromDistanceAndBearing();
 };
@@ -97,6 +98,24 @@ void TestMaidenhead::gridValidation()
 // intermediatePointOnGreatCircle() -- Contestprogramm addition
 // (2026-09-12) for core/terrain/PathProfile's own need to sample
 // elevation along the great-circle line between two stations.
+// normalizedGridSquare(): dieselbe Zurechtbiegung fuer die
+// Rufzeichensuche, den Journal-Import und die EDI-Abgabe.
+void TestMaidenhead::gridNormalisierung()
+{
+    QCOMPARE(normalizedGridSquare(QStringLiteral("jn67ut")).value_or(QString()), QStringLiteral("JN67UT"));
+    QCOMPARE(normalizedGridSquare(QStringLiteral("  JN67UT  ")).value_or(QString()), QStringLiteral("JN67UT"));
+    QCOMPARE(normalizedGridSquare(QStringLiteral("JN 67 UT")).value_or(QString()), QStringLiteral("JN67UT"));
+    // Achtstellig: die ersten sechs Stellen stimmen.
+    QCOMPARE(normalizedGridSquare(QStringLiteral("JN58SD12")).value_or(QString()), QStringLiteral("JN58SD"));
+    // Vierstellig bleibt vierstellig (REG1TEST erlaubt 4 oder 6).
+    QCOMPARE(normalizedGridSquare(QStringLiteral("JN58")).value_or(QString()), QStringLiteral("JN58"));
+    // Und was keiner ist, ist keiner.
+    QVERIFY(!normalizedGridSquare(QStringLiteral("JN5")).has_value());
+    QVERIFY(!normalizedGridSquare(QStringLiteral("ZZ99")).has_value());
+    QVERIFY(!normalizedGridSquare(QString()).has_value());
+    QVERIFY(!normalizedGridSquare(QStringLiteral("Feuerkogel")).has_value());
+}
+
 void TestMaidenhead::intermediatePointAlongGreatCircle()
 {
     double lat = 0.0;

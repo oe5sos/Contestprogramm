@@ -74,18 +74,10 @@ QString normalizeCallsign(const QString& callsign)
 // ihn womöglich.
 std::optional<QString> usableGrid(const QString& raw)
 {
-    QString grid = raw.trimmed().toUpper();
-    grid.remove(QLatin1Char(' '));
-    // Achtstellige Locatoren gibt es in den Datenbanken; dieses
-    // Programm rechnet mit sechs Stellen (core/Maidenhead.h), also
-    // gekürzt statt verworfen -- die ersten sechs Stellen stimmen ja.
-    if (grid.size() > 6) {
-        grid = grid.left(6);
-    }
-    if (!isValidGridSquare(grid)) {
-        return std::nullopt;
-    }
-    return grid;
+    // Die Zurechtbiegung steht jetzt in core/Maidenhead.h: der
+    // Journal-Import und die EDI-Abgabe brauchen genau dieselbe, und
+    // eine zweite Abschrift hätte sich mit der Zeit auseinanderlebt.
+    return normalizedGridSquare(raw);
 }
 
 } // namespace

@@ -5063,7 +5063,19 @@ void MainWindow::restoreFromJournal()
         r.band = q.band;
         r.mode = q.mode;
         r.timestampUtc = q.timestampUtc;
-        r.gridSquare = q.grid;
+        // Achtstellige Locatoren ("JN58SD12") stehen in vielen
+        // ADIF-Dateien. Unverändert übernommen zählt das QSO null
+        // Punkte (core/Maidenhead.h rechnet mit vier oder sechs
+        // Stellen) und die Abgabedatei trägt eine Spalte, die das
+        // Format nicht kennt. Die ersten sechs Stellen stimmen, also
+        // zurechtgebogen; was gar kein Locator ist, bleibt stehen, wie
+        // es dasteht -- die Logprüfung meldet es dann als
+        // "bad_locator", und das soll sie auch.
+        if (const std::optional<QString> grid = normalizedGridSquare(q.grid)) {
+            r.gridSquare = *grid;
+        } else {
+            r.gridSquare = q.grid.trimmed().toUpper();
+        }
         r.rstSent = q.rstSent;
         r.rstRcvd = q.rstRcvd;
         if (q.serialSent > 0) {

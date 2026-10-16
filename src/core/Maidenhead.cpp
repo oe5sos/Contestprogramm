@@ -292,6 +292,19 @@ double iaruQrbKm(const QString& grid1, const QString& grid2)
     return centralDeg * kKmPerDegree;
 }
 
+std::optional<QString> normalizedGridSquare(const QString& raw)
+{
+    QString grid = raw.trimmed().toUpper();
+    grid.remove(QLatin1Char(' '));
+    if (grid.size() > 6) {
+        grid = grid.left(6);
+    }
+    if (!isValidGridSquare(grid)) {
+        return std::nullopt;
+    }
+    return grid;
+}
+
 bool isValidGridSquare(const QString& gridSquare)
 {
     const QString g = gridSquare.trimmed().toUpper();
