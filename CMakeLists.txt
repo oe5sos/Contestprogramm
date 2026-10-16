@@ -54,6 +54,12 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/RotorModels.h
     src/core/RotctldProcess.h
     src/core/RotctldProcess.cpp
+    src/core/HamlibBinary.h
+    src/core/HamlibBinary.cpp
+    src/core/RigctldProcess.h
+    src/core/RigctldProcess.cpp
+    src/core/RigModels.h
+    src/core/RigModels.cpp
     src/core/HamlibInstaller.h
     src/core/HamlibInstaller.cpp
     src/core/BeamHeading.h

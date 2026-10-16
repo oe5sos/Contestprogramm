@@ -1390,6 +1390,27 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         statusBar()->showMessage(QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(reason), 15000);
     });
 
+    // The same for a rigctld this program started for the CAT radio
+    // (AppController::rigctldLaunchFor). Hamlib's stderr is where a
+    // wrong model number, a serial port that is not there, or a baud
+    // rate the radio's own menu disagrees with says so -- and nowhere
+    // else, so it must not be swallowed.
+    connect(&m_appController, &AppController::rigctldFailed, this, [this](const QString& message) {
+        QString reason;
+        for (const QString& line : message.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+            if (line.contains(QStringLiteral("Unable to open")) || line.contains(QStringLiteral("Permission denied"))
+                || line.contains(QStringLiteral("not found"))) {
+                reason = line.trimmed();
+                break;
+            }
+        }
+        if (reason.isEmpty()) {
+            reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        }
+        qWarning().noquote() << QStringLiteral("rigctld (CAT): %1").arg(message);
+        statusBar()->showMessage(QStringLiteral("rigctld (CAT): %1").arg(reason), 15000);
+    });
+
     // Rotor widgets themselves (and their azimuthChanged/stateChanged
     // wiring) are created on demand by applyRotorWidgetSettings() below
     // -- see applyRotorSlot() -- since either slot may start disabled.

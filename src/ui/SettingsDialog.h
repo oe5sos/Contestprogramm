@@ -162,6 +162,13 @@ private:
     QSpinBox* m_tciPortSpin;
     QLineEdit* m_rigctldHostEdit;
     QSpinBox* m_rigctldPortSpin;
+    // Hamlib-Modell, Anschluss und Baudrate für ein rigctld, das DIESES
+    // Programm startet (core/RigctldProcess.h) -- genau die drei Felder,
+    // die der Rotor seit 2026-09-11 hat. Anschluss leer = rigctld läuft
+    // schon, dann zählen nur Host und Port.
+    QComboBox* m_rigModelCombo;
+    QLineEdit* m_rigDeviceEdit;
+    QComboBox* m_rigBaudCombo;
     QLineEdit* m_on4kstUserEdit;
     QLineEdit* m_on4kstPassEdit;
     QLineEdit* m_clusterHostEdit;

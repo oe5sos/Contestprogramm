@@ -2,6 +2,7 @@
 
 #include "ui/StyleKit.h"
 
+#include "core/RigModels.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/Maidenhead.h"
 #include "core/RotorModels.h"
@@ -22,6 +23,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSet>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -57,6 +59,9 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_tciPortSpin(new QSpinBox(this))
     , m_rigctldHostEdit(new QLineEdit(this))
     , m_rigctldPortSpin(new QSpinBox(this))
+    , m_rigModelCombo(new QComboBox(this))
+    , m_rigDeviceEdit(new QLineEdit(this))
+    , m_rigBaudCombo(new QComboBox(this))
     , m_on4kstUserEdit(new QLineEdit(this))
     , m_on4kstPassEdit(new QLineEdit(this))
     , m_clusterHostEdit(new QLineEdit(this))
@@ -195,6 +200,57 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_tciPortSpin->setValue(initial.tciPort);
 
     m_rigctldHostEdit->setText(initial.rigctldHost);
+    // Das Funkgerät: oben die kurze, nach Wahrscheinlichkeit geordnete
+    // Liste (core/RigModels.h), darunter alles, was das INSTALLIERTE
+    // Hamlib kennt. Die Nummern wandern zwischen Hamlib-Fassungen, also
+    // gewinnt immer die Liste der Maschine; die kurze trägt nur, wenn
+    // noch kein Hamlib da ist.
+    const QVector<RigModel> installed = rigModelsFromHamlib();
+    const auto hamlibNameFor = [&installed](int id) {
+        for (const RigModel& model : installed) {
+            if (model.hamlibId == id) {
+                return model.name;
+            }
+        }
+        return QString();
+    };
+    QSet<int> alreadyListed;
+    for (const RigModel& model : commonRigModels()) {
+        const QString fromHamlib = hamlibNameFor(model.hamlibId);
+        if (!installed.isEmpty() && fromHamlib.isEmpty()) {
+            continue; // Nummer, die dieses Hamlib nicht kennt
+        }
+        m_rigModelCombo->addItem(model.name, model.hamlibId);
+        m_rigModelCombo->setItemData(m_rigModelCombo->count() - 1, model.note, Qt::ToolTipRole);
+        alreadyListed.insert(model.hamlibId);
+    }
+    if (!installed.isEmpty()) {
+        m_rigModelCombo->insertSeparator(m_rigModelCombo->count());
+        QVector<RigModel> rest;
+        for (const RigModel& model : installed) {
+            if (!alreadyListed.contains(model.hamlibId)) {
+                rest.append(model);
+            }
+        }
+        std::sort(rest.begin(), rest.end(), [](const RigModel& a, const RigModel& b) {
+            return a.name.localeAwareCompare(b.name) < 0;
+        });
+        for (const RigModel& model : rest) {
+            m_rigModelCombo->addItem(model.name, model.hamlibId);
+        }
+    }
+    const int rigModelIdx = m_rigModelCombo->findData(initial.rigctldHamlibModel);
+    m_rigModelCombo->setCurrentIndex(rigModelIdx >= 0 ? rigModelIdx : 0);
+
+    m_rigDeviceEdit->setText(initial.rigctldDevice);
+    m_rigDeviceEdit->setPlaceholderText(QStringLiteral("z.B. /dev/cu.usbserial-1410 — leer: rigctld läuft schon"));
+
+    for (int baud : commonRigBauds()) {
+        m_rigBaudCombo->addItem(QString::number(baud), baud);
+    }
+    const int rigBaudIdx = m_rigBaudCombo->findData(initial.rigctldBaud);
+    m_rigBaudCombo->setCurrentIndex(rigBaudIdx >= 0 ? rigBaudIdx : m_rigBaudCombo->findData(115200));
+
     m_rigctldPortSpin->setRange(1, 65535);
     m_rigctldPortSpin->setValue(initial.rigctldPort);
 
@@ -415,27 +471,24 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // station's CAT radio (TS-590/K3 via Hamlib rigctld, default port
     // 4532 -- see ContestSettings.h).
     auto* catForm = new QFormLayout();
+    catForm->addRow(QStringLiteral("Funkgerät:"), m_rigModelCombo);
+    catForm->addRow(QStringLiteral("Anschluss:"), m_rigDeviceEdit);
+    catForm->addRow(QStringLiteral("Baudrate:"), m_rigBaudCombo);
     catForm->addRow(QStringLiteral("rigctld-Host:"), m_rigctldHostEdit);
     catForm->addRow(QStringLiteral("rigctld-Port:"), m_rigctldPortSpin);
-    // Unlike the rotor (which this program starts itself, see
-    // core/RotctldProcess.h), rigctld is started by the operator -- so
-    // the call it has to be started with belongs here, next to the
-    // host/port that have to match it, rather than in a manual nobody
-    // reads at six in the morning on a mountain. Model numbers are
-    // Hamlib's own ("rigctl -l" lists them, and they move between
-    // Hamlib releases); the two TS-590 variants are spelled out
-    // because that is the radio this station is getting (Hamlib 4.7.2).
+    // What the three fields above are FOR -- the program starts rigctld
+    // itself now (core/RigctldProcess.h), exactly as it has started
+    // rotctld for the rotor since 2026-09-11. Worth saying plainly,
+    // because the escape hatch (leave the port empty, run rigctld your
+    // own way) is not something a dialog shows by itself.
     auto* catHint = new QLabel(
-        QStringLiteral("rigctld läuft nicht von selbst — vorher im Terminal starten, z. B.\n"
-                       "rigctld -m 2037 -r /dev/cu.usbserial-XXXX -s 115200 -T 127.0.0.1\n"
-                       "Modell: 2031 = TS-590S, 2037 = TS-590SG · alle: rigctl -l\n"
-                       "Gerät: ls /dev/cu.* · Baudrate muss zum Menü des Geräts passen "
-                       "(TS-590S Nr. 62, TS-590SG Nr. 68), PTT dort auf CAT."),
+        QStringLiteral("Mit einem Anschluss startet das Programm rigctld selbst, wie beim Rotor.\n"
+                       "Feld leer lassen, wenn rigctld schon von Hand läuft — dann gelten nur Host und Port.\n"
+                       "Anschluss finden: ls /dev/cu.*   ·   Baudrate muss zum Menü des Geräts passen,\n"
+                       "PTT dort auf CAT (beim TS-590S z. B. Menü Nr. 62, beim TS-590SG Nr. 68)."),
         this);
     catHint->setWordWrap(true);
-    // Selectable, because the point of the line is that it gets copied
-    // into a terminal; mono, because a device path is read character by
-    // character.
+    // Mono, weil ein Gerätepfad Zeichen für Zeichen gelesen wird.
     catHint->setTextInteractionFlags(Qt::TextSelectableByMouse);
     catHint->setFont(Style::monoFont(catHint->font(), Style::kFontSmall));
     catHint->setObjectName(QStringLiteral("rigctldHint"));
@@ -688,6 +741,9 @@ ContestSettings SettingsDialog::settings() const
     result.tciHost = m_tciHostEdit->text().trimmed();
     result.tciPort = m_tciPortSpin->value();
     result.rigctldHost = m_rigctldHostEdit->text().trimmed();
+    result.rigctldHamlibModel = m_rigModelCombo->currentData().toInt();
+    result.rigctldDevice = m_rigDeviceEdit->text().trimmed();
+    result.rigctldBaud = m_rigBaudCombo->currentData().toInt();
     result.rigctldPort = m_rigctldPortSpin->value();
     result.on4kstUsername = m_on4kstUserEdit->text().trimmed();
     result.on4kstPassword = m_on4kstPassEdit->text();
