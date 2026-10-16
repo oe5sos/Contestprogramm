@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QTableView>
 #include <QVBoxLayout>
 
@@ -327,9 +328,29 @@ ChatPanelWidget::ChatPanelWidget(QWidget* parent)
     layout->addWidget(m_table, 1);
 
     // Neueste Zeile im Blick behalten -- ein Chat, der nicht mitläuft,
-    // ist keiner.
+    // ist keiner. ABER nur, solange der Bediener auch unten steht: wer
+    // hochgescrollt hat, liest gerade etwas (im UKW-Contest werden die
+    // Skeds über diesen Chat ausgemacht), und alle paar Sekunden kommt
+    // eine neue Zeile herein. Ohne diese Unterscheidung riss ihn jede
+    // davon zurück ans Ende -- und wer hochgescrollt war, landete nach
+    // dem Umbau der Liste sogar ganz oben, weil eine zurückgesetzte
+    // Ansicht dort anfängt.
+    connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this]() {
+        const QScrollBar* leiste = m_table->verticalScrollBar();
+        // Zwei Zeilen Spielraum: "unten" heißt nicht "auf den
+        // Bildpunkt genau unten".
+        m_warUnten = leiste->value() >= leiste->maximum() - 2;
+        m_vorigerBildlauf = leiste->value();
+    });
     connect(m_model, &QAbstractItemModel::modelReset, this, [this]() {
-        m_table->scrollToBottom();
+        if (m_warUnten) {
+            m_table->scrollToBottom();
+        } else {
+            // Die Zeilen kommen hinten dazu, also steht an derselben
+            // Stelle noch dasselbe.
+            QScrollBar* leiste = m_table->verticalScrollBar();
+            leiste->setValue(qMin(m_vorigerBildlauf, leiste->maximum()));
+        }
         updateStatusLine();
     });
 

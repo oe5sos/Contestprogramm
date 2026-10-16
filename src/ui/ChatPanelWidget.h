@@ -80,6 +80,11 @@ private:
     QPushButton* m_sendButton = nullptr;
     QLabel* m_status = nullptr;
     QString m_connectionText;
+    // Stand der Bediener beim letzten Umbau der Liste ganz unten? Nur
+    // dann läuft die Ansicht der neuesten Zeile nach -- siehe die
+    // Verbindung an modelAboutToBeReset() im Quelltext.
+    bool m_warUnten = true;
+    int m_vorigerBildlauf = 0;
 };
 
 } // namespace Contestprogramm
