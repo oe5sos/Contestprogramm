@@ -29,7 +29,9 @@
 
 #include <QApplication>
 #include <QElapsedTimer>
+#include <QAbstractItemModel>
 #include <QLineEdit>
+#include <QTableView>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -211,6 +213,45 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
                              .arg(zeilen.last(), 0, 'f', 1);
     QVERIFY2(zeileMs < 100.0,
              qPrintable(QStringLiteral("Eine ankommende Zeile dauerte %1 ms").arg(zeileMs, 0, 'f', 1)));
+
+    // Und die vierte Handlung, die im Contest wirklich vorkommt: eine
+    // Korrektur im Log. Martin, 2026-09-27: "fehler sollen einfach und
+    // schnell geändert und gelöscht werden." Sie läuft über den vollen
+    // Weg (refreshAfterLogChange: Dupe-Nachwertung, Check-Partial-
+    // Quellen neu einlesen, alles neu rechnen) -- das ist dort auch
+    // richtig, denn hier ändert sich wirklich die Grundlage. Gemessen
+    // wird, ob es im Rahmen bleibt.
+    auto* tabelle = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
+    QVERIFY(tabelle);
+    QAbstractItemModel* modell = tabelle->model();
+    int zeile = -1;
+    for (int r = 0; r < modell->rowCount(); ++r) {
+        if (modell->index(r, UnifiedLogWidget::ColumnCall).data().toString() == QStringLiteral("S51ABC")) {
+            zeile = r;
+            break;
+        }
+    }
+    QVERIFY2(zeile >= 0, "Das eben geloggte QSO steht nicht in der Tabelle");
+    const QModelIndex zelle = modell->index(zeile, UnifiedLogWidget::ColumnCall);
+    tabelle->setCurrentIndex(zelle);
+    tabelle->edit(zelle);
+    QCoreApplication::processEvents();
+    QLineEdit* editor = nullptr;
+    for (QLineEdit* e : tabelle->viewport()->findChildren<QLineEdit*>()) {
+        if (e->isVisible()) {
+            editor = e;
+        }
+    }
+    QVERIFY2(editor, "Kein Editor für die Korrektur offen");
+    editor->setText(QStringLiteral("S51ABD"));
+    QElapsedTimer tk;
+    tk.start();
+    QTest::keyClick(editor, Qt::Key_Return);
+    QCoreApplication::processEvents();
+    const double korrekturMs = tk.nsecsElapsed() / 1000000.0;
+    qInfo().noquote() << QStringLiteral("eine Korrektur im Log: %1 ms").arg(korrekturMs, 0, 'f', 1);
+    QVERIFY2(korrekturMs < 500.0,
+             qPrintable(QStringLiteral("Eine Korrektur dauerte %1 ms").arg(korrekturMs, 0, 'f', 1)));
 }
 
 int main(int argc, char* argv[])
