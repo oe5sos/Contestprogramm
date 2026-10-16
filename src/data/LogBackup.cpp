@@ -4,6 +4,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSet>
 #include <QTimeZone>
@@ -84,6 +85,43 @@ QString LogBackup::backupNow(bool force, QString* errorOut)
     return path;
 }
 
+QString LogBackup::mirrorMarkerName()
+{
+    return QStringLiteral(".contestprogramm-sicherungsordner");
+}
+
+bool LogBackup::prepareMirrorDirectory(const QString& directory, QString* errorOut)
+{
+    const QString ziel = directory.trimmed();
+    if (ziel.isEmpty()) {
+        if (errorOut) { *errorOut = QStringLiteral("kein Ordner angegeben"); }
+        return false;
+    }
+    if (!QDir().mkpath(ziel)) {
+        if (errorOut) { *errorOut = QStringLiteral("Ordner nicht erreichbar: %1").arg(ziel); }
+        return false;
+    }
+    QFile marke(QDir(ziel).filePath(mirrorMarkerName()));
+    if (!marke.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (errorOut) { *errorOut = marke.errorString(); }
+        return false;
+    }
+    marke.write(QStringLiteral("Contestprogramm: zweiter Sicherungsordner, eingerichtet %1 UTC.\n"
+                               "Diese Datei nicht löschen -- an ihr erkennt das Programm, dass der\n"
+                               "Datenträger noch derselbe ist (ein abgezogener USB-Stick hinterlässt\n"
+                               "sonst einen leeren Ordner, in den stillschweigend weitergeschrieben\n"
+                               "würde).\n")
+                    .arg(QDateTime::currentDateTimeUtc().toString(Qt::ISODate))
+                    .toUtf8());
+    marke.close();
+    if (marke.error() != QFileDevice::NoError) {
+        if (errorOut) { *errorOut = marke.errorString(); }
+        return false;
+    }
+    if (errorOut) { errorOut->clear(); }
+    return true;
+}
+
 void LogBackup::mirror(const QString& path)
 {
     if (m_mirrorDirectory.isEmpty()) {
@@ -94,6 +132,28 @@ void LogBackup::mirror(const QString& path)
     if (!QDir().mkpath(m_mirrorDirectory)) {
         emit mirrorFailed(QStringLiteral("Zweiter Sicherungsordner nicht erreichbar: %1").arg(m_mirrorDirectory));
         return;
+    }
+    // Ist es noch DERSELBE Ordner? Siehe prepareMirrorDirectory(): ein
+    // abgezogener Stick hinterlässt seinen Einhängepunkt als leeren
+    // Ordner auf der internen Platte, und ohne diese Prüfung landete
+    // die Kopie dort -- auf derselben Platte wie das Log, dessen
+    // Ausfall der zweite Ordner abfangen soll.
+    if (!QFileInfo::exists(QDir(m_mirrorDirectory).filePath(mirrorMarkerName()))) {
+        // Ein Ordner, in dem schon Sicherungen DIESES Programms liegen,
+        // ist offenkundig der richtige -- nur eingerichtet, bevor es
+        // die Markierung gab. Dann wird sie nachgetragen statt eine
+        // Meldung erzeugt, die nach einem Update jeden bestehenden
+        // zweiten Sicherungsordner beträfe. Ein abgezogener Stick
+        // hinterlässt dagegen einen LEEREN Ordner -- daran scheiden
+        // sich die beiden Fälle.
+        const bool schonSicherungenDrin = !listBackups(m_mirrorDirectory).isEmpty();
+        QString markeFehler;
+        if (!schonSicherungenDrin || !prepareMirrorDirectory(m_mirrorDirectory, &markeFehler)) {
+            emit mirrorFailed(QStringLiteral("Zweiter Sicherungsordner ist nicht mehr da (Stick abgezogen?): %1 — "
+                                             "es wird nur noch neben das Log gesichert")
+                                  .arg(m_mirrorDirectory));
+            return;
+        }
     }
     const QString target = QDir(m_mirrorDirectory).filePath(QFileInfo(path).fileName());
     QFile::remove(target);

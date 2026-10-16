@@ -46,6 +46,29 @@ public:
     void setMirrorDirectory(const QString& directory);
     const QString& mirrorDirectory() const { return m_mirrorDirectory; }
 
+    // Richtet den zweiten Sicherungsordner ein und legt dort eine
+    // Markierungsdatei ab. Vom Menüpunkt "Zweiter Sicherungsordner…"
+    // aufzurufen, einmal, wenn der Operator den Ordner wählt.
+    //
+    // Wozu: Wird ein USB-Stick abgezogen, bleibt sein Einhängepunkt
+    // unter macOS als gewöhnlicher, leerer Ordner auf der INTERNEN
+    // Platte zurück. mkpath() gelingt dort, QFile::copy() auch -- und
+    // das Programm schreibt die "Sicherung auf dem Stick" fortan
+    // stillschweigend neben das Log, auf dieselbe Platte, deren
+    // Ausfall der zweite Ordner ja gerade abfangen soll (nachgemessen
+    // 2026-10-16: die Kopie landete auf /System/Volumes/Data).
+    //
+    // Die Markierung liegt auf dem Datenträger selbst. Ist der Stick
+    // weg, fehlt sie, und mirror() sagt es, statt ins Leere zu
+    // schreiben. Ein Cloud-Ordner auf derselben Platte ist davon nicht
+    // betroffen -- er behält seine Markierung und ist weiter gültig,
+    // denn "dieselbe Platte" ist hier nicht das Kriterium, sondern
+    // "derselbe Ort wie beim Einrichten".
+    bool prepareMirrorDirectory(const QString& directory, QString* errorOut = nullptr);
+
+    // Der Name der Markierungsdatei -- öffentlich für die Prüfstände.
+    static QString mirrorMarkerName();
+
     void start(int intervalMs = kDefaultIntervalMs);
 
     // Writes a copy now. Without `force`, does nothing (and returns an

@@ -4971,6 +4971,16 @@ void MainWindow::chooseBackupMirror()
     if (chosen.isEmpty()) {
         return;
     }
+    // Markierung auf dem Datenträger anlegen, bevor irgendetwas
+    // kopiert wird: an ihr erkennt mirror() später, dass der Ordner
+    // noch derselbe ist (siehe LogBackup::prepareMirrorDirectory).
+    QString markeFehler;
+    if (!backup->prepareMirrorDirectory(chosen, &markeFehler)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Der zweite Sicherungsordner lässt sich nicht einrichten:\n%1\n\n%2")
+                                  .arg(chosen, markeFehler));
+        return;
+    }
     backup->setMirrorDirectory(chosen);
     m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), chosen);
     // A first copy right away, so the stick is never empty.
