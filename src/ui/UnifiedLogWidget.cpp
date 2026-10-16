@@ -2538,6 +2538,20 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
             rebuildExchangeCell(exchangeReceived());
         }
         m_entryRowLayoutBuilt = true;
+        // Frisch gebaut heißt: in Standardbreiten, und die leere
+        // QSO-Nummern-Zelle steht noch auf dem Zustand von vorher.
+        // Erst das hier legt die Zeile auf die Spalten. Ohne den
+        // Aufruf fing das Rufzeichenfeld nach einem Ansichtswechsel
+        // bei 70 an, während seine Spalte bei 185 begann -- von der
+        // Windows-CI im Rüttel-Prüfstand gefunden (2026-09-30). Auf
+        // macOS fängt ein späterer Layout-Durchlauf es ein, deshalb
+        // fiel es hier nie auf.
+        //
+        // Ein früherer Anlauf an derselben Stelle brach die
+        // DXLog-Vollspalten (6 px Versatz). Das lag an der damaligen
+        // Rechnung aus SPALTENBREITEN; seit applyEntryRowWidths() die
+        // ABSTÄNDE der Spaltenpositionen nimmt, stimmt beides.
+        applyEntryRowWidths();
     } else {
         applyEntryRowWidths();
     }
