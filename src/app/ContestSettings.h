@@ -41,6 +41,23 @@ struct ContestSettings {
     // default port 4532 is a sibling to rotctld's 4533.
     QString rigctldHost = QStringLiteral("127.0.0.1");
     int rigctldPort = 4532;
+    // Hamlib model/device/baud for rigctld ITSELF -- consulted only
+    // when this program starts rigctld (core/RigctldProcess.h), which
+    // it does for a loopback host with a device named here and only
+    // after the client's own dial was refused. An operator who already
+    // runs rigctld their own way is unaffected: they leave the device
+    // empty, and host/port above are all that is used. Exactly the
+    // posture rotor1HamlibModel/-Device/-Baud have for the rotor.
+    //
+    // Which radio drives the transverter is still open (Martin,
+    // 2026-10-16) -- so this default is only what the picker lands on
+    // before anything is chosen, not a decision. 2029 = Elecraft K3,
+    // the usual IF driver on VHF/UHF. The numbers are Hamlib's own and
+    // move between releases, so the picker reads the installed list
+    // (core/RigModels.h) rather than trusting this constant.
+    int rigctldHamlibModel = 2029;
+    QString rigctldDevice;   // empty = do not start one, see above
+    int rigctldBaud = 38400;
     QString on4kstUsername;
     QString on4kstPassword;
     // Classic telnet DX cluster -- a second, independent spot source

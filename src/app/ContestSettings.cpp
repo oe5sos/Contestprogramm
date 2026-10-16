@@ -190,6 +190,10 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     tciPort = database.settingValue(QStringLiteral("tci_port"), QString::number(tciPort)).toInt();
     rigctldHost = database.settingValue(QStringLiteral("rigctld_host"), rigctldHost);
     rigctldPort = database.settingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort)).toInt();
+    rigctldHamlibModel = database.settingValue(QStringLiteral("rigctld_hamlib_model"),
+                                                QString::number(rigctldHamlibModel)).toInt();
+    rigctldDevice = database.settingValue(QStringLiteral("rigctld_device"), rigctldDevice);
+    rigctldBaud = database.settingValue(QStringLiteral("rigctld_baud"), QString::number(rigctldBaud)).toInt();
     on4kstUsername = database.settingValue(QStringLiteral("on4kst_username"), on4kstUsername);
     on4kstPassword = database.settingValue(QStringLiteral("on4kst_password"), on4kstPassword);
     clusterHost = database.settingValue(QStringLiteral("cluster_host"), clusterHost);
@@ -308,6 +312,9 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("tci_port"), QString::number(tciPort));
     database.setSettingValue(QStringLiteral("rigctld_host"), rigctldHost);
     database.setSettingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort));
+    database.setSettingValue(QStringLiteral("rigctld_hamlib_model"), QString::number(rigctldHamlibModel));
+    database.setSettingValue(QStringLiteral("rigctld_device"), rigctldDevice);
+    database.setSettingValue(QStringLiteral("rigctld_baud"), QString::number(rigctldBaud));
     database.setSettingValue(QStringLiteral("on4kst_username"), on4kstUsername);
     database.setSettingValue(QStringLiteral("on4kst_password"), on4kstPassword);
     database.setSettingValue(QStringLiteral("cluster_host"), clusterHost);

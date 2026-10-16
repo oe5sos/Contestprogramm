@@ -98,6 +98,19 @@ AppController::AppController(QObject* parent)
             [this] { superviseRotctld(1, m_rotor1.state() == RotctldClient::State::Disconnected); });
     connect(&m_rotor2, &RotctldClient::stateChanged, this,
             [this] { superviseRotctld(2, m_rotor2.state() == RotctldClient::State::Disconnected); });
+    // rigctld on demand, same arrangement as the rotors above: the CAT
+    // client dials first, so an operator's own rigctld is always
+    // preferred; only a refused dial starts ours.
+    connect(&m_rigctldClient, &RigctldClient::stateChanged, this,
+            [this] { superviseRigctld(m_rigctldClient.state() == RigctldClient::State::Disconnected); });
+    connect(&m_rigctld, &RigctldProcess::exited, this, [this](int code, const QString& stderrText) {
+        if (m_rigctldStopping) {
+            return; // our own stopRigctld()
+        }
+        m_rigctldLaunch = RigctldLaunch();
+        m_rigctldFailedAt = QDateTime::currentDateTimeUtc();
+        emit rigctldFailed(stderrText.isEmpty() ? QStringLiteral("rigctld beendet (Code %1)").arg(code) : stderrText);
+    });
     connect(&m_rotctld1, &RotctldProcess::exited, this, [this](int code, const QString& stderrText) {
         if (m_rotctldStoppingSlot == 1) {
             return; // our own stopRotctld()
@@ -151,6 +164,80 @@ void AppController::stopRotctld(int slot)
     (slot == 1 ? m_rotctldLaunch1 : m_rotctldLaunch2) = RotctldLaunch();
 }
 
+std::optional<AppController::RigctldLaunch> AppController::rigctldLaunchFor(const ContestSettings& settings)
+{
+    const QString host = settings.rigctldHost.trimmed();
+    const QString device = settings.rigctldDevice.trimmed();
+    const bool loopback = host == QStringLiteral("127.0.0.1") || host == QStringLiteral("::1")
+                          || host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0;
+    // No device named means "the operator runs rigctld their own way"
+    // -- the one deliberate way to switch this off, same as the rotor.
+    if (device.isEmpty() || !loopback) {
+        return std::nullopt;
+    }
+    RigctldLaunch launch;
+    launch.hamlibModel = settings.rigctldHamlibModel;
+    launch.device = device;
+    launch.baud = settings.rigctldBaud;
+    launch.port = static_cast<quint16>(settings.rigctldPort);
+    return launch;
+}
+
+bool AppController::rigctldRunning() const
+{
+    return m_rigctld.isRunning();
+}
+
+void AppController::stopRigctld()
+{
+    // stop() waits for the exit, so exited() fires from inside it --
+    // flagged, so it is not taken for a failure (no cool-down, no
+    // message).
+    m_rigctldStopping = true;
+    m_rigctld.stop();
+    m_rigctldStopping = false;
+    m_rigctldLaunch = RigctldLaunch();
+}
+
+void AppController::superviseRigctld(bool mayStart)
+{
+    const std::optional<RigctldLaunch> wanted = rigctldLaunchFor(m_settings);
+
+    if (!wanted) {
+        if (m_rigctld.isRunning()) {
+            stopRigctld();
+        }
+        m_rigctldLaunch = RigctldLaunch();
+        return;
+    }
+    if (m_rigctld.isRunning()) {
+        if (m_rigctldLaunch == *wanted) {
+            return;
+        }
+        // Started with other settings: gone, and the client's next
+        // failed dial brings a fresh one.
+        stopRigctld();
+    }
+    if (!mayStart) {
+        return;
+    }
+    // A rigctld that just died (a serial port that is not there, a
+    // baud rate the radio disagrees with) is not restarted every three
+    // seconds with the client's retries.
+    constexpr qint64 kRestartCoolDownSecs = 30;
+    if (m_rigctldFailedAt.isValid()
+        && m_rigctldFailedAt.secsTo(QDateTime::currentDateTimeUtc()) < kRestartCoolDownSecs) {
+        return;
+    }
+    QString error;
+    if (!m_rigctld.start(wanted->hamlibModel, wanted->device, wanted->baud, wanted->port, &error)) {
+        m_rigctldFailedAt = QDateTime::currentDateTimeUtc();
+        emit rigctldFailed(error);
+        return;
+    }
+    m_rigctldLaunch = *wanted;
+}
+
 void AppController::superviseRotctld(int slot, bool mayStart)
 {
     RotctldProcess& process = slot == 1 ? m_rotctld1 : m_rotctld2;
@@ -196,10 +283,11 @@ AppController::~AppController()
     if (m_logBackup && m_database.isOpen()) {
         m_logBackup->backupNow(false);
     }
-    // Our rotctld processes go with us -- stopped here, while the
-    // members their exited() handlers touch still exist.
+    // Our rotctld/rigctld processes go with us -- stopped here, while
+    // the members their exited() handlers touch still exist.
     stopRotctld(1);
     stopRotctld(2);
+    stopRigctld();
 }
 
 bool AppController::openDatabase(const QString& path, QString* errorOut)
@@ -388,6 +476,10 @@ void AppController::applyNetworkSettings()
     }
 
     m_rigctldClient.setTarget(m_settings.rigctldHost, static_cast<quint16>(m_settings.rigctldPort));
+    // A rigctld of ours that the new settings no longer want (or want
+    // with other arguments) goes first; starting one is left to the
+    // client's own failed dial -- see the constructor.
+    superviseRigctld(false);
     if (!m_settings.rigctldHost.isEmpty() && !m_rigctldClient.isConnected()) {
         m_rigctldClient.connectToRig();
     }

@@ -10,6 +10,7 @@
 #include "core/RecentPropagationTracker.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
+#include "core/RigctldProcess.h"
 #include "core/RotctldProcess.h"
 #include "core/Transverter.h"
 #include "core/WeatherClient.h"
@@ -179,6 +180,22 @@ public:
     static std::optional<RotctldLaunch> rotctldLaunchFor(const ContestSettings& settings, int slot);
     bool rotctldRunning(int slot) const;
 
+    // rigctld, the same arrangement for the CAT radio
+    // (core/RigctldProcess.h): started only for a loopback host with a
+    // device named in the settings, and only after the client's own
+    // dial was refused, so an operator already running their own
+    // rigctld is never interfered with. Nothing means exactly that --
+    // leave the device empty and host/port are all that is used.
+    struct RigctldLaunch {
+        int hamlibModel = 0;
+        QString device;
+        int baud = 0;
+        quint16 port = 0;
+        bool operator==(const RigctldLaunch&) const = default;
+    };
+    static std::optional<RigctldLaunch> rigctldLaunchFor(const ContestSettings& settings);
+    bool rigctldRunning() const;
+
     // The transverter between rig and antenna (core/Transverter.h),
     // loaded with the database and kept current by MainWindow (its
     // dialog and switch): the <RadioInfo> broadcast carries the
@@ -191,6 +208,12 @@ signals:
     // started or has exited -- `message` is Hamlib's own stderr (a
     // wrong model number, a serial port that is not there).
     void rotctldFailed(int slot, const QString& message);
+
+    // The same for a rigctld this program started -- `message` is
+    // Hamlib's own stderr, which is the only place a wrong model
+    // number, a missing serial port or a baud rate the radio's menu
+    // disagrees with ever says so.
+    void rigctldFailed(const QString& message);
 
     // MainWindow::applyActiveContestDefinition is connected to this so
     // UnifiedLogWidget's dynamic exchange fields (and mode list)
@@ -226,6 +249,9 @@ private:
     void superviseRotctld(int slot, bool mayStart);
     // Stops the slot's rotctld without its exit counting as a failure.
     void stopRotctld(int slot);
+    // The same pair for the CAT radio's rigctld. See rigctldLaunchFor().
+    void superviseRigctld(bool mayStart);
+    void stopRigctld();
 
     ContestSettings m_settings;
     ContestDatabase m_database;
@@ -245,11 +271,15 @@ private:
     RotctldClient m_rotor2;
     RotctldProcess m_rotctld1;
     RotctldProcess m_rotctld2;
+    RigctldProcess m_rigctld;
     RotctldLaunch m_rotctldLaunch1; // what m_rotctld1 runs with; empty when not ours/not running
     RotctldLaunch m_rotctldLaunch2;
     QDateTime m_rotctldFailedAt1; // last failure, for the restart cool-down
     QDateTime m_rotctldFailedAt2;
     int m_rotctldStoppingSlot = 0; // the slot whose rotctld stopRotctld() is ending right now
+    RigctldLaunch m_rigctldLaunch;  // what m_rigctld runs with; empty when not ours/not running
+    QDateTime m_rigctldFailedAt;    // last failure, for the restart cool-down
+    bool m_rigctldStopping = false; // true while our own stopRigctld() is ending it
     TransverterSetup m_transverter;
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address
