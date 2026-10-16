@@ -13,8 +13,14 @@
 // mit 30 Zeilen je Minute sind 43 200 Einträge, und der Aufwand je
 // Zeile wächst mit dem, was schon dasteht.
 //
-// Gemessen wird, was der Bediener merkt: wie lange der EINE Anschlag
-// dauert, der gerade ankommt, wenn schon viel dasteht.
+// Gemessen wird, was der Bediener merkt: wie lange die EINE Zeile
+// dauert, die gerade ankommt, wenn schon viel dasteht -- und wie
+// lange die Auffrischung braucht, die nach jedem geloggten QSO läuft.
+//
+// Die Zahlen vor der Behebung, im Release (so läuft das Programm),
+// bei 12 000 Zeilen: eine ankommende Zeile 0,84 ms (bei 1 000 waren
+// es 0,11 ms), die Auffrischung nach dem Return aber 346 ms. Danach:
+// 0,15 ms und 7 ms.
 //
 // =================================================================
 // Modification history (Contestprogramm):

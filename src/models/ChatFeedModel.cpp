@@ -23,12 +23,18 @@ const QStringList kCallsignOnlyScope{QStringLiteral("callsign")};
 // Sichtbarkeitsregel ist relativ zu allen übrigen Bewertungen, siehe
 // rebuildVisibleRows()), und nach jedem geloggten QSO läuft
 // refreshWorkedAndScores() mit einer Dupe-Abfrage je Eintrag darüber.
-// Beides wächst mit der Liste. Gemessen (tests/test_chat_dauerlast.cpp,
-// Debug, Apple Silicon): eine ankommende Zeile kostete nach 1 000
-// Zeilen 0,8 ms, nach 10 000 schon 4,6 ms und nach 20 000 12,3 ms --
-// und ein 24-Stunden-Contest mit 30 Zeilen je Minute sind 43 200. Der
-// Prüfstand kam gar nicht so weit, er lief vorher in seine
-// 300-Sekunden-Grenze.
+// Beides wächst mit der Liste, und ein 24-Stunden-Contest mit 30
+// Zeilen je Minute sind 43 200 Zeilen.
+//
+// Gemessen im RELEASE, so wie das Programm läuft
+// (tests/test_chat_dauerlast.cpp, Apple Silicon, 12 000 Zeilen): eine
+// ankommende Zeile kostete 0,11 ms bei 1 000 und 0,84 ms bei 12 000 --
+// das allein wäre zu ertragen. Das Teure ist die Auffrischung NACH
+// JEDEM GELOGGTEN QSO: **346 ms** bei 12 000 Zeilen, also eine Drittel
+// Sekunde Stillstand unmittelbar nach dem Return, und zwar jedesmal.
+// (Im Debug-Bau sind die Zahlen anders gewichtet -- dort kostet schon
+// die einzelne Zeile 12 ms bei 20 000 --, aber gefunkt wird mit dem
+// Release.)
 //
 // 1 500 Zeilen sind bei dieser Rate knapp eine Stunde Rückschau --
 // mehr braucht ein Chatfenster nicht, das ein LIVE-Bild ist und kein
