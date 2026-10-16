@@ -85,8 +85,42 @@ bool ContestDatabase::openReadOnly(const QString& path, const QString& connectio
     // Deliberately no ensureSchema(): that is what would write to the
     // file (see the header). A database this program wrote already has
     // the schema; one it did not is not ours to migrate.
+    //
+    // Dafür EINE lesende Abfrage, die den Dateikopf anfasst. SQLite
+    // öffnet eine Datei, ohne hineinzusehen, und meldet "file is not a
+    // database" erst beim ersten Zugriff -- mit ensureSchema() war das
+    // der erste PRAGMA, ohne es gab es keinen, und eine Textdatei galt
+    // als offene, leere Datenbank (gefunden 2026-10-16: der
+    // Wiederherstellungs-Dialog schrieb "keine QSOs" neben eine
+    // Notiz). sqlite_master ist in jeder echten Datenbank da, auch in
+    // einer leeren, und nur-lesend.
+    {
+        QSqlQuery probe(m_db);
+        if (!probe.exec(QStringLiteral("SELECT count(*) FROM sqlite_master")) || !probe.next()) {
+            m_lastError = probe.lastError().text().isEmpty()
+                              ? QStringLiteral("keine lesbare Datenbank: %1").arg(path)
+                              : probe.lastError().text();
+            m_db.close();
+            m_db = QSqlDatabase();
+            QSqlDatabase::removeDatabase(m_connectionName);
+            return false;
+        }
+    }
+
     m_open = true;
     return true;
+}
+
+bool ContestDatabase::hasQsoTable() const
+{
+    if (!m_open) {
+        return false;
+    }
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name='qsos'"))) {
+        return false;
+    }
+    return query.next();
 }
 
 QString ContestDatabase::filePath() const
