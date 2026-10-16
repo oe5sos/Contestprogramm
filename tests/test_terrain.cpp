@@ -45,6 +45,7 @@ private slots:
     void lineOfSightUnknownWhenAnySampleIsUnknownAndNoneAreBlocked();
     void lineOfSightBlockedTakesPriorityOverUnknownElsewhereOnThePath();
     void lineOfSightUnknownForATooShortProfile();
+    void dieErdkruemmungAlleinIstKeineVerdeckung();
     void terrainDataManagerResolvesSynchronouslyWithPreloadedTiles();
     void sectorSweepReturns360UnknownWithoutOwnGrid();
     void sectorSweepResolvesBlockedInEveryDirectionWithPreloadedTiles();
@@ -203,6 +204,50 @@ void TestTerrain::lineOfSightBlockedWhenTerrainExceedsTheDirectLine()
         {10.0, 1000.0},
     };
     QCOMPARE(classifyLineOfSight(profile, 1000.0, 10.0, 1000.0, 10.0, 144.0), LineOfSightClass::Blocked);
+}
+
+// Der Fall, der im Contest zählt: eine Station in 250 km, flaches
+// Land auf 300 m, vom Feuerkogel (1 592 m) aus. Da ist KEIN Berg im
+// Weg -- aber die Erde selbst wölbt sich dazwischen, und der
+// 4/3-Erdbauch ist bei dieser Länge einige hundert Meter hoch. Als
+// "verdeckt" gemeldet verschwindet die Station aus dem Chat
+// (GeoFilter::classify() schließt Blocked hart aus) -- und das sind
+// genau die Verbindungen, die im UKW-Contest die Punkte bringen (der
+// ODX in Martins eigenen Prüfdaten liegt bei 521 km).
+//
+// Jenseits des Funkhorizonts kann dieses Modell nicht mehr zwischen
+// "Berg im Weg" und "Erde im Weg" unterscheiden. Dann ist die ehrliche
+// Antwort "unbekannt", nicht "verdeckt".
+void TestTerrain::dieErdkruemmungAlleinIstKeineVerdeckung()
+{
+    QVector<ElevationSample> profile;
+    for (int i = 0; i <= 50; ++i) {
+        ElevationSample sample;
+        sample.distanceKm = i * 5.0;   // 0 .. 250 km
+        sample.elevationM = 300.0;     // flach, kein Berg
+        profile.append(sample);
+    }
+    // Feuerkogel 1592 m + 10 m Antenne gegen 300 m + 10 m.
+    QCOMPARE(classifyLineOfSight(profile, 1592.0, 10.0, 300.0, 10.0, 144.0), LineOfSightClass::Unknown);
+
+    // Innerhalb des Funkhorizonts (hier 60 km) bleibt alles, wie es
+    // war: dort heißt "verdeckt" wirklich verdeckt.
+    QVector<ElevationSample> nah;
+    for (int i = 0; i <= 20; ++i) {
+        ElevationSample sample;
+        sample.distanceKm = i * 3.0;   // 0 .. 60 km
+        sample.elevationM = (i == 10) ? 1800.0 : 300.0;   // ein Berg in der Mitte
+        nah.append(sample);
+    }
+    QCOMPARE(classifyLineOfSight(nah, 1592.0, 10.0, 300.0, 10.0, 144.0), LineOfSightClass::Blocked);
+
+    // Und ohne Berg ist derselbe kurze Weg frei.
+    for (ElevationSample& sample : nah) {
+        sample.elevationM = 300.0;
+    }
+    const LineOfSightClass frei = classifyLineOfSight(nah, 1592.0, 10.0, 300.0, 10.0, 144.0);
+    QVERIFY2(frei == LineOfSightClass::Clear || frei == LineOfSightClass::Marginal,
+             "Ein freier Weg über 60 km darf nicht verdeckt sein");
 }
 
 void TestTerrain::lineOfSightUnknownWhenAnySampleIsUnknownAndNoneAreBlocked()

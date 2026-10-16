@@ -35,6 +35,8 @@
 #include <QElapsedTimer>
 #include <QTemporaryDir>
 
+#include <algorithm>
+
 #include "core/GeoFilter.h"
 #include "core/SpotCandidate.h"
 #include "data/ContestDatabase.h"
@@ -94,10 +96,19 @@ void TestChatDauerlast::eineZeileBleibtSchnellAuchNachStunden()
         while (geschrieben < marke) {
             model.addCandidate(zeile(geschrieben++));
         }
-        QElapsedTimer t;
-        t.start();
-        model.addCandidate(zeile(geschrieben++));
-        const double ms = t.nsecsElapsed() / 1000000.0;
+        // Zwanzig Zeilen messen und den MITTLEREN Wert nehmen: ein
+        // einzelner Einschub kann auf einem ausgelasteten Rechner
+        // (oder in der CI, wo vier Prüfstände nebeneinander laufen)
+        // einen Ausreißer haben, der nichts über das Programm sagt.
+        QVector<double> proben;
+        for (int p = 0; p < 20; ++p) {
+            QElapsedTimer t;
+            t.start();
+            model.addCandidate(zeile(geschrieben++));
+            proben << t.nsecsElapsed() / 1000000.0;
+        }
+        std::sort(proben.begin(), proben.end());
+        const double ms = proben.at(proben.size() / 2);
         dauern << ms;
         qInfo().noquote() << QStringLiteral("nach %1 Zeilen: eine weitere dauert %2 ms")
                                  .arg(marke)
