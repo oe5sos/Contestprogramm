@@ -101,6 +101,15 @@ public:
     void setGreylineLayerVisible(bool visible);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
+    // "Vollfläche": the map uses the whole panel and the panel's own
+    // frame is its rim -- no scope circle at all (operator, 2026-10-18:
+    // "nicht durch den runden kreis minimiert ... sondern optional
+    // flächenfüllend ... die linien des fensters als begrenzer. nur als
+    // zusätzliche option"). Off by default; the disc stays the default
+    // face. The projection stays azimuthal equidistant and isotropic --
+    // the range still lands on the nearer pair of edges, the corners
+    // simply reach further out.
+    void setFullBleedEnabled(bool enabled);
     void setRotor1HeadingLayerVisible(bool visible);
     void setRotor2HeadingLayerVisible(bool visible);
     void setHorizonLayerVisible(bool visible);
@@ -113,6 +122,7 @@ public:
     bool greylineLayerVisible() const { return m_layers.greyline; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
+    bool fullBleedEnabled() const { return m_fullBleed; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
     bool rotor2HeadingLayerVisible() const { return m_showRotor2Heading; }
     bool horizonLayerVisible() const { return m_showHorizon; }
@@ -237,6 +247,7 @@ private:
 
     // Geometry
     QRectF canvasRect() const;       // everything below the controls
+    QRectF paintRect() const;        // what the map is clipped to (the frame in Vollfläche)
     QRectF scopeRect() const;        // the (possibly elliptical) map/scope area
     QRectF numbersRect() const;      // Radar: the column to the right, empty when too narrow
     // The open (spotted, not worked) stations inside rotor 1's cone(s),
@@ -246,6 +257,13 @@ private:
     double horizonAngleAt(int bearingDeg) const; // profile, else from sectors, 0 = flat
     bool hasHorizon() const;
     QVector<Plotted> plotStations(const QRectF& area) const;
+    // Where the bearing ray leaves the painted area, pulled `inset` px
+    // back along it (negative = outside): the ellipse's rim, or the
+    // panel edge in Vollfläche.
+    QPointF rimPoint(const QRectF& area, double bearingDeg, double inset) const;
+    // How far past visibleRangeKm the painted area still reaches --
+    // 1.0 for the disc, up to the diagonal when the frame is the rim.
+    double visibleRangeFactor() const;
     QVector<GridCell> computeGridCells(const QRectF& area) const;
 
     // Painting
@@ -304,6 +322,10 @@ private:
     // Blätterpaar, 2026-09-23). Über das ⚙ der Karte weiterhin
     // umschaltbar.
     bool m_fitToWindow = false;
+    // Vollfläche lässt denselben runden Maßstab stehen -- sie nimmt nur
+    // den Kreis als Rand weg: deshalb bleibt der abgelesene Winkel hier
+    // richtig, anders als beim Anpassen oben.
+    bool m_fullBleed = false;
     bool m_showRotor1Heading = true;
     bool m_showRotor2Heading = true;
     bool m_showHorizon = true;
@@ -343,6 +365,7 @@ private:
     QAction* m_citiesAction = nullptr;
     QAction* m_agingAction = nullptr;
     QAction* m_fitAction = nullptr;
+    QAction* m_fullBleedAction = nullptr;
     QAction* m_rotor1Action = nullptr;
     QAction* m_rotor2Action = nullptr;
     QAction* m_horizonAction = nullptr;

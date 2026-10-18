@@ -278,6 +278,9 @@ private slots:
     void zoomStepsGrowBeyondVhfRanges();
     void optionsMenuOffersRangePresets();
     void mapIsRoundByDefaultAndRoundTrips();
+    void fullBleedDefaultsOffAndRoundTripsThroughPreferences();
+    void fullBleedTakesTheWholePanelAndPaintsIntoTheCorners();
+    void fullBleedMenuEntryTogglesTheMode();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
     void clickingEmptyAreaDoesNotEmitCandidateActivated();
@@ -409,6 +412,90 @@ void TestMapWidgetLive::mapIsRoundByDefaultAndRoundTrips()
 
     widget.setFitToWindowEnabled(false);
     QVERIFY(!widget.fitToWindowEnabled());
+}
+
+void TestMapWidgetLive::fullBleedDefaultsOffAndRoundTripsThroughPreferences()
+{
+    // Die Scheibe bleibt der Normalfall -- Vollflaeche ist die
+    // Zusatzoption (Martin, 2026-10-18: "nur als zusaetzliche option"),
+    // und sie muss den Neustart ueberleben.
+    MapWidget widget;
+    QVERIFY(!widget.fullBleedEnabled());
+
+    widget.setFullBleedEnabled(true);
+    QVERIFY(widget.fullBleedEnabled());
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("fullbleed=1")));
+
+    MapWidget restored;
+    restored.applyPreferencesText(widget.preferencesText());
+    QVERIFY(restored.fullBleedEnabled());
+
+    widget.setFullBleedEnabled(false);
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("fullbleed=0")));
+}
+
+void TestMapWidgetLive::fullBleedTakesTheWholePanelAndPaintsIntoTheCorners()
+{
+    // Gegenprobe gegen die alte Fassung: dasselbe Widget, dieselbe
+    // Groesse, einmal als Scheibe und einmal flaechenfuellend. Erwartet
+    // wird (a) ein groesserer Maszstabsrahmen, weil die Luft fuer die
+    // Randbeschriftung entfaellt, (b) ein weiterhin QUADRATISCHer
+    // Rahmen -- die Peilung darf sich nicht verziehen --, und (c) eine
+    // obere linke Ecke, die jetzt Karte traegt statt Panelgrund.
+    const auto cornerPixel = [](MapWidget& widget) {
+        QImage sheet(widget.size(), QImage::Format_ARGB32);
+        sheet.fill(Qt::transparent);
+        widget.render(&sheet);
+        return sheet.pixel(14, widget.height() - 14);
+    };
+
+    MapWidget widget;
+    widget.setOwnGrid(QStringLiteral("JN67VV"));
+    widget.setFitToWindowEnabled(false);
+    widget.resize(900, 520);
+
+    const QRectF disc = widget.canvasRectForTest();
+    const QRgb discCorner = cornerPixel(widget);
+
+    widget.setFullBleedEnabled(true);
+    const QRectF full = widget.canvasRectForTest();
+    const QRgb fullCorner = cornerPixel(widget);
+
+    QVERIFY(qAbs(disc.width() - disc.height()) < 1.0);
+    QVERIFY(qAbs(full.width() - full.height()) < 1.0);
+    QVERIFY(full.width() > disc.width());
+    QVERIFY(qAbs(full.center().x() - disc.center().x()) < 1.0);
+    QVERIFY(discCorner != fullCorner);
+}
+
+void TestMapWidgetLive::fullBleedMenuEntryTogglesTheMode()
+{
+    // Erreichbar muss die Option auch sein -- im ⚙ rechts oben, wie
+    // jede andere (Martin, 2026-09-20), und der Eintrag muss wirklich
+    // schalten und die Aenderung melden, damit MainWindow sie speichert.
+    MapWidget widget;
+    QSignalSpy changed(&widget, &MapWidget::preferencesChanged);
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+
+    QAction* entry = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->text().startsWith(QStringLiteral("Vollfläche"))) {
+            entry = action;
+        }
+    }
+    QVERIFY(entry);
+    QVERIFY(entry->isCheckable());
+    QVERIFY(!entry->isChecked());
+
+    entry->trigger();
+    QVERIFY(widget.fullBleedEnabled());
+    QVERIFY(entry->isChecked());
+    QCOMPARE(changed.count(), 1);
+
+    entry->trigger();
+    QVERIFY(!widget.fullBleedEnabled());
+    QCOMPARE(changed.count(), 2);
 }
 
 void TestMapWidgetLive::agingEnabledDefaultsTrueAndRoundTrips()
