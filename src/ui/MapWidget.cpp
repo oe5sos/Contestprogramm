@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Contestprogramm {
 
@@ -265,6 +266,7 @@ void MapWidget::buildControls()
     m_rotor2SecondAction = addAntennaChoice(2, true);
     m_agingAction = addToggle(QStringLiteral("Alte Kontakte verblassen"), QStringLiteral("Gearbeitete Stationen werden nach 30 min langsam grau"), &MapWidget::setAgingEnabled);
     m_fitAction = addToggle(QStringLiteral("Fläche füllen"), QStringLiteral("Scheibe füllt die Fläche (elliptisch); aus: Kreis"), &MapWidget::setFitToWindowEnabled);
+    m_fullBleedAction = addToggle(QStringLiteral("Vollfläche (Fensterrand)"), QStringLiteral("Keine Scheibe: die Karte geht bis an die Panelkanten, der Rahmen ist der Rand. Peilung und Maßstab bleiben gleich -- der Radius liegt an der kürzeren Kante, die Ecken reichen weiter."), &MapWidget::setFullBleedEnabled);
     m_bordersAction = addToggle(QStringLiteral("Grenzen"), QStringLiteral("Staatsgrenzen/Küstenlinien (Natural Earth 1:110m)"), &MapWidget::setBordersLayerVisible);
     m_citiesAction = addToggle(QStringLiteral("Städte"), QStringLiteral("Wichtigste Großstädte ab 150 km (Natural Earth 1:110m)"), &MapWidget::setCitiesLayerVisible);
     m_gridAction = addToggle(QStringLiteral("Locator-Raster"), QStringLiteral("Großfelder als Raster mit Beschriftung"), &MapWidget::setGridLayerVisible);
@@ -307,6 +309,7 @@ void MapWidget::syncControls()
     sync(m_citiesAction, m_layers.cities);
     sync(m_agingAction, m_showAging);
     sync(m_fitAction, m_fitToWindow);
+    sync(m_fullBleedAction, m_fullBleed);
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
@@ -380,6 +383,7 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
         connect(action, &QAction::triggered, this, [this, km] { setVisibleRangeKm(km); });
     }
     menu->addAction(m_agingAction);
+    menu->addAction(m_fullBleedAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
     menu->addAction(m_bordersAction);
@@ -447,6 +451,7 @@ MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, m_layers.cells)
 MAPWIDGET_TOGGLE(setBordersLayerVisible, m_layers.borders)
 MAPWIDGET_TOGGLE(setCitiesLayerVisible, m_layers.cities)
 MAPWIDGET_TOGGLE(setFitToWindowEnabled, m_fitToWindow)
+MAPWIDGET_TOGGLE(setFullBleedEnabled, m_fullBleed)
 MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
@@ -629,13 +634,14 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
         .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
              flag(m_layers.greyline))
-        .arg(m_fixedBeamwidthDeg, 0, 'f', 0);
+        .arg(m_fixedBeamwidthDeg, 0, 'f', 0)
+        .arg(flag(m_fullBleed));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -687,6 +693,8 @@ void MapWidget::applyPreferencesText(const QString& text)
             }
         } else if (key == QStringLiteral("fit")) {
             apply(m_fitToWindow);
+        } else if (key == QStringLiteral("fullbleed")) {
+            apply(m_fullBleed);
         } else if (key == QStringLiteral("rotor1")) {
             apply(m_showRotor1Heading);
         } else if (key == QStringLiteral("rotor2")) {
@@ -816,16 +824,29 @@ QRectF MapWidget::numbersRect() const
     return QRectF(canvas.right() - kNumbersColumnWidth + 12, canvas.top(), kNumbersColumnWidth - 12, canvas.height());
 }
 
-QRectF MapWidget::scopeRect() const
+QRectF MapWidget::paintRect() const
 {
     QRectF area = canvasRect();
     const QRectF numbers = numbersRect();
     if (!numbers.isEmpty()) {
         area.setRight(numbers.left() - 8.0);
     }
-    // The rim labels and the beam labels outside them need air.
-    area.adjust(32.0, 32.0, -32.0, -32.0);
+    // On the disc the rim labels and the beam labels outside them need
+    // air; in Vollfläche there is no rim to label around -- the map
+    // runs out to the panel's own frame and the labels move inside.
+    if (!m_fullBleed) {
+        area.adjust(32.0, 32.0, -32.0, -32.0);
+    }
     if (area.width() <= 0.0 || area.height() <= 0.0) {
+        return QRectF();
+    }
+    return area;
+}
+
+QRectF MapWidget::scopeRect() const
+{
+    const QRectF area = paintRect();
+    if (area.isEmpty()) {
         return QRectF();
     }
     if (m_fitToWindow) {
@@ -833,6 +854,48 @@ QRectF MapWidget::scopeRect() const
     }
     const double side = std::min(area.width(), area.height());
     return QRectF(area.center().x() - side / 2.0, area.center().y() - side / 2.0, side, side);
+}
+
+double MapWidget::visibleRangeFactor() const
+{
+    if (!m_fullBleed) {
+        return 1.0;
+    }
+    const QRectF scope = scopeRect();
+    const QRectF frame = paintRect();
+    if (scope.isEmpty() || frame.isEmpty()) {
+        return 1.0;
+    }
+    const QPointF centre = scope.center();
+    const double fx = std::max(centre.x() - frame.left(), frame.right() - centre.x()) / (scope.width() / 2.0);
+    const double fy = std::max(centre.y() - frame.top(), frame.bottom() - centre.y()) / (scope.height() / 2.0);
+    return std::max(1.0, std::hypot(fx, fy));
+}
+
+QPointF MapWidget::rimPoint(const QRectF& area, double bearingDeg, double inset) const
+{
+    const QPointF centre = area.center();
+    if (!m_fullBleed) {
+        const double rx = area.width() / 2.0;
+        const double ry = area.height() / 2.0;
+        return polar(centre, bearingDeg, rx - inset, ry - inset * ry / std::max(1.0, rx));
+    }
+    const QRectF frame = paintRect();
+    const double a = qDegreesToRadians(bearingDeg);
+    const double dx = std::sin(a);
+    const double dy = -std::cos(a);
+    double t = std::numeric_limits<double>::max();
+    if (std::fabs(dx) > 1e-9) {
+        t = std::min(t, ((dx > 0.0 ? frame.right() : frame.left()) - centre.x()) / dx);
+    }
+    if (std::fabs(dy) > 1e-9) {
+        t = std::min(t, ((dy > 0.0 ? frame.bottom() : frame.top()) - centre.y()) / dy);
+    }
+    if (t == std::numeric_limits<double>::max()) {
+        t = 0.0;
+    }
+    t = std::max(0.0, t - inset);
+    return QPointF(centre.x() + dx * t, centre.y() + dy * t);
 }
 
 bool MapWidget::hasHorizon() const
@@ -931,12 +994,20 @@ QVector<MapWidget::GridCell> MapWidget::computeGridCells(const QRectF& area) con
 void MapWidget::drawScopeFace(QPainter& painter, const QRectF& area) const
 {
     // Sunk, black, a touch lighter at the centre -- the instrument face
-    // the dots sit on; the ellipse is the scope's rim.
-    QRadialGradient face(area.center(), std::max(area.width(), area.height()) / 2.0);
+    // the dots sit on; the ellipse is the scope's rim. In Vollfläche
+    // the same face is a rectangle out to the panel's frame, with no
+    // rim line of its own: the panel already draws one.
+    const QRectF face_ = m_fullBleed ? paintRect() : area;
+    QRadialGradient face(area.center(), std::max(face_.width(), face_.height()) / 2.0);
     face.setColorAt(0.0, QColor(Style::shiftL(QColor(Style::kInsetBg()), 4)));
     face.setColorAt(1.0, QColor(Style::kInsetBg()));
-    painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
     painter.setBrush(face);
+    if (m_fullBleed) {
+        painter.setPen(Qt::NoPen);
+        painter.drawRect(face_);
+        return;
+    }
+    painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
     painter.drawEllipse(area);
 }
 
@@ -1082,7 +1153,7 @@ void MapWidget::drawCitiesLayer(QPainter& painter, const QRectF& area) const
     for (const CityPoint& city : m_cities) {
         const double bearing = calculateBearingInDegreesBetween(homeLat, homeLon, city.lat, city.lon);
         const double distance = calculateDistanceKmBetween(homeLat, homeLon, city.lat, city.lon);
-        if (distance < kCityMinDistanceKm || distance > m_visibleRangeKm) {
+        if (distance < kCityMinDistanceKm || distance > m_visibleRangeKm * visibleRangeFactor()) {
             continue;
         }
         const QPointF point = projectBearingDistance(bearing, distance, m_visibleRangeKm, area);
@@ -1155,7 +1226,10 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
         step = 1000.0;
     }
     const double majorEvery = step <= 100.0 ? 200.0 : step * 5.0;
-    for (double km = step; km < m_visibleRangeKm - 0.5; km += step) {
+    // In Vollfläche laufen die Ringe weiter in die Ecken, wo die Karte
+    // über den eingestellten Radius hinausreicht.
+    const double lastKm = m_visibleRangeKm * visibleRangeFactor();
+    for (double km = step; km < lastKm - 0.5; km += step) {
         const double frac = km / m_visibleRangeKm;
         const bool major = std::fmod(km, majorEvery) < 0.5;
         QColor color{Style::kBorder()};
@@ -1171,9 +1245,6 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
 
 void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
 {
-    const QPointF center = area.center();
-    const double rx = area.width() / 2.0;
-    const double ry = area.height() / 2.0;
     // Ticks on the rim every 10°, labels every 30°.
     for (int deg = 0; deg < 360; deg += 10) {
         const bool major = deg % 30 == 0;
@@ -1181,11 +1252,13 @@ void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
         tick.setAlpha(major ? 200 : 110);
         painter.setPen(QPen(tick, major ? 1.2 : 0.8));
         const double inset = major ? 7.0 : 4.0;
-        painter.drawLine(polar(center, deg, rx - inset, ry - inset * ry / std::max(1.0, rx)), polar(center, deg, rx, ry));
+        painter.drawLine(rimPoint(area, deg, inset), rimPoint(area, deg, 0.0));
         if (major) {
             painter.setFont(Style::capsFont(font(), Style::kFontCaption));
             painter.setPen(QColor(Style::kTextScale()));
-            const QPointF p = polar(center, deg, rx + 11.0, ry + 11.0);
+            // Outside the disc's rim; inside the panel's frame, where
+            // there is no outside.
+            const QPointF p = rimPoint(area, deg, m_fullBleed ? 18.0 : -11.0);
             painter.drawText(QRectF(p.x() - 14, p.y() - 6, 28, 12), Qt::AlignCenter, compassLabel(deg));
         }
     }
@@ -1196,13 +1269,10 @@ void MapWidget::drawHorizonRim(QPainter& painter, const QRectF& area) const
     if (!hasHorizon()) {
         return;
     }
-    const QPointF center = area.center();
-    const double rx = area.width() / 2.0;
-    const double ry = area.height() / 2.0;
     QPainterPath inner;
     for (int deg = 0; deg <= 360; ++deg) {
         const double frac = horizonAngleAt(deg) / kStripMaxElevationDeg;
-        const QPointF p = polar(center, deg, rx - frac * kRimMaxThicknessPx, ry - frac * kRimMaxThicknessPx * ry / std::max(1.0, rx));
+        const QPointF p = rimPoint(area, deg, frac * kRimMaxThicknessPx);
         if (deg == 0) {
             inner.moveTo(p);
         } else {
@@ -1210,7 +1280,11 @@ void MapWidget::drawHorizonRim(QPainter& painter, const QRectF& area) const
         }
     }
     QPainterPath rim;
-    rim.addEllipse(area);
+    if (m_fullBleed) {
+        rim.addRect(paintRect());
+    } else {
+        rim.addEllipse(area);
+    }
     painter.setPen(Qt::NoPen);
     painter.setBrush(withAlpha(Style::kAmberDim(), 110));
     painter.drawPath(rim.subtracted(inner));
@@ -1294,15 +1368,21 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
     const double rx = area.width() / 2.0;
     const double ry = area.height() / 2.0;
     if (!labelsOnly) {
+        // Swept degree by degree out to the rim -- the disc's ellipse
+        // or, in Vollfläche, the panel's edge, so the cone reaches the
+        // corners too.
         QPainterPath wedge;
         wedge.moveTo(center);
-        wedge.arcTo(area, 90.0 - (beam.azimuthDeg - beam.halfWidthDeg), -2.0 * beam.halfWidthDeg);
+        for (double d = -beam.halfWidthDeg; d < beam.halfWidthDeg; d += 1.0) {
+            wedge.lineTo(rimPoint(area, beam.azimuthDeg + d, 0.0));
+        }
+        wedge.lineTo(rimPoint(area, beam.azimuthDeg + beam.halfWidthDeg, 0.0));
         wedge.closeSubpath();
         QColor inner = beam.color;
         inner.setAlpha(60);
         QColor outer = beam.color;
         outer.setAlpha(0);
-        QRadialGradient grad(center, std::max(rx, ry));
+        QRadialGradient grad(center, std::max(rx, ry) * visibleRangeFactor());
         grad.setColorAt(0.0, inner);
         grad.setColorAt(1.0, outer);
         painter.setPen(Qt::NoPen);
@@ -1311,7 +1391,7 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         QColor line = beam.color;
         line.setAlpha(200);
         painter.setPen(QPen(line, 1.2, beam.lineStyle));
-        painter.drawLine(center, polar(center, beam.azimuthDeg, rx, ry));
+        painter.drawLine(center, rimPoint(area, beam.azimuthDeg, 0.0));
         return;
     }
     if (beam.label.isEmpty()) {
@@ -1328,9 +1408,18 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
     // First outside the rim; a second antenna on the same heading goes
     // just inside it, a third further in still.
     for (int step = 0; step < 4; ++step) {
-        const double out = step == 0 ? 26.0 : -(18.0 + (step - 1) * (h + 4.0));
-        const QPointF tip = polar(center, beam.azimuthDeg, rx + out, ry + out);
+        // Vollfläche has no outside -- every step walks further in.
+        const double inset = m_fullBleed ? 20.0 + step * (h + 4.0)
+                                         : (step == 0 ? -26.0 : 18.0 + (step - 1) * (h + 4.0));
+        const QPointF tip = rimPoint(area, beam.azimuthDeg, inset);
         box = QRectF(tip.x() - w / 2.0, tip.y() - h / 2.0, w, h);
+        if (m_fullBleed) {
+            // Am Fensterrand sitzt die Spitze auf der Kante -- die
+            // halbe Beschriftung laege sonst drauszen.
+            const QRectF frame = paintRect();
+            box.moveLeft(std::min(std::max(box.left(), frame.left() + 2.0), std::max(frame.left() + 2.0, frame.right() - w - 2.0)));
+            box.moveTop(std::min(std::max(box.top(), frame.top() + 2.0), std::max(frame.top() + 2.0, frame.bottom() - h - 2.0)));
+        }
         bool clash = false;
         if (takenLabels) {
             for (const QRectF& other : *takenLabels) {
@@ -1373,7 +1462,7 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if ((pass == 0) != station.worked) {
                 continue;
             }
-            if (p.distanceKm > m_visibleRangeKm) {
+            if (p.distanceKm > m_visibleRangeKm * visibleRangeFactor()) {
                 continue;
             }
             QColor color = markerColor(station.worked);
@@ -1626,11 +1715,16 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
         return;
     }
 
-    // The scope/map disc, everything geographic clipped to it.
+    // The scope/map disc, everything geographic clipped to it -- or,
+    // in Vollfläche, to the panel's own frame.
     drawScopeFace(painter, area);
     painter.save();
     QPainterPath clip;
-    clip.addEllipse(area);
+    if (m_fullBleed) {
+        clip.addRect(paintRect());
+    } else {
+        clip.addEllipse(area);
+    }
     painter.setClipPath(clip, Qt::IntersectClip);
     if (m_layers.borders) {
         drawBordersLayer(painter, area);
@@ -1656,7 +1750,7 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     painter.restore();
     if (m_showSpokes) {
         drawSpokesLayer(painter, area);
-    } else {
+    } else if (!m_fullBleed) {
         painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
         painter.setBrush(Qt::NoBrush);
         painter.drawEllipse(area);
@@ -1664,7 +1758,7 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     // Beam labels: outside the rim (or just inside it when headings
     // coincide), on top of everything, clipped to the canvas only.
     painter.save();
-    painter.setClipRect(canvasRect(), Qt::IntersectClip);
+    painter.setClipRect(m_fullBleed ? paintRect() : canvasRect(), Qt::IntersectClip);
     QVector<QRectF> beamLabels;
     for (const Beam& beam : beams()) {
         drawBeam(painter, area, beam, true, &beamLabels);
