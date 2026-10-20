@@ -157,7 +157,10 @@ void TestLaufendeNummer::theNumbersCloseUpAfterADeletion()
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
     QAbstractItemModel* model = table->model();
-    QCOMPARE(nummern(model).size(), 5);
+    // Siehe test_qso_loeschen: das Modell ist beim Erscheinen des
+    // Fensters noch nicht gefüllt. Am 2026-10-20 meldete diese Zeile in
+    // einem vollen Lauf 0 statt 5.
+    QTRY_COMPARE(nummern(model).size(), 5);
 
     // Das zweite QSO weg -- mit der Taste, wie Martin es tut.
     int zeile = -1;
@@ -171,7 +174,7 @@ void TestLaufendeNummer::theNumbersCloseUpAfterADeletion()
     table->setFocus();
     table->setCurrentIndex(model->index(zeile, UnifiedLogWidget::ColumnCall));
     QTest::keyClick(table, Qt::Key_Backspace);
-    QCoreApplication::processEvents();
+    QTRY_COMPARE(nummern(model).size(), 4);
 
     const QStringList werte = nummern(model);
     qInfo().noquote() << "nach dem Löschen:" << werte.join(QStringLiteral(", "));

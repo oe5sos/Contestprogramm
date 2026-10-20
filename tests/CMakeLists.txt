@@ -1,7 +1,33 @@
+# Prüfstände laufen auf dem Offscreen-Schirm.
+#
+# Nicht aus Bequemlichkeit, sondern weil die Oberflächen-Prüfstände auf
+# einem BENUTZTEN Rechner sonst nicht aussagekräftig sind: Die Löschtaste
+# hängt an einem QShortcut mit Qt::WidgetWithChildrenShortcut, und Qt
+# stellt Kurzbefehle nur einem AKTIVEN Fenster zu. Ein Prüfstand, der
+# hinter dem Fenster des Bedieners startet, bekommt den Tastaturfokus
+# nicht -- die Taste verpufft, und der Prüfstand meldet einen Fehler, der
+# keiner ist.
+#
+# Gemessen am 2026-10-20 auf dem MacBook, voller Lauf, dieselbe Fassung:
+#   mit dem echten Schirm:  8 von 124 rot (zwei davon mit SIGABRT), 451 s
+#   offscreen:              0 von 124 rot,                          114 s
+# In der CI fiel das nie auf -- dort setzen die Linux- und Windows-Läufe
+# QT_QPA_PLATFORM schon lange auf offscreen, nur der macOS-Lauf nicht,
+# und auf einem Runner konkurriert kein zweites Fenster um den Fokus.
+#
+# Wer zusehen will, baut mit -DCONTESTPROGRAMM_TEST_PLATFORM=cocoa (oder
+# leer für die Systemvorgabe). Siehe auch tests/Tastatureingabe.h.
+set(CONTESTPROGRAMM_TEST_PLATFORM "offscreen" CACHE STRING
+    "QT_QPA_PLATFORM für die Prüfstände; leer = Systemvorgabe")
+
 function(contestprogramm_add_test name)
     add_executable(${name} ${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE ContestprogrammCore Qt6::Test)
     add_test(NAME ${name} COMMAND ${name})
+    if(CONTESTPROGRAMM_TEST_PLATFORM)
+        set_tests_properties(${name} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=${CONTESTPROGRAMM_TEST_PLATFORM}")
+    endif()
 endfunction()
 
 contestprogramm_add_test(test_maidenhead)

@@ -10,6 +10,8 @@
 
 #include <QtTest>
 
+#include "Tastatureingabe.h"
+
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QLineEdit>
@@ -79,10 +81,10 @@ void TestRateSofort::einGeloggtesQsoStehtSofortImRatePanel()
     fields.at(0)->setFocus();
     QTest::keyClicks(fields.at(0), QStringLiteral("DL1ABC"));
     QTest::keyClick(fields.at(0), Qt::Key_Tab);
-    QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("001"));
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
-    QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("JO60AA"));
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Return);
+    Contestprogramm::Pruefstand::tippeInFokus(&window, QStringLiteral("001"));
+    Contestprogramm::Pruefstand::tasteInFokus(&window, Qt::Key_Tab);
+    Contestprogramm::Pruefstand::tippeInFokus(&window, QStringLiteral("JO60AA"));
+    Contestprogramm::Pruefstand::tasteInFokus(&window, Qt::Key_Return);
     QCoreApplication::processEvents();
 
     QCOMPARE(controller.database().qsoCountForContest(settings.activeContestId), 1);

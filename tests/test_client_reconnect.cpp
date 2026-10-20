@@ -8,6 +8,7 @@
 
 #include <QtTest>
 
+#include <QElapsedTimer>
 #include <QTcpServer>
 #include <QTcpSocket>
 
@@ -21,12 +22,31 @@ using namespace Contestprogramm;
 namespace {
 
 // A port nothing listens on right now, found by binding and releasing.
+// Ein Port, auf dem niemand lauscht -- und das wird belegt, nicht
+// angenommen. Der frühere Weg (Server öffnen, Nummer merken, schließen)
+// besorgte nur die NUMMER; hier wird zusätzlich so lange probiert, bis
+// ein Verbindungsversuch dorthin wirklich abgewiesen wird.
 quint16 freePort()
 {
     QTcpServer probe;
     probe.listen(QHostAddress::LocalHost, 0);
     const quint16 port = probe.serverPort();
     probe.close();
+
+    QElapsedTimer frist;
+    frist.start();
+    while (frist.elapsed() < 5000) {
+        QTcpSocket sonde;
+        sonde.connectToHost(QHostAddress::LocalHost, port);
+        if (!sonde.waitForConnected(200)) {
+            return port;   // abgewiesen -- der Port ist wirklich frei
+        }
+        sonde.abort();
+        QTest::qWait(50);
+    }
+    // Nicht stillschweigend weitermachen: wer hier landet, misst gegen
+    // einen fremden Dienst und bekommt unerklärliche Zahlen.
+    qWarning("freePort: Port %u nimmt nach 5 s immer noch Verbindungen an", port);
     return port;
 }
 
@@ -121,8 +141,30 @@ void TestClientReconnect::on4kstClientDialsAgainAfterARefusedConnect()
 
     FakeDaemon daemon;
     QVERIFY(daemon.listen(port));
+    // Gezählt wird AB HIER, nicht seit dem Start des Prüfstands. Worum
+    // es geht, ist die Doppelwahl: erscheint der Server, darf sich der
+    // Client genau EINMAL verbinden, nicht zweimal parallel (auf dem
+    // echten ON4KST-Server hieße das zwei Anmeldungen mit demselben
+    // Rufzeichen).
+    //
+    // Die absolute Zahl taugte dafür nicht. Am 2026-10-20 fiel dieser
+    // Prüfstand auf dem MacBook 6 von 6 Mal durch, in der CI nie --
+    // gemessen mit Zeitstempeln und `lsof -a -p <pid> -iTCP`: schon VOR
+    // dem Start des Daemons kam eine Verbindung auf den freien Port
+    // zustande (nach rund 30 ms, sichtbar als 127.0.0.1:x->127.0.0.1:port
+    // im Zustand CLOSED) und wurde Millisekunden später von der
+    // Gegenseite weggeworfen ("The remote host closed the connection"),
+    // obwohl dort nachweislich niemand lauschte (lsof auf den Port:
+    // leer, eine eigene Sonde davor: "Connection refused"). Der Client
+    // verhielt sich dabei richtig -- Fehler gemeldet, Wiederanwahl
+    // geplant, nach 5 s sauber verbunden. Gezählt hat der Prüfstand
+    // trotzdem zwei. Der Mechanismus dieser Phantomverbindung ist nicht
+    // abschließend geklärt und trat nur auf diesem Rechner auf; gegen
+    // ihn hilft, die Zählung dort beginnen zu lassen, wo die Aussage
+    // des Prüfstands anfängt.
+    const int vorDemDaemon = connected.count();
     QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 15000);
-    QCOMPARE(connected.count(), 1);
+    QCOMPARE(connected.count(), vorDemDaemon + 1);
 
     // A deliberate disconnect ends the retries.
     client.disconnectFromServer();

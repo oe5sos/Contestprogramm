@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include "Tastatureingabe.h"
+
 #include <QApplication>
 #include <QLabel>
 #include <QLineEdit>
@@ -427,7 +429,7 @@ void TestLogCorrections::theDupeAppearsWhileTypingNotOnlyAfterwards()
     auto* lastQso = window.findChild<QLabel*>(QLatin1String(UnifiedLogWidget::kLastQsoLabelObjectName));
     QVERIFY(lastQso);
     QVERIFY(log->returnToEntryRow());
-    QWidget* callsign = QApplication::focusWidget();
+    QWidget* callsign = Contestprogramm::Pruefstand::fokusIn(&window);
     QVERIFY(callsign);
 
     // Klein getippt -- die Dupe-Prüfung darf daran nicht scheitern.

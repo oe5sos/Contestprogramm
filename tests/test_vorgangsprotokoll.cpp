@@ -14,6 +14,8 @@
 
 #include <QtTest>
 
+#include "Tastatureingabe.h"
+
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QFile>
@@ -57,10 +59,10 @@ void logge(MainWindow& window, const QString& call, const QString& grid)
     fields.at(0)->setFocus();
     QTest::keyClicks(fields.at(0), call);
     QTest::keyClick(fields.at(0), Qt::Key_Tab);
-    QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("001"));
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
-    QTest::keyClicks(QApplication::focusWidget(), grid);
-    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Return);
+    Contestprogramm::Pruefstand::tippeInFokus(&window, QStringLiteral("001"));
+    Contestprogramm::Pruefstand::tasteInFokus(&window, Qt::Key_Tab);
+    Contestprogramm::Pruefstand::tippeInFokus(&window, grid);
+    Contestprogramm::Pruefstand::tasteInFokus(&window, Qt::Key_Return);
     QCoreApplication::processEvents();
 }
 
@@ -97,9 +99,14 @@ void TestVorgangsprotokoll::loeschenUndZurueckholenStehenImProtokoll()
     window.activateWindow();
     (void)QTest::qWaitForWindowActive(&window);
 
+    // QTRY_, nicht QCOMPARE: zwischen dem Enter und dem Satz in der
+    // Datenbank liegen Ereignisse, und ein einzelnes processEvents()
+    // holt nicht immer alle ein. Gemessen am 2026-10-20: dieser
+    // Prüfstand fiel ohne Fremdlast 2 von 6 Mal durch, unter Volllast
+    // 1 von 6 -- immer an einer Zusicherung direkt nach einer Eingabe.
     logge(window, QStringLiteral("DL1ABC"), QStringLiteral("JO60AA"));
     logge(window, QStringLiteral("OK2XYZ"), QStringLiteral("JN89AB"));
-    QCOMPARE(controller.database().qsoCountForContest(settings.activeContestId), 2);
+    QTRY_COMPARE(controller.database().qsoCountForContest(settings.activeContestId), 2);
 
     auto* table = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(table);
@@ -109,22 +116,25 @@ void TestVorgangsprotokoll::loeschenUndZurueckholenStehenImProtokoll()
     table->setCurrentIndex(model->index(zeile, UnifiedLogWidget::ColumnCall));
     table->setFocus();
     QTest::keyClick(table, Qt::Key_Backspace);
-    QCoreApplication::processEvents();
-    QCOMPARE(controller.database().qsoCountForContest(settings.activeContestId), 1);
+    QTRY_COMPARE(controller.database().qsoCountForContest(settings.activeContestId), 1);
 
     // Die Nummer 2 ist jetzt wieder frei und geht an die nächste
     // Station -- so soll es sein, ein Enter zuviel darf kein Loch
     // hinterlassen.
     logge(window, QStringLiteral("HA5QRP"), QStringLiteral("JN97AA"));
-    const QVector<QsoRecord> nachher = controller.database().qsosForContest(settings.activeContestId);
-    QCOMPARE(nachher.size(), 2);
-    bool zweiVergeben = false;
-    for (const QsoRecord& q : nachher) {
-        if (q.callsign == QStringLiteral("HA5QRP") && q.serialSent && *q.serialSent == 2) {
-            zweiVergeben = true;
+    // Die Abfrage gehört IN die Wartebedingung: QTRY_ wertet seinen
+    // Ausdruck wiederholt aus, eine vorher gezogene Kopie bliebe alt.
+    const auto nummerFuer = [&](const QString& call) -> int {
+        for (const QsoRecord& q : controller.database().qsosForContest(settings.activeContestId)) {
+            if (q.callsign == call && q.serialSent) {
+                return *q.serialSent;
+            }
         }
-    }
-    QVERIFY2(zweiVergeben, "Die Nummer des gelöschten QSO wurde nicht wieder vergeben");
+        return -1;   // noch nicht da
+    };
+    QTRY_COMPARE(controller.database().qsosForContest(settings.activeContestId).size(), 2);
+    // Die Nummer des gelöschten QSO muss wieder vergeben werden.
+    QTRY_COMPARE(nummerFuer(QStringLiteral("HA5QRP")), 2);
 
     // Und jetzt kommt das gelöschte QSO zurück: zwei Stationen mit
     // derselben gesendeten Nummer. Das muss der Operator erfahren.
