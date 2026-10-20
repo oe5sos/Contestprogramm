@@ -246,6 +246,14 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 300
       - name: DMG
         run: scripts/package-macos.sh build dist "$QT_ROOT_DIR/bin/macdeployqt"
+      - name: Mindestsystem des FERTIGEN Pakets belegen
+        # Erst hier, nach macdeployqt: die App ist nur so alt wie die
+        # neueste Datei in ihrem Paket. Ein mit minos 12 gebautes
+        # Programm startet nicht auf Monterey, wenn ein mitgeliefertes
+        # Qt-Framework ein neueres System verlangt -- und genau das wäre
+        # von außen nicht zu sehen, weil das Programm selbst stimmt.
+        # Betrifft Martins Rechner von 2015, der auf macOS 12 endet.
+        run: tests/pruefe_mindestsystem.sh build/Contestprogramm.app 12.0
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.paket }}
