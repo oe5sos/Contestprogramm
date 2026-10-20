@@ -13,8 +13,8 @@
 #   3. Die Icon-Quellen (resources/mac, resources/branding) haben im
 #      Bundle nichts verloren; ein .iconset-Ordner unter Contents/MacOS
 #      lässt codesign sogar scheitern.
-#   4. Ad-hoc-Signatur (ohne Developer ID): läuft auf Apple Silicon, beim
-#      ersten Start Rechtsklick › Öffnen.
+#   4. Ad-hoc-Signatur (ohne Developer ID): nötig auf Apple Silicon,
+#      harmlos auf Intel; beim ersten Start Rechtsklick › Öffnen.
 #   5. DMG mit Applications-Verknüpfung, SHA256 daneben.
 set -euo pipefail
 setopt null_glob   # ein Bundle aus aqt-Qt hat keine losen .dylib -- leere Globs sind dann kein Fehler
@@ -24,7 +24,19 @@ MACDEPLOYQT=${3:-/opt/homebrew/opt/qt/bin/macdeployqt}
 APP="$BUILD_DIR/Contestprogramm.app"
 [[ -d "$APP" ]] || { echo "kein $APP"; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
-ARCH=$(uname -m); [[ "$ARCH" == "arm64" ]] && ARCH_LABEL=apple-silicon || ARCH_LABEL=intel
+# Das Label kommt aus der GEBAUTEN Datei, nicht aus `uname -m`: das
+# Intel-Paket entsteht als Cross-Compile auf einem arm64-Runner (GitHub
+# hat für macOS keine Intel-Maschinen mehr), dort sagt `uname -m` arm64
+# -- das DMG hieß dann "-apple-silicon", obwohl x86_64 darin steckt,
+# und auf Intel-Rechnern fand der Updater die von ihm gesuchte Datei
+# "-macOS-intel.dmg" nie (SelfUpdater.cpp:75).
+BIN_ARCHS=$(lipo -archs "$APP/Contents/MacOS/Contestprogramm")
+case " $BIN_ARCHS " in
+    *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ARCH_LABEL=universal ;;
+    *" arm64 "*)  ARCH_LABEL=apple-silicon ;;
+    *" x86_64 "*) ARCH_LABEL=intel ;;
+    *) echo "unerwartete Architektur: $BIN_ARCHS"; exit 1 ;;
+esac
 
 "$MACDEPLOYQT" "$APP" -verbose=0 2>/dev/null || true   # die rpath-Fehler betreffen genau die Teile, die gleich entfernt werden
 

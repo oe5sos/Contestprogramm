@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
-project(Contestprogramm VERSION 0.1.1 LANGUAGES CXX)
+
+# macOS: Mindestsystem ausdrücklich festlegen -- MUSS vor project() stehen,
+# danach ist die Compiler-Erkennung gelaufen und die Vorgabe greift nicht
+# mehr. Ohne diese Zeile stempelt CMake die Version der BAUMASCHINE als
+# Mindestsystem in die Binärdatei (LC_BUILD_VERSION minos); eine auf
+# macOS 26 gebaute App startet dann auf einem älteren Mac gar nicht
+# erst ("erfordert eine neuere Version von macOS"). 12.0 ist das
+# Mindestsystem von Qt 6.8 und damit die tiefste Marke, die sich mit
+# dieser Werkzeugkette ehrlich versprechen lässt.
+#
+# Kein if(APPLE) davor: APPLE wird erst von project() gesetzt, und auf
+# Windows/Linux ist die Variable wirkungslos. Ohne FORCE, damit ein
+# -DCMAKE_OSX_DEPLOYMENT_TARGET=... von der Befehlszeile gewinnt.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Mindest-macOS-Version")
+
+project(Contestprogramm VERSION 0.1.2 LANGUAGES CXX)
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
 if(APPLE)

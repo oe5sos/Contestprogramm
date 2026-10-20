@@ -130,3 +130,13 @@ contestprogramm_add_test(test_edi_spezifikation)
 contestprogramm_add_test(test_fenster_bei_leerem_log)
 contestprogramm_add_test(test_chat_dauerlast)
 contestprogramm_add_test(test_enter_am_contestende)
+
+# macOS: hält fest, dass das fertige Programm auf älteren Systemen
+# startet. Kein C++-Prüfstand, weil die Frage nicht am Verhalten hängt,
+# sondern am Stempel in der gebauten Datei (LC_BUILD_VERSION minos) --
+# siehe tests/pruefe_mindestsystem.sh.
+if(APPLE)
+    add_test(NAME test_mindestsystem
+             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/pruefe_mindestsystem.sh"
+                     "$<TARGET_FILE:Contestprogramm>" "12.0")
+endif()

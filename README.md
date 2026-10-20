@@ -223,9 +223,14 @@ Skimmer/RBN, Netzwerk-Multi-Op, Voice-Keyer.
 ## Download
 
 Fertige Pakete liegen bei den [GitHub-Releases](https://github.com/oe5sos/Contestprogramm/releases):
-macOS (Apple Silicon) als DMG. Das Programm ist nicht bei Apple beglaubigt --
-beim ersten Start Rechtsklick › Öffnen. Windows- und Linux-Pakete folgen
-über die CI. Die Seite dazu: <https://www.longpath.at/contest/>.
+macOS als DMG -- **zwei getrennte Pakete, Apple Silicon und Intel**;
+Windows als portables ZIP, Linux als AppImage. Das Mindestsystem auf
+macOS ist **12 (Monterey)** -- damit laufen auch ältere Rechner: ein Mac
+mini 2018 (Intel) wie ein Mac von 2015, der auf Monterey endet. Geprüft
+wird das nicht an der Hauptdatei allein, sondern am ganzen Paket: eine
+App ist nur so alt wie das neueste Qt-Framework darin (`tests/pruefe_mindestsystem.sh`). Es ist nicht bei Apple beglaubigt -- beim
+ersten Start Rechtsklick › Öffnen. Die Seite dazu:
+<https://www.longpath.at/contest/>.
 
 Ein laufendes Programm holt sich die nächste Version selbst: **Hilfe ›
 Auf neueste Version aktualisieren…** fragt die GitHub-Releases ab, lädt das
