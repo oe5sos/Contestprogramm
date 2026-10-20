@@ -10,6 +10,8 @@
 
 #include <QtTest>
 
+#include "Tastatureingabe.h"
+
 #include <QApplication>
 #include <QTemporaryDir>
 
@@ -205,13 +207,17 @@ void TestQsoLoeschen::cursorOnTheRowAndTheDeleteKey()
         // Hinfahren: auf die erste geloggte Zeile.
         table->setFocus();
         table->setCurrentIndex(table->model()->index(0, UnifiedLogWidget::ColumnCall));
-        QCOMPARE(table->model()->index(0, UnifiedLogWidget::ColumnCall).data().toString(),
-                  QStringLiteral("DL1ABC"));
+        // QTRY_, nicht QCOMPARE: das Modell wird nach dem Öffnen des
+        // Fensters gefüllt, nicht währenddessen. Am 2026-10-20 stand im
+        // Protokoll eines vollen Laufs hier eine leere Zelle ("" statt
+        // "DL1ABC") -- die Zeile war schlicht noch nicht da.
+        QTRY_COMPARE(table->model()->index(0, UnifiedLogWidget::ColumnCall).data().toString(),
+                      QStringLiteral("DL1ABC"));
 
         // Und drücken.
         QTest::keyClick(table, key);
+        QTRY_COMPARE(controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF")).size(), 1);
         const QVector<QsoRecord> left = controller->database().qsosForContest(QStringLiteral("IARU_R1_VHF_UHF"));
-        QCOMPARE(left.size(), 1);
         QCOMPARE(left.first().callsign, QStringLiteral("OE3XYZ"));
     }
 }
@@ -240,7 +246,7 @@ void TestQsoLoeschen::escapeBringsTheCursorBackToTheEntryRow()
     QVERIFY(log->returnToEntryRow());
 
     // Der Fokus steht wieder im Rufzeichenfeld: tippen landet dort.
-    QTest::keyClicks(QApplication::focusWidget(), QStringLiteral("OE1XYZ"));
+    Contestprogramm::Pruefstand::tippeInFokus(&window, QStringLiteral("OE1XYZ"));
     QCOMPARE(log->callsign(), QStringLiteral("OE1XYZ"));
 }
 

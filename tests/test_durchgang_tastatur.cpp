@@ -17,6 +17,8 @@
 
 #include <QtTest>
 
+#include "Tastatureingabe.h"
+
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QLabel>
@@ -714,7 +716,7 @@ void TestDurchgangTastatur::returnAfterACorrectionGoesBackToTheEntryRow()
     // ... und der Cursor steht wieder im Rufzeichenfeld der Eingabezeile.
     const QList<QLineEdit*> fields = entryFields(window);
     QVERIFY(fields.size() >= 4);
-    QWidget* fokus = QApplication::focusWidget();
+    QWidget* fokus = Contestprogramm::Pruefstand::fokusIn(&window);
     qInfo().noquote() << "Fokus nach der Korrektur:"
                       << (fokus ? fokus->metaObject()->className() : "(keiner)")
                       << (fokus == fields.at(0) ? "= Rufzeichenfeld" : "= etwas anderes");
