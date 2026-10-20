@@ -194,8 +194,26 @@ jobs:
           name: windows-x64
           path: dist/*
 
+  # Zwei macOS-Pakete, beide vom arm64-Runner: Apple Silicon nativ, Intel
+  # als Cross-Compile. GitHub hat keine Intel-Maschinen mehr im Angebot
+  # (macos-13 ist abgekündigt), das offizielle Qt-Paket "clang_64" ist
+  # dafür universal -- es trägt beide Architekturen, deshalb genügt
+  # CMAKE_OSX_ARCHITECTURES. Die Prüfreihe läuft im Intel-Lauf über
+  # Rosetta auf demselben Rechner.
+  #
+  # Angelass: Auf dem Mac mini 2018 (Intel) gab es nie ein Paket --
+  # veröffentlicht wurde nur Apple Silicon, während der Updater auf
+  # Intel-Rechnern nach "-macOS-intel.dmg" sucht (SelfUpdater.cpp:75).
   macos:
     needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            paket: macos-apple-silicon
+          - arch: x86_64
+            paket: macos-intel
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -207,15 +225,30 @@ jobs:
           cache: true
       - name: Konfigurieren und bauen
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
           cmake --build build --parallel
+      - name: Architektur und Mindestsystem belegen
+        # Ohne diesen Schritt könnte ein Lauf stillschweigend die falsche
+        # Architektur bauen (etwa wenn das Qt-Paket eines Tages nicht mehr
+        # universal ist) und das DMG trüge trotzdem den Intel-Namen.
+        run: |
+          set -euxo pipefail
+          BIN=build/Contestprogramm.app/Contents/MacOS/Contestprogramm
+          lipo -archs "$BIN" | tr ' ' '\n' | grep -qx "${{ matrix.arch }}"
+          # minos muss die Vorgabe aus CMakeLists.txt sein (12.0), nicht die
+          # Version des Runners -- sonst startet die App auf älteren Macs nicht.
+          vtool -show-build "$BIN" | grep -E 'minos|platform'
+          vtool -show-build "$BIN" | grep -q 'minos 12'
       - name: Prüfen
+        # Der Intel-Lauf fährt die Prüfreihe über Rosetta; ist sie nicht da,
+        # schlägt das hier auf statt stumm zu überspringen.
         run: ctest --test-dir build --output-on-failure --timeout 300
       - name: DMG
         run: scripts/package-macos.sh build dist "$QT_ROOT_DIR/bin/macdeployqt"
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-apple-silicon
+          name: ${{ matrix.paket }}
           path: dist/*
 
   publish:
