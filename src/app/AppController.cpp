@@ -327,11 +327,28 @@ void AppController::applyNetworkSettings()
     m_geoFilter.setOwnGrid(m_settings.ownGrid);
     m_geoFilter.setRadiusKm(m_settings.radiusKm);
     // Re-runs every already-requested candidate's terrain classification
-    // against the (possibly just-changed) own grid/elevation/antenna
+    // against the (possibly just-changed) own position/elevation/antenna
     // height -- does NOT re-fetch already-loaded SRTM tiles, only the
     // cheap profile+classification step (see TerrainDataManager's own
-    // doc comment).
-    m_terrainDataManager.setOwnStation(m_settings.ownGrid, m_settings.ownElevationM, m_settings.antennaHeightM);
+    // doc comment). useExactOwnLocation picks which of TerrainDataManager's
+    // two setOwnStation() overloads gets the terrain module's origin --
+    // see ContestSettings::useExactOwnLocation/ownExactLatitude/
+    // ownExactLongitude for why a scouted site needs this at all. 0.0/0.0
+    // is treated as "not actually set yet" (a real ocean coordinate no
+    // contest station is genuinely at, per that field's own comment) so
+    // a stray checkbox-on-but-never-filled-in state falls back to the
+    // grid overload instead of silently classifying every path against
+    // mid-ocean terrain -- the same "don't fabricate a definite answer
+    // out of missing/nonsense input" posture the grid overload itself
+    // takes for an empty/invalid ownGrid.
+    const bool hasExactOwnLocation = m_settings.useExactOwnLocation
+        && (m_settings.ownExactLatitude != 0.0 || m_settings.ownExactLongitude != 0.0);
+    if (hasExactOwnLocation) {
+        m_terrainDataManager.setOwnStation(m_settings.ownExactLatitude, m_settings.ownExactLongitude,
+                                            m_settings.ownElevationM, m_settings.antennaHeightM);
+    } else {
+        m_terrainDataManager.setOwnStation(m_settings.ownGrid, m_settings.ownElevationM, m_settings.antennaHeightM);
+    }
     m_weatherClient.setOwnGrid(m_settings.ownGrid);
     m_on4kstFeedModel.setActiveContest(m_settings.activeContestId);
     m_clusterFeedModel.setActiveContest(m_settings.activeContestId);

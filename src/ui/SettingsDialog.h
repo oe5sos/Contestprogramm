@@ -95,17 +95,24 @@ private:
     // finding a mismatched (guessed) elevation. Computes the 6-character
     // locator from m_gpsLatSpin/m_gpsLonSpin via
     // Maidenhead::gridSquareFromLatLon() and writes it into m_gridEdit
-    // immediately (synchronous, no data dependency); then looks up the
-    // real SRTM elevation at that same point via m_gpsElevationLoader
-    // and writes it into m_elevationSpin once available -- synchronously
-    // if the covering tile is already disk-cached, otherwise after its
-    // tileLoaded()/tileLoadFailed() signal (see SrtmTileLoader::
+    // immediately (synchronous, no data dependency) -- kept, since
+    // ownGrid still drives spot distance/bearing and ON4KST/cluster
+    // filtering elsewhere in the app, unrelated to terrain. Operator,
+    // 2026-09-14, right after the exact-location feature (below) shipped:
+    // this row was still only feeding that lossy grid-square round trip,
+    // exactly the precision loss the exact-location fields exist to
+    // avoid -- pasting a real coordinate here now ALSO turns on
+    // m_useExactLocationCheck and writes the raw lat/lon straight into
+    // m_exactLatSpin/m_exactLonSpin (resetting m_knownSitesCombo to its
+    // placeholder, since a pasted coordinate is not one of that list's
+    // fixed scouted entries). Then looks up the real SRTM elevation at
+    // that same point via m_gpsElevationLoader and writes it into
+    // m_elevationSpin once available -- synchronously if the covering
+    // tile is already disk-cached, otherwise after its tileLoaded()/
+    // tileLoadFailed() signal (see SrtmTileLoader::
     // ensureTileAvailable()'s own doc comment). Does NOT touch
     // m_antennaHeightSpin (mast height above ground is not something
-    // SRTM or a lat/lon pair can tell us) or persist the raw lat/lon
-    // itself anywhere -- only the two fields ContestSettings already has
-    // a place for (ownGrid, ownElevationM) are affected, so this is a
-    // one-time convenience action, not new persisted state.
+    // SRTM or a lat/lon pair can tell us).
     void applyGpsCoordinates();
 
     // Operator, 2026-09-13: "copy paste hat nicht funktioniert" --
@@ -124,6 +131,20 @@ private:
     // calls), detects that combined-pair shape regardless of which of
     // the two fields it was pasted into and fills both from it.
     void handleGpsCoordinateTextEdited(const QString& text);
+
+    // m_knownSitesCombo's activated() handler -- copies the selected
+    // core/terrain/KnownSites.h entry's latitude/longitude into
+    // m_exactLatSpin/m_exactLonSpin and its elevationM into
+    // m_elevationSpin (the shared field also used by the ordinary grid-
+    // centroid path -- see ContestSettings::ownExactLatitude's own doc
+    // comment on why there is no separate "exact elevation" field). The
+    // elevation stays freely editable afterwards on purpose: a scouted
+    // site's bare-ground SRTM elevation is a good starting point, but
+    // the operator's actual mast/antenna base on site may sit on a
+    // platform, a built-up parking area, or otherwise differ slightly.
+    // The combo's own first entry is a non-selectable placeholder ("--
+    // Fundort wählen --"), so this only fires for a genuine choice.
+    void applyKnownSiteSelection(int index);
 
     ContestSettings m_initial;
     QVector<ContestDefinition> m_availableContests;
@@ -148,6 +169,26 @@ private:
     QPushButton* m_gpsApplyButton;
     QLabel* m_gpsStatusLabel;
     SrtmTileLoader* m_gpsElevationLoader = nullptr;
+
+    // "Exakter Standort" row -- see ContestSettings::useExactOwnLocation/
+    // ownExactLatitude/ownExactLongitude. Deliberately separate from the
+    // m_gpsLatSpin/m_gpsLonSpin pair above: that GPS row still funnels
+    // through a grid square (gridSquareFromLatLon() -- lossy, back down
+    // to a few-km-wide square) purely as a convenience for filling in
+    // m_gridEdit/m_elevationSpin; this row instead PERSISTS the raw
+    // coordinate itself for the terrain module to use directly, with no
+    // grid-square round trip at all. m_knownSitesCombo is a one-shot
+    // picklist (core/terrain/KnownSites.h) -- selecting an entry copies
+    // its lat/lon/elevation into m_exactLatSpin/m_exactLonSpin/
+    // m_elevationSpin and otherwise carries no persisted state of its
+    // own (its own current selection is not saved -- only the resulting
+    // coordinate values are, same "one-time autofill" posture
+    // applyGpsCoordinates() already established for the GPS row above).
+    QCheckBox* m_useExactLocationCheck;
+    QComboBox* m_knownSitesCombo;
+    QDoubleSpinBox* m_exactLatSpin;
+    QDoubleSpinBox* m_exactLonSpin;
+
     QDoubleSpinBox* m_radiusSpin;
     QComboBox* m_contestCombo;
 

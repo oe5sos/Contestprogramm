@@ -186,6 +186,17 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     ownGrid = database.settingValue(QStringLiteral("own_grid"), ownGrid);
     ownElevationM = database.settingValue(QStringLiteral("own_elevation_m"), QString::number(ownElevationM)).toDouble();
     antennaHeightM = database.settingValue(QStringLiteral("antenna_height_m"), QString::number(antennaHeightM)).toDouble();
+    useExactOwnLocation = boolFromString(
+        database.settingValue(QStringLiteral("use_exact_own_location"), boolToString(useExactOwnLocation)), useExactOwnLocation);
+    // 'f', 6 (not QString::number's default 'g' precision, which only
+    // keeps 6 SIGNIFICANT digits) -- a 2-digit-integer-part latitude like
+    // "47.815814" would otherwise silently round to "47.8158" on its
+    // very first save, throwing away exactly the sub-100m precision this
+    // whole feature exists to preserve.
+    ownExactLatitude = database.settingValue(
+        QStringLiteral("own_exact_latitude"), QString::number(ownExactLatitude, 'f', 6)).toDouble();
+    ownExactLongitude = database.settingValue(
+        QStringLiteral("own_exact_longitude"), QString::number(ownExactLongitude, 'f', 6)).toDouble();
     tciHost = database.settingValue(QStringLiteral("tci_host"), tciHost);
     tciPort = database.settingValue(QStringLiteral("tci_port"), QString::number(tciPort)).toInt();
     rigctldHost = database.settingValue(QStringLiteral("rigctld_host"), rigctldHost);
@@ -292,6 +303,10 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("own_grid"), ownGrid);
     database.setSettingValue(QStringLiteral("own_elevation_m"), QString::number(ownElevationM));
     database.setSettingValue(QStringLiteral("antenna_height_m"), QString::number(antennaHeightM));
+    database.setSettingValue(QStringLiteral("use_exact_own_location"), boolToString(useExactOwnLocation));
+    // See loadFrom()'s own comment on 'f', 6 above.
+    database.setSettingValue(QStringLiteral("own_exact_latitude"), QString::number(ownExactLatitude, 'f', 6));
+    database.setSettingValue(QStringLiteral("own_exact_longitude"), QString::number(ownExactLongitude, 'f', 6));
     database.setSettingValue(QStringLiteral("tci_host"), tciHost);
     database.setSettingValue(QStringLiteral("tci_port"), QString::number(tciPort));
     database.setSettingValue(QStringLiteral("rigctld_host"), rigctldHost);

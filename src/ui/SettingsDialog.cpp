@@ -3,6 +3,7 @@
 #include "core/CallsignLocatorLookup.h"
 #include "core/Maidenhead.h"
 #include "core/RotorModels.h"
+#include "core/terrain/KnownSites.h"
 #include "core/terrain/SrtmTileLoader.h"
 
 #include <algorithm>
@@ -47,6 +48,10 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_gpsLonSpin(new QDoubleSpinBox(this))
     , m_gpsApplyButton(new QPushButton(QStringLiteral("Übernehmen"), this))
     , m_gpsStatusLabel(new QLabel(this))
+    , m_useExactLocationCheck(new QCheckBox(QStringLiteral("Exakten Standort verwenden"), this))
+    , m_knownSitesCombo(new QComboBox(this))
+    , m_exactLatSpin(new QDoubleSpinBox(this))
+    , m_exactLonSpin(new QDoubleSpinBox(this))
     , m_radiusSpin(new QDoubleSpinBox(this))
     , m_contestCombo(new QComboBox(this))
     , m_contestEndSetCheck(new QCheckBox(QStringLiteral("Gesetzt"), this))
@@ -151,6 +156,59 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     if (QLineEdit* lonEdit = m_gpsLonSpin->findChild<QLineEdit*>()) {
         connect(lonEdit, &QLineEdit::textEdited, this, &SettingsDialog::handleGpsCoordinateTextEdited);
     }
+
+    // "Exakter Standort" -- survey-grade override for the terrain module
+    // (see ContestSettings::useExactOwnLocation and its own doc
+    // comment). Same QLocale::c() / 6-decimal convention as
+    // m_gpsLatSpin/m_gpsLonSpin above, for the same reason (a pasted
+    // "47.820300" GPS-style coordinate, and ~0.1m precision).
+    m_useExactLocationCheck->setChecked(initial.useExactOwnLocation);
+    m_exactLatSpin->setRange(-90.0, 90.0);
+    m_exactLatSpin->setDecimals(6);
+    m_exactLatSpin->setSuffix(QStringLiteral(" °N"));
+    m_exactLatSpin->setLocale(QLocale::c());
+    m_exactLatSpin->setValue(initial.ownExactLatitude);
+    m_exactLonSpin->setRange(-180.0, 180.0);
+    m_exactLonSpin->setDecimals(6);
+    m_exactLonSpin->setSuffix(QStringLiteral(" °O"));
+    m_exactLonSpin->setLocale(QLocale::c());
+    m_exactLonSpin->setValue(initial.ownExactLongitude);
+
+    // Placeholder first entry carries no KnownSite index (userData
+    // unset/-1), so applyKnownSiteSelection() below can tell it apart
+    // from a genuine choice and no-op for it -- the operator picking
+    // this dialog back up already has real values in the two spin boxes
+    // above (or a genuinely unset 0/0), and re-selecting the placeholder
+    // must never stomp on either.
+    m_knownSitesCombo->addItem(QStringLiteral("-- Fundort wählen --"), -1);
+    const QVector<KnownSite>& sites = knownSites();
+    for (int i = 0; i < sites.size(); ++i) {
+        m_knownSitesCombo->addItem(sites.at(i).name, i);
+    }
+    connect(m_knownSitesCombo, QOverload<int>::of(&QComboBox::activated), this,
+            &SettingsDialog::applyKnownSiteSelection);
+
+    // Off by default (see ContestSettings::useExactOwnLocation) --
+    // greys out the coordinate SPIN BOXES (manually typing a coordinate
+    // is an edit to a value that only matters once the feature is on).
+    // m_knownSitesCombo is deliberately NOT included here, unlike this
+    // dialog's usual "off means the rest of the row cannot apply"
+    // convention (see e.g. the rotor-enabled checkboxes below): operator,
+    // 2026-09-14, "funktioniert nicht zum auswählen" -- disabling the
+    // combo alongside the checkbox made it impossible to ever pick a
+    // site in the first place, because picking one is exactly what
+    // applyKnownSiteSelection() uses to TURN ON m_useExactLocationCheck
+    // (the same way applyGpsCoordinates() already does for a pasted
+    // coordinate). A disabled QComboBox never opens, so that opt-in path
+    // was unreachable -- a real chicken-and-egg bug, not a one-off
+    // request. The combo must stay clickable regardless of the
+    // checkbox's state for its own selection handler to ever run.
+    const auto applyExactLocationEnabledState = [this](bool enabled) {
+        m_exactLatSpin->setEnabled(enabled);
+        m_exactLonSpin->setEnabled(enabled);
+    };
+    applyExactLocationEnabledState(m_useExactLocationCheck->isChecked());
+    connect(m_useExactLocationCheck, &QCheckBox::toggled, this, applyExactLocationEnabledState);
 
     m_radiusSpin->setRange(0.0, 5000.0);
     m_radiusSpin->setSuffix(QStringLiteral(" km"));
@@ -381,6 +439,21 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     gpsRowLayout->addWidget(m_gpsApplyButton);
     gpsRowLayout->addStretch();
 
+    // "Exakter Standort" -- see ContestSettings::useExactOwnLocation.
+    // Laid out directly below the GPS-convenience row above (both rows
+    // are about the own station's position, just for two different
+    // purposes -- the GPS row fills in Locator/Standorthöhe for every
+    // OTHER grid-based computation in the app, this row is the terrain
+    // module's own survey-grade override), rather than a separate,
+    // disconnected group box.
+    auto* exactLocationRow = new QWidget(this);
+    auto* exactLocationLayout = new QHBoxLayout(exactLocationRow);
+    exactLocationLayout->setContentsMargins(0, 0, 0, 0);
+    exactLocationLayout->addWidget(m_knownSitesCombo);
+    exactLocationLayout->addWidget(m_exactLatSpin);
+    exactLocationLayout->addWidget(m_exactLonSpin);
+    exactLocationLayout->addStretch();
+
     auto* stationForm = new QFormLayout();
     stationForm->addRow(QStringLiteral("Eigenes Rufzeichen:"), m_callsignEdit);
     stationForm->addRow(QStringLiteral("Eigener Locator:"), m_gridEdit);
@@ -388,6 +461,12 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     stationForm->addRow(QString(), m_gpsStatusLabel);
     stationForm->addRow(QStringLiteral("Standorthöhe:"), m_elevationSpin);
     stationForm->addRow(QStringLiteral("Antennenhöhe:"), m_antennaHeightSpin);
+    stationForm->addRow(QString(), m_useExactLocationCheck);
+    stationForm->addRow(QStringLiteral("Exakter Standort:"), exactLocationRow);
+    stationForm->addRow(QString(),
+                         new QLabel(QStringLiteral("Nur für die Gelände-Sichtlinie (Rotor-Kompassring); "
+                                                    "Standorthöhe oben gilt weiterhin."),
+                                    this));
     stationForm->addRow(QStringLiteral("Radius:"), m_radiusSpin);
     stationForm->addRow(QStringLiteral("Aktiver Contest:"), m_contestCombo);
     stationForm->addRow(QStringLiteral("Contest-Ende (UTC):"), contestEndRow);
@@ -621,6 +700,9 @@ ContestSettings SettingsDialog::settings() const
     result.ownGrid = m_gridEdit->text().trimmed().toUpper();
     result.ownElevationM = m_elevationSpin->value();
     result.antennaHeightM = m_antennaHeightSpin->value();
+    result.useExactOwnLocation = m_useExactLocationCheck->isChecked();
+    result.ownExactLatitude = m_exactLatSpin->value();
+    result.ownExactLongitude = m_exactLonSpin->value();
     result.radiusKm = m_radiusSpin->value();
     result.activeContestId = m_contestCombo->currentData().toString();
     result.contestEndUtc = m_contestEndSetCheck->isChecked() ? m_contestEndEdit->dateTime().toString(Qt::ISODate) : QString();
@@ -683,7 +765,30 @@ void SettingsDialog::applyGpsCoordinates()
     const double lon = m_gpsLonSpin->value();
 
     // Synchronous, no data dependency -- always succeeds immediately.
+    // Still written even though the exact fields below now carry the
+    // real precision for the terrain module: ownGrid remains what the
+    // rest of the app (spot distance/bearing to OTHER stations, ON4KST/
+    // cluster filtering) actually reads, so a pasted coordinate should
+    // keep updating it exactly as before.
     m_gridEdit->setText(gridSquareFromLatLon(lat, lon));
+
+    // Operator, 2026-09-14 (right after this exact-location feature was
+    // added): pasting a GPS coordinate here was still only feeding the
+    // lossy grid-square round trip the exact-location fields exist to
+    // avoid -- an operator who bothered to paste a real coordinate
+    // clearly wants that precision used, not thrown away. Feed it
+    // straight into the exact fields and turn the feature on;
+    // m_exactLatSpin/m_exactLonSpin's setValue() below does not go
+    // through handleGpsCoordinateTextEdited() (that's wired to
+    // textEdited, which setValue() does not emit), so this cannot
+    // recurse. Reset the known-site combo to its placeholder since a
+    // pasted coordinate is -- by definition -- not one of the fixed
+    // scouted entries in that list; leaving a stale selection there
+    // would misleadingly suggest it still matches one.
+    m_useExactLocationCheck->setChecked(true);
+    m_exactLatSpin->setValue(lat);
+    m_exactLonSpin->setValue(lon);
+    m_knownSitesCombo->setCurrentIndex(0);
 
     if (!m_gpsElevationLoader) {
         m_gpsElevationLoader = new SrtmTileLoader(this);
@@ -700,8 +805,8 @@ void SettingsDialog::applyGpsCoordinates()
             return false;
         }
         m_elevationSpin->setValue(*elevation);
-        m_gpsStatusLabel->setText(QStringLiteral("Locator %1 und Standorthöhe %2 m aus den Koordinaten übernommen "
-                                                   "(echte SRTM-Geländedaten).")
+        m_gpsStatusLabel->setText(QStringLiteral("Locator %1, exakter Standort und Standorthöhe %2 m aus den "
+                                                   "Koordinaten übernommen (echte SRTM-Geländedaten).")
                                        .arg(m_gridEdit->text())
                                        .arg(*elevation, 0, 'f', 0));
         m_gpsApplyButton->setEnabled(true);
@@ -718,7 +823,8 @@ void SettingsDialog::applyGpsCoordinates()
     // network fetch (first time this exact area is ever looked up) can
     // take a few seconds.
     m_gpsApplyButton->setEnabled(false);
-    m_gpsStatusLabel->setText(QStringLiteral("Locator %1 übernommen -- Standorthöhe wird aus SRTM-Geländedaten ermittelt…")
+    m_gpsStatusLabel->setText(QStringLiteral("Locator %1 und exakter Standort übernommen -- Standorthöhe wird aus "
+                                               "SRTM-Geländedaten ermittelt…")
                                    .arg(m_gridEdit->text()));
     connect(m_gpsElevationLoader, &SrtmTileLoader::tileLoaded, this,
             [resolveElevation](const QString&) { resolveElevation(); });
@@ -755,6 +861,35 @@ void SettingsDialog::handleGpsCoordinateTextEdited(const QString& text)
     }
     m_gpsLatSpin->setValue(numbers.at(0));
     m_gpsLonSpin->setValue(numbers.at(1));
+}
+
+void SettingsDialog::applyKnownSiteSelection(int index)
+{
+    const int siteIndex = m_knownSitesCombo->itemData(index).toInt();
+    if (siteIndex < 0) {
+        return; // the "-- Fundort wählen --" placeholder itself -- nothing to apply
+    }
+    const QVector<KnownSite>& sites = knownSites();
+    if (siteIndex >= sites.size()) {
+        return; // defensive -- should be unreachable, the combo is built straight from this same list
+    }
+    const KnownSite& site = sites.at(siteIndex);
+    // Operator, 2026-09-14: picking a site from this list and then
+    // still having to separately tick "Exakten Standort verwenden" --
+    // easy to miss, since the checkbox sits above this combo and
+    // nothing here drew the eye back up to it -- meant the selection
+    // silently did nothing on Save whenever the checkbox started
+    // unchecked (the fields even LOOKED filled in, just greyed out).
+    // Choosing a specific scouted site is an unambiguous statement of
+    // intent to use it, so turn the feature on here too, exactly like
+    // applyGpsCoordinates() already does for a pasted coordinate.
+    m_useExactLocationCheck->setChecked(true);
+    m_exactLatSpin->setValue(site.latitude);
+    m_exactLonSpin->setValue(site.longitude);
+    // Convenience pre-fill, not a lock-in -- see this method's own doc
+    // comment in the header on why the elevation field stays editable
+    // afterwards.
+    m_elevationSpin->setValue(site.elevationM);
 }
 
 void SettingsDialog::importLocatorCsv()

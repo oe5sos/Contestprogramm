@@ -61,6 +61,7 @@
 #include "ui/SkedPanel.h"
 #include "ui/StatisticsWindow.h"
 #include "ui/SettingsDialog.h"
+#include "ui/SiteComparisonDialog.h"
 #include "ui/StyleKit.h"
 #include "ui/SuggestionPanel.h"
 #include "ui/UnifiedLogWidget.h"
@@ -1188,6 +1189,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+    // Standalone site-scouting/comparison view -- see ui/
+    // SiteComparisonDialog.h's own class comment for the motivating
+    // problem (SettingsDialog's "Exakter Standort" feature has no way
+    // to actually SEE how open a candidate site's real terrain is
+    // beyond RotorWidget's/MapWidget's fixed 50km near-field wash).
+    QAction* siteComparisonAction = fileMenu->addAction(QStringLiteral("&Standortvergleich..."));
+    connect(siteComparisonAction, &QAction::triggered, this, &MainWindow::openSiteComparisonDialog);
     // A proper contest-selection window, per the operator's explicit
     // request, distinct from the combo box buried in SettingsDialog --
     // see ui/ContestPickerDialog.h's class comment for scope.
@@ -2834,6 +2842,22 @@ void MainWindow::openSettingsDialog()
     m_mapWidget->setVisibleRangeKm(m_appController.settings().radiusKm);
     m_rateMeterWidget->setSource(&m_appController.database(), m_appController.settings().activeContestId);
     updateStatusBar();
+}
+
+void MainWindow::openSiteComparisonDialog()
+{
+    // Modal, same choice openSettingsDialog() makes above -- there is
+    // no specific reason for this one to differ, and a modeless window
+    // left open alongside the live contest UI would need its own
+    // separate "close when MainWindow closes" lifetime handling that
+    // exec()'s own event loop gives for free. Nothing here is ever
+    // written back into m_appController -- this dialog only reads
+    // m_appController.settings() once, for Slot A's own starting
+    // default (see SiteComparisonDialog's own constructor comment) --
+    // so there is no dialog.settings()/setSettings() follow-up the way
+    // openSettingsDialog() has.
+    SiteComparisonDialog dialog(m_appController.settings(), this);
+    dialog.exec();
 }
 
 void MainWindow::openContestRulesEditor()

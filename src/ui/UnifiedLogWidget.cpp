@@ -2507,14 +2507,19 @@ bool UnifiedLogWidget::eventFilter(QObject* watched, QEvent* event)
         if (keyEvent->key() == Qt::Key_Tab && keyEvent->modifiers() == Qt::NoModifier) {
             if (auto* current = qobject_cast<QLineEdit*>(watched)) {
                 padSerialField(current);
-                if (QLineEdit* next = nextFieldForTab(current)) {
-                    next->setFocus();
-                    next->selectAll();
-                    return true;
+                QLineEdit* next = nextFieldForTab(current);
+                // At the last field (Grid, normally) -- wrap back to
+                // Callsign for the next QSO instead of falling through
+                // to Qt's own default Tab handling, which walks the
+                // whole window's unrelated focus chain and can land
+                // anywhere else in the app (reported 2026-09-14: it
+                // reached the Rotor panel's manual-bearing field).
+                if (!next) {
+                    next = m_callsignEdit;
                 }
-                // At the last field (Grid, normally) -- fall through to
-                // Qt's own default Tab handling instead of trapping
-                // focus inside the entry row.
+                next->setFocus();
+                next->selectAll();
+                return true;
             }
         }
     }

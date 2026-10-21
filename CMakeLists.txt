@@ -105,6 +105,12 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/terrain/HorizonProfile.cpp
     src/core/terrain/TerrainDataManager.h
     src/core/terrain/TerrainDataManager.cpp
+    src/core/terrain/HorizonSweep.h
+    src/core/terrain/HorizonSweep.cpp
+    src/core/terrain/KnownSites.h
+    src/core/terrain/KnownSites.cpp
+    src/core/terrain/SiteHorizonManager.h
+    src/core/terrain/SiteHorizonManager.cpp
     src/core/assistant/NextTargetSuggester.h
     src/core/assistant/NextTargetSuggester.cpp
     src/core/assistant/MessageDrafter.h
@@ -186,6 +192,10 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/RateMeterWidget.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
+    src/ui/SiteComparisonDialog.h
+    src/ui/SiteComparisonDialog.cpp
+    src/ui/HorizonCompassWidget.h
+    src/ui/HorizonCompassWidget.cpp
     src/ui/ContestRulesEditor.h
     src/ui/ContestRulesEditor.cpp
     src/ui/ContestPickerDialog.h

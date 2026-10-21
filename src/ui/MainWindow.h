@@ -93,6 +93,11 @@ private slots:
     void handleLogRequested();
     void recheckDupeIndicator();
     void openSettingsDialog();
+    // Standalone site-scouting/comparison view (ui/SiteComparisonDialog.h),
+    // reachable independent of the live map/rotor panels -- see that
+    // class's own doc comment for the "einen eigenen Punkt, wo man nur
+    // die Standorte miteinander vergleicht" request this answers.
+    void openSiteComparisonDialog();
     void openContestRulesEditor();
     void openContestPicker();
     void exportCabrillo();

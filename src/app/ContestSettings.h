@@ -33,6 +33,45 @@ struct ContestSettings {
     QString ownGrid;
     double ownElevationM = 0.0;
     double antennaHeightM = 0.0;
+
+    // Optional survey-grade override for the OWN station's exact
+    // position, consulted only by the terrain line-of-sight module
+    // (core/terrain/TerrainDataManager.h) -- NOT a replacement for
+    // ownGrid above, which stays the single source of truth for every
+    // other grid-square-based computation in this app (spot distance/
+    // bearing to OTHER stations, GeoFilter's radius check, and so on).
+    // A 6-character Maidenhead square can be several kilometres across
+    // (calculateLatLonFromGridSquare() always resolves to that square's
+    // centroid), which is irrelevant for "is this spot within radius"
+    // but matters a great deal for a Fresnel-critical terrain path from
+    // a specific scouted mountaintop or parking-lot site: the
+    // difference between the square's centroid and the actual mast a
+    // few hundred metres away can flip a classification from Clear to
+    // Blocked. Off by default, which keeps every existing
+    // installation's terrain behavior byte-for-byte unchanged
+    // (grid-centroid origin, exactly as before this field existed);
+    // switching it on and filling in ownExactLatitude/ownExactLongitude
+    // below makes ONLY the terrain module use that precise point
+    // instead -- every other part of the app keeps reading ownGrid
+    // exactly as before.
+    bool useExactOwnLocation = false;
+
+    // Exact WGS84 coordinates for the own station, consulted only when
+    // useExactOwnLocation is true (see above) -- e.g. read off a
+    // handheld GPS or topo map at a scouted site, or filled in via
+    // SettingsDialog's own combo box from core/terrain/KnownSites.h's
+    // small picklist of real field-scouted VHF/UHF candidate sites.
+    // 0.0/0.0 (the default) is a real mid-ocean coordinate nobody's
+    // contest station is genuinely at, so it doubles as the "not set"
+    // sentinel -- the same role ownGrid's own empty-string default
+    // plays for "not set" in grid-based code (see
+    // TerrainDataManager::recompute()'s isValidGridSquare() guard).
+    // ownElevationM/antennaHeightM above are reused as-is for height at
+    // this exact point -- there is deliberately no separate "exact
+    // elevation" field, since the operator's actual measured/intended
+    // site elevation is the same number either way.
+    double ownExactLatitude = 0.0;
+    double ownExactLongitude = 0.0;
     QString tciHost = QStringLiteral("127.0.0.1");
     int tciPort = 50001;
     // Hamlib rigctld -- the contest station's actual CAT radio path

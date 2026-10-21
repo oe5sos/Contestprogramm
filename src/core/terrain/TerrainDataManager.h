@@ -29,14 +29,40 @@ class TerrainDataManager : public QObject {
 public:
     explicit TerrainDataManager(QObject* parent = nullptr);
 
-    // Own station: grid square + elevation/antenna height (metres,
-    // matching ContestSettings::ownElevationM/antennaHeightM). Re-runs
-    // every already-requested pair's classification against the new
-    // own-station values (an operator correcting their own elevation
-    // mid-contest should not leave stale classifications behind) --
-    // does NOT re-fetch any already-loaded SRTM tiles, only re-runs the
-    // cheap profile+classification step over them.
+    // Own station via Maidenhead grid square + elevation/antenna height
+    // (metres, matching ContestSettings::ownElevationM/antennaHeightM) --
+    // the default, always-available path: the operator's own grid
+    // converts to that square's CENTROID lat/lon
+    // (Maidenhead::calculateLatLonFromGridSquare()), which is used as
+    // the terrain origin from then on. Used whenever ContestSettings::
+    // useExactOwnLocation is false (the default for every existing
+    // installation). Re-runs every already-requested pair's
+    // classification against the new own-station values (an operator
+    // correcting their own elevation mid-contest should not leave stale
+    // classifications behind) -- does NOT re-fetch any already-loaded
+    // SRTM tiles, only re-runs the cheap profile+classification step
+    // over them. An invalid/empty grid clears the stored origin, same
+    // as before this overload existed -- every already-cached request
+    // then stays (or goes back to) Unknown until a valid origin is set
+    // again.
     void setOwnStation(const QString& ownGrid, double ownElevationM, double ownAntennaHeightM);
+
+    // Own station via an EXACT WGS84 coordinate instead of a grid-square
+    // centroid -- used when ContestSettings::useExactOwnLocation is
+    // true (a survey-grade override for a scouted mountaintop/
+    // parking-lot site, see that field's own doc comment: a 6-character
+    // grid square can be several kilometres across, which matters a lot
+    // for a Fresnel-critical terrain path even though it is irrelevant
+    // for e.g. GeoFilter's radius check). Height (elevation/antenna)
+    // works exactly like the grid overload above -- same units, same
+    // "re-run every cached request, don't re-fetch tiles" behavior.
+    // Unlike the grid overload, there is no "invalid input" case to
+    // reject here: any lat/lon this is called with is taken as the
+    // real, intended origin (ContestSettings/SettingsDialog/AppController
+    // are responsible for only calling this once a genuine, non-
+    // sentinel coordinate is present -- see ownExactLatitude/
+    // ownExactLongitude's own "0.0/0.0 means not set" comment).
+    void setOwnStation(double ownLat, double ownLon, double ownElevationM, double ownAntennaHeightM);
 
     // Requests (or returns the cached) classification for the path to
     // `otherGrid` at `frequencyMhz`, assuming `otherElevationM`/
@@ -123,7 +149,18 @@ private:
     static QString requestKey(const QString& otherGrid, double frequencyMhz);
 
     SrtmTileLoader* m_loader;
+    // The two setOwnStation() overloads above both converge on this one
+    // stored origin -- recompute()/sectorSweep() read m_ownLat/m_ownLon/
+    // m_hasOwnOrigin ONLY, never re-derive anything from a grid string
+    // themselves. m_ownGrid is kept purely as a record of which grid the
+    // grid-based overload was last called with (currently unused for
+    // anything beyond that -- no getter exists yet); the exact-lat/lon
+    // overload clears it, since at that point the origin is genuinely no
+    // longer describable as "this square's centroid".
     QString m_ownGrid;
+    double m_ownLat = 0.0;
+    double m_ownLon = 0.0;
+    bool m_hasOwnOrigin = false; // true once EITHER overload has been called with a usable origin
     double m_ownElevationM = 0.0;
     double m_ownAntennaHeightM = 0.0;
     QMap<QString, Request> m_requests; // keyed by requestKey()

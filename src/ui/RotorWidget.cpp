@@ -258,6 +258,12 @@ RotorWidget::RotorWidget(const QString& bandLabel, QWidget* parent)
     // still normalizes it, this just keeps "9999" or "-40" from ever
     // being typeable in the first place.
     m_targetInput->setValidator(new QIntValidator(0, 360, m_targetInput));
+    // ClickFocus, not the QLineEdit default StrongFocus: a rarely-used
+    // manual override, not something Tab should ever reach while
+    // stepping through an unrelated panel's fields (reported
+    // 2026-09-14: the log entry row's Tab chain fell through to Qt's
+    // default focus chain and landed here).
+    m_targetInput->setFocusPolicy(Qt::ClickFocus);
     m_targetInput->setStyleSheet(QStringLiteral(
         "QLineEdit { background: transparent; border: none; color: %1; padding: 0; }"
         "QLineEdit:focus { border-bottom: 1px solid %1; }")

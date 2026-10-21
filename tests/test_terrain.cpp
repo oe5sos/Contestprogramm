@@ -10,10 +10,16 @@
 
 #include <QtTest>
 
+#include <QTemporaryDir>
+
+#include "app/ContestSettings.h"
+#include "core/Maidenhead.h"
+#include "core/terrain/KnownSites.h"
 #include "core/terrain/LineOfSight.h"
 #include "core/terrain/PathProfile.h"
 #include "core/terrain/SrtmTileLoader.h"
 #include "core/terrain/TerrainDataManager.h"
+#include "data/ContestDatabase.h"
 
 using namespace Contestprogramm;
 
@@ -48,6 +54,9 @@ private slots:
     void terrainDataManagerResolvesSynchronouslyWithPreloadedTiles();
     void sectorSweepReturns360UnknownWithoutOwnGrid();
     void sectorSweepResolvesBlockedInEveryDirectionWithPreloadedTiles();
+    void exactLatLonOverloadMatchesGridOverloadForTheSameLocation();
+    void contestSettingsRoundTripsExactOwnLocationFields();
+    void knownSitesReturnsTheNineSeededEntries();
 };
 
 void TestTerrain::tileNamingCoversAllFourHemisphereCombinations()
@@ -292,6 +301,119 @@ void TestTerrain::sectorSweepResolvesBlockedInEveryDirectionWithPreloadedTiles()
     QCOMPARE(sectors.size(), 360);
     for (int degree = 0; degree < 360; ++degree) {
         QCOMPARE(sectors.at(degree), LineOfSightClass::Blocked);
+    }
+}
+
+void TestTerrain::exactLatLonOverloadMatchesGridOverloadForTheSameLocation()
+{
+    // The exact-lat/lon setOwnStation() overload (added for
+    // ContestSettings::useExactOwnLocation) must classify identically to
+    // the grid overload when given the SAME location -- it is meant as
+    // a more precise alternative origin, not a different computation.
+    // JN67VV's own centroid lat/lon (via calculateLatLonFromGridSquare(),
+    // the exact same conversion the grid overload performs internally)
+    // is used here as "the same location", so this test does not depend
+    // on the two overloads secretly disagreeing about grid-centroid math.
+    double ownLat = 0.0;
+    double ownLon = 0.0;
+    calculateLatLonFromGridSquare(QStringLiteral("JN67VV"), ownLat, ownLon);
+
+    TerrainDataManager gridManager;
+    gridManager.tileLoaderForTest().injectTileForTest(QStringLiteral("N47E013"), flatTile(500));
+    gridManager.setOwnStation(QStringLiteral("JN67VV"), 1000.0, 10.0);
+    const LineOfSightClass gridResult = gridManager.classification(QStringLiteral("JN67VW"), 144.0, 1000.0, 10.0);
+
+    TerrainDataManager exactManager;
+    exactManager.tileLoaderForTest().injectTileForTest(QStringLiteral("N47E013"), flatTile(500));
+    exactManager.setOwnStation(ownLat, ownLon, 1000.0, 10.0);
+    const LineOfSightClass exactResult = exactManager.classification(QStringLiteral("JN67VW"), 144.0, 1000.0, 10.0);
+
+    QCOMPARE(gridResult, LineOfSightClass::Clear); // sanity-check the grid overload's own known-good result first
+    QCOMPARE(exactResult, gridResult);
+
+    // The exact-lat/lon overload must also drive sectorSweep() -- it
+    // shares recompute()'s own single stored origin, not a second
+    // separate code path (see TerrainDataManager.h's own comment on
+    // m_ownLat/m_ownLon/m_hasOwnOrigin being the ONE thing both
+    // overloads converge on).
+    TerrainDataManager sweepManager;
+    for (const QString& tile : {QStringLiteral("N47E012"), QStringLiteral("N47E013"), QStringLiteral("N47E014")}) {
+        sweepManager.tileLoaderForTest().injectTileForTest(tile, flatTile(2500));
+    }
+    double jn67Lat = 0.0;
+    double jn67Lon = 0.0;
+    calculateLatLonFromGridSquare(QStringLiteral("JN67"), jn67Lat, jn67Lon);
+    sweepManager.setOwnStation(jn67Lat, jn67Lon, 1000.0, 10.0);
+    const QVector<LineOfSightClass> sectors = sweepManager.sectorSweep(144.0);
+    QCOMPARE(sectors.size(), 360);
+    for (int degree = 0; degree < 360; ++degree) {
+        QCOMPARE(sectors.at(degree), LineOfSightClass::Blocked);
+    }
+}
+
+void TestTerrain::contestSettingsRoundTripsExactOwnLocationFields()
+{
+    // Defaults first -- useExactOwnLocation off, 0.0/0.0 sentinel, same
+    // as every fresh install's terrain behavior staying grid-based (see
+    // ContestSettings::useExactOwnLocation's own doc comment).
+    ContestSettings defaults;
+    QVERIFY(!defaults.useExactOwnLocation);
+    QCOMPARE(defaults.ownExactLatitude, 0.0);
+    QCOMPARE(defaults.ownExactLongitude, 0.0);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("exact_own_location.sqlite")), QStringLiteral("exact_own_location")));
+
+    // A real scouted site's coordinate (Feuerkogelhaus, see KnownSites.h)
+    // -- six decimal places, the precision this whole feature exists to
+    // preserve through a save/reload round trip.
+    ContestSettings settings;
+    settings.useExactOwnLocation = true;
+    settings.ownExactLatitude = 47.815814;
+    settings.ownExactLongitude = 13.721506;
+    settings.saveTo(db);
+
+    ContestSettings reloaded;
+    reloaded.loadFrom(db);
+    QVERIFY(reloaded.useExactOwnLocation);
+    QVERIFY(qAbs(reloaded.ownExactLatitude - 47.815814) < 1e-6);
+    QVERIFY(qAbs(reloaded.ownExactLongitude - 13.721506) < 1e-6);
+    // ownGrid/ownElevationM must round-trip unaffected -- this feature
+    // adds a parallel origin, it does not replace or disturb the
+    // existing grid-based fields.
+    QCOMPARE(reloaded.ownGrid, settings.ownGrid);
+    QCOMPARE(reloaded.ownElevationM, settings.ownElevationM);
+}
+
+void TestTerrain::knownSitesReturnsTheNineSeededEntries()
+{
+    // Data-integrity check against accidental future edits of the
+    // hardcoded values (see KnownSites.cpp's own comment) -- exact
+    // name/lat/lon/elevation for all nine field-scouted sites.
+    const QVector<KnownSite>& sites = knownSites();
+    QCOMPARE(sites.size(), 10);
+
+    struct Expected { const char* name; double lat; double lon; double elevationM; };
+    static const Expected expected[] = {
+        {"Feuerkogelhaus (Ebensee)", 47.815814, 13.721506, 1587.0},
+        {"Parkplatz Loser (Loserhütte)", 47.656225, 13.783518, 1495.0},
+        {"Parkplatz Nebelstein", 48.670667, 14.774931, 961.0},
+        {"Parkplatz Ameisberg (Atzesberg/Rohrbach)", 48.554431, 13.832186, 930.0},
+        {"Parkplatz Jauerling", 48.339768, 15.338003, 965.0},
+        {"Gasthaus Schwarz am Hongar (Kasten 32, 4861 Aurach am Hongar)", 47.921518, 13.685333, 877.0},
+        {"Grünberg Gasthaus", 47.898289, 13.821580, 980.0},
+        {"Grünberg, 80 m östlich vom Haus", 47.898289, 13.822653, 969.0},
+        {"Hinteralm / Traisner Hütte (JN77TX, Lilienfeld)", 47.971922, 15.610548, 1293.0},
+        {"Parkplatz Dreisesselalm (Dreisesselberg, Böhmerwald)", 48.793062, 13.772974, 917.0},
+    };
+
+    for (int i = 0; i < sites.size(); ++i) {
+        QCOMPARE(sites.at(i).name, QString::fromUtf8(expected[i].name));
+        QCOMPARE(sites.at(i).latitude, expected[i].lat);
+        QCOMPARE(sites.at(i).longitude, expected[i].lon);
+        QCOMPARE(sites.at(i).elevationM, expected[i].elevationM);
     }
 }
 

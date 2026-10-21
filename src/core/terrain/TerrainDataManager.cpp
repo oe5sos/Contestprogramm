@@ -33,6 +33,31 @@ TerrainDataManager::TerrainDataManager(QObject* parent)
 void TerrainDataManager::setOwnStation(const QString& ownGrid, double ownElevationM, double ownAntennaHeightM)
 {
     m_ownGrid = ownGrid;
+    m_hasOwnOrigin = isValidGridSquare(ownGrid);
+    if (m_hasOwnOrigin) {
+        calculateLatLonFromGridSquare(ownGrid, m_ownLat, m_ownLon);
+    }
+    // An invalid/empty grid leaves m_ownLat/m_ownLon at whatever they
+    // last were -- harmless, since m_hasOwnOrigin false already makes
+    // recompute()/sectorSweep() ignore them entirely, same as this
+    // class's behavior before m_ownLat/m_ownLon existed (recompute()
+    // used to re-check isValidGridSquare(m_ownGrid) itself and bail out
+    // before ever converting to lat/lon).
+    m_ownElevationM = ownElevationM;
+    m_ownAntennaHeightM = ownAntennaHeightM;
+    recomputeAll();
+}
+
+void TerrainDataManager::setOwnStation(double ownLat, double ownLon, double ownElevationM, double ownAntennaHeightM)
+{
+    // No grid string describes this origin anymore (see the header's
+    // own comment on m_ownGrid) -- cleared rather than left stale so a
+    // future reader of m_ownGrid never mistakes a leftover value for
+    // the square containing this exact point.
+    m_ownGrid.clear();
+    m_ownLat = ownLat;
+    m_ownLon = ownLon;
+    m_hasOwnOrigin = true;
     m_ownElevationM = ownElevationM;
     m_ownAntennaHeightM = ownAntennaHeightM;
     recomputeAll();
@@ -77,18 +102,14 @@ void TerrainDataManager::recomputeAll()
 QVector<LineOfSightClass> TerrainDataManager::sectorSweep(double frequencyMhz)
 {
     QVector<LineOfSightClass> sectors(360, LineOfSightClass::Unknown);
-    if (!isValidGridSquare(m_ownGrid)) {
+    if (!m_hasOwnOrigin) {
         return sectors;
     }
-
-    double ownLat = 0.0;
-    double ownLon = 0.0;
-    calculateLatLonFromGridSquare(m_ownGrid, ownLat, ownLon);
 
     for (int degree = 0; degree < 360; ++degree) {
         double lat = 0.0;
         double lon = 0.0;
-        destinationPoint(ownLat, ownLon, static_cast<double>(degree), kSectorSweepDistanceKm, lat, lon);
+        destinationPoint(m_ownLat, m_ownLon, static_cast<double>(degree), kSectorSweepDistanceKm, lat, lon);
         const QString sectorGrid = gridSquareFromLatLon(lat, lon);
         sectors[degree] = classification(sectorGrid, frequencyMhz);
     }
@@ -97,15 +118,14 @@ QVector<LineOfSightClass> TerrainDataManager::sectorSweep(double frequencyMhz)
 
 void TerrainDataManager::recompute(const QString& otherGrid, double frequencyMhz, Request& request)
 {
-    if (!isValidGridSquare(m_ownGrid) || !isValidGridSquare(otherGrid)) {
+    if (!m_hasOwnOrigin || !isValidGridSquare(otherGrid)) {
         return; // nothing sensible to compute -- leave result as-is (Unknown)
     }
 
-    double lat1 = 0.0;
-    double lon1 = 0.0;
+    const double lat1 = m_ownLat;
+    const double lon1 = m_ownLon;
     double lat2 = 0.0;
     double lon2 = 0.0;
-    calculateLatLonFromGridSquare(m_ownGrid, lat1, lon1);
     calculateLatLonFromGridSquare(otherGrid, lat2, lon2);
 
     QSet<QString> neededTiles;
