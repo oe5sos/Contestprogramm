@@ -36,6 +36,10 @@ contestprogramm_add_test(test_dupechecker)
 contestprogramm_add_test(test_cabrilloexporter)
 contestprogramm_add_test(test_geofilter)
 contestprogramm_add_test(test_rigctldprotocol)
+# Gegen ein echtes Longpath (rigctld-Bruecke, oe5sos/Longpath#308).
+# Ohne CONTEST_RIGCTLD_HOST ueberspringt er sich -- die CI hat kein
+# Longpath.
+contestprogramm_add_test(test_rigctld_gegen_longpath)
 contestprogramm_add_test(test_on4kstprotocol mocks/MockOn4kstServer.cpp)
 contestprogramm_add_test(test_dxclusterprotocol mocks/MockDxClusterServer.cpp)
 contestprogramm_add_test(test_grid_autofill)
