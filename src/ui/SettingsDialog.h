@@ -246,7 +246,11 @@ private:
 
     // Stundenlanger QSO-Mitschnitt (core/QsoAudioRecorder.h,
     // ContestSettings::audioRecordEnabled). Aus, bis ein Ordner steht.
-    QCheckBox* m_audioRecordEnabledCheck;
+    /// Der Mitschnitt hat hier KEINEN Haken mehr: ein und aus macht
+    /// der Knopf in der Statuszeile (Betreiber, 2026-10-22). Der
+    /// Zustand geht trotzdem durch diesen Dialog hindurch -- sonst
+    /// beendete ein Druck auf OK eine laufende Aufnahme.
+    bool m_audioRecordEnabledDurchgereicht = false;
     QComboBox* m_audioRecordDeviceCombo;
     QLineEdit* m_audioRecordFolderEdit;
     QSpinBox*  m_audioRecordRollSpin;

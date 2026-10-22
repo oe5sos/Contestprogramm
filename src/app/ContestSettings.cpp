@@ -296,9 +296,23 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     broadcastHost = database.settingValue(QStringLiteral("broadcast_host"), broadcastHost);
     broadcastPort = database.settingValue(QStringLiteral("broadcast_port"), QString::number(broadcastPort)).toInt();
 
-    audioRecordEnabled = boolFromString(
-        database.settingValue(QStringLiteral("audio_record_enabled"),
-                              boolToString(audioRecordEnabled)), audioRecordEnabled);
+    // ── Der Mitschnitt faengt NIE von selbst an ──────────────────────
+    //
+    // Betreiber am 2026-10-22: „mitschnitt sollte nicht automatisch
+    // starten, ein und aus auf meinen befehl."
+    //
+    // Darum wird `audio_record_enabled` zwar geschrieben (die Zeile
+    // steht noch in saveTo, damit eine aeltere Fassung dieselbe
+    // Datenbank weiter lesen kann), beim Laden aber NICHT genommen:
+    // jeder Start beginnt mit aus. Angeschaltet wird mit dem Knopf in
+    // der Statuszeile, und nur dort.
+    //
+    // Das ist nicht Bequemlichkeit, sondern dasselbe Argument wie bei
+    // einem Sender: ein Geraet, das von selbst anfaengt mitzuhoeren,
+    // weil es das beim letzten Mal tat, ist eines, von dem man nicht
+    // weiss, was es gerade tut. Alles andere an der Aufnahme bleibt
+    // gespeichert -- Geraet, Ordner, Dateilaenge, Platzgrenze.
+    audioRecordEnabled = false;
     audioRecordDevice = database.settingValue(QStringLiteral("audio_record_device"),
                                               audioRecordDevice);
     audioRecordFolder = database.settingValue(QStringLiteral("audio_record_folder"),
