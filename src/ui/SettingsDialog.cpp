@@ -18,7 +18,9 @@
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QStandardPaths>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
@@ -477,9 +479,19 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
         "Zwei getrennte Geraete haetten zwei Takte und liefen ueber "
         "Stunden auseinander."));
 
+    m_audioRecordFolderEdit->setObjectName(QStringLiteral("audioRecordFolderEdit"));
     m_audioRecordFolderEdit->setText(initial.audioRecordFolder);
     m_audioRecordFolderEdit->setPlaceholderText(
         QStringLiteral("leer = kein Mitschnitt"));
+    m_audioRecordFolderEdit->setToolTip(QStringLiteral(
+        "Ein VOLLSTAENDIGER Pfad, zum Beispiel /Users/ich/Desktop/Mitschnitte.\n"
+        "Der Ordner wird angelegt, wenn es ihn noch nicht gibt \u2014 aber nur "
+        "sein letztes Stueck.\n\nEin Name allein (\u201edesktop\u201c) ist KEIN Pfad: "
+        "er zaehlt vom Arbeitsordner des Programms aus, und der ist bei "
+        "einer Mac-App die Wurzel des Laufwerks. Dort darf niemand "
+        "schreiben, und der Mitschnitt faengt nicht an.\n\nMit dem Knopf "
+        "daneben kommt man um die Frage herum \u2014 er legt auch neue Ordner "
+        "an."));
 
     m_audioRecordRollSpin->setRange(0, 24 * 60);
     m_audioRecordRollSpin->setValue(initial.audioRecordRollMinutes);
@@ -735,7 +747,34 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* audioForm = new QFormLayout();
     audioForm->addRow(QStringLiteral("Mitschnitt:"), m_audioRecordEnabledCheck);
     audioForm->addRow(QStringLiteral("Tongeraet:"), m_audioRecordDeviceCombo);
-    audioForm->addRow(QStringLiteral("Ordner:"), m_audioRecordFolderEdit);
+    // ── Ein Knopf statt eines getippten Pfades ───────────────────────
+    //
+    // Betreiber am 2026-10-22, vor genau diesem Feld: „wie kann ich
+    // hier einen ordner anlegen bzw suchen." Im Feld stand
+    // „desktop" -- ein Name, kein Pfad. QDir::mkpath haette daraus
+    // „/desktop" gemacht, und daran scheitert jede Aufnahme still.
+    //
+    // Der Waehler von Qt kann beides, was er fragt: suchen UND einen
+    // neuen Ordner anlegen. EdiExportDialog macht es seit jeher so.
+    auto* audioFolderButton = new QPushButton(QStringLiteral("Ordner..."), this);
+    audioFolderButton->setObjectName(QStringLiteral("audioRecordFolderButton"));
+    connect(audioFolderButton, &QPushButton::clicked, this, [this]() {
+        QString start = m_audioRecordFolderEdit->text().trimmed();
+        if (start.isEmpty() || !QDir::isAbsolutePath(start)) {
+            start = QStandardPaths::writableLocation(
+                QStandardPaths::DesktopLocation);
+        }
+        const QString gewaehlt = QFileDialog::getExistingDirectory(
+            this, QStringLiteral("Ordner fuer den QSO-Mitschnitt"), start);
+        if (!gewaehlt.isEmpty()) {
+            m_audioRecordFolderEdit->setText(gewaehlt);
+        }
+    });
+    auto* audioFolderRow = new QHBoxLayout();
+    audioFolderRow->setContentsMargins(0, 0, 0, 0);
+    audioFolderRow->addWidget(m_audioRecordFolderEdit, 1);
+    audioFolderRow->addWidget(audioFolderButton);
+    audioForm->addRow(QStringLiteral("Ordner:"), audioFolderRow);
     audioForm->addRow(QStringLiteral("Neue Datei nach:"), m_audioRecordRollSpin);
     audioForm->addRow(QStringLiteral("Mindestens frei:"), m_audioRecordFreeSpin);
 

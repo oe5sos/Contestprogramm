@@ -105,6 +105,7 @@
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QDir>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
@@ -1132,6 +1133,51 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                          QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)));
 
     m_modeToggleButton = new QPushButton(this);
+
+    // ── Der Mitschnitt gehoert in die Statuszeile ────────────────────
+    //
+    // Betreiber am 2026-10-22: „wo starte und beende ich die aufnahme.
+    // sollte zu sehen sein." Der Haken in den Einstellungen war bis
+    // dahin beides -- Schalter und einziger Hinweis -- und er steht
+    // hinter zwei Klicks und acht Gruppen. Ein Mitschnitt, von dem man
+    // nicht sieht, ob er laeuft, ist keiner: man verlaesst sich auf
+    // ihn und merkt es erst, wenn man die Aufnahme sucht.
+    //
+    // Derselbe Platz und dieselbe Kapsel wie die anderen Zustaende,
+    // und ein Druck schaltet um. Was der Druck tut, ist genau das,
+    // was der Haken tut -- ContestSettings::audioRecordEnabled --, es
+    // gibt also keinen zweiten Schalter, der mit dem ersten uneins
+    // werden koennte.
+    m_audioRecordButton = new QPushButton(this);
+    m_audioRecordButton->setObjectName(QStringLiteral("audioRecordButton"));
+    m_audioRecordButton->setFlat(true);
+    m_audioRecordButton->setCursor(Qt::PointingHandCursor);
+    connect(m_audioRecordButton, &QPushButton::clicked, this, [this]() {
+        ContestSettings s = m_appController.settings();
+        if (!s.audioRecordEnabled && s.audioRecordFolder.trimmed().isEmpty()) {
+            statusBar()->showMessage(
+                QStringLiteral("Mitschnitt: erst einen Ordner waehlen "
+                               "(Einstellungen \u203a QSO-Mitschnitt)."), 8000);
+            return;
+        }
+        s.audioRecordEnabled = !s.audioRecordEnabled;
+        m_appController.setSettings(s);
+        aktualisiereMitschnittAnzeige();
+    });
+
+    // Einmal je Sekunde, damit die verstrichene Zeit mitlaeuft. Ein
+    // Signal gibt es nur beim Anfangen und Aufhoeren; die Dauer
+    // dazwischen hat keines, und ein Zaehler, der steht, sieht aus
+    // wie eine Aufnahme, die haengt.
+    m_audioRecordTicker = new QTimer(this);
+    m_audioRecordTicker->setInterval(1000);
+    connect(m_audioRecordTicker, &QTimer::timeout, this,
+            &MainWindow::aktualisiereMitschnittAnzeige);
+    m_audioRecordTicker->start();
+
+    connect(&m_appController.audioRecorder(), &QsoAudioRecorder::recordingChanged,
+            this, [this](bool) { aktualisiereMitschnittAnzeige(); });
+
     statusBar()->addPermanentWidget(m_versionLabel);
     statusBar()->addPermanentWidget(m_rigctldStatusLabel);
     statusBar()->addPermanentWidget(m_on4kstStatusLabel);
@@ -1139,7 +1185,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     statusBar()->addPermanentWidget(m_backupStatusLabel);
     statusBar()->addPermanentWidget(m_gridRadiusLabel);
     statusBar()->addPermanentWidget(m_weatherStatusLabel);
+    statusBar()->addPermanentWidget(m_audioRecordButton);
     statusBar()->addPermanentWidget(m_modeToggleButton);
+    aktualisiereMitschnittAnzeige();
 
     // Rough tropo-ducting indicator (plan's "Wetter-/Tropo-Daten"
     // section) -- readingChanged fires on every successful Open-Meteo
@@ -1884,6 +1932,68 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_geometrySaveTimer->setSingleShot(true);
     m_geometrySaveTimer->setInterval(400);
     connect(m_geometrySaveTimer, &QTimer::timeout, this, &MainWindow::persistWindowGeometryDebounced);
+}
+
+// ── Der Mitschnitt in der Statuszeile ────────────────────────────────
+//
+// Drei Zustaende, und jeder sagt etwas anderes:
+//
+//   laeuft    Bernstein, mit der verstrichenen Zeit. Dass der Zaehler
+//             weiterlaeuft, ist die eigentliche Aussage -- ein
+//             stehender waere eine Aufnahme, die haengt.
+//   aus       grau. Ein Druck schaltet ein.
+//   kein Ordner  ebenfalls grau, aber der Druck schickt in die
+//             Einstellungen statt ins Leere zu schalten.
+//
+// Bernstein und nicht Rot: Rot bleibt in diesem Haus der Warnung
+// vorbehalten, und eine laufende Aufnahme ist keine.
+void MainWindow::aktualisiereMitschnittAnzeige()
+{
+    if (m_audioRecordButton == nullptr) { return; }
+
+    const bool laeuft = m_appController.audioRecorder().isRecording();
+    const ContestSettings s = m_appController.settings();
+    const bool ordnerFehlt = s.audioRecordFolder.trimmed().isEmpty();
+
+    QString text;
+    if (laeuft) {
+        const qint64 sek = static_cast<qint64>(
+            m_appController.audioRecorder().recordedSeconds());
+        text = QStringLiteral("\u25cf Mitschnitt %1:%2:%3")
+                   .arg(sek / 3600, 2, 10, QLatin1Char('0'))
+                   .arg((sek / 60) % 60, 2, 10, QLatin1Char('0'))
+                   .arg(sek % 60, 2, 10, QLatin1Char('0'));
+    } else if (ordnerFehlt) {
+        text = QStringLiteral("\u25cb Mitschnitt: kein Ordner");
+    } else {
+        text = QStringLiteral("\u25cb Mitschnitt: aus");
+    }
+    m_audioRecordButton->setText(text);
+
+    m_audioRecordButton->setStyleSheet(
+        QStringLiteral("QPushButton { background: %1; color: %2;"
+                       " border: none; border-radius: %3px;"
+                       " padding: 2px 8px; }")
+            .arg(laeuft ? Style::kAmberBg() : Style::kBadgeOffBg(),
+                 laeuft ? Style::kAmberText() : Style::kTextInactive())
+            .arg(Style::kRadius - 1));
+
+    if (laeuft) {
+        m_audioRecordButton->setToolTip(
+            QStringLiteral("Laeuft in %1.\nDruecken beendet die Aufnahme \u2014 "
+                           "die Groessenfelder der WAV-Datei stimmen erst "
+                           "nach dem Schliessen.")
+                .arg(QDir::toNativeSeparators(
+                    m_appController.audioRecorder().currentFile())));
+    } else if (ordnerFehlt) {
+        m_audioRecordButton->setToolTip(QStringLiteral(
+            "Es ist kein Ordner eingestellt. Einstellungen \u203a "
+            "QSO-Mitschnitt \u203a Ordner..."));
+    } else {
+        m_audioRecordButton->setToolTip(
+            QStringLiteral("Druecken beginnt den Mitschnitt nach %1.")
+                .arg(QDir::toNativeSeparators(s.audioRecordFolder.trimmed())));
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

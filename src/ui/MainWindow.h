@@ -638,6 +638,18 @@ private:
     // Welche Fassung läuft -- aus BuildInfo.h, also immer die gebaute.
     QLabel* m_versionLabel = nullptr;
     QPushButton* m_modeToggleButton = nullptr;
+
+    /// ── Der Mitschnitt, sichtbar ──────────────────────────────────
+    ///
+    /// Betreiber am 2026-10-22: „wo starte und beende ich die
+    /// aufnahme. sollte zu sehen sein." Bis dahin war der Haken in
+    /// den Einstellungen der einzige Schalter und der einzige
+    /// Hinweis -- und der steht hinter zwei Klicks und acht
+    /// Gruppen. Ein Mitschnitt, von dem man nicht sieht, ob er
+    /// laeuft, ist keiner.
+    QPushButton* m_audioRecordButton = nullptr;
+    class QTimer* m_audioRecordTicker = nullptr;
+    void aktualisiereMitschnittAnzeige();
     // See saveWindowGeometry()'s doc comment.
     QTimer* m_geometrySaveTimer = nullptr;
 };
