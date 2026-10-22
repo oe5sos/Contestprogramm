@@ -296,6 +296,20 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     broadcastHost = database.settingValue(QStringLiteral("broadcast_host"), broadcastHost);
     broadcastPort = database.settingValue(QStringLiteral("broadcast_port"), QString::number(broadcastPort)).toInt();
 
+    audioRecordEnabled = boolFromString(
+        database.settingValue(QStringLiteral("audio_record_enabled"),
+                              boolToString(audioRecordEnabled)), audioRecordEnabled);
+    audioRecordDevice = database.settingValue(QStringLiteral("audio_record_device"),
+                                              audioRecordDevice);
+    audioRecordFolder = database.settingValue(QStringLiteral("audio_record_folder"),
+                                              audioRecordFolder);
+    audioRecordRollMinutes =
+        database.settingValue(QStringLiteral("audio_record_roll_minutes"),
+                              QString::number(audioRecordRollMinutes)).toInt();
+    audioRecordMinFreePercent =
+        database.settingValue(QStringLiteral("audio_record_min_free_percent"),
+                              QString::number(audioRecordMinFreePercent)).toInt();
+
     callbookProvider = callbookProviderFromString(
         database.settingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider)), callbookProvider);
     callbookUsername = database.settingValue(QStringLiteral("callbook_username"), callbookUsername);
@@ -386,6 +400,13 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("broadcast_enabled"), boolToString(broadcastEnabled));
     database.setSettingValue(QStringLiteral("broadcast_host"), broadcastHost);
     database.setSettingValue(QStringLiteral("broadcast_port"), QString::number(broadcastPort));
+    database.setSettingValue(QStringLiteral("audio_record_enabled"), boolToString(audioRecordEnabled));
+    database.setSettingValue(QStringLiteral("audio_record_device"), audioRecordDevice);
+    database.setSettingValue(QStringLiteral("audio_record_folder"), audioRecordFolder);
+    database.setSettingValue(QStringLiteral("audio_record_roll_minutes"),
+                             QString::number(audioRecordRollMinutes));
+    database.setSettingValue(QStringLiteral("audio_record_min_free_percent"),
+                             QString::number(audioRecordMinFreePercent));
 
     database.setSettingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider));
     database.setSettingValue(QStringLiteral("callbook_username"), callbookUsername);

@@ -42,7 +42,12 @@ endif()
 
 # Network is needed from Phase 1 step 5 on: RigctldClient (CAT, QTcpSocket)
 # and On4kstClient (ON4KST chat/spots, QTcpSocket + QTcpServer in tests).
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test)
+# Multimedia seit 2026-10-22: der stundenlange QSO-Mitschnitt
+# (core/QsoAudioCapture.h) oeffnet damit ein Eingangsgeraet. Der
+# Mitschneider selbst (core/QsoAudioRecorder.h) braucht es NICHT --
+# er nimmt Abtastwerte und bleibt ohne Tongeraet pruefbar.
+# In der CI heisst das Modul `qtmultimedia`, siehe .github/workflows.
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test Multimedia)
 
 # Phase 2 terrain line-of-sight (core/terrain/SrtmTileLoader) needs real
 # gzip decompression for the SRTM1 tiles it downloads -- Qt's own
@@ -114,6 +119,10 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/Transverter.cpp
     src/core/BroadcastPublisher.h
     src/core/BroadcastPublisher.cpp
+    src/core/QsoAudioRecorder.h
+    src/core/QsoAudioRecorder.cpp
+    src/core/QsoAudioCapture.h
+    src/core/QsoAudioCapture.cpp
     src/core/ChatImportanceScorer.h
     src/core/ChatImportanceScorer.cpp
     src/core/ChatVisibilityPolicy.h
@@ -281,7 +290,7 @@ add_custom_target(contestprogramm_buildinfo
     COMMENT "BuildInfo.h (Version, Commit, Datum)")
 add_dependencies(ContestprogrammCore contestprogramm_buildinfo)
 target_include_directories(ContestprogrammCore PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
-target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network ZLIB::ZLIB)
+target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network Qt6::Multimedia ZLIB::ZLIB)
 
 # Dev-build fallback so the app finds resources/contest_definitions/*.json
 # without a packaging step; see ui/MainWindow.cpp findContestDefinitionsDir().
@@ -311,6 +320,10 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT "OE5SOS"
+        # Eigene Vorlage wegen NSMicrophoneUsageDescription -- siehe
+        # packaging/macos/Info.plist.in. Ohne den Schluessel beendet
+        # macOS die App beim ersten Zugriff auf ein Tongeraet.
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
 endif()
 target_link_libraries(Contestprogramm PRIVATE ContestprogrammCore)

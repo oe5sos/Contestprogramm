@@ -2,6 +2,8 @@
 
 #include "app/ContestSettings.h"
 #include "core/BroadcastPublisher.h"
+#include "core/QsoAudioCapture.h"
+#include "core/QsoAudioRecorder.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CountryPrefixIndex.h"
 #include "core/DxClusterClient.h"
@@ -137,6 +139,8 @@ public:
     // entirely inside this class, from m_rigctldClient's own signals --
     // see the constructor.
     BroadcastPublisher& broadcastPublisher() { return m_broadcastPublisher; }
+    QsoAudioRecorder& audioRecorder() { return m_audioRecorder; }
+    QsoAudioCapture&  audioCapture()  { return m_audioCapture; }
     void publishQso(const QsoRecord& record);
     // ON4KST and classic-DX-cluster candidates deliberately do not
     // share one ChatFeedModel -- see ChatFeedModel.h's class comment
@@ -204,6 +208,12 @@ public:
     void setTransverter(const TransverterSetup& setup) { m_transverter = setup; }
 
 signals:
+    // Der Mitschnitt kam nicht zustande oder musste aufhoeren --
+    // Tongeraet weg, Ordner nicht schreibbar, Platte fast voll. Ein
+    // Mitschnitt, der stumm ausfaellt, ist schlimmer als keiner: man
+    // verlaesst sich auf ihn.
+    void audioRecordingProblem(const QString& message);
+
     // A rotctld this program started for `slot` (1 or 2) could not be
     // started or has exited -- `message` is Hamlib's own stderr (a
     // wrong model number, a serial port that is not there).
@@ -287,6 +297,18 @@ private:
     WeatherClient m_weatherClient;
     RecentPropagationTracker m_propagationTracker;
     BroadcastPublisher m_broadcastPublisher;
+
+    // ── Stundenlanger QSO-Mitschnitt (2026-10-22) ────────────────────
+    //
+    // Hier und nicht in der Oberflaeche: eine Flaeche darf
+    // verschwinden, eine laufende Aufnahme nicht. Dieselbe Begruendung
+    // wie bei allem anderen, was weiterlaufen muss, wenn ein Fenster
+    // zugeht.
+    //
+    // Der Mitschneider weiss von keinem Tongeraet (pruefbar ohne
+    // eines), der Aufnehmer kennt das Geraet und sonst nichts.
+    QsoAudioRecorder m_audioRecorder;
+    QsoAudioCapture  m_audioCapture;
     QTimer* m_radioInfoTimer;
     // Both hold GeoFilter&/DupeChecker& -- declared after those.
     ChatFeedModel m_on4kstFeedModel;

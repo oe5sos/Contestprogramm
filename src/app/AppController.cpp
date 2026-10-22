@@ -533,6 +533,57 @@ void AppController::applyNetworkSettings()
     m_broadcastPublisher.setEnabled(m_settings.broadcastEnabled);
     m_broadcastPublisher.setTarget(m_settings.broadcastHost, static_cast<quint16>(m_settings.broadcastPort));
 
+    // ── Mitschnitt nach den Einstellungen ────────────────────────────
+    //
+    // Start und Stopp hier, nicht in der Oberflaeche: wird der Haken
+    // mitten im Contest gesetzt, soll ab dann mitgeschnitten werden,
+    // ohne Neustart. Umgekehrt beendet ein Wegnehmen die laufende
+    // Aufnahme ordentlich -- die Groessenfelder der WAV-Datei stimmen
+    // erst nach dem Schliessen.
+    {
+        QsoAudioRecorder::Settings as;
+        as.folder         = m_settings.audioRecordFolder;
+        as.rollMinutes    = m_settings.audioRecordRollMinutes;
+        as.minFreePercent = m_settings.audioRecordMinFreePercent;
+        m_audioRecorder.setSettings(as);
+        m_audioCapture.setRecorder(&m_audioRecorder);
+
+        const bool soll = m_settings.audioRecordEnabled
+                          && !m_settings.audioRecordFolder.trimmed().isEmpty();
+        const bool laeuft = m_audioCapture.isRunning();
+
+        if (!soll && laeuft) {
+            m_audioCapture.stop();
+            m_audioRecorder.stop();
+        } else if (soll && !laeuft) {
+            QString fehler;
+            // Reihenfolge: erst das Geraet (es nennt Rate und Kanaele,
+            // die der Mitschneider VOR dem Oeffnen der Datei braucht),
+            // dann die Aufnahme. Andersherum stuende im WAV-Kopf eine
+            // geratene Rate.
+            if (!m_audioCapture.start(m_settings.audioRecordDevice, &fehler)) {
+                emit audioRecordingProblem(fehler);
+            } else if (!m_audioRecorder.start(&fehler)) {
+                m_audioCapture.stop();
+                emit audioRecordingProblem(fehler);
+            }
+        } else if (soll && laeuft && m_audioCapture.deviceName() != m_settings.audioRecordDevice
+                   && !m_settings.audioRecordDevice.trimmed().isEmpty()) {
+            // Geraetewechsel bei laufender Aufnahme: die alte Datei
+            // ordentlich abschliessen, dann neu aufmachen. Ein Wechsel
+            // in derselben Datei waere ein Formatwechsel mitten im
+            // WAV-Kopf.
+            m_audioCapture.stop();
+            m_audioRecorder.stop();
+            QString fehler;
+            if (!m_audioCapture.start(m_settings.audioRecordDevice, &fehler)
+                || !m_audioRecorder.start(&fehler)) {
+                m_audioCapture.stop();
+                emit audioRecordingProblem(fehler);
+            }
+        }
+    }
+
     // Tier 3 of callsign->grid autofill (core/CallsignLocatorLookup.h) --
     // kept in sync here rather than only at startup, so a mid-session
     // Settings save (e.g. the operator entering QRZ credentials for the
@@ -546,6 +597,15 @@ void AppController::publishQso(const QsoRecord& record)
     const ContestDefinition* def = findContestDefinition(record.contestId);
     const QString contestName = def ? def->id() : record.contestId;
     m_broadcastPublisher.publishContact(record, m_settings.ownCallsign, contestName);
+
+    // Dieselbe Stelle, derselbe Augenblick: der Mitschnitt bekommt
+    // eine Indexzeile mit der Sekunde IM Mitschnitt. Ein Mitschnitt
+    // von acht Stunden, in dem man eine Verbindung suchen muss, ist
+    // wertlos. Ohne laufende Aufnahme ist der Ruf ein Leerlauf -- das
+    // Logprogramm soll nicht wissen muessen, ob mitgeschnitten wird.
+    // timestampUtc ist in QsoRecord ein ISO-8601-TEXT, kein QDateTime.
+    m_audioRecorder.markQso(record.callsign, record.band, record.mode,
+                            QDateTime::fromString(record.timestampUtc, Qt::ISODate));
 }
 
 void AppController::publishRadioInfoNow()
