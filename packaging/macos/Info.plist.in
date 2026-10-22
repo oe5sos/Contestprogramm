@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Eigene Vorlage statt der von CMake, aus EINEM Grund: dem
+  Mikrofonrecht weiter unten.
+
+  Seit dem 2026-10-22 oeffnet das Programm ein Tongeraet (der
+  stundenlange QSO-Mitschnitt, core/QsoAudioCapture.h). macOS verlangt
+  dafuer NSMicrophoneUsageDescription im Paket. Ohne den Schluessel
+  fragt das System nicht nach Erlaubnis, sondern BEENDET die App beim
+  ersten Zugriff -- und zwar ohne eine Meldung, die auf das Mikrofon
+  zeigt. CMakes eigene Vorlage kennt den Schluessel nicht und hat keine
+  Variable dafuer, darum liegt die Vorlage hier.
+
+  Alles andere ist CMakes Standardvorlage, Platzhalter unveraendert,
+  damit die Felder weiter aus den MACOSX_BUNDLE_*-Eigenschaften kommen.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+	<key>CFBundleGetInfoString</key>
+	<string>${MACOSX_BUNDLE_INFO_STRING}</string>
+	<key>CFBundleIconFile</key>
+	<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+	<key>CFBundleIdentifier</key>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLongVersionString</key>
+	<string>${MACOSX_BUNDLE_LONG_VERSION_STRING}</string>
+	<key>CFBundleName</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+	<key>CSResourcesFileMapped</key>
+	<true/>
+	<key>LSRequiresCarbon</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>
+
+	<!-- Siehe den Kommentar oben: ohne diesen Schluessel beendet macOS
+	     die App beim ersten Zugriff auf ein Eingangsgeraet. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Für den QSO-Mitschnitt: das Contestprogramm nimmt den Ton des gewählten Eingangsgeräts auf, damit Verbindungen nachgehört werden können.</string>
+</dict>
+</plist>

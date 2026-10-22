@@ -243,6 +243,14 @@ private:
     QCheckBox* m_broadcastEnabledCheck;
     QLineEdit* m_broadcastHostEdit;
     QSpinBox* m_broadcastPortSpin;
+
+    // Stundenlanger QSO-Mitschnitt (core/QsoAudioRecorder.h,
+    // ContestSettings::audioRecordEnabled). Aus, bis ein Ordner steht.
+    QCheckBox* m_audioRecordEnabledCheck;
+    QComboBox* m_audioRecordDeviceCombo;
+    QLineEdit* m_audioRecordFolderEdit;
+    QSpinBox*  m_audioRecordRollSpin;
+    QSpinBox*  m_audioRecordFreeSpin;
 };
 
 } // namespace Contestprogramm

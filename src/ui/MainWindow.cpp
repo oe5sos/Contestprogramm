@@ -1370,6 +1370,28 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // A rotctld this program started for a rotor slot (see
     // AppController::rotctldLaunchFor) failed or died: Hamlib's own
     // reason, first line, where the operator looks first.
+    // ── Der Mitschnitt sagt, wenn er nicht laeuft ────────────────────
+    //
+    // Ein Mitschnitt, der stumm ausfaellt, ist schlimmer als keiner:
+    // man verlaesst sich auf ihn und merkt es erst, wenn man die
+    // Aufnahme sucht. Darum in die Statuszeile UND ins Protokoll,
+    // dieselbe Behandlung wie bei einem rotctld, das nicht startet.
+    connect(&m_appController, &AppController::audioRecordingProblem, this,
+            [this](const QString& message) {
+        qWarning().noquote() << QStringLiteral("QSO-Mitschnitt: %1").arg(message);
+        statusBar()->showMessage(QStringLiteral("QSO-Mitschnitt: %1").arg(message), 20000);
+    });
+    connect(&m_appController.audioRecorder(), &QsoAudioRecorder::stoppedWithReason, this,
+            [this](const QString& reason) {
+        qWarning().noquote() << QStringLiteral("QSO-Mitschnitt beendet: %1").arg(reason);
+        statusBar()->showMessage(QStringLiteral("QSO-Mitschnitt beendet: %1").arg(reason), 20000);
+    });
+    connect(&m_appController.audioCapture(), &QsoAudioCapture::stoppedWithReason, this,
+            [this](const QString& reason) {
+        qWarning().noquote() << QStringLiteral("Tongeraet: %1").arg(reason);
+        statusBar()->showMessage(QStringLiteral("Tongeraet: %1").arg(reason), 20000);
+    });
+
     connect(&m_appController, &AppController::rotctldFailed, this, [this](int slot, const QString& message) {
         // Hamlib's stderr is several lines; the one naming the port
         // ("Unable to open /dev/tty... - No such file or directory")

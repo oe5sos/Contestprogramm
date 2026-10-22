@@ -352,6 +352,25 @@ struct ContestSettings {
     QString broadcastHost = QStringLiteral("127.0.0.1");
     int broadcastPort = 12060;
 
+    // ── Stundenlanger QSO-Mitschnitt (core/QsoAudioRecorder.h) ──────
+    //
+    // Betreiber am 2026-10-22: „ziel wäre, dass das logprogramm das
+    // alles kann, unabhängig von longpath. sprich ich würde gerne
+    // stundenlang alles automatisch mitschneiden wollen."
+    //
+    // Aus, bis ein Ordner steht -- derselbe Grundsatz wie beim
+    // Broadcast darueber: nichts schaltet sich selbst ein, was Platz
+    // auf der Platte verbraucht oder ein Mikrofon aufmacht.
+    //
+    // `audioDevice` leer = Standardeingang des Systems. Wer Empfang UND
+    // eigene Stimme will, waehlt ein Aggregat-Geraet -- die Begruendung
+    // steht im Kopf von QsoAudioRecorder.h.
+    bool audioRecordEnabled = false;
+    QString audioRecordDevice;          // leer = Standardgeraet
+    QString audioRecordFolder;          // leer = nicht aufnehmen
+    int audioRecordRollMinutes = 60;    // neue Datei nach dieser Zeit
+    int audioRecordMinFreePercent = 5;  // darunter hoert er auf
+
     // Reads every key from `database`'s settings table, falling back to
     // this struct's current field values for any key that is not
     // present yet (e.g. first run).

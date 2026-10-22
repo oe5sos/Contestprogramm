@@ -95,6 +95,11 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: Konfigurieren und bauen
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -147,6 +152,11 @@ jobs:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: zlib (vcpkg, statisch, dynamische CRT)
         shell: pwsh
         run: |
@@ -223,6 +233,11 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: Konfigurieren und bauen
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \

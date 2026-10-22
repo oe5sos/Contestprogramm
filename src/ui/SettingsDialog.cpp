@@ -1,5 +1,7 @@
 #include "ui/SettingsDialog.h"
 
+#include "core/QsoAudioCapture.h"
+
 #include "ui/StyleKit.h"
 
 #include "core/RigModels.h"
@@ -100,6 +102,11 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_broadcastHostEdit(new QLineEdit(this))
     , m_broadcastPortSpin(new QSpinBox(this))
+    , m_audioRecordEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
+    , m_audioRecordDeviceCombo(new QComboBox(this))
+    , m_audioRecordFolderEdit(new QLineEdit(this))
+    , m_audioRecordRollSpin(new QSpinBox(this))
+    , m_audioRecordFreeSpin(new QSpinBox(this))
 {
     setWindowTitle(QStringLiteral("Contestprogramm - Einstellungen"));
 
@@ -452,6 +459,45 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_colorThemeCombo->setCurrentIndex(colorThemeIdx >= 0 ? colorThemeIdx : 0);
 
     // Off by default -- see ContestSettings::broadcastEnabled.
+    m_audioRecordEnabledCheck->setChecked(initial.audioRecordEnabled);
+
+    // Die Geraeteliste kommt vom System, nicht aus einer Vorgabe. Der
+    // erste Eintrag ist der Standardeingang und steht fuer „leer" --
+    // damit ein Umstecken am Rechner nicht eine Einstellung ins Leere
+    // zeigen laesst.
+    m_audioRecordDeviceCombo->addItem(QStringLiteral("(Standardeingang)"), QString());
+    for (const QString& name : QsoAudioCapture::inputDeviceNames()) {
+        m_audioRecordDeviceCombo->addItem(name, name);
+    }
+    const int geraetIdx = m_audioRecordDeviceCombo->findData(initial.audioRecordDevice);
+    m_audioRecordDeviceCombo->setCurrentIndex(geraetIdx >= 0 ? geraetIdx : 0);
+    m_audioRecordDeviceCombo->setToolTip(QStringLiteral(
+        "Fuer Empfang UND eigene Stimme ein Aggregat-Geraet waehlen "
+        "(macOS: Audio-MIDI-Setup) \u2014 links Empfang, rechts Mikrofon. "
+        "Zwei getrennte Geraete haetten zwei Takte und liefen ueber "
+        "Stunden auseinander."));
+
+    m_audioRecordFolderEdit->setText(initial.audioRecordFolder);
+    m_audioRecordFolderEdit->setPlaceholderText(
+        QStringLiteral("leer = kein Mitschnitt"));
+
+    m_audioRecordRollSpin->setRange(0, 24 * 60);
+    m_audioRecordRollSpin->setValue(initial.audioRecordRollMinutes);
+    m_audioRecordRollSpin->setSuffix(QStringLiteral(" min"));
+    m_audioRecordRollSpin->setSpecialValueText(QStringLiteral("nie"));
+    m_audioRecordRollSpin->setToolTip(QStringLiteral(
+        "Nach dieser Zeit beginnt eine neue Datei. Eine WAV-Datei fasst "
+        "knapp 4 GB \u2014 bei 48 kHz Stereo gut sechs Stunden; danach ist "
+        "sie kaputt, nicht voll. Und ein Absturz kostet nur die laufende "
+        "Datei."));
+
+    m_audioRecordFreeSpin->setRange(0, 90);
+    m_audioRecordFreeSpin->setValue(initial.audioRecordMinFreePercent);
+    m_audioRecordFreeSpin->setSuffix(QStringLiteral(" %"));
+    m_audioRecordFreeSpin->setToolTip(QStringLiteral(
+        "Darunter hoert der Mitschnitt auf und sagt, warum. 0 schaltet "
+        "die Wache ab \u2014 dann laeuft die Platte voll."));
+
     m_broadcastEnabledCheck->setChecked(initial.broadcastEnabled);
     m_broadcastHostEdit->setText(initial.broadcastHost);
     m_broadcastPortSpin->setRange(1, 65535);
@@ -680,6 +726,23 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* broadcastGroup = new QGroupBox(QStringLiteral("UDP-Broadcast (N1MM-Format)"), this);
     broadcastGroup->setLayout(broadcastForm);
 
+    // ── Mitschnitt ───────────────────────────────────────────────────
+    //
+    // Unabhaengig von jeder Konsole: hier haengt ein gewoehnliches
+    // Eingangsgeraet des Rechners, kein SDR-Programm. Damit schneidet
+    // das Logprogramm am Flex genauso mit wie an einem Geraet, das
+    // Longpath gar nicht kennt (Betreiber, 2026-10-22).
+    auto* audioForm = new QFormLayout();
+    audioForm->addRow(QStringLiteral("Mitschnitt:"), m_audioRecordEnabledCheck);
+    audioForm->addRow(QStringLiteral("Tongeraet:"), m_audioRecordDeviceCombo);
+    audioForm->addRow(QStringLiteral("Ordner:"), m_audioRecordFolderEdit);
+    audioForm->addRow(QStringLiteral("Neue Datei nach:"), m_audioRecordRollSpin);
+    audioForm->addRow(QStringLiteral("Mindestens frei:"), m_audioRecordFreeSpin);
+
+    auto* audioGroup = new QGroupBox(
+        QStringLiteral("QSO-Mitschnitt (stundenlang, geraeteunabhaengig)"), this);
+    audioGroup->setLayout(audioForm);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -704,6 +767,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     scrollLayout->addWidget(appearanceGroup);
     scrollLayout->addWidget(cwGroup);
     scrollLayout->addWidget(broadcastGroup);
+    scrollLayout->addWidget(audioGroup);
     scrollLayout->addStretch();
 
     auto* scrollArea = new QScrollArea(this);
@@ -820,6 +884,11 @@ ContestSettings SettingsDialog::settings() const
     result.cwMacros = macros;
 
     result.broadcastEnabled = m_broadcastEnabledCheck->isChecked();
+    result.audioRecordEnabled = m_audioRecordEnabledCheck->isChecked();
+    result.audioRecordDevice = m_audioRecordDeviceCombo->currentData().toString();
+    result.audioRecordFolder = m_audioRecordFolderEdit->text().trimmed();
+    result.audioRecordRollMinutes = m_audioRecordRollSpin->value();
+    result.audioRecordMinFreePercent = m_audioRecordFreeSpin->value();
     result.broadcastHost = m_broadcastHostEdit->text().trimmed();
     result.broadcastPort = m_broadcastPortSpin->value();
 
