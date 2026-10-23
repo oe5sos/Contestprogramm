@@ -69,7 +69,8 @@ bool ContestSchedule::isValid() const
     return month >= 1 && month <= 12
         && ((weekend >= 1 && weekend <= kMaxWeekend)
             || (weekend <= -1 && weekend >= -kMaxWeekend))
-        && (startDay == Qt::Saturday || startDay == Qt::Sunday) && startTimeUtc.isValid() && hours >= 1
+        && (startDay == Qt::Friday || startDay == Qt::Saturday || startDay == Qt::Sunday)
+        && startTimeUtc.isValid() && hours >= 1
         && hours <= kMaxHours;
 }
 
@@ -119,6 +120,14 @@ ContestWindow ContestSchedule::windowIn(int year) const
     }
     if (startDay == Qt::Sunday) {
         start = start.addDays(1);
+    } else if (startDay == Qt::Friday) {
+        // ── Der Freitag VOR dem Wochenende ───────────────────────────
+        //
+        // Dazugekommen 2026-10-23: CQ WW 160 CW faengt am „letzten
+        // vollen Wochenende im Januar" schon freitags um 22:00 UTC an
+        // und laeuft 48 Stunden. Das Wochenende bleibt der Anker --
+        // der Freitag ist der Tag davor, nicht ein eigenes Datum.
+        start = start.addDays(-1);
     }
     window.startUtc = QDateTime(start, startTimeUtc, QTimeZone::UTC);
     window.endUtc = window.startUtc.addSecs(static_cast<qint64>(hours) * 3600);
@@ -193,8 +202,10 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
             schedule.startDay = Qt::Saturday;
         } else if (day == QStringLiteral("sun")) {
             schedule.startDay = Qt::Sunday;
+        } else if (day == QStringLiteral("fri")) {
+            schedule.startDay = Qt::Friday;
         } else {
-            return fail(QStringLiteral("\"schedule\".\"day\" must be \"sat\" or \"sun\""));
+            return fail(QStringLiteral("\"schedule\".\"day\" must be \"fri\", \"sat\" or \"sun\""));
         }
     }
     if (object.contains(QStringLiteral("start"))) {
@@ -221,7 +232,10 @@ QJsonObject ContestSchedule::toJson() const
     QJsonObject object;
     object.insert(QStringLiteral("month"), month);
     object.insert(QStringLiteral("weekend"), weekend);
-    object.insert(QStringLiteral("day"), startDay == Qt::Sunday ? QStringLiteral("sun") : QStringLiteral("sat"));
+    object.insert(QStringLiteral("day"),
+                  startDay == Qt::Sunday   ? QStringLiteral("sun")
+                  : startDay == Qt::Friday ? QStringLiteral("fri")
+                                           : QStringLiteral("sat"));
     object.insert(QStringLiteral("start"), startTimeUtc.toString(QStringLiteral("HH:mm")));
     object.insert(QStringLiteral("hours"), hours);
     return object;
