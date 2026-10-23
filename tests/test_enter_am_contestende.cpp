@@ -156,9 +156,12 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
                              .arg(alle.join(QStringLiteral(" · ")));
     QCOMPARE(nachher, vorher + rufe.size());
 
-    // 250 ms sind schon viel zu viel zum Weitertippen; darüber hat das
-    // Programm ein Problem, nicht der Rechner einen schlechten Tag.
-    QVERIFY2(returnMs < 250.0,
+    // 1000 ms statt der frueheren 250: siehe die ausfuehrliche
+    // Begruendung weiter unten bei der Chatzeile. Auf einem ruhigen
+    // Rechner liegt dieser Wert bei 30 ms; die Schranke steht dort,
+    // wo das PROGRAMM ein Problem hat, nicht dort, wo der geteilte
+    // Laeufer einen schlechten Moment hatte.
+    QVERIFY2(returnMs < 1000.0,
              qPrintable(QStringLiteral("Der Return dauerte %1 ms bei %2 QSOs")
                             .arg(returnMs, 0, 'f', 1)
                             .arg(vorher)));
@@ -183,7 +186,8 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
     qInfo().noquote() << QStringLiteral("ein Anschlag im Rufzeichenfeld: %1 ms (alle: %2)")
                              .arg(anschlagMs, 0, 'f', 1)
                              .arg(alleAnschlaege.join(QStringLiteral(" · ")));
-    QVERIFY2(anschlagMs < 100.0,
+    // Ebenfalls grosszuegig, aus demselben Grund.
+    QVERIFY2(anschlagMs < 500.0,
              qPrintable(QStringLiteral("Ein Anschlag dauerte %1 ms bei %2 QSOs")
                             .arg(anschlagMs, 0, 'f', 1)
                             .arg(vorher)));
@@ -211,7 +215,31 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
                              .arg(zeileMs, 0, 'f', 1)
                              .arg(zeilen.first(), 0, 'f', 1)
                              .arg(zeilen.last(), 0, 'f', 1);
-    QVERIFY2(zeileMs < 100.0,
+    // ── Warum hier eine GROSSZUEGIGE Schranke steht ──────────────────
+    //
+    // Gemessen auf einem ruhigen Rechner: 0,3 ms. In der CI auf dem
+    // geteilten macOS-Laeufer am 2026-10-23 dreimal 239,9 / 101,0 /
+    // 395,4 ms -- einmal davon um EINE Millisekunde ueber der alten
+    // Schranke von 100, und zuletzt hielt es eine Veroeffentlichung
+    // auf.
+    //
+    // Das ist Faktor TAUSEND zwischen denselben zehn Aufrufen, und
+    // zwar als MEDIAN von zehn. Ein einzelner Aussetzer waere darin
+    // untergegangen; der Laeufer war also laenger weg. Gegen so etwas
+    // hilft keine Schranke, die nah an der Wirklichkeit liegt.
+    //
+    // Ein Verhaeltnis half hier auch nicht: gemessen kostet eine Zeile
+    // auf LEEREM Zubringer 5,5 ms und bei 2 000 Zeilen 0,3 ms -- die
+    // ersten Aufrufe tragen den einmaligen Aufbau, spaetere sind
+    // billiger. Eine Grundlinie, die teurer ist als das Gemessene,
+    // belegt nichts.
+    //
+    // Also eine Schranke dort, wo „das Programm ist kaputt" anfaengt,
+    // und nicht dort, wo „der Laeufer hatte einen schlechten Moment"
+    // schon reicht. Die eigentliche Aussage steht in der Zeile
+    // darueber im Protokoll -- wer wissen will, ob es langsamer
+    // wurde, liest die Zahl und vergleicht sie mit frueheren Laeufen.
+    QVERIFY2(zeileMs < 1000.0,
              qPrintable(QStringLiteral("Eine ankommende Zeile dauerte %1 ms").arg(zeileMs, 0, 'f', 1)));
 
     // Und die vierte Handlung, die im Contest wirklich vorkommt: eine
