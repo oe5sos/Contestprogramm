@@ -1,0 +1,15 @@
+{
+  "id": "RSGB_IOTA",
+  "name": "RSGB IOTA Contest (letztes volles Wochenende im Juli)",
+  "bands": ["3.5", "7", "14", "21", "28"],
+  "dupe_scope": ["callsign", "band", "mode"],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "none",
+  "schedule": { "month": 7, "weekend": -1, "day": "sat", "start": "12:00", "hours": 24 },
+  "exchange_fields": [
+    { "key": "rst",    "label": "RST",  "type": "rst" },
+    { "key": "serial", "label": "Nr.",  "type": "int", "auto_increment": true },
+    { "key": "iota",   "label": "IOTA", "type": "text" }
+  ]
+}

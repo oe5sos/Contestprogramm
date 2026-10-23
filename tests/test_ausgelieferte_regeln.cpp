@@ -172,6 +172,14 @@ void TestAusgelieferteRegeln::dieKurzwellenTermineSindDieVeroeffentlichten()
     };
     const Erwartet kTermine[] = {
         {"cq_ww_ssb.json",  2026, 10, 24, 0, 48},
+        // Zweite Runde, 2026-10-23: WAEDC-Daten von darc.de, CQ WPX
+        // RTTY von cqww.com, IOTA 2024 von der RSGB-Ankuendigung,
+        // CQ 160 CW 2025 von cq160.com.
+        {"wae_cw.json",      2026,  8,  8,  0, 48},
+        {"wae_ssb.json",     2026,  9, 12,  0, 48},
+        {"wae_rtty.json",    2026, 11, 14,  0, 48},
+        {"cq_wpx_rtty.json", 2026,  2, 14,  0, 48},
+        {"rsgb_iota.json",   2024,  7, 27, 12, 24},
         {"cq_ww_ssb.json",  2027, 10, 30, 0, 48},
         {"cq_ww_cw.json",   2027, 11, 27, 0, 48},
         {"cq_wpx_ssb.json", 2025,  3, 29, 0, 48},
@@ -199,6 +207,24 @@ void TestAusgelieferteRegeln::dieKurzwellenTermineSindDieVeroeffentlichten()
         QCOMPARE(w.endUtc, w.startUtc.addSecs(qint64(e.dauer) * 3600));
     }
 
+    // ── Der Freitag vor dem Wochenende ──────────────────────────────
+    //
+    // CQ WW 160 CW faengt am letzten vollen Januarwochenende schon
+    // FREITAGS um 22:00 UTC an. Das Wochenende bleibt der Anker --
+    // 2025 war das der 25./26. Januar, der Contest begann am 24.
+    // (cq160.com).
+    {
+        const ContestDefinition d = laden(QStringLiteral("cq_160_cw.json"));
+        QVERIFY(d.isValid());
+        const ContestWindow w = d.schedule().windowIn(2025);
+        QCOMPARE(w.startUtc, utc(2025, 1, 24, 22));
+        QCOMPARE(w.startUtc.date().dayOfWeek(), int(Qt::Friday));
+        QCOMPARE(w.endUtc, w.startUtc.addSecs(48 * 3600));
+        // 160 m ist ein Einbandcontest -- eine Station zaehlt EINMAL,
+        // das Band gehoert nicht in die Dupe-Regel.
+        QCOMPARE(d.bands(), QStringList{QStringLiteral("1.8")});
+    }
+
     // WPX zaehlt Praefixe -- das ist der ganze Sinn des Contests, und
     // das Modell kann es.
     for (const char* datei : {"cq_wpx_ssb.json", "cq_wpx_cw.json"}) {
@@ -220,7 +246,7 @@ void TestAusgelieferteRegeln::jedeAusgelieferteRegelLaesstSichLesen()
     QDir ordner(QStringLiteral(CONTESTPROGRAMM_SOURCE_DIR
                                "/resources/contest_definitions"));
     const QStringList dateien = ordner.entryList({QStringLiteral("*.json")}, QDir::Files);
-    QVERIFY2(dateien.size() >= 10,
+    QVERIFY2(dateien.size() >= 20,
              qPrintable(QStringLiteral("nur %1 Regeldateien gefunden")
                             .arg(dateien.size())));
 

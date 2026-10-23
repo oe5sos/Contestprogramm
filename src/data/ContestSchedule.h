@@ -46,7 +46,11 @@ struct ContestSchedule {
     /// („das letzte volle Wochenende im Oktober"), und „voll" heisst
     /// Samstag UND Sonntag im selben Monat.
     int weekend = 1;
-    int startDay = Qt::Saturday;  // Qt::DayOfWeek the window opens on
+    /// Qt::Saturday, Qt::Sunday oder Qt::Friday. Der FREITAG ist der
+    /// Tag VOR dem Wochenende, das `weekend` meint -- CQ WW 160 CW
+    /// faengt am letzten vollen Januarwochenende schon freitags um
+    /// 22:00 UTC an.
+    int startDay = Qt::Saturday;
     QTime startTimeUtc{14, 0};
     int hours = 24;
 
