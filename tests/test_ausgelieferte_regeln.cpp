@@ -180,6 +180,11 @@ void TestAusgelieferteRegeln::dieKurzwellenTermineSindDieVeroeffentlichten()
         {"wae_rtty.json",    2026, 11, 14,  0, 48},
         {"cq_wpx_rtty.json", 2026,  2, 14,  0, 48},
         {"rsgb_iota.json",   2024,  7, 27, 12, 24},
+        // Dritte Runde, 2026-10-23: ARRL 10 m von arrl.org/10-meter,
+        // Russian DX aus dem SRR-Reglement (2025 und 2026).
+        {"russian_dx.json",  2025,  3, 15, 12, 24},
+        {"russian_dx.json",  2026,  3, 21, 12, 24},
+        {"arrl_10m.json",    2026, 12, 12,  0, 48},
         {"cq_ww_ssb.json",  2027, 10, 30, 0, 48},
         {"cq_ww_cw.json",   2027, 11, 27, 0, 48},
         {"cq_wpx_ssb.json", 2025,  3, 29, 0, 48},
@@ -225,6 +230,37 @@ void TestAusgelieferteRegeln::dieKurzwellenTermineSindDieVeroeffentlichten()
         QCOMPARE(d.bands(), QStringList{QStringLiteral("1.8")});
     }
 
+    // ── Die zwei Ausnahmen ──────────────────────────────────────────
+    //
+    // Beide sind belegt, und beide waeren ohne eigene Behandlung ein
+    // falsch angezeigter Termin.
+    {
+        // ARRL RTTY Roundup: „first full weekend of January, but
+        // never on January 1" (arrl.org/rtty-roundup). 2026 faellt das
+        // erste volle Wochenende auf den 3./4. -- da greift nichts.
+        // 2022 war der 1. Januar ein SAMSTAG, und genau dann rueckt
+        // der Contest eine Woche.
+        const ContestDefinition d = laden(QStringLiteral("arrl_rtty_roundup.json"));
+        QVERIFY(d.isValid());
+        QCOMPARE(d.schedule().windowIn(2026).startUtc.date(), QDate(2026, 1, 3));
+        QCOMPARE(d.schedule().windowIn(2022).startUtc.date(), QDate(2022, 1, 8));
+        // Ohne die Ausnahme waere es der 1. gewesen.
+        ContestSchedule ohne = d.schedule();
+        ohne.neverOn.clear();
+        QCOMPARE(ohne.windowIn(2022).startUtc.date(), QDate(2022, 1, 1));
+    }
+    {
+        // CQ WW 160 SSB 2026: von den Veranstaltern um eine Woche
+        // verschoben (Kollision mit ARRL DX CW, cq160.com). Die Regel
+        // allein saegte den 20. Februar; eingetragen ist der 27.
+        const ContestDefinition d = laden(QStringLiteral("cq_160_ssb.json"));
+        QVERIFY(d.isValid());
+        QCOMPARE(d.schedule().windowIn(2026).startUtc.date(), QDate(2026, 2, 27));
+        // Und 2025 gilt wieder die Regel: Wochenende 22./23. Februar,
+        // Beginn am Freitag, dem 21.
+        QCOMPARE(d.schedule().windowIn(2025).startUtc.date(), QDate(2025, 2, 21));
+    }
+
     // WPX zaehlt Praefixe -- das ist der ganze Sinn des Contests, und
     // das Modell kann es.
     for (const char* datei : {"cq_wpx_ssb.json", "cq_wpx_cw.json"}) {
@@ -246,7 +282,7 @@ void TestAusgelieferteRegeln::jedeAusgelieferteRegelLaesstSichLesen()
     QDir ordner(QStringLiteral(CONTESTPROGRAMM_SOURCE_DIR
                                "/resources/contest_definitions"));
     const QStringList dateien = ordner.entryList({QStringLiteral("*.json")}, QDir::Files);
-    QVERIFY2(dateien.size() >= 20,
+    QVERIFY2(dateien.size() >= 24,
              qPrintable(QStringLiteral("nur %1 Regeldateien gefunden")
                             .arg(dateien.size())));
 
