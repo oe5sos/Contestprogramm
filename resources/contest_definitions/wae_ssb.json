@@ -1,15 +1,42 @@
 {
   "id": "WAEDC_SSB",
   "name": "WAEDC — Worked All Europe SSB (zweites volles Wochenende im September)",
-  "modes": ["SSB"],
-  "bands": ["3.5", "7", "14", "21", "28"],
-  "dupe_scope": ["callsign", "band"],
+  "cabrillo_name": "DARC-WAEDC-SSB",
+  "modes": [
+    "SSB"
+  ],
+  "bands": [
+    "3.5",
+    "7",
+    "14",
+    "21",
+    "28"
+  ],
+  "dupe_scope": [
+    "callsign",
+    "band"
+  ],
   "scoring": "qso_count",
   "serial_scope": "contest",
   "multiplier_field": "dxcc",
-  "schedule": { "month": 9, "weekend": 2, "day": "sat", "start": "00:00", "hours": 48 },
+  "schedule": {
+    "month": 9,
+    "weekend": 2,
+    "day": "sat",
+    "start": "00:00",
+    "hours": 48
+  },
   "exchange_fields": [
-    { "key": "rst",    "label": "RST", "type": "rst" },
-    { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true }
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "serial",
+      "label": "Nr.",
+      "type": "int",
+      "auto_increment": true
+    }
   ]
 }

@@ -1,15 +1,36 @@
 {
   "id": "CQ_160_CW",
   "name": "CQ WW 160m Contest CW (letztes volles Wochenende im Januar, ab Freitag)",
-  "modes": ["CW"],
-  "bands": ["1.8"],
-  "dupe_scope": ["callsign"],
+  "cabrillo_name": "CQ-160-CW",
+  "modes": [
+    "CW"
+  ],
+  "bands": [
+    "1.8"
+  ],
+  "dupe_scope": [
+    "callsign"
+  ],
   "scoring": "qso_count",
   "serial_scope": "contest",
   "multiplier_field": "dxcc",
-  "schedule": { "month": 1, "weekend": -1, "day": "fri", "start": "22:00", "hours": 48 },
+  "schedule": {
+    "month": 1,
+    "weekend": -1,
+    "day": "fri",
+    "start": "22:00",
+    "hours": 48
+  },
   "exchange_fields": [
-    { "key": "rst",   "label": "RST",   "type": "rst" },
-    { "key": "staat", "label": "Staat/Land", "type": "text" }
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "staat",
+      "label": "Staat/Land",
+      "type": "text"
+    }
   ]
 }

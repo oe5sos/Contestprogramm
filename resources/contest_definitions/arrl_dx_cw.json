@@ -1,6 +1,7 @@
 {
   "id": "ARRL_DX_CW",
   "name": "ARRL International DX Contest CW (drittes volles Wochenende im Februar)",
+  "cabrillo_name": "ARRL-DX-CW",
   "modes": [
     "CW"
   ],

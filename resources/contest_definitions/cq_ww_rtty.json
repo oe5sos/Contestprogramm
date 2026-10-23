@@ -1,16 +1,46 @@
 {
   "id": "CQ_WW_RTTY",
   "name": "CQ WW RTTY DX Contest (letztes volles Wochenende im September)",
-  "modes": ["RTTY"],
-  "bands": ["3.5", "7", "14", "21", "28"],
-  "dupe_scope": ["callsign", "band"],
+  "cabrillo_name": "CQ-WW-RTTY",
+  "modes": [
+    "RTTY"
+  ],
+  "bands": [
+    "3.5",
+    "7",
+    "14",
+    "21",
+    "28"
+  ],
+  "dupe_scope": [
+    "callsign",
+    "band"
+  ],
   "scoring": "qso_count",
   "serial_scope": "contest",
   "multiplier_field": "dxcc",
-  "schedule": { "month": 9, "weekend": -1, "day": "sat", "start": "00:00", "hours": 48 },
+  "schedule": {
+    "month": 9,
+    "weekend": -1,
+    "day": "sat",
+    "start": "00:00",
+    "hours": 48
+  },
   "exchange_fields": [
-    { "key": "rst",    "label": "RST",  "type": "rst" },
-    { "key": "cqzone", "label": "Zone", "type": "cqzone" },
-    { "key": "staat",  "label": "Staat", "type": "text" }
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "cqzone",
+      "label": "Zone",
+      "type": "cqzone"
+    },
+    {
+      "key": "staat",
+      "label": "Staat",
+      "type": "text"
+    }
   ]
 }

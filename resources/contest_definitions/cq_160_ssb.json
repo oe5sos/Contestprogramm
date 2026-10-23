@@ -1,18 +1,39 @@
 {
   "id": "CQ_160_SSB",
   "name": "CQ WW 160m Contest SSB (letztes volles Wochenende im Februar, ab Freitag)",
-  "modes": ["SSB"],
-  "bands": ["1.8"],
-  "dupe_scope": ["callsign"],
+  "cabrillo_name": "CQ-160-SSB",
+  "modes": [
+    "SSB"
+  ],
+  "bands": [
+    "1.8"
+  ],
+  "dupe_scope": [
+    "callsign"
+  ],
   "scoring": "qso_count",
   "serial_scope": "contest",
   "multiplier_field": "dxcc",
   "schedule": {
-    "month": 2, "weekend": -1, "day": "fri", "start": "22:00", "hours": 48,
-    "exceptions": { "2026": "2026-02-27" }
+    "month": 2,
+    "weekend": -1,
+    "day": "fri",
+    "start": "22:00",
+    "hours": 48,
+    "exceptions": {
+      "2026": "2026-02-27"
+    }
   },
   "exchange_fields": [
-    { "key": "rst",   "label": "RST",   "type": "rst" },
-    { "key": "staat", "label": "Staat/Land", "type": "text" }
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "staat",
+      "label": "Staat/Land",
+      "type": "text"
+    }
   ]
 }
