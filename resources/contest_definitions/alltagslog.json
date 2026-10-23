@@ -1,0 +1,41 @@
+{
+  "id": "ALLTAG",
+  "name": "Alltagslog — ohne Contest, alle Bänder (RST)",
+  "everyday_log": true,
+  "cabrillo_name": "",
+  "bands": [
+    "1.8",
+    "3.5",
+    "7",
+    "10",
+    "14",
+    "18",
+    "21",
+    "24",
+    "28",
+    "50",
+    "70",
+    "144",
+    "432",
+    "1296",
+    "2320",
+    "3400",
+    "5760",
+    "10368"
+  ],
+  "dupe_scope": [
+    "callsign",
+    "band",
+    "mode"
+  ],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "dxcc",
+  "exchange_fields": [
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    }
+  ]
+}
