@@ -1,6 +1,7 @@
 {
   "id": "CQ_WW_CW",
   "name": "CQ WW DX Contest CW (letztes volles Wochenende im November)",
+  "cabrillo_name": "CQ-WW-CW",
   "modes": [
     "CW"
   ],

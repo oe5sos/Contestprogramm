@@ -1,18 +1,42 @@
 {
   "id": "ARRL_RTTY_RU",
   "name": "ARRL RTTY Roundup (erstes volles Wochenende im Jänner, nie am 1.)",
-  "modes": ["RTTY"],
-  "bands": ["3.5", "7", "14", "21", "28"],
-  "dupe_scope": ["callsign", "band"],
+  "cabrillo_name": "ARRL-RTTY",
+  "modes": [
+    "RTTY"
+  ],
+  "bands": [
+    "3.5",
+    "7",
+    "14",
+    "21",
+    "28"
+  ],
+  "dupe_scope": [
+    "callsign",
+    "band"
+  ],
   "scoring": "qso_count",
   "serial_scope": "contest",
   "multiplier_field": "dxcc",
   "schedule": {
-    "month": 1, "weekend": 1, "day": "sat", "start": "18:00", "hours": 30,
+    "month": 1,
+    "weekend": 1,
+    "day": "sat",
+    "start": "18:00",
+    "hours": 30,
     "never_on": "01-01"
   },
   "exchange_fields": [
-    { "key": "rst",    "label": "RST", "type": "rst" },
-    { "key": "serial", "label": "Nr./Staat", "type": "text" }
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "serial",
+      "label": "Nr./Staat",
+      "type": "text"
+    }
   ]
 }

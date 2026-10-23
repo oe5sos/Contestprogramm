@@ -59,6 +59,7 @@ private slots:
     void dieWertungsregelnSindDieDerIaru();
     void dieKurzwellenTermineSindDieVeroeffentlichten();
     void jedeAusgelieferteRegelLaesstSichLesen();
+    void jedeKurzwellenregelHatIhrenCabrilloNamen();
 };
 
 void TestAusgelieferteRegeln::dieTermineSindDieVeroeffentlichten()
@@ -302,6 +303,58 @@ void TestAusgelieferteRegeln::jedeAusgelieferteRegelLaesstSichLesen()
                  qPrintable(QStringLiteral("%1: Kennung \"%2\" gibt es zweimal")
                                 .arg(datei, d.id())));
         ids.insert(d.id());
+    }
+}
+
+// ── Der Cabrillo-Name ist der des Veranstalters ──────────────────────
+//
+// Gefunden am 2026-10-23, einen Tag vor CQ WW SSB: keine der achtzehn
+// Kurzwellenregeln trug einen `cabrillo_name`. CabrilloExporter nimmt
+// dann die INTERNE Kennung, und im Kopf der eingereichten Datei
+// stuende
+//
+//     CONTEST: CQ_WW_SSB
+//
+// statt „CQ-WW-SSB". Der Roboter des Veranstalters kennt nur den
+// zweiten; das Log waere eingereicht und trotzdem nicht gewertet, und
+// gemerkt haette man es erst Wochen spaeter.
+//
+// Die Namen stammen aus der Liste der Cabrillo-Contestnamen
+// (contestcalendar.com/cabnames.php, abgerufen 2026-10-23), nicht aus
+// dem Gedaechtnis. Besonders die drei WAEDC heissen anders, als man
+// raten wuerde: „DARC-WAEDC-CW", nicht „WAEDC-CW".
+void TestAusgelieferteRegeln::jedeKurzwellenregelHatIhrenCabrilloNamen()
+{
+    struct Erwartet { const char* datei; const char* name; };
+    const Erwartet kNamen[] = {
+        {"cq_ww_ssb.json",          "CQ-WW-SSB"},
+        {"cq_ww_cw.json",           "CQ-WW-CW"},
+        {"cq_ww_rtty.json",         "CQ-WW-RTTY"},
+        {"cq_wpx_ssb.json",         "CQ-WPX-SSB"},
+        {"cq_wpx_cw.json",          "CQ-WPX-CW"},
+        {"cq_wpx_rtty.json",        "CQ-WPX-RTTY"},
+        {"cq_160_cw.json",          "CQ-160-CW"},
+        {"cq_160_ssb.json",         "CQ-160-SSB"},
+        {"arrl_dx_cw.json",         "ARRL-DX-CW"},
+        {"arrl_dx_ssb.json",        "ARRL-DX-SSB"},
+        {"arrl_10m.json",           "ARRL-10"},
+        {"arrl_rtty_roundup.json",  "ARRL-RTTY"},
+        {"iaru_hf.json",            "IARU-HF"},
+        {"wae_cw.json",             "DARC-WAEDC-CW"},
+        {"wae_ssb.json",            "DARC-WAEDC-SSB"},
+        {"wae_rtty.json",           "DARC-WAEDC-RTTY"},
+        {"rsgb_iota.json",          "RSGB-IOTA"},
+        {"russian_dx.json",         "RDXC"},
+    };
+
+    for (const Erwartet& e : kNamen) {
+        const ContestDefinition d = laden(QString::fromLatin1(e.datei));
+        QVERIFY2(d.isValid(), e.datei);
+        QVERIFY2(d.cabrilloName() == QLatin1String(e.name),
+                 qPrintable(QStringLiteral("%1: Cabrillo-Name ist \"%2\", "
+                                           "eingereicht werden muss \"%3\"")
+                                .arg(QLatin1String(e.datei), d.cabrilloName(),
+                                     QLatin1String(e.name))));
     }
 }
 

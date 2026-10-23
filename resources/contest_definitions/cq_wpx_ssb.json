@@ -1,6 +1,7 @@
 {
   "id": "CQ_WPX_SSB",
   "name": "CQ WPX Contest SSB (letztes volles Wochenende im März)",
+  "cabrillo_name": "CQ-WPX-SSB",
   "modes": [
     "SSB"
   ],
