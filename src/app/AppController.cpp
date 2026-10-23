@@ -330,6 +330,11 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
         //   2. alle Betriebsarten, nicht eine einzelne -- sonst
         //      landet ein neuer Betrieb im Marconi Memorial und damit
         //      in CW.
+        //   3. ein CONTEST, kein Alltagslog. Das Alltagslog hat alle
+        //      Baender und alle Betriebsarten und passt damit auf die
+        //      ersten beiden Bedingungen besser als jeder Contest --
+        //      ohne diese dritte startet ein neuer Betrieb in einem
+        //      Buch statt in einem Contest.
         //
         // Vorher stand hier nur die zweite. Sie reichte, solange alle
         // Regeln UKW waren.
@@ -339,7 +344,7 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
                 || def.bands().contains(QStringLiteral("432"));
         };
         for (const ContestDefinition& def : m_availableContestDefinitions) {
-            if (istUkw(def) && def.modes().isEmpty()) {
+            if (istUkw(def) && def.modes().isEmpty() && !def.isEverydayLog()) {
                 m_settings.activeContestId = def.id();
                 break;
             }

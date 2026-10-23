@@ -102,6 +102,17 @@ public:
     // back to id(), exactly as it did before this key existed.
     const QString& cabrilloName() const { return m_cabrilloName; }
 
+    /// Ein ALLTAGSLOG: kein Contest, sondern das Buch fuer den
+    /// gewoehnlichen Betrieb. JSON-Schluessel "everyday_log".
+    ///
+    /// Es gibt genau einen Grund, warum das im Modell steht und nicht
+    /// aus den Daten erraten wird: eine frische Datenbank sucht sich
+    /// den ersten UKW-Contest mit allen Betriebsarten -- und darauf
+    /// passt ein Alltagslog genauso. Ohne diese Marke startet ein
+    /// neuer Betrieb in einem Buch statt in einem Contest, und zwar
+    /// still (AppController::openDatabase).
+    bool isEverydayLog() const { return m_everydayLog; }
+
     // Modes the rules allow ("CW", "SSB", ...), upper-cased; empty (the
     // default) means any. Optional JSON key "modes" -- the Marconi
     // Memorial is CW only, and a QSO logged in SSB there is one the log
@@ -181,6 +192,7 @@ private:
     QString m_scoring = QStringLiteral("distance_km");
     QString m_serialScope = QStringLiteral("band");
     QString m_cabrilloName;
+    bool    m_everydayLog = false;
     ContestSchedule m_schedule;
     QStringList m_modes;
     bool m_valid = false;

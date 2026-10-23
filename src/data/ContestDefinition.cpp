@@ -136,6 +136,9 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         }
         def.m_serialScope = scope;
     }
+    if (root.value(QStringLiteral("everyday_log")).isBool()) {
+        def.m_everydayLog = root.value(QStringLiteral("everyday_log")).toBool();
+    }
     if (root.value(QStringLiteral("cabrillo_name")).isString()) {
         def.m_cabrilloName = root.value(QStringLiteral("cabrillo_name")).toString().trimmed();
     }
