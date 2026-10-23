@@ -1,0 +1,14 @@
+{
+  "id": "RUSSIAN_DX",
+  "name": "Russian DX Contest (drittes volles Wochenende im März)",
+  "bands": ["1.8", "3.5", "7", "14", "21", "28"],
+  "dupe_scope": ["callsign", "band", "mode"],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "dxcc",
+  "schedule": { "month": 3, "weekend": 3, "day": "sat", "start": "12:00", "hours": 24 },
+  "exchange_fields": [
+    { "key": "rst",    "label": "RST", "type": "rst" },
+    { "key": "serial", "label": "Nr./Oblast", "type": "text" }
+  ]
+}

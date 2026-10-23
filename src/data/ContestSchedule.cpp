@@ -129,6 +129,31 @@ ContestWindow ContestSchedule::windowIn(int year) const
         // der Freitag ist der Tag davor, nicht ein eigenes Datum.
         start = start.addDays(-1);
     }
+    // ── Ein Jahr, das die Veranstalter verschoben haben ──────────────
+    //
+    // Schlaegt alles darueber. Siehe ContestSchedule::exceptions --
+    // der belegte Fall ist CQ WW 160 SSB 2026.
+    if (const auto it = exceptions.constFind(year); it != exceptions.constEnd()) {
+        if (it.value().isValid()) {
+            window.startUtc = QDateTime(it.value(), startTimeUtc, QTimeZone::UTC);
+            window.endUtc = window.startUtc.addSecs(static_cast<qint64>(hours) * 3600);
+            return window;
+        }
+    }
+
+    // ── „nie an diesem Tag" ──────────────────────────────────────────
+    //
+    // Der ARRL RTTY Roundup ist das erste volle Januarwochenende,
+    // „but never on January 1". Faellt der Beginn darauf, geht es eine
+    // Woche weiter.
+    if (!neverOn.isEmpty()) {
+        const QDate verboten = QDate::fromString(
+            QStringLiteral("%1-%2").arg(year).arg(neverOn), QStringLiteral("yyyy-MM-dd"));
+        if (verboten.isValid() && start == verboten) {
+            start = start.addDays(7);
+        }
+    }
+
     window.startUtc = QDateTime(start, startTimeUtc, QTimeZone::UTC);
     window.endUtc = window.startUtc.addSecs(static_cast<qint64>(hours) * 3600);
     return window;
@@ -224,6 +249,37 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
     if (errorOut) {
         errorOut->clear();
     }
+    if (object.contains(QStringLiteral("never_on"))) {
+        const QString wert = object.value(QStringLiteral("never_on")).toString().trimmed();
+        if (!QDate::fromString(QStringLiteral("2000-%1").arg(wert),
+                               QStringLiteral("yyyy-MM-dd")).isValid()) {
+            return fail(QStringLiteral("\"schedule\".\"never_on\" must be \"MM-DD\""));
+        }
+        schedule.neverOn = wert;
+    }
+
+    if (object.contains(QStringLiteral("exceptions"))) {
+        if (!object.value(QStringLiteral("exceptions")).isObject()) {
+            return fail(QStringLiteral("\"schedule\".\"exceptions\" must be an object"));
+        }
+        const QJsonObject aus = object.value(QStringLiteral("exceptions")).toObject();
+        for (auto it = aus.constBegin(); it != aus.constEnd(); ++it) {
+            bool ok = false;
+            const int jahr = it.key().toInt(&ok);
+            const QDate datum = QDate::fromString(it.value().toString(), Qt::ISODate);
+            if (!ok || !datum.isValid()) {
+                return fail(QStringLiteral("\"schedule\".\"exceptions\": \"%1\" -> "
+                                           "\"%2\" is not year -> YYYY-MM-DD")
+                                .arg(it.key(), it.value().toString()));
+            }
+            if (datum.year() != jahr) {
+                return fail(QStringLiteral("\"schedule\".\"exceptions\": %1 points at %2")
+                                .arg(jahr).arg(datum.toString(Qt::ISODate)));
+            }
+            schedule.exceptions.insert(jahr, datum);
+        }
+    }
+
     return schedule;
 }
 
@@ -238,6 +294,17 @@ QJsonObject ContestSchedule::toJson() const
                                            : QStringLiteral("sat"));
     object.insert(QStringLiteral("start"), startTimeUtc.toString(QStringLiteral("HH:mm")));
     object.insert(QStringLiteral("hours"), hours);
+    if (!neverOn.isEmpty()) {
+        object.insert(QStringLiteral("never_on"), neverOn);
+    }
+    if (!exceptions.isEmpty()) {
+        QJsonObject aus;
+        for (auto it = exceptions.cbegin(); it != exceptions.cend(); ++it) {
+            aus.insert(QString::number(it.key()),
+                       it.value().toString(Qt::ISODate));
+        }
+        object.insert(QStringLiteral("exceptions"), aus);
+    }
     return object;
 }
 
