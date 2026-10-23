@@ -1818,9 +1818,28 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         });
     }
 
+    // ── Auch der Seitenbereich laesst sich ausblenden ────────────────
+    //
+    // Betreiber am 2026-10-23: „weiters moechte ich jedes fenster auch
+    // loeschen, sprich anzeigen oder nicht anzeigen koennen.
+    // ausblenden meine ich!"
+    //
+    // Er war das einzige Panel ohne Schalter. Ausgerechnet er: er
+    // nimmt die linke Spalte ein und ist das erste, was im Weg steht,
+    // wenn man Platz braucht.
+    //
+    // Nur in DIESER Liste, nicht in `kPanelMenuEntries`: die treibt
+    // auch „Als eigenes Fenster" und „In den Seitenbereich", und
+    // beides ergibt fuer den Seitenbereich selbst keinen Sinn --
+    // er ist der Behaelter, in den die anderen hineinfallen
+    // (dropPanelIfOverSideArea ueberspringt ihn aus demselben Grund).
+    QVector<PanelMenuEntry> versteckbar = kPanelMenuEntries;
+    versteckbar.append({QStringLiteral("sidearea"), QStringLiteral("Seitenbereich")});
+
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
-    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+    for (const PanelMenuEntry& entry : versteckbar) {
         QAction* action = panelsMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("panelAction_%1").arg(entry.id));
         action->setCheckable(true);
         connect(action, &QAction::toggled, this, [this, id = entry.id](bool visible) {
             if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
@@ -2761,6 +2780,16 @@ void MainWindow::commandRotorForCandidate(const QString& callsign, const QString
 // Null heisst „unbekannt", und dann wird das Feld NICHT vorbelegt:
 // eine geratene Zone im Log ist schlimmer als ein leeres Feld, das
 // auffaellt.
+QStringList MainWindow::panelIdsForTest() const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->panelIds() : QStringList();
+}
+
+PanelContainerWidget* MainWindow::panelForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->panel(id) : nullptr;
+}
+
 int MainWindow::eigeneCqZone() const
 {
     const QString ruf = m_appController.settings().ownCallsign.trimmed();

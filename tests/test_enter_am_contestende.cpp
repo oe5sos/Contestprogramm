@@ -337,14 +337,31 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
     // bleibt stehen. Genau das macht diese Form lastunabhaengig --
     // eine hoehere feste Schranke haette den Fehlalarm nur
     // verschoben.
-    constexpr double kFaktor = 4.0;
-    QVERIFY2(korrekturMs <= kFaktor * returnMs,
-             qPrintable(QStringLiteral("Eine Korrektur dauerte %1 ms, das %2-fache "
-                                       "eines Returns (%3 ms) -- erlaubt ist das %4-fache")
-                            .arg(korrekturMs, 0, 'f', 1)
-                            .arg(verhaeltnis, 0, 'f', 1)
-                            .arg(returnMs, 0, 'f', 1)
-                            .arg(kFaktor, 0, 'f', 1)));
+    // ── Das Verhaeltnis wird GEMESSEN, aber nicht mehr verlangt ──────
+    //
+    // Hier stand bis zum 2026-10-23 abends `korrekturMs <= 4 *
+    // returnMs`, und die Begruendung dafuer war: beide Zahlen stammen
+    // aus demselben Lauf auf demselben Rechner, ist der Laeufer
+    // langsam, sind beide langsam, das Verhaeltnis bleibt stehen.
+    //
+    // Das war falsch, und die CI hat es beim ersten Kontakt gezeigt:
+    //
+    //     arm64:  288,6 ms = das 12,8-fache (Return 22,6 ms)
+    //     intel:  908,2 ms = das 15,9-fache (Return 57,2 ms)
+    //
+    // Auf einem ruhigen Rechner ist es das 1,1- bis 1,5-fache. Der
+    // Grund ist einsichtig, sobald man ihn sieht: eine Korrektur
+    // laeuft ueber refreshAfterLogChange und arbeitet laenger als ein
+    // Return. Je laenger eine Arbeit dauert, desto wahrscheinlicher
+    // faellt ein Aussetzer des geteilten Laeufers hinein. Die beiden
+    // Zahlen sind also NICHT gleich betroffen, und das Verhaeltnis
+    // misst mit, wie zerrissen die Maschine gerade ist.
+    //
+    // Es bleibt als ZAHL im Protokoll, weil es genau das richtige
+    // Mass ist, um einen echten Rueckschritt zu sehen -- aber es ist
+    // kein Tor mehr. Ein Tor, das eine Veroeffentlichung aufhaelt,
+    // weil ein fremder Rechner beschaeftigt war, kostet mehr, als es
+    // faengt.
 
     // Dazu eine absolute Decke, aber eine GROSSZUEGIGE: sie faengt den
     // Fall, in dem alles zusammen langsam geworden ist und das
