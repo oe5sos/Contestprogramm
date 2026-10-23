@@ -191,7 +191,8 @@ QString defaultRstForMode(const QString& mode)
 // field is rst-typed. Shared by currentSentExchangeText() and
 // handleLogRequested() so both compose the sent line the same way.
 QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, const ContestSettings& settings,
-                                                int serialSent, const QString& mode)
+                                                int serialSent, const QString& mode,
+                                                int eigeneCqZone)
 {
     QMap<QString, QString> values;
     if (const ContestDefinition::ExchangeField* serialField = findAutoIncrementField(def)) {
@@ -202,6 +203,26 @@ QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, con
     }
     if (const ContestDefinition::ExchangeField* rstField = findFieldByType(def, QStringLiteral("rst"))) {
         values.insert(rstField->key, defaultRstForMode(mode));
+    }
+    // ── Die eigene CQ-Zone ───────────────────────────────────────────
+    //
+    // Dazugekommen 2026-10-23, einen Tag vor CQ WW SSB. Bis dahin
+    // fuellte diese Stelle Nummer, Locator und RST -- ein Zonenfeld
+    // kannte sie nicht. Bei CQ WW haette der Betreiber also „59"
+    // gesendet und geloggt, ohne die 15, und das waere jedes QSO im
+    // Log falsch gewesen, ohne dass irgendwo etwas rot wird.
+    //
+    // Die Zone kommt NICHT aus einer eigenen Einstellung, sondern aus
+    // derselben Laenderliste, aus der das Programm die Zone der
+    // Gegenstation holt (CountryPrefixIndex, siehe
+    // handleCallsignLookupRequested). Eine Einstellung mehr waere eine
+    // Einstellung mehr, die jemand vergisst -- und sie stuende bei
+    // einem Rufzeichen aus einem anderen Land sofort falsch da.
+    if (eigeneCqZone > 0) {
+        if (const ContestDefinition::ExchangeField* zoneField =
+                findFieldByType(def, QStringLiteral("cqzone"))) {
+            values.insert(zoneField->key, QString::number(eigeneCqZone));
+        }
     }
     return values;
 }
@@ -2732,6 +2753,24 @@ void MainWindow::commandRotorForCandidate(const QString& callsign, const QString
     }
 }
 
+// ── Die eigene CQ-Zone, aus dem eigenen Rufzeichen ───────────────────
+//
+// Dieselbe Laenderliste, aus der die Zone der Gegenstation kommt
+// (handleCallsignLookupRequested). OE5SOS -> OE -> Zone 15.
+//
+// Null heisst „unbekannt", und dann wird das Feld NICHT vorbelegt:
+// eine geratene Zone im Log ist schlimmer als ein leeres Feld, das
+// auffaellt.
+int MainWindow::eigeneCqZone() const
+{
+    const QString ruf = m_appController.settings().ownCallsign.trimmed();
+    if (ruf.isEmpty()) {
+        return 0;
+    }
+    const CountryEntry land = m_appController.countryIndex().lookup(ruf);
+    return land.isValid() ? land.cqZone : 0;
+}
+
 QString MainWindow::currentSentExchangeText() const
 {
     const ContestSettings settings = m_appController.settings();
@@ -2741,7 +2780,8 @@ QString MainWindow::currentSentExchangeText() const
     }
     const int serialSent = m_appController.database().nextSerialForContest(
         settings.activeContestId, def->serialScope() == QStringLiteral("band") ? m_currentBand : QString());
-    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode));
+    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode,
+                                                        eigeneCqZone()));
 }
 
 void MainWindow::refreshLogTable()
@@ -3548,7 +3588,8 @@ void MainWindow::handleLogRequested()
     record.rstRcvd = rstRcvd;
 
     if (def) {
-        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode));
+        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode,
+                                                                            eigeneCqZone()));
         record.exchangeRcvd = composeExchange(*def, buildReceivedExchangeValues(*def, exchangeReceived));
         if (findFieldByType(*def, QStringLiteral("rst"))) {
             record.rstSent = defaultRstForMode(mode);

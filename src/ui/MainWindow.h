@@ -97,6 +97,14 @@ public:
     /// Fuer Prueflaeufe, die eine Lage herstellen muessen, bevor sie
     /// etwas messen -- siehe tests/test_seitenband_folgt_dem_band.cpp.
     QString currentMode() const { return m_currentMode; }
+    /// Die eigene CQ-Zone, aus dem eigenen Rufzeichen ueber dieselbe
+    /// Laenderliste wie die der Gegenstation. 0 = unbekannt, dann wird
+    /// nichts vorbelegt. Oeffentlich, weil der Prueflauf sie braucht.
+    int eigeneCqZone() const;
+    /// Was jetzt als eigener Austausch hinausginge. Oeffentlich fuer
+    /// tests/test_eigene_cq_zone.cpp -- die Zusammensetzung dieser
+    /// Zeile ist das, was im Log und im Cabrillo landet.
+    QString currentSentExchangeTextForTest() const { return currentSentExchangeText(); }
 
 signals:
     // Datei > Sicherung wiederherstellen has put a backup in place of
