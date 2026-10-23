@@ -40,7 +40,12 @@ struct ContestWindow {
 // is 7/8 November, not 1 November.
 struct ContestSchedule {
     int month = 0;                // 1-12; 0 = no schedule known
-    int weekend = 1;              // 1 = first full weekend of the month
+    /// 1 = erstes volles Wochenende des Monats, 2 = zweites, ...
+    /// NEGATIV zaehlt vom Monatsende: -1 = letztes volles Wochenende,
+    /// -2 = vorletztes. Die grossen Kurzwellenconteste rechnen so
+    /// („das letzte volle Wochenende im Oktober"), und „voll" heisst
+    /// Samstag UND Sonntag im selben Monat.
+    int weekend = 1;
     int startDay = Qt::Saturday;  // Qt::DayOfWeek the window opens on
     QTime startTimeUtc{14, 0};
     int hours = 24;

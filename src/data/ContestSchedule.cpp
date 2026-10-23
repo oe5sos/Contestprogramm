@@ -66,7 +66,9 @@ QString ContestWindow::describe() const
 
 bool ContestSchedule::isValid() const
 {
-    return month >= 1 && month <= 12 && weekend >= 1 && weekend <= kMaxWeekend
+    return month >= 1 && month <= 12
+        && ((weekend >= 1 && weekend <= kMaxWeekend)
+            || (weekend <= -1 && weekend >= -kMaxWeekend))
         && (startDay == Qt::Saturday || startDay == Qt::Sunday) && startTimeUtc.isValid() && hours >= 1
         && hours <= kMaxHours;
 }
@@ -84,7 +86,37 @@ ContestWindow ContestSchedule::windowIn(int year) const
         return window;
     }
     const int toSaturday = (Qt::Saturday - first.dayOfWeek() + 7) % 7;
-    QDate start = first.addDays(toSaturday + 7 * (weekend - 1));
+
+    QDate start;
+    if (weekend >= 1) {
+        start = first.addDays(toSaturday + 7 * (weekend - 1));
+    } else {
+        // ── Vom Monatsende her gezaehlt ──────────────────────────────
+        //
+        // Dazugekommen 2026-10-23 fuer die Kurzwellenconteste. Die
+        // grossen rechnen nicht vom Monatsanfang, sondern vom Ende:
+        // CQ WW SSB ist „das letzte volle Wochenende im Oktober", CQ
+        // WPX CW „das letzte volle Wochenende im Mai". Mit `weekend`
+        // ab 1 waere das jedes Jahr eine andere Zahl -- also zaehlt
+        // eine NEGATIVE Zahl von hinten: -1 ist das letzte, -2 das
+        // vorletzte.
+        //
+        // „Voll" heisst: Samstag UND Sonntag liegen im Monat. Ein
+        // Samstag am 31. ist also nicht das letzte volle Wochenende,
+        // sondern der Sonntag faellt schon in den naechsten Monat --
+        // genau der Fall, an dem eine Rechnung „letzter Samstag"
+        // falsch liegt. CQ WW 2026 ist dafuer das Beispiel: der 31.
+        // Oktober ist ein Samstag, der Contest aber am 24./25.
+        const QDate last(year, month, first.daysInMonth());
+        // Der letzte Sonntag des Monats -- sein Samstag ist der Tag
+        // davor und liegt damit immer im selben Monat.
+        const int backToSunday = (last.dayOfWeek() - Qt::Sunday + 7) % 7;
+        const QDate letzterSonntag = last.addDays(-backToSunday);
+        start = letzterSonntag.addDays(-1 - 7 * (-weekend - 1));
+        if (start.month() != month) {
+            return window;   // so weit zurueck gibt es den Monat nicht
+        }
+    }
     if (startDay == Qt::Sunday) {
         start = start.addDays(1);
     }
@@ -145,9 +177,14 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
         return fail(QStringLiteral("\"schedule\".\"month\" must be 1-12"));
     }
     if (object.contains(QStringLiteral("weekend"))) {
-        schedule.weekend = object.value(QStringLiteral("weekend")).toInt(-1);
-        if (schedule.weekend < 1 || schedule.weekend > kMaxWeekend) {
-            return fail(QStringLiteral("\"schedule\".\"weekend\" must be 1-%1").arg(kMaxWeekend));
+        // 0 ist kein gueltiger Wert und damit ein brauchbarer Fehlwert:
+        // „weekend": "foo" wird zu 0 und faellt unten durch.
+        schedule.weekend = object.value(QStringLiteral("weekend")).toInt(0);
+        const int betrag = schedule.weekend < 0 ? -schedule.weekend : schedule.weekend;
+        if (schedule.weekend == 0 || betrag > kMaxWeekend) {
+            return fail(QStringLiteral("\"schedule\".\"weekend\" must be 1-%1 "
+                                       "(or -1..-%1 counting back from the end "
+                                       "of the month)").arg(kMaxWeekend));
         }
     }
     if (object.contains(QStringLiteral("day"))) {

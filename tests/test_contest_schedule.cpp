@@ -45,6 +45,7 @@ private slots:
     void jsonParsesDefaultsAndRejectsNonsense();
     void definitionRoundTripsScheduleAndModes();
     void countdownReadoutBeforeDuringAndAfter();
+    void dasLetzteVolleWochenendeGegenVeroeffentlichteDaten();
 };
 
 void TestContestSchedule::firstFullWeekendIsTheFirstSaturdayOfTheMonth()
@@ -245,4 +246,77 @@ void TestContestSchedule::countdownReadoutBeforeDuringAndAfter()
 }
 
 QTEST_MAIN(TestContestSchedule)
+// ── Das letzte volle Wochenende, gegen veroeffentlichte Daten ────────
+//
+// Die grossen Kurzwellenconteste rechnen vom Monatsende her. Der
+// Fallstrick ist das Wort VOLL: faellt der letzte Samstag auf den 31.,
+// liegt sein Sonntag schon im naechsten Monat, und das Wochenende
+// zaehlt nicht mehr. Genau so war CQ WW SSB 2026 -- der 31. Oktober
+// ist ein Samstag, der Contest lief aber am 24./25.
+//
+// Gepruft wird deshalb nicht gegen eine eigene Rechnung, sondern
+// gegen Daten, die die Veranstalter selbst veroeffentlicht haben
+// (cqww.com, cqwpx.com, abgerufen 2026-10-23):
+//
+//   CQ WW SSB 2026   24./25. Oktober     (letzter Sa waere der 31.)
+//   CQ WW SSB 2027   30./31. Oktober
+//   CQ WW CW  2027   27./28. November
+//   CQ WPX SSB 2025  29./30. Maerz
+//   CQ WPX CW  2025  24./25. Mai
+void TestContestSchedule::dasLetzteVolleWochenendeGegenVeroeffentlichteDaten()
+{
+    const auto beginnt = [](int month, int year, int stundeUtc, int dauer) {
+        ContestSchedule s;
+        s.month = month;
+        s.weekend = -1;                 // das letzte volle Wochenende
+        s.startDay = Qt::Saturday;
+        s.startTimeUtc = QTime(stundeUtc, 0);
+        s.hours = dauer;
+        return s.windowIn(year).startUtc.date();
+    };
+
+    QCOMPARE(beginnt(10, 2026, 0, 48), QDate(2026, 10, 24));
+    QCOMPARE(beginnt(10, 2027, 0, 48), QDate(2027, 10, 30));
+    QCOMPARE(beginnt(11, 2027, 0, 48), QDate(2027, 11, 27));
+    QCOMPARE(beginnt(3,  2025, 0, 48), QDate(2025, 3, 29));
+    QCOMPARE(beginnt(5,  2025, 0, 48), QDate(2025, 5, 24));
+
+    // -2 ist das vorletzte.
+    ContestSchedule vorletztes;
+    vorletztes.month = 10;
+    vorletztes.weekend = -2;
+    vorletztes.startTimeUtc = QTime(0, 0);
+    vorletztes.hours = 48;
+    QCOMPARE(vorletztes.windowIn(2026).startUtc.date(), QDate(2026, 10, 17));
+
+    // Und 48 Stunden sind 48 Stunden.
+    ContestSchedule cqww;
+    cqww.month = 10;
+    cqww.weekend = -1;
+    cqww.startTimeUtc = QTime(0, 0);
+    cqww.hours = 48;
+    QCOMPARE(cqww.windowIn(2026).endUtc,
+             QDateTime(QDate(2026, 10, 26), QTime(0, 0), QTimeZone::UTC));
+
+    // Aus JSON, in beide Richtungen.
+    QString fehler;
+    const ContestSchedule ausJson = ContestSchedule::fromJson(
+        QJsonObject{{QStringLiteral("month"), 10},
+                    {QStringLiteral("weekend"), -1},
+                    {QStringLiteral("start"), QStringLiteral("00:00")},
+                    {QStringLiteral("hours"), 48}},
+        &fehler);
+    QVERIFY2(ausJson.isValid(), qPrintable(fehler));
+    QCOMPARE(ausJson.weekend, -1);
+    QCOMPARE(ausJson.windowIn(2026).startUtc.date(), QDate(2026, 10, 24));
+
+    // Null bleibt Unsinn, und zu weit zurueck ebenfalls.
+    QVERIFY(!ContestSchedule::fromJson(
+                 QJsonObject{{QStringLiteral("month"), 10},
+                             {QStringLiteral("weekend"), 0}}).isValid());
+    QVERIFY(!ContestSchedule::fromJson(
+                 QJsonObject{{QStringLiteral("month"), 10},
+                             {QStringLiteral("weekend"), -9}}).isValid());
+}
+
 #include "test_contest_schedule.moc"

@@ -318,12 +318,28 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     }
     loadAvailableContestDefinitions();
     if (m_settings.activeContestId.isEmpty() && !m_availableContestDefinitions.isEmpty()) {
-        // A fresh database starts in the first all-mode contest of the
-        // list (file-name order), not in a single-mode one like the
-        // Marconi Memorial -- that would put a new install into CW.
+        // ── Womit eine frische Datenbank anfaengt ────────────────────
+        //
+        // Zwei Bedingungen, und die Reihenfolge ist die Aussage:
+        //
+        //   1. ein UKW-Contest (144 oder 432). Dieses Programm ist
+        //      dafuer gebaut; die Kurzwellenconteste kamen am
+        //      2026-10-23 dazu und sollen den ersten Start nicht
+        //      uebernehmen, bloss weil „arrl_dx_cw.json" im Ordner
+        //      vorne steht.
+        //   2. alle Betriebsarten, nicht eine einzelne -- sonst
+        //      landet ein neuer Betrieb im Marconi Memorial und damit
+        //      in CW.
+        //
+        // Vorher stand hier nur die zweite. Sie reichte, solange alle
+        // Regeln UKW waren.
         m_settings.activeContestId = m_availableContestDefinitions.first().id();
+        const auto istUkw = [](const ContestDefinition& def) {
+            return def.bands().contains(QStringLiteral("144"))
+                || def.bands().contains(QStringLiteral("432"));
+        };
         for (const ContestDefinition& def : m_availableContestDefinitions) {
-            if (def.modes().isEmpty()) {
+            if (istUkw(def) && def.modes().isEmpty()) {
                 m_settings.activeContestId = def.id();
                 break;
             }
