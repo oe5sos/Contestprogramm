@@ -72,6 +72,11 @@ public:
         // die Reihenfolge davor ist die, in der überall im Baum
         // Stationen aufgezählt werden.
         bool approximate = false;
+        // Waere diese Station auf diesem Band ein NEUER Multiplikator?
+        // Bei CQ WW also ein neues Land. MainWindow fuellt es aus dem
+        // MultiplierTracker; die Karte entscheidet damit, wen sie
+        // beschriftet, wenn nur noch das Wesentliche hingehoert.
+        bool neededMultiplier = false;
     };
 
     explicit MapWidget(QWidget* parent = nullptr);
@@ -99,6 +104,18 @@ public:
     // (core/SolarPosition.h). Auf Kurzwelle die eine Schicht, die über
     // die Ausbreitung etwas sagt; auf UKW ohne Bedeutung, darum aus.
     void setGreylineLayerVisible(bool visible);
+    // ── Zwei Schalter fuer die Kurzwelle (2026-10-23) ────────────────
+    //
+    // Betreiber hat aus vier Entwuerfen „3c" gewaehlt: Punkte nach
+    // BAND eingefaerbt, und beschriftet wird nur, was ein neues Land
+    // waere. Der Grund steht im Entwurf: auf 10 000 km draengen sich
+    // zwanzig Rufzeichen auf wenigen Bildpunkten, und die Farbe sagt
+    // mehr als der Name -- sie sagt, wo das Band offen ist.
+    //
+    // Beide aus, solange niemand sie einschaltet: auf UKW ist das
+    // eine Verschlechterung (ein Band, und jeder Name zaehlt).
+    void setBandColorsEnabled(bool enabled);
+    void setLabelsOnlyNeededEnabled(bool enabled);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
     // "Vollfläche": the map uses the whole panel and the panel's own
@@ -326,6 +343,11 @@ private:
     // den Kreis als Rand weg: deshalb bleibt der abgelesene Winkel hier
     // richtig, anders als beim Anpassen oben.
     bool m_fullBleed = false;
+    /// Siehe setBandColorsEnabled / setLabelsOnlyNeededEnabled.
+    bool m_bandColors = false;
+    bool m_labelsOnlyNeeded = false;
+    QAction* m_bandColorsAction = nullptr;
+    QAction* m_labelsOnlyNeededAction = nullptr;
     bool m_showRotor1Heading = true;
     bool m_showRotor2Heading = true;
     bool m_showHorizon = true;

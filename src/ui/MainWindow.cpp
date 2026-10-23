@@ -2938,6 +2938,11 @@ void MainWindow::refreshMapWidget()
             station.approximate = approximate;
             station.worked = false;
             station.freqHz = candidate.freqHz;
+            // Waere das ein neuer Multiplikator? Bei CQ WW also ein
+            // neues Land. Die Karte beschriftet damit nur noch das,
+            // wofuer man hinsieht (MapWidget::setLabelsOnlyNeeded).
+            station.neededMultiplier = m_appController.multiplierTracker().isNeededMultiplier(
+                bandLabelForFrequencyHz(candidate.freqHz), grid, candidate.callsign);
             stations.append(station);
         }
     };

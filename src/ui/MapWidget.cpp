@@ -310,6 +310,8 @@ void MapWidget::syncControls()
     sync(m_agingAction, m_showAging);
     sync(m_fitAction, m_fitToWindow);
     sync(m_fullBleedAction, m_fullBleed);
+    sync(m_bandColorsAction, m_bandColors);
+    sync(m_labelsOnlyNeededAction, m_labelsOnlyNeeded);
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
@@ -337,6 +339,8 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     syncControls();
     menu->addAction(m_ringsAction);
     menu->addAction(m_greylineAction);
+    menu->addAction(m_bandColorsAction);
+    menu->addAction(m_labelsOnlyNeededAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
     menu->addAction(m_rotor1Action);
@@ -459,6 +463,34 @@ MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
 
 // Nicht über das Makro: diese Schicht hat einen Zeitgeber, der mit ihr
 // an- und ausgeht.
+void MapWidget::setBandColorsEnabled(bool enabled)
+{
+    if (m_bandColors == enabled) {
+        return;
+    }
+    m_bandColors = enabled;
+    if (m_bandColorsAction) {
+        const QSignalBlocker blocker(m_bandColorsAction);
+        m_bandColorsAction->setChecked(enabled);
+    }
+    update();
+    emit preferencesChanged();
+}
+
+void MapWidget::setLabelsOnlyNeededEnabled(bool enabled)
+{
+    if (m_labelsOnlyNeeded == enabled) {
+        return;
+    }
+    m_labelsOnlyNeeded = enabled;
+    if (m_labelsOnlyNeededAction) {
+        const QSignalBlocker blocker(m_labelsOnlyNeededAction);
+        m_labelsOnlyNeededAction->setChecked(enabled);
+    }
+    update();
+    emit preferencesChanged();
+}
+
 void MapWidget::setGreylineLayerVisible(bool on)
 {
     if (m_layers.greyline == on) {
@@ -634,14 +666,16 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16;"
+                          "bandcolors=%17;labelsneeded=%18")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
         .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
              flag(m_layers.greyline))
         .arg(m_fixedBeamwidthDeg, 0, 'f', 0)
-        .arg(flag(m_fullBleed));
+        .arg(flag(m_fullBleed))
+        .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -676,6 +710,10 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_layers.borders);
         } else if (key == QStringLiteral("rcities")) {
             apply(m_layers.cities);
+        } else if (key == QStringLiteral("bandcolors")) {
+            apply(m_bandColors);
+        } else if (key == QStringLiteral("labelsneeded")) {
+            apply(m_labelsOnlyNeeded);
         } else if (key == QStringLiteral("greyline")) {
             apply(m_layers.greyline);
             syncGreylineTimer();
@@ -757,6 +795,31 @@ QVector<QPointF> MapWidget::projectGridSquareCorners(const QString& gridSquare, 
         corners.append(projectBearingDistance(bearing, distance, visibleRangeKm, mapRect));
     }
     return corners;
+}
+
+// ── Die Farbe des Bandes ─────────────────────────────────────────────
+//
+// Entwurf „3c", vom Betreiber gewaehlt: auf 10 000 km sagt die Farbe
+// mehr als der Name -- sie sagt, WO das Band offen ist. Die Grenzen
+// sind die Bandgrenzen, nicht gerundete Zahlen; was dazwischen faellt
+// (WARC, ausserhalb), bekommt die gewoehnliche Farbe.
+QColor bandColorForFrequency(qint64 freqHz)
+{
+    struct Band { qint64 von, bis; const char* farbe; };
+    static const Band kBaender[] = {
+        {1800000,   2000000,  "#9678c8"},   // 160 m
+        {3500000,   4000000,  "#5a8cd2"},   //  80 m
+        {7000000,   7300000,  "#50b4b4"},   //  40 m
+        {14000000, 14350000,  "#d8a55f"},   //  20 m
+        {21000000, 21450000,  "#e6825a"},   //  15 m
+        {28000000, 29700000,  "#dc5a6e"},   //  10 m
+    };
+    for (const Band& b : kBaender) {
+        if (freqHz >= b.von && freqHz <= b.bis) {
+            return QColor(QLatin1String(b.farbe));
+        }
+    }
+    return {};
 }
 
 QColor MapWidget::markerColor(bool worked)
@@ -1466,6 +1529,14 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
                 continue;
             }
             QColor color = markerColor(station.worked);
+            if (m_bandColors) {
+                // Nur wo das Band wirklich bekannt ist. Eine erfundene
+                // Farbe waere schlimmer als die gewoehnliche.
+                const QColor band = bandColorForFrequency(station.freqHz);
+                if (band.isValid()) {
+                    color = band;
+                }
+            }
             const qint64 ageSecs = station.workedAtUtc.isValid() ? station.workedAtUtc.secsTo(now) : -1;
             if (m_showAging && station.worked && ageSecs >= 0) {
                 color = agedMarkerColor(color, ageSecs);
@@ -1482,7 +1553,14 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
                 painter.setPen(QPen(color, 1.5));
                 painter.setBrush(Qt::NoBrush);
                 painter.drawEllipse(p.point, 4.0, 4.0);
-                labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+                // Ein neuer Multiplikator bekommt einen zweiten Ring --
+                // er ist der Grund, warum man ueberhaupt hinsieht.
+                if (station.neededMultiplier) {
+                    painter.drawEllipse(p.point, 7.0, 7.0);
+                }
+                if (!m_labelsOnlyNeeded || station.neededMultiplier) {
+                    labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+                }
             }
             // Nur der Mittelpunkt eines Landes, kein getauschter
             // Locator: ein gepunkteter Hof sagt, dass die Station
