@@ -93,6 +93,10 @@ public:
     // von einer Frequenz im Rufzeichenfeld. Die Fußzeile zeigt es an
     // der CAT-Plakette, und die Prüfstände fragen hier.
     QString currentBand() const { return m_currentBand; }
+    /// Die Betriebsart, wie das Log sie fuehrt ("SSB", "CW", ...).
+    /// Fuer Prueflaeufe, die eine Lage herstellen muessen, bevor sie
+    /// etwas messen -- siehe tests/test_seitenband_folgt_dem_band.cpp.
+    QString currentMode() const { return m_currentMode; }
 
 signals:
     // Datei > Sicherung wiederherstellen has put a backup in place of

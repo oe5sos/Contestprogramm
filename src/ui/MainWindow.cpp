@@ -5675,6 +5675,38 @@ void MainWindow::chooseBand(const QString& band)
         // Auf die untere Bandkante; von dort dreht der Bediener weiter.
         // Durch den Transverter, wie überall sonst.
         m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(baseHz));
+
+        // ── Das Seitenband gehört zum Band, nicht zur Betriebsart ────
+        //
+        // Betreiber am 2026-10-23: „80 und 40 meter sollte immer
+        // automatisch LSB sein."
+        //
+        // rigctldModeForContestMode() kennt die Regel seit jeher
+        // (unter 10 MHz LSB, darüber USB) -- aber gerufen wurde sie
+        // nur in chooseMode(). Wer auf 20 m in SSB stand und das BAND
+        // auf 40 wechselte, bekam die neue Frequenz und das ALTE
+        // Seitenband: USB auf 40 m, und niemand sagte es.
+        //
+        // Nur bei SSB. CW, RTTY und FM haben kein Seitenband in
+        // diesem Sinn, und ein Befehl dorthin waere falsch.
+        //
+        // Gesendet wird bei JEDEM Bandwechsel in SSB, auch wenn das
+        // Seitenband dasselbe bleibt. Erst stand hier ein Vergleich
+        // mit dem bisherigen Band („von 20 auf 15 bleibt es USB, da
+        // ist nichts zu tun") -- und der haengt an m_currentBand,
+        // das der Abfragetakt des Geraets jederzeit umschreiben kann.
+        // Im Prueflauf fiel es dadurch mal so und mal so aus.
+        //
+        // Ein ueberfluessiges „M LSB 0" kostet ein Paket und stellt
+        // das Geraet auf etwas, worauf es schon steht. Eine
+        // Sparsamkeit, die davon abhaengt, ob gerade eine Antwort des
+        // Geraets eingetroffen ist, ist den Preis nicht wert.
+        if (contestModeName(m_currentMode) == QStringLiteral("SSB")) {
+            const QString seitenband = rigctldModeForContestMode(m_currentMode, band);
+            if (!seitenband.isEmpty()) {
+                m_appController.rigctldClient().setMode(seitenband);
+            }
+        }
     }
     m_currentBand = band;
     m_typedFrequencyHz = 0; // die Bandkante ist keine gemessene Frequenz
