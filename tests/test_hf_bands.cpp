@@ -148,6 +148,15 @@ void TestHfBands::freshDatabaseDoesNotStartInThePracticeLog()
     QVERIFY2(!def->bands().contains(QStringLiteral("14")),
              qPrintable(QStringLiteral("frisch gestartet in %1 -- das ist "
                                        "ein Kurzwellencontest").arg(active)));
+
+    // Und seit dem Alltagslog (2026-10-23) auch das: es hat ALLE
+    // Baender und ALLE Betriebsarten und passt damit auf „UKW und
+    // alle Modi" besser als jeder Contest. Ohne die Marke
+    // `everyday_log` startet ein neuer Betrieb in einem Buch statt in
+    // einem Contest -- und zwar still.
+    QVERIFY2(!def->isEverydayLog(),
+             qPrintable(QStringLiteral("frisch gestartet in %1 -- das ist "
+                                       "das Alltagslog, kein Contest").arg(active)));
 }
 
 void TestHfBands::rigOnHfMovesTheLogToThatBand()
