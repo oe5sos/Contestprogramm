@@ -224,33 +224,105 @@ void TestEnterAmContestende::derReturnBleibtSchnellAuchInStunde20()
     auto* tabelle = window.findChild<QTableView*>(QLatin1String(UnifiedLogWidget::kFeedTableObjectName));
     QVERIFY(tabelle);
     QAbstractItemModel* modell = tabelle->model();
-    int zeile = -1;
-    for (int r = 0; r < modell->rowCount(); ++r) {
-        if (modell->index(r, UnifiedLogWidget::ColumnCall).data().toString() == QStringLiteral("S51ABC")) {
-            zeile = r;
-            break;
+
+    // ── Fuenf Korrekturen, und der mittlere Wert zaehlt ──────────────
+    //
+    // Hier stand bis zum 2026-10-23 EINE Messung gegen eine feste
+    // Schranke von 500 ms. Am selben Tag fiel sie in der CI auf dem
+    // macOS-arm64-Laeufer mit 714,4 ms (Lauf 39902447557) -- und
+    // derselbe Code lief auf einem anderen Zweig gruen durch
+    // (39901383666). Gleicher Stand, einmal rot, einmal gruen: die
+    // Zahl hing an der Last des geteilten Laeufers, nicht am
+    // Programm.
+    //
+    // Die drei Messungen oben in diesem Lauf machen es laengst
+    // richtig -- mehrere Durchgaenge, Median. Diese eine nicht.
+    const QStringList korrigiert{QStringLiteral("S51ABD"), QStringLiteral("S51ABE"),
+                                 QStringLiteral("S51ABF"), QStringLiteral("S51ABG"),
+                                 QStringLiteral("S51ABH")};
+    QString suche = QStringLiteral("S51ABC");
+    QVector<double> korrekturen;
+    const auto zeileMit = [modell](const QString& ruf) {
+        for (int r = 0; r < modell->rowCount(); ++r) {
+            if (modell->index(r, UnifiedLogWidget::ColumnCall).data().toString() == ruf) {
+                return r;
+            }
         }
-    }
-    QVERIFY2(zeile >= 0, "Das eben geloggte QSO steht nicht in der Tabelle");
-    const QModelIndex zelle = modell->index(zeile, UnifiedLogWidget::ColumnCall);
-    tabelle->setCurrentIndex(zelle);
-    tabelle->edit(zelle);
-    QCoreApplication::processEvents();
-    QLineEdit* editor = nullptr;
-    for (QLineEdit* e : tabelle->viewport()->findChildren<QLineEdit*>()) {
-        if (e->isVisible()) {
-            editor = e;
+        return -1;
+    };
+    const auto offenerEditor = [tabelle]() -> QLineEdit* {
+        QLineEdit* gefunden = nullptr;
+        for (QLineEdit* e : tabelle->viewport()->findChildren<QLineEdit*>()) {
+            if (e->isVisible()) {
+                gefunden = e;
+            }
         }
+        return gefunden;
+    };
+
+    for (const QString& neuerRuf : korrigiert) {
+        // Nach einer Korrektur baut refreshAfterLogChange die Tabelle
+        // neu auf. Erst warten, bis die Zeile wirklich wieder da ist --
+        // ein Index aus der Zeit davor zeigt ins Leere, und `edit()`
+        // oeffnet dann gar keinen Editor. Das Warten liegt AUSSERHALB
+        // der Stoppuhr.
+        QTRY_VERIFY_WITH_TIMEOUT(zeileMit(suche) >= 0, 5000);
+        const QModelIndex zelle = modell->index(zeileMit(suche),
+                                                UnifiedLogWidget::ColumnCall);
+        tabelle->setCurrentIndex(zelle);
+        tabelle->edit(zelle);
+        QTRY_VERIFY_WITH_TIMEOUT(offenerEditor() != nullptr, 5000);
+        QLineEdit* editor = offenerEditor();
+        QVERIFY2(editor, "Kein Editor für die Korrektur offen");
+        editor->setText(neuerRuf);
+
+        QElapsedTimer tk;
+        tk.start();
+        QTest::keyClick(editor, Qt::Key_Return);
+        QCoreApplication::processEvents();
+        korrekturen << tk.nsecsElapsed() / 1000000.0;
+        suche = neuerRuf;
     }
-    QVERIFY2(editor, "Kein Editor für die Korrektur offen");
-    editor->setText(QStringLiteral("S51ABD"));
-    QElapsedTimer tk;
-    tk.start();
-    QTest::keyClick(editor, Qt::Key_Return);
-    QCoreApplication::processEvents();
-    const double korrekturMs = tk.nsecsElapsed() / 1000000.0;
-    qInfo().noquote() << QStringLiteral("eine Korrektur im Log: %1 ms").arg(korrekturMs, 0, 'f', 1);
-    QVERIFY2(korrekturMs < 500.0,
+    std::sort(korrekturen.begin(), korrekturen.end());
+    const double korrekturMs = korrekturen.at(korrekturen.size() / 2);
+
+    QStringList alleKorrekturen;
+    for (double d : korrekturen) { alleKorrekturen << QStringLiteral("%1").arg(d, 0, 'f', 1); }
+    const double verhaeltnis = returnMs > 0.0 ? korrekturMs / returnMs : 0.0;
+    qInfo().noquote() << QStringLiteral("eine Korrektur im Log: %1 ms (alle: %2) "
+                                        "= das %3-fache eines Returns")
+                             .arg(korrekturMs, 0, 'f', 1)
+                             .arg(alleKorrekturen.join(QStringLiteral(" · ")))
+                             .arg(verhaeltnis, 0, 'f', 1);
+
+    // ── Gemessen wird das VERHAELTNIS, nicht die Millisekunde ────────
+    //
+    // Eine Korrektur laeuft ueber refreshAfterLogChange und ist darum
+    // von Natur aus schwerer als ein Return. Gemessen auf einem
+    // ruhigen Rechner (drei Laeufe, 2026-10-23): 1,3 bis 1,5. Was
+    // dieser Lauf fangen SOLL, ist der Tag, an dem sie anfaengt, ueber
+    // das ganze Log zu rechnen -- dann ist sie ein Vielfaches davon,
+    // nicht anderthalb.
+    //
+    // Beide Zahlen stammen aus DEMSELBEN Lauf auf DEMSELBEN Rechner.
+    // Ist der Laeufer langsam, sind beide langsam, und das Verhaeltnis
+    // bleibt stehen. Genau das macht diese Form lastunabhaengig --
+    // eine hoehere feste Schranke haette den Fehlalarm nur
+    // verschoben.
+    constexpr double kFaktor = 4.0;
+    QVERIFY2(korrekturMs <= kFaktor * returnMs,
+             qPrintable(QStringLiteral("Eine Korrektur dauerte %1 ms, das %2-fache "
+                                       "eines Returns (%3 ms) -- erlaubt ist das %4-fache")
+                            .arg(korrekturMs, 0, 'f', 1)
+                            .arg(verhaeltnis, 0, 'f', 1)
+                            .arg(returnMs, 0, 'f', 1)
+                            .arg(kFaktor, 0, 'f', 1)));
+
+    // Dazu eine absolute Decke, aber eine GROSSZUEGIGE: sie faengt den
+    // Fall, in dem alles zusammen langsam geworden ist und das
+    // Verhaeltnis deshalb nichts merkt. Zwei Sekunden sind keine
+    // Bedienung mehr, egal wie beschaeftigt der Rechner ist.
+    QVERIFY2(korrekturMs < 2000.0,
              qPrintable(QStringLiteral("Eine Korrektur dauerte %1 ms").arg(korrekturMs, 0, 'f', 1)));
 }
 
