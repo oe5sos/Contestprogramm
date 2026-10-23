@@ -68,6 +68,11 @@ private:
 
     QVector<ContestDefinition> m_availableContests;
     QTableWidget* m_table;
+    /// Welche Zeile welchen Eintrag aus m_availableContests meint.
+    /// Die Tabelle ist seit 2026-10-23 nach dem naechsten Termin
+    /// sortiert, die Zeilennummer also nicht mehr der Index --
+    /// selectedContestId() las sonst den falschen Contest zurueck.
+    QVector<int> m_zeileZuIndex;
     QLineEdit* m_gridEdit = nullptr;
     QPushButton* m_exactGridButton = nullptr;
     QPushButton* m_okButton = nullptr;

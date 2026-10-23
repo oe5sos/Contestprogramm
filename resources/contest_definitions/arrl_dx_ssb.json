@@ -1,0 +1,41 @@
+{
+  "id": "ARRL_DX_SSB",
+  "name": "ARRL International DX Contest SSB (erstes volles Wochenende im März)",
+  "modes": [
+    "SSB"
+  ],
+  "bands": [
+    "1.8",
+    "3.5",
+    "7",
+    "14",
+    "21",
+    "28"
+  ],
+  "dupe_scope": [
+    "callsign",
+    "band"
+  ],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "dxcc",
+  "schedule": {
+    "month": 3,
+    "weekend": 1,
+    "day": "sat",
+    "start": "00:00",
+    "hours": 48
+  },
+  "exchange_fields": [
+    {
+      "key": "rst",
+      "label": "RST",
+      "type": "rst"
+    },
+    {
+      "key": "staat",
+      "label": "Staat",
+      "type": "text"
+    }
+  ]
+}

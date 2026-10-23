@@ -138,6 +138,16 @@ void TestHfBands::freshDatabaseDoesNotStartInThePracticeLog()
     const ContestDefinition* def = controller.findContestDefinition(active);
     QVERIFY(def);
     QVERIFY(def->bands().contains(QStringLiteral("144")) || def->bands().contains(QStringLiteral("432")));
+
+    // Seit dem 2026-10-23 liegen auch die grossen Kurzwellenconteste
+    // im Ordner, und „arrl_dx_cw.json" steht dort alphabetisch vor
+    // jeder UKW-Regel. Die Vorbelegung haengt deshalb nicht mehr an
+    // der Dateireihenfolge, sondern an den Baendern -- hier
+    // festgehalten, damit die naechste neue Regel sie nicht wieder
+    // verschiebt.
+    QVERIFY2(!def->bands().contains(QStringLiteral("14")),
+             qPrintable(QStringLiteral("frisch gestartet in %1 -- das ist "
+                                       "ein Kurzwellencontest").arg(active)));
 }
 
 void TestHfBands::rigOnHfMovesTheLogToThatBand()

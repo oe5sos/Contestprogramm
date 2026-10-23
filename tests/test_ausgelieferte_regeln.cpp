@@ -19,6 +19,8 @@
 // Betriebsart), laufende Nummer je Band, Austausch RST + Nr. + Locator.
 
 #include <QtTest>
+#include <QDir>
+#include <QSet>
 
 #include <QFile>
 #include <QTimeZone>
@@ -55,6 +57,8 @@ class TestAusgelieferteRegeln : public QObject
 private slots:
     void dieTermineSindDieVeroeffentlichten();
     void dieWertungsregelnSindDieDerIaru();
+    void dieKurzwellenTermineSindDieVeroeffentlichten();
+    void jedeAusgelieferteRegelLaesstSichLesen();
 };
 
 void TestAusgelieferteRegeln::dieTermineSindDieVeroeffentlichten()
@@ -142,4 +146,101 @@ void TestAusgelieferteRegeln::dieWertungsregelnSindDieDerIaru()
 }
 
 QTEST_APPLESS_MAIN(TestAusgelieferteRegeln)
+// ── Die Kurzwellenconteste, gegen die Daten der Veranstalter ─────────
+//
+// Betreiber am 2026-10-23: „hier sollten nur auch alle
+// kurzwellenconteste eingetragen werden."
+//
+// Dieselbe Art Pruefung wie oben, und aus demselben Grund: ein Termin,
+// den das Programm selbst ausrechnet, ist erst dann etwas wert, wenn
+// er mit dem uebereinstimmt, was die Veranstalter veroeffentlichen.
+// Die Zahlen hier stammen von cqww.com, cqwpx.com, arrl.org und
+// iaru.org (abgerufen 2026-10-23).
+//
+// Der Fallstrick ist das Wort VOLL: CQ WW SSB 2026 lief am 24./25.
+// Oktober, obwohl der 31. ein Samstag ist -- dessen Sonntag liegt
+// schon im November, das Wochenende ist also nicht voll.
+void TestAusgelieferteRegeln::dieKurzwellenTermineSindDieVeroeffentlichten()
+{
+    struct Erwartet {
+        const char* datei;
+        int jahr;
+        int monat;
+        int tag;          // Samstag, an dem er beginnt
+        int stundeUtc;
+        int dauer;
+    };
+    const Erwartet kTermine[] = {
+        {"cq_ww_ssb.json",  2026, 10, 24, 0, 48},
+        {"cq_ww_ssb.json",  2027, 10, 30, 0, 48},
+        {"cq_ww_cw.json",   2027, 11, 27, 0, 48},
+        {"cq_wpx_ssb.json", 2025,  3, 29, 0, 48},
+        {"cq_wpx_cw.json",  2025,  5, 24, 0, 48},
+        {"iaru_hf.json",    2026,  7, 11, 12, 24},
+    };
+
+    for (const Erwartet& e : kTermine) {
+        const ContestDefinition d = laden(QString::fromLatin1(e.datei));
+        QVERIFY2(d.isValid(), e.datei);
+        const ContestSchedule plan = d.schedule();
+        QVERIFY2(plan.isValid(), e.datei);
+        QCOMPARE(plan.month, e.monat);
+        QCOMPARE(plan.hours, e.dauer);
+
+        const ContestWindow w = plan.windowIn(e.jahr);
+        QVERIFY2(w.startUtc == utc(e.jahr, e.monat, e.tag, e.stundeUtc),
+                 qPrintable(QStringLiteral("%1 %2: Programm sagt %3, veröffentlicht ist %4")
+                                .arg(QLatin1String(e.datei))
+                                .arg(e.jahr)
+                                .arg(w.startUtc.toString(Qt::ISODate),
+                                     utc(e.jahr, e.monat, e.tag, e.stundeUtc)
+                                         .toString(Qt::ISODate))));
+        QCOMPARE(w.startUtc.date().dayOfWeek(), int(Qt::Saturday));
+        QCOMPARE(w.endUtc, w.startUtc.addSecs(qint64(e.dauer) * 3600));
+    }
+
+    // WPX zaehlt Praefixe -- das ist der ganze Sinn des Contests, und
+    // das Modell kann es.
+    for (const char* datei : {"cq_wpx_ssb.json", "cq_wpx_cw.json"}) {
+        QCOMPARE(laden(QString::fromLatin1(datei)).multiplierField(),
+                 QStringLiteral("prefix"));
+    }
+}
+
+// ── Jede ausgelieferte Regel laesst sich lesen ───────────────────────
+//
+// Die Laeufe oben pruefen eine NAMENTLICH aufgezaehlte Liste. Eine
+// neue Datei, die niemand dort eintraegt, waere also ungeprueft --
+// und ein Tippfehler darin faellt erst dem Betreiber auf, wenn die
+// Auswahl beim Start einen Contest weniger zeigt.
+//
+// Darum einmal ueber den ganzen Ordner.
+void TestAusgelieferteRegeln::jedeAusgelieferteRegelLaesstSichLesen()
+{
+    QDir ordner(QStringLiteral(CONTESTPROGRAMM_SOURCE_DIR
+                               "/resources/contest_definitions"));
+    const QStringList dateien = ordner.entryList({QStringLiteral("*.json")}, QDir::Files);
+    QVERIFY2(dateien.size() >= 10,
+             qPrintable(QStringLiteral("nur %1 Regeldateien gefunden")
+                            .arg(dateien.size())));
+
+    QSet<QString> ids;
+    for (const QString& datei : dateien) {
+        QString fehler;
+        const ContestDefinition d = ContestDefinition::loadFromFile(
+            ordner.filePath(datei), &fehler);
+        QVERIFY2(d.isValid(),
+                 qPrintable(QStringLiteral("%1: %2").arg(datei, fehler)));
+        QVERIFY2(!d.id().isEmpty(), qPrintable(datei));
+        QVERIFY2(!d.name().isEmpty(), qPrintable(datei));
+        QVERIFY2(!d.bands().isEmpty(), qPrintable(datei));
+        // Zwei Regeln mit derselben Kennung waeren in der Auswahl
+        // nicht zu unterscheiden.
+        QVERIFY2(!ids.contains(d.id()),
+                 qPrintable(QStringLiteral("%1: Kennung \"%2\" gibt es zweimal")
+                                .arg(datei, d.id())));
+        ids.insert(d.id());
+    }
+}
+
 #include "test_ausgelieferte_regeln.moc"

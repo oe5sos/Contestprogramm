@@ -1,0 +1,14 @@
+{
+  "id": "IARU_HF",
+  "name": "IARU HF World Championship (zweites volles Wochenende im Juli)",
+  "bands": ["1.8", "3.5", "7", "14", "21", "28"],
+  "dupe_scope": ["callsign", "band", "mode"],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "none",
+  "schedule": { "month": 7, "weekend": 2, "day": "sat", "start": "12:00", "hours": 24 },
+  "exchange_fields": [
+    { "key": "rst",  "label": "RST",  "type": "rst" },
+    { "key": "zone", "label": "ITU/HQ", "type": "text" }
+  ]
+}
