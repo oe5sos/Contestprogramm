@@ -1,6 +1,7 @@
 {
   "id": "ARRL_DX_SSB",
   "name": "ARRL International DX Contest SSB (erstes volles Wochenende im März)",
+  "cabrillo_name": "ARRL-DX-SSB",
   "modes": [
     "SSB"
   ],

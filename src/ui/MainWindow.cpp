@@ -191,7 +191,8 @@ QString defaultRstForMode(const QString& mode)
 // field is rst-typed. Shared by currentSentExchangeText() and
 // handleLogRequested() so both compose the sent line the same way.
 QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, const ContestSettings& settings,
-                                                int serialSent, const QString& mode)
+                                                int serialSent, const QString& mode,
+                                                int eigeneCqZone)
 {
     QMap<QString, QString> values;
     if (const ContestDefinition::ExchangeField* serialField = findAutoIncrementField(def)) {
@@ -202,6 +203,26 @@ QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, con
     }
     if (const ContestDefinition::ExchangeField* rstField = findFieldByType(def, QStringLiteral("rst"))) {
         values.insert(rstField->key, defaultRstForMode(mode));
+    }
+    // ── Die eigene CQ-Zone ───────────────────────────────────────────
+    //
+    // Dazugekommen 2026-10-23, einen Tag vor CQ WW SSB. Bis dahin
+    // fuellte diese Stelle Nummer, Locator und RST -- ein Zonenfeld
+    // kannte sie nicht. Bei CQ WW haette der Betreiber also „59"
+    // gesendet und geloggt, ohne die 15, und das waere jedes QSO im
+    // Log falsch gewesen, ohne dass irgendwo etwas rot wird.
+    //
+    // Die Zone kommt NICHT aus einer eigenen Einstellung, sondern aus
+    // derselben Laenderliste, aus der das Programm die Zone der
+    // Gegenstation holt (CountryPrefixIndex, siehe
+    // handleCallsignLookupRequested). Eine Einstellung mehr waere eine
+    // Einstellung mehr, die jemand vergisst -- und sie stuende bei
+    // einem Rufzeichen aus einem anderen Land sofort falsch da.
+    if (eigeneCqZone > 0) {
+        if (const ContestDefinition::ExchangeField* zoneField =
+                findFieldByType(def, QStringLiteral("cqzone"))) {
+            values.insert(zoneField->key, QString::number(eigeneCqZone));
+        }
     }
     return values;
 }
@@ -2732,6 +2753,24 @@ void MainWindow::commandRotorForCandidate(const QString& callsign, const QString
     }
 }
 
+// ── Die eigene CQ-Zone, aus dem eigenen Rufzeichen ───────────────────
+//
+// Dieselbe Laenderliste, aus der die Zone der Gegenstation kommt
+// (handleCallsignLookupRequested). OE5SOS -> OE -> Zone 15.
+//
+// Null heisst „unbekannt", und dann wird das Feld NICHT vorbelegt:
+// eine geratene Zone im Log ist schlimmer als ein leeres Feld, das
+// auffaellt.
+int MainWindow::eigeneCqZone() const
+{
+    const QString ruf = m_appController.settings().ownCallsign.trimmed();
+    if (ruf.isEmpty()) {
+        return 0;
+    }
+    const CountryEntry land = m_appController.countryIndex().lookup(ruf);
+    return land.isValid() ? land.cqZone : 0;
+}
+
 QString MainWindow::currentSentExchangeText() const
 {
     const ContestSettings settings = m_appController.settings();
@@ -2741,7 +2780,8 @@ QString MainWindow::currentSentExchangeText() const
     }
     const int serialSent = m_appController.database().nextSerialForContest(
         settings.activeContestId, def->serialScope() == QStringLiteral("band") ? m_currentBand : QString());
-    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode));
+    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode,
+                                                        eigeneCqZone()));
 }
 
 void MainWindow::refreshLogTable()
@@ -3548,7 +3588,8 @@ void MainWindow::handleLogRequested()
     record.rstRcvd = rstRcvd;
 
     if (def) {
-        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode));
+        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode,
+                                                                            eigeneCqZone()));
         record.exchangeRcvd = composeExchange(*def, buildReceivedExchangeValues(*def, exchangeReceived));
         if (findFieldByType(*def, QStringLiteral("rst"))) {
             record.rstSent = defaultRstForMode(mode);
@@ -5675,6 +5716,38 @@ void MainWindow::chooseBand(const QString& band)
         // Auf die untere Bandkante; von dort dreht der Bediener weiter.
         // Durch den Transverter, wie überall sonst.
         m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(baseHz));
+
+        // ── Das Seitenband gehört zum Band, nicht zur Betriebsart ────
+        //
+        // Betreiber am 2026-10-23: „80 und 40 meter sollte immer
+        // automatisch LSB sein."
+        //
+        // rigctldModeForContestMode() kennt die Regel seit jeher
+        // (unter 10 MHz LSB, darüber USB) -- aber gerufen wurde sie
+        // nur in chooseMode(). Wer auf 20 m in SSB stand und das BAND
+        // auf 40 wechselte, bekam die neue Frequenz und das ALTE
+        // Seitenband: USB auf 40 m, und niemand sagte es.
+        //
+        // Nur bei SSB. CW, RTTY und FM haben kein Seitenband in
+        // diesem Sinn, und ein Befehl dorthin waere falsch.
+        //
+        // Gesendet wird bei JEDEM Bandwechsel in SSB, auch wenn das
+        // Seitenband dasselbe bleibt. Erst stand hier ein Vergleich
+        // mit dem bisherigen Band („von 20 auf 15 bleibt es USB, da
+        // ist nichts zu tun") -- und der haengt an m_currentBand,
+        // das der Abfragetakt des Geraets jederzeit umschreiben kann.
+        // Im Prueflauf fiel es dadurch mal so und mal so aus.
+        //
+        // Ein ueberfluessiges „M LSB 0" kostet ein Paket und stellt
+        // das Geraet auf etwas, worauf es schon steht. Eine
+        // Sparsamkeit, die davon abhaengt, ob gerade eine Antwort des
+        // Geraets eingetroffen ist, ist den Preis nicht wert.
+        if (contestModeName(m_currentMode) == QStringLiteral("SSB")) {
+            const QString seitenband = rigctldModeForContestMode(m_currentMode, band);
+            if (!seitenband.isEmpty()) {
+                m_appController.rigctldClient().setMode(seitenband);
+            }
+        }
     }
     m_currentBand = band;
     m_typedFrequencyHz = 0; // die Bandkante ist keine gemessene Frequenz

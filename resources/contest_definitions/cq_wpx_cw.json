@@ -1,6 +1,7 @@
 {
   "id": "CQ_WPX_CW",
   "name": "CQ WPX Contest CW (letztes volles Wochenende im Mai)",
+  "cabrillo_name": "CQ-WPX-CW",
   "modes": [
     "CW"
   ],

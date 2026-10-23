@@ -3,6 +3,8 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QString>
+#include <QDate>
+#include <QMap>
 #include <QTime>
 
 namespace Contestprogramm {
@@ -53,6 +55,33 @@ struct ContestSchedule {
     int startDay = Qt::Saturday;
     QTime startTimeUtc{14, 0};
     int hours = 24;
+
+    /// ── Die Ausnahme „nie an diesem Tag" ─────────────────────────────
+    ///
+    /// „MM-TT", leer heisst keine. Faellt der ausgerechnete Termin auf
+    /// dieses Datum, rueckt er eine Woche weiter.
+    ///
+    /// Es gibt genau einen Grund dafuer, und der steht in den Regeln
+    /// des ARRL RTTY Roundup: „first full weekend of January, but
+    /// never on January 1". Ohne diese Zeile waere der gezeigte
+    /// Termin in jedem Jahr falsch, in dem der 1. Januar ein Samstag
+    /// ist.
+    QString neverOn;
+
+    /// ── Ein Jahr, das aus der Reihe faellt ───────────────────────────
+    ///
+    /// Jahr -> Datum des Beginns ("JJJJ-MM-TT"). Schlaegt die Regel
+    /// fuer genau dieses Jahr.
+    ///
+    /// Auch hierfuer gibt es einen belegten Fall: CQ WW 160 SSB wurde
+    /// 2026 um eine Woche verschoben, weil er sonst mit ARRL DX CW
+    /// zusammengefallen waere. Das ist keine Regel, sondern eine
+    /// Entscheidung der Veranstalter -- und genau deshalb steht sie
+    /// als Datum da und nicht als Rechnung.
+    ///
+    /// Ein Eintrag fuer ein vergangenes Jahr schadet nicht; er greift
+    /// nie wieder.
+    QMap<int, QDate> exceptions;
 
     bool isValid() const;
 

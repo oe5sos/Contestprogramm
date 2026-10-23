@@ -1,6 +1,7 @@
 {
   "id": "CQ_WW_SSB",
   "name": "CQ WW DX Contest SSB (letztes volles Wochenende im Oktober)",
+  "cabrillo_name": "CQ-WW-SSB",
   "modes": [
     "SSB"
   ],
