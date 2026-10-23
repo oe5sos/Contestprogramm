@@ -111,6 +111,12 @@ signals:
 
 public:
     PanelContainerWidget* panel(const QString& id) const;
+    /// Die Kennungen aller angemeldeten Panels, in Anmeldereihenfolge
+    /// unerheblich (QMap: alphabetisch). Fuer Prueflaeufe, die gegen
+    /// die WIRKLICH vorhandenen Panels pruefen wollen statt gegen eine
+    /// von Hand gefuehrte Liste -- siehe
+    /// tests/test_jedes_panel_ausblendbar.cpp.
+    QStringList panelIds() const { return m_panels.keys(); }
 
     // Call once, after every registerPanel() call for this session has
     // been made (MainWindow's constructor does this at the very end of

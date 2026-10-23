@@ -97,6 +97,10 @@ public:
     /// Fuer Prueflaeufe, die eine Lage herstellen muessen, bevor sie
     /// etwas messen -- siehe tests/test_seitenband_folgt_dem_band.cpp.
     QString currentMode() const { return m_currentMode; }
+    /// Die Kennungen aller angemeldeten Panels, und ein einzelnes
+    /// Panel dazu. Fuer tests/test_jedes_panel_ausblendbar.cpp.
+    QStringList panelIdsForTest() const;
+    class PanelContainerWidget* panelForTest(const QString& id) const;
     /// Die eigene CQ-Zone, aus dem eigenen Rufzeichen ueber dieselbe
     /// Laenderliste wie die der Gegenstation. 0 = unbekannt, dann wird
     /// nichts vorbelegt. Oeffentlich, weil der Prueflauf sie braucht.
