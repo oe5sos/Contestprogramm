@@ -104,7 +104,6 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_broadcastHostEdit(new QLineEdit(this))
     , m_broadcastPortSpin(new QSpinBox(this))
-    , m_audioRecordEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_audioRecordDeviceCombo(new QComboBox(this))
     , m_audioRecordFolderEdit(new QLineEdit(this))
     , m_audioRecordRollSpin(new QSpinBox(this))
@@ -461,7 +460,10 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_colorThemeCombo->setCurrentIndex(colorThemeIdx >= 0 ? colorThemeIdx : 0);
 
     // Off by default -- see ContestSettings::broadcastEnabled.
-    m_audioRecordEnabledCheck->setChecked(initial.audioRecordEnabled);
+    // Der Haken ist weg (siehe unten); der Zustand geht unveraendert
+    // durch, damit ein Druck auf OK waehrend einer laufenden
+    // Aufnahme sie nicht beendet.
+    m_audioRecordEnabledDurchgereicht = initial.audioRecordEnabled;
 
     // Die Geraeteliste kommt vom System, nicht aus einer Vorgabe. Der
     // erste Eintrag ist der Standardeingang und steht fuer „leer" --
@@ -745,7 +747,21 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // das Logprogramm am Flex genauso mit wie an einem Geraet, das
     // Longpath gar nicht kennt (Betreiber, 2026-10-22).
     auto* audioForm = new QFormLayout();
-    audioForm->addRow(QStringLiteral("Mitschnitt:"), m_audioRecordEnabledCheck);
+    // ── Hier stand ein Haken „Aktiv" ────────────────────────────────
+    //
+    // Er ist weg. Betreiber am 2026-10-22: „mitschnitt sollte nicht
+    // automatisch starten, ein und aus auf meinen befehl." Ein Haken,
+    // der nach jedem Start aus ist, luegt ueber seinen eigenen
+    // Zweck -- und zwei Schalter fuer eine Sache werden frueher oder
+    // spaeter uneins.
+    //
+    // Diese Seite stellt nur noch EIN: Geraet, Ordner, Dateilaenge,
+    // Platzgrenze. Ein und aus macht der Knopf in der Statuszeile.
+    auto* audioHinweis = new QLabel(
+        QStringLiteral("Ein und aus unten rechts in der Statuszeile."), this);
+    audioHinweis->setStyleSheet(
+        QStringLiteral("color: %1;").arg(Style::kTextSecondary()));
+    audioForm->addRow(QStringLiteral("Mitschnitt:"), audioHinweis);
     audioForm->addRow(QStringLiteral("Tongeraet:"), m_audioRecordDeviceCombo);
     // ── Ein Knopf statt eines getippten Pfades ───────────────────────
     //
@@ -923,7 +939,7 @@ ContestSettings SettingsDialog::settings() const
     result.cwMacros = macros;
 
     result.broadcastEnabled = m_broadcastEnabledCheck->isChecked();
-    result.audioRecordEnabled = m_audioRecordEnabledCheck->isChecked();
+    result.audioRecordEnabled = m_audioRecordEnabledDurchgereicht;
     result.audioRecordDevice = m_audioRecordDeviceCombo->currentData().toString();
     result.audioRecordFolder = m_audioRecordFolderEdit->text().trimmed();
     result.audioRecordRollMinutes = m_audioRecordRollSpin->value();

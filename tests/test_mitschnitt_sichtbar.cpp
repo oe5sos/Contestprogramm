@@ -23,6 +23,7 @@
 // =================================================================
 
 #include <QtTest>
+#include <QCheckBox>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -75,6 +76,15 @@ private slots:
             QStringLiteral("audioRecordFolderEdit"));
         QVERIFY2(feld, "das Ordnerfeld fehlt");
 
+        // Und der Haken „Aktiv" ist WEG: ein und aus macht die
+        // Statuszeile. Ein Haken, der nach jedem Start aus ist, luegt
+        // ueber seinen eigenen Zweck.
+        for (QCheckBox* h : dlg.findChildren<QCheckBox*>()) {
+            QVERIFY2(h->text() != QStringLiteral("Aktiv")
+                         || h->parentWidget() != feld->parentWidget(),
+                     "im Mitschnitt-Kasten steht noch ein Haken");
+        }
+
         auto* knopf = dlg.findChild<QPushButton*>(
             QStringLiteral("audioRecordFolderButton"));
         QVERIFY2(knopf, "neben dem Ordnerfeld fehlt der Waehler -- und "
@@ -85,6 +95,48 @@ private slots:
         // an einer anderen Stelle des Fensters steht als das Feld, das
         // er fuellt.
         QCOMPARE(knopf->parentWidget(), feld->parentWidget());
+    }
+
+    // ── Nach einem Neustart ist der Mitschnitt AUS ──────────────────
+    //
+    // Betreiber am 2026-10-22: „mitschnitt sollte nicht automatisch
+    // starten, ein und aus auf meinen befehl."
+    //
+    // Alles andere bleibt gespeichert -- Geraet, Ordner, Dateilaenge,
+    // Platzgrenze. Nur der Schalter selbst faengt jedes Mal bei aus
+    // an.
+    void nachEinemNeustartIstDerMitschnittAus()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString datei = dir.filePath(QStringLiteral("neustart.sqlite"));
+
+        {
+            auto c = std::make_unique<AppController>();
+            QVERIFY(c->openDatabase(datei));
+            ContestSettings s = c->settings();
+            s.audioRecordFolder  = dir.path();
+            s.audioRecordDevice  = QStringLiteral("Irgendein Mikrofon");
+            s.audioRecordEnabled = true;
+            s.audioRecordRollMinutes = 42;
+            c->setSettings(s);
+            QVERIFY(c->settings().audioRecordEnabled);
+        }
+
+        // Dieselbe Datenbank noch einmal aufmachen -- der Neustart.
+        auto c = std::make_unique<AppController>();
+        QVERIFY(c->openDatabase(datei));
+        const ContestSettings s = c->settings();
+
+        QVERIFY2(!s.audioRecordEnabled,
+                 "der Mitschnitt darf nach einem Neustart nicht von "
+                 "selbst wieder laufen");
+
+        // Und die Gegenprobe dazu: der REST muss sehr wohl bleiben,
+        // sonst haette man die Einstellungen bloss vergessen.
+        QCOMPARE(s.audioRecordFolder, dir.path());
+        QCOMPARE(s.audioRecordDevice, QStringLiteral("Irgendein Mikrofon"));
+        QCOMPARE(s.audioRecordRollMinutes, 42);
     }
 
     // ── Der Mitschnitt steht in der Statuszeile ─────────────────────
