@@ -231,7 +231,41 @@ QString serialGridRcvdText(const QsoRecord& record)
     if (!record.gridSquare.isEmpty()) {
         parts << record.gridSquare;
     }
-    return parts.join(QLatin1Char(' '));
+    if (!parts.isEmpty()) {
+        return parts.join(QLatin1Char(' '));
+    }
+
+    // ── Was weder Nummer noch Locator ist ────────────────────────────
+    //
+    // Betreiber am 2026-10-24, waehrend CQ WW: „kann ich zwar die
+    // nummer 15 fuer den locator eingeben, wird aber nicht
+    // ersichtlich."
+    //
+    // Er hatte recht, und es war schlimmer als es klingt. Diese Spalte
+    // zeigte genau zwei Dinge: serialRcvd und gridSquare. Der
+    // CQ-WW-Austausch ist RST + ZONE -- beides leer, die Zelle leer.
+    // Und die zusammengesetzte Spalte, in der „59 15" stuende, ist in
+    // BEIDEN Ansichten ausgeblendet (columnWantedByViewMode: „the
+    // composed received exchange never"). Es gab also im ganzen
+    // Fenster keine Stelle, an der die empfangene Zone zu sehen war --
+    // gespeichert und im Cabrillo war sie die ganze Zeit.
+    //
+    // Darum als Rueckfall das, was wirklich ankam: der empfangene
+    // Austausch ohne den Rapport. Das traegt jede Sorte, die das
+    // Modell nicht als eigenes Feld kennt -- Zone, Staat, ITU-Zone,
+    // IOTA-Kennung.
+    //
+    // Nur als RUECKFALL: wo Nummer oder Locator dastehen, bleibt
+    // alles, wie es war.
+    const QString empfangen = record.exchangeRcvd.trimmed();
+    if (empfangen.isEmpty()) {
+        return {};
+    }
+    const QString rapport = record.rstRcvd.trimmed();
+    if (!rapport.isEmpty() && empfangen.startsWith(rapport)) {
+        return empfangen.mid(rapport.size()).trimmed();
+    }
+    return empfangen;
 }
 
 // Matches MainWindow.cpp's own operatingModeButtonText() wording
