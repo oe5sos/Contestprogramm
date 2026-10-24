@@ -231,7 +231,41 @@ QString serialGridRcvdText(const QsoRecord& record)
     if (!record.gridSquare.isEmpty()) {
         parts << record.gridSquare;
     }
-    return parts.join(QLatin1Char(' '));
+    if (!parts.isEmpty()) {
+        return parts.join(QLatin1Char(' '));
+    }
+
+    // ── Was weder Nummer noch Locator ist ────────────────────────────
+    //
+    // Betreiber am 2026-10-24, waehrend CQ WW: „kann ich zwar die
+    // nummer 15 fuer den locator eingeben, wird aber nicht
+    // ersichtlich."
+    //
+    // Er hatte recht, und es war schlimmer als es klingt. Diese Spalte
+    // zeigte genau zwei Dinge: serialRcvd und gridSquare. Der
+    // CQ-WW-Austausch ist RST + ZONE -- beides leer, die Zelle leer.
+    // Und die zusammengesetzte Spalte, in der „59 15" stuende, ist in
+    // BEIDEN Ansichten ausgeblendet (columnWantedByViewMode: „the
+    // composed received exchange never"). Es gab also im ganzen
+    // Fenster keine Stelle, an der die empfangene Zone zu sehen war --
+    // gespeichert und im Cabrillo war sie die ganze Zeit.
+    //
+    // Darum als Rueckfall das, was wirklich ankam: der empfangene
+    // Austausch ohne den Rapport. Das traegt jede Sorte, die das
+    // Modell nicht als eigenes Feld kennt -- Zone, Staat, ITU-Zone,
+    // IOTA-Kennung.
+    //
+    // Nur als RUECKFALL: wo Nummer oder Locator dastehen, bleibt
+    // alles, wie es war.
+    const QString empfangen = record.exchangeRcvd.trimmed();
+    if (empfangen.isEmpty()) {
+        return {};
+    }
+    const QString rapport = record.rstRcvd.trimmed();
+    if (!rapport.isEmpty() && empfangen.startsWith(rapport)) {
+        return empfangen.mid(rapport.size()).trimmed();
+    }
+    return empfangen;
 }
 
 // Matches MainWindow.cpp's own operatingModeButtonText() wording
@@ -1799,6 +1833,42 @@ void UnifiedLogWidget::applyEntryRowWidths()
     m_entryKmLabel->setFixedSize(columnWidthFor(ColKm), rowHeight);
     m_entryDegLabel->setFixedSize(columnWidthFor(ColDeg), rowHeight);
     syncEntryRowWidth();
+    // Und noch einmal, sobald Qt das Layout gerechnet hat.
+    //
+    // Werden die Spalten schmaler, verschwindet die waagrechte
+    // Bildlaufleiste -- und der Viewport wird um ihre Breite groesser.
+    // Das merkt man an Ort und Stelle nicht: viewport()->width() traegt
+    // den neuen Wert erst nach dem naechsten Layout-Durchlauf. Die
+    // Zeile wird also auf Spalten gelegt, die sich gleich noch einmal
+    // verschieben, und steht danach sieben bis acht Bildpunkte daneben.
+    //
+    // Gemessen am 2026-10-24 (test_vorgabe_ueberlappt_nicht::
+    // dieEingabezeileStehtBeiJederBreiteInDerFlucht): ab einer
+    // Panelbreite von 640 abwaerts „Feld bei 103, Spalte bei 110" --
+    // und im zweiten Durchlauf stimmte es jedes Mal. Genau den holt
+    // dieser Nachschlag.
+    //
+    // m_entryRowResyncQueued laesst nur EINEN offen: der Nachschlag
+    // selbst plant keinen weiteren, sonst liefe das endlos weiter.
+    if (!m_entryRowResyncQueued && m_entryRowResyncRunde < kMaxEntryRowResyncRunden) {
+        m_entryRowResyncQueued = true;
+        const int runde = m_entryRowResyncRunde + 1;
+        QMetaObject::invokeMethod(
+            this,
+            [this, runde] {
+                m_entryRowResyncQueued = false;
+                if (!m_entryRowLayoutBuilt) {
+                    return;
+                }
+                m_entryRowResyncRunde = runde;
+                fitColumnsToViewport();
+                applyEntryRowWidths();
+                syncEntryRowWidth();
+                m_entryRowResyncRunde = 0;
+            },
+            Qt::QueuedConnection);
+    }
+
 }
 
 void UnifiedLogWidget::syncStatusColumnWidth()
@@ -2027,12 +2097,6 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     m_entryRowLayout->replaceWidget(m_exchangeFieldsHost, host);
     m_exchangeFieldsHost->deleteLater();
     m_exchangeFieldsHost = host;
-
-    // RST (if this contest declares one) gets its "59"/"599" default
-    // the moment its field exists, same as on a fresh contest switch as
-    // on first construction -- needs the now-current m_exchangeEdits/
-    // m_exchangeFields (Tab's own field chain is computed live from
-    // those two in nextFieldForTab(), so it needs no rebuild step here).
     applyRstDefaults();
 }
 

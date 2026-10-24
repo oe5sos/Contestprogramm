@@ -116,6 +116,19 @@ public:
     // eine Verschlechterung (ein Band, und jeder Name zaehlt).
     void setBandColorsEnabled(bool enabled);
     void setLabelsOnlyNeededEnabled(bool enabled);
+    // Betreiber am 2026-10-24: „die symbole fuer die spots sehr gross,
+    // ggf. andere variante plus ein ein und ausblenden als option."
+    //
+    // Spots sind die gespotteten, noch nicht gearbeiteten Stationen.
+    // Sie lassen sich ganz ausblenden -- dann steht nur noch das
+    // eigene Log in der Karte.
+    void setSpotsVisible(bool on);
+    // Der gepunktete Hof um einen geschaetzten Ort. Auf Kurzwelle hat
+    // KEINE Station einen getauschten Locator, also traegt dort jeder
+    // Punkt einen Hof -- und ein Hinweis, der immer gilt, sagt nichts
+    // mehr und kostet nur den dreifachen Durchmesser. Deshalb aus;
+    // auf UKW, wo er wirklich die Ausnahme meint, einschaltbar.
+    void setApproximateHaloEnabled(bool on);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
     // "Vollfläche": the map uses the whole panel and the panel's own
@@ -348,6 +361,11 @@ private:
     bool m_labelsOnlyNeeded = false;
     QAction* m_bandColorsAction = nullptr;
     QAction* m_labelsOnlyNeededAction = nullptr;
+    /// Siehe setSpotsVisible / setApproximateHaloEnabled.
+    bool m_showSpots = true;
+    bool m_approxHalo = false;
+    QAction* m_spotsAction = nullptr;
+    QAction* m_approxHaloAction = nullptr;
     bool m_showRotor1Heading = true;
     bool m_showRotor2Heading = true;
     bool m_showHorizon = true;
