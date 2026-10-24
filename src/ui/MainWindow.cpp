@@ -667,11 +667,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_unifiedLog->setLogModel(m_logModel);
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
-        /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
-        // Compact design (PanelLayoutManager::kCompactDesignCanvas,
-        // 1372×692): rotors and map on top, the log across the bottom
-        // with room for a few history rows, the bandmap beside it.
-        QRect(0, 450, 1010, 242));
+        // Entwurf 3 „Karte als Buehne", vom Betreiber am 2026-10-24
+        // aus vier Blaettern gewaehlt: die Arbeitsspalte steht links
+        // und bleibt schmal, die Karte nimmt den Rest. Das Log stand
+        // vorher quer unten und war 95 Bildpunkte hoch -- vier Zeilen.
+        /*contentHasOwnChrome=*/false, QRect(0, 0, 700, 330),
+        // Derselbe Entwurf noch einmal fuer das kleine Feld (1372x692).
+        // Das ist der Entwurf, den man WIRKLICH zu sehen bekommt: der
+        // grosse greift erst ab einem Feld von 1440x982, und das Feld
+        // ist immer kleiner als das Fenster (Menueleiste, Kopfzeile,
+        // Statusleiste gehen ab). Auf einem 1440er Schirm wird der
+        // grosse Entwurf nie erreicht -- deshalb steht Entwurf 3 hier
+        // genauso wie oben, nur enger.
+        QRect(0, 0, 700, 250));
     // A live clock fixed to the Log panel's own header -- operator,
     // 2026-09-11: "uhrzeit fehlt, muss fix beim logfenster sein",
     // matching DXLog.net's own "Contest recorder" window, which shows
@@ -768,7 +776,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's own comment below for why they run taller.
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
-        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+        /*contentHasOwnChrome=*/false, QRect(706, 566, 734, 160), QRect(706, 396, 666, 116));
     // Martin, 2026-10-09: "es sollte auch in jeder leiste die optionen
     // geben die bestimmen, was im fenster darunter passiert! ... als
     // 1,2 oder 3 antenne zB". Also hier, im Kopf des Panels, nicht im
@@ -863,7 +871,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // (operator, 2026-09-20) -- which opens the map's own layer menu.
     PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
-        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501), QRect(630, 0, 742, 442));
+        // Zwei Drittel der Flaeche: das ist der Entwurf.
+        /*contentHasOwnChrome=*/false, QRect(706, 0, 734, 560), QRect(706, 0, 666, 390));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
@@ -907,8 +916,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // this class's original comment above), just less of it, freeing 30px
     // for the map's settings row instead.
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
-                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(630, 78, 270, 365),
-                                         QRect(0, 258, 310, 184));
+                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(1174, 732, 266, 250),
+                                         QRect(1114, 518, 258, 174));
     connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
@@ -937,8 +946,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Width 270, matching suggestion's own column above (see that
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130),
-                                         QRect(318, 258, 302, 184));
+                                         /*contentHasOwnChrome=*/false, QRect(968, 732, 200, 250),
+                                         QRect(938, 518, 170, 174));
     // Check Partial, under the rate panel in the same 270px column --
     // hidden in every already-saved profile (LayoutProfileManager's
     // "a panel the profile never saved starts hidden"), switched on
@@ -948,7 +957,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             [this](const QString& callsign, const QString& grid) { handleCandidateActivated(callsign, grid, 0); });
     connect(m_checkPartialWidget, &CheckPartialWidget::scpLoadRequested, this, &MainWindow::loadScpFile);
     m_panelLayoutManager->registerPanel(QStringLiteral("checkpartial"), QStringLiteral("Check"), m_checkPartialWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 585, 270, 150));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 336, 700, 180), QRect(0, 256, 700, 130));
     // Bandmap -- same "starts hidden in a saved profile" rule as Check.
     m_bandmapWidget = new BandmapWidget(this);
     connect(m_bandmapWidget, &BandmapWidget::spotActivated, this,
@@ -963,8 +972,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         handleCandidateActivated(callsign, grid, freqHz);
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260),
-                                         QRect(1018, 450, 354, 242));
+                                         /*contentHasOwnChrome=*/false, QRect(762, 732, 200, 250),
+                                         QRect(762, 518, 170, 174));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -979,7 +988,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         reloadSkeds();
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
-                                         /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 732, 756, 250), QRect(0, 518, 756, 174));
 
     // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
     // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
@@ -1002,7 +1011,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // hinlegt, wo man es haben will. Das Profil merkt sich die Lage
     // dann.
     m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
-                                             /*contentHasOwnChrome=*/false, QRect(630, 720, 742, 262));
+                                             /*contentHasOwnChrome=*/false, QRect(0, 522, 700, 204), QRect(0, 392, 700, 120));
     // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
     if (chatContainer && chatContainer->headerBar()) {
         // Ohne diese Zeile gibt es das Menü zwar, aber keinen Knopf, der
@@ -2785,6 +2794,16 @@ QStringList MainWindow::panelIdsForTest() const
     return m_panelLayoutManager ? m_panelLayoutManager->panelIds() : QStringList();
 }
 
+QRect MainWindow::defaultGeometryForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->defaultGeometryFor(id) : QRect();
+}
+
+QRect MainWindow::compactGeometryForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->compactGeometryFor(id) : QRect();
+}
+
 PanelContainerWidget* MainWindow::panelForTest(const QString& id) const
 {
     return m_panelLayoutManager ? m_panelLayoutManager->panel(id) : nullptr;
@@ -3216,6 +3235,7 @@ void MainWindow::restoreSideAreaState()
     auto& db = m_appController.database();
     const QString raw = db.settingValue(QStringLiteral("panel.sidearea.pages"));
     if (raw.isEmpty()) {
+        syncSideAreaVisibility();
         return;
     }
     // Während des Wiederherstellens nicht zurückschreiben: addPage()
@@ -3237,6 +3257,32 @@ void MainWindow::restoreSideAreaState()
         m_sideArea->setCollapsed(true);
     }
     m_restoringSideArea = false;
+    syncSideAreaVisibility();
+}
+
+// Der Seitenbereich erscheint, wenn etwas drin ist -- und nur dann.
+//
+// Bis 2026-10-24 stand er immer da, auch leer, und deckte an seinem
+// Vorgabeplatz 340 x 501 Bildpunkte der Karte zu. Ein leerer Behaelter,
+// der das groesste Fenster verdeckt: genau der Fall, bei dem man
+// hinsieht und die eigenen QSOs nicht findet.
+//
+// Ueber das Menue (Fenster > Panels > Seitenbereich) laesst er sich
+// weiterhin von Hand einschalten; dieser Abgleich laeuft nur dort, wo
+// sich sein INHALT aendert.
+void MainWindow::syncSideAreaVisibility()
+{
+    PanelContainerWidget* behaelter = m_panelLayoutManager
+        ? m_panelLayoutManager->panel(QStringLiteral("sidearea"))
+        : nullptr;
+    if (!behaelter || !m_sideArea) {
+        return;
+    }
+    const bool hatSeiten = !m_sideArea->pageIds().isEmpty();
+    if (behaelter->isHidden() != hatSeiten) {
+        return; // steht schon richtig
+    }
+    behaelter->setVisible(hatSeiten);
 }
 
 // Ein Panel in den Seitenbereich legen: es verlässt die Fläche und
@@ -3258,6 +3304,7 @@ void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
     }
     m_sideAreaHomeGeometry.insert(id, panel->geometry());
     m_sideArea->addPage(id, title, panel);
+    syncSideAreaVisibility();
     // Der Bereich selbst soll sichtbar sein, sonst legt man etwas in
     // ein verstecktes Panel.
     m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
@@ -3346,6 +3393,7 @@ void MainWindow::takePanelOutOfSideArea(const QString& id)
     panel->raise();
     m_sideAreaHomeGeometry.remove(id);
     saveSideAreaState();
+    syncSideAreaVisibility();
 }
 
 // Was im Chatkopf über dem Raum steht: der angeforderte Raum und --

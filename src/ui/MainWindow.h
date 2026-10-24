@@ -101,6 +101,9 @@ public:
     /// Panel dazu. Fuer tests/test_jedes_panel_ausblendbar.cpp.
     QStringList panelIdsForTest() const;
     class PanelContainerWidget* panelForTest(const QString& id) const;
+    /// Der Vorgabeplatz aus dem Entwurf, nicht die gerade sichtbare Lage.
+    QRect defaultGeometryForTest(const QString& id) const;
+    QRect compactGeometryForTest(const QString& id) const;
     /// Die eigene CQ-Zone, aus dem eigenen Rufzeichen ueber dieselbe
     /// Laenderliste wie die der Gegenstation. 0 = unbekannt, dann wird
     /// nichts vorbelegt. Oeffentlich, weil der Prueflauf sie braucht.
@@ -463,6 +466,8 @@ private:
     // Panel-Lage auch.
     void saveSideAreaState();
     void restoreSideAreaState();
+    /// Der Seitenbereich erscheint, wenn etwas drin ist -- und nur dann.
+    void syncSideAreaVisibility();
 
     AppController& m_appController;
 

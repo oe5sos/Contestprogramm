@@ -749,6 +749,14 @@ private:
     // setViewMode() -- see that method's own comment on why this must
     // NOT rebuild on every call (MainWindow calls it on every CAT tick).
     bool m_entryRowLayoutBuilt = false;
+    /// Siehe applyEntryRowWidths(): ein Nachschlag im naechsten
+    /// Layout-Durchlauf, und nur einer.
+    bool m_entryRowResyncQueued = false;
+    int m_entryRowResyncRunde = 0;
+    /// Zwei Runden reichen gemessen; die dritte ist der Sicherheitsgurt.
+    /// Eine Spalte EIN bringt die Bildlaufleiste zurueck und verkleinert
+    /// den Viewport wieder -- das sind zwei Schritte, nicht einer.
+    static constexpr int kMaxEntryRowResyncRunden = 3;
     QVector<int> m_columnWidths;
     // Columns fitColumnsToViewport() hid on top of the view mode's own
     // set because even the floors did not fit (kGiveWayOrder).
