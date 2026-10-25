@@ -1575,6 +1575,19 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
                 // eigene Log war damit der kleinste Punkt der ganzen
                 // Karte. Was geschaetzt ist, sagt der Hof -- wenn man
                 // ihn einschaltet.
+                // Entwurf 3 „Helligkeit statt Groesse", vom Betreiber
+                // am 2026-10-25 aus vier Blaettern gewaehlt:
+                // „gearbeitete stationen zu unsichtbar."
+                //
+                // Ein weicher Hof traegt den Punkt, der helle Kern
+                // sitzt darin. Das gibt Gewicht, ohne die Flaeche zu
+                // vergroessern -- auf 10 000 km draengen sich sonst
+                // zwanzig Punkte zu einem Fleck.
+                QColor hof = color;
+                hof.setAlpha(90);
+                painter.setBrush(hof);
+                painter.drawEllipse(p.point, 5.0, 5.0);
+                painter.setBrush(color.lighter(145));
                 painter.drawEllipse(p.point, 3.5, 3.5);
                 const bool fresh = ageSecs >= 0 && ageSecs < kFreshLabelMinutes * 60;
                 if (fresh) {
@@ -1583,7 +1596,17 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             } else {
                 // Ein Spot ist eine Nachricht von jemand anderem --
                 // er darf nicht groesser sein als das eigene QSO.
-                painter.setPen(QPen(color, 1.0));
+                // Noch kleiner und zurueckhaltender: „spots in der
+                // grafik noch zu gross" (2026-10-25). Ein Spot ist
+                // eine fremde Meldung -- er soll zu finden sein, nicht
+                // ins Auge springen.
+                // Derselbe Ring wie bisher, nur halb so kraeftig:
+                // „spots in der grafik noch zu gross" (2026-10-25).
+                // Ein Spot ist eine fremde Meldung -- er soll zu
+                // finden sein, nicht ins Auge springen.
+                QColor spotFarbe = color;
+                spotFarbe.setAlpha(110);
+                painter.setPen(QPen(spotFarbe, 1.0));
                 painter.setBrush(Qt::NoBrush);
                 painter.drawEllipse(p.point, 2.5, 2.5);
                 // Ein neuer Multiplikator bekommt einen zweiten Ring --
