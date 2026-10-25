@@ -776,7 +776,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's own comment below for why they run taller.
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
-        /*contentHasOwnChrome=*/false, QRect(706, 566, 734, 160), QRect(706, 396, 666, 116));
+        /*contentHasOwnChrome=*/false, QRect(706, 566, 734, 160), QRect(706, 256, 666, 120));
     // Martin, 2026-10-09: "es sollte auch in jeder leiste die optionen
     // geben die bestimmen, was im fenster darunter passiert! ... als
     // 1,2 oder 3 antenne zB". Also hier, im Kopf des Panels, nicht im
@@ -872,7 +872,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
         // Zwei Drittel der Flaeche: das ist der Entwurf.
-        /*contentHasOwnChrome=*/false, QRect(706, 0, 734, 560), QRect(706, 0, 666, 390));
+        /*contentHasOwnChrome=*/false, QRect(706, 0, 734, 560), QRect(706, 0, 666, 250));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
@@ -916,8 +916,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // this class's original comment above), just less of it, freeing 30px
     // for the map's settings row instead.
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
-                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(1174, 732, 266, 250),
-                                         QRect(1114, 518, 258, 174));
+                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(1158, 732, 282, 250),
+                                         QRect(1042, 382, 330, 130));
     connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
@@ -946,8 +946,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Width 270, matching suggestion's own column above (see that
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(968, 732, 200, 250),
-                                         QRect(938, 518, 170, 174));
+                                         /*contentHasOwnChrome=*/false, QRect(982, 732, 170, 250),
+                                         QRect(706, 382, 330, 130));
     // Check Partial, under the rate panel in the same 270px column --
     // hidden in every already-saved profile (LayoutProfileManager's
     // "a panel the profile never saved starts hidden"), switched on
@@ -971,9 +971,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         }
         handleCandidateActivated(callsign, grid, freqHz);
     });
+    // Im kleinen Entwurf neben Skeds, das die linken zwei Drittel der
+    // unteren Reihe braucht (gemessen 764 Bildpunkte, auf Linux mehr
+    // als auf macOS -- deshalb stehen dort 800).
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(762, 732, 200, 250),
-                                         QRect(762, 518, 170, 174));
+                                         /*contentHasOwnChrome=*/false, QRect(806, 732, 170, 250),
+                                         QRect(806, 518, 566, 174));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -988,7 +991,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         reloadSkeds();
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
-                                         /*contentHasOwnChrome=*/false, QRect(0, 732, 756, 250), QRect(0, 518, 756, 174));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 732, 800, 250), QRect(0, 518, 800, 174));
 
     // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
     // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
