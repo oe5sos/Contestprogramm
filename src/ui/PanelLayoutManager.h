@@ -117,6 +117,22 @@ public:
     /// von Hand gefuehrte Liste -- siehe
     /// tests/test_jedes_panel_ausblendbar.cpp.
     QStringList panelIds() const { return m_panels.keys(); }
+    /// Der Vorgabeplatz eines Panels im grossen Entwurf -- der Wert aus
+    /// registerPanel(), unberuehrt davon, wohin der Bediener das Panel
+    /// seither gezogen hat. Fuer tests/test_vorgabe_ueberlappt_nicht.cpp,
+    /// das den ENTWURF prueft und nicht den gerade sichtbaren Stand.
+    QRect defaultGeometryFor(const QString& id) const
+    {
+        const auto it = m_panels.constFind(id);
+        return it == m_panels.constEnd() ? QRect() : it.value().defaultGeometry;
+    }
+    /// Der Platz im kleinen Entwurf (1372x692). Ungueltig, wenn das
+    /// Panel dort gar nicht vorkommt -- dann wird es ausgeblendet.
+    QRect compactGeometryFor(const QString& id) const
+    {
+        const auto it = m_panels.constFind(id);
+        return it == m_panels.constEnd() ? QRect() : it.value().compactGeometry;
+    }
 
     // Call once, after every registerPanel() call for this session has
     // been made (MainWindow's constructor does this at the very end of

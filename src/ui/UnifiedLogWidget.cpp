@@ -1833,6 +1833,42 @@ void UnifiedLogWidget::applyEntryRowWidths()
     m_entryKmLabel->setFixedSize(columnWidthFor(ColKm), rowHeight);
     m_entryDegLabel->setFixedSize(columnWidthFor(ColDeg), rowHeight);
     syncEntryRowWidth();
+    // Und noch einmal, sobald Qt das Layout gerechnet hat.
+    //
+    // Werden die Spalten schmaler, verschwindet die waagrechte
+    // Bildlaufleiste -- und der Viewport wird um ihre Breite groesser.
+    // Das merkt man an Ort und Stelle nicht: viewport()->width() traegt
+    // den neuen Wert erst nach dem naechsten Layout-Durchlauf. Die
+    // Zeile wird also auf Spalten gelegt, die sich gleich noch einmal
+    // verschieben, und steht danach sieben bis acht Bildpunkte daneben.
+    //
+    // Gemessen am 2026-10-24 (test_vorgabe_ueberlappt_nicht::
+    // dieEingabezeileStehtBeiJederBreiteInDerFlucht): ab einer
+    // Panelbreite von 640 abwaerts „Feld bei 103, Spalte bei 110" --
+    // und im zweiten Durchlauf stimmte es jedes Mal. Genau den holt
+    // dieser Nachschlag.
+    //
+    // m_entryRowResyncQueued laesst nur EINEN offen: der Nachschlag
+    // selbst plant keinen weiteren, sonst liefe das endlos weiter.
+    if (!m_entryRowResyncQueued && m_entryRowResyncRunde < kMaxEntryRowResyncRunden) {
+        m_entryRowResyncQueued = true;
+        const int runde = m_entryRowResyncRunde + 1;
+        QMetaObject::invokeMethod(
+            this,
+            [this, runde] {
+                m_entryRowResyncQueued = false;
+                if (!m_entryRowLayoutBuilt) {
+                    return;
+                }
+                m_entryRowResyncRunde = runde;
+                fitColumnsToViewport();
+                applyEntryRowWidths();
+                syncEntryRowWidth();
+                m_entryRowResyncRunde = 0;
+            },
+            Qt::QueuedConnection);
+    }
+
 }
 
 void UnifiedLogWidget::syncStatusColumnWidth()
@@ -2061,12 +2097,6 @@ void UnifiedLogWidget::rebuildExchangeCell(const QMap<QString, QString>& previou
     m_entryRowLayout->replaceWidget(m_exchangeFieldsHost, host);
     m_exchangeFieldsHost->deleteLater();
     m_exchangeFieldsHost = host;
-
-    // RST (if this contest declares one) gets its "59"/"599" default
-    // the moment its field exists, same as on a fresh contest switch as
-    // on first construction -- needs the now-current m_exchangeEdits/
-    // m_exchangeFields (Tab's own field chain is computed live from
-    // those two in nextFieldForTab(), so it needs no rebuild step here).
     applyRstDefaults();
 }
 
