@@ -1196,6 +1196,36 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         s.audioRecordEnabled = !s.audioRecordEnabled;
         m_appController.setSettings(s);
         aktualisiereMitschnittAnzeige();
+
+        // Und nachsehen, ob wirklich Ton ankommt.
+        //
+        // Betreiber am 2026-10-25: „ich gehe auf start, dann steht die
+        // zeit 00:00 aber er nimmt nicht auf." Genau so sieht es aus,
+        // wenn die Datei zwar offen ist, das Geraet aber keine einzige
+        // Probe liefert -- der Zaehler rechnet aus den geschriebenen
+        // Proben, nicht aus der Uhr. Bis heute stand das Programm dann
+        // stumm da und zeigte 00:00 wie einen gueltigen Zustand.
+        //
+        // An seinem Mac mini steht als Quelle das Aggregat „Funk +
+        // Mikrofon" (vier Kanaele, 24 kHz -- jedes andere Geraet dort
+        // laeuft mit 48). Woran es genau liegt, ist noch offen; diese
+        // Meldung macht wenigstens den Fall sichtbar und nennt das
+        // Geraet, um das es geht.
+        if (s.audioRecordEnabled) {
+            QTimer::singleShot(6000, this, [this]() {
+                if (!m_appController.audioRecorder().isRecording()) { return; }
+                if (m_appController.audioRecorder().recordedSeconds() > 0.0) { return; }
+                const QString geraet = m_appController.settings().audioRecordDevice.trimmed();
+                statusBar()->showMessage(
+                    QStringLiteral("Mitschnitt: seit sechs Sekunden kommt kein Ton an%1 "
+                                   "-- die Datei bleibt leer.")
+                        .arg(geraet.isEmpty() ? QString()
+                                              : QStringLiteral(" von \u201e%1\u201c").arg(geraet)),
+                    30000);
+                qWarning().noquote()
+                    << QStringLiteral("QSO-Mitschnitt: keine Proben von \"%1\"").arg(geraet);
+            });
+        }
     });
 
     // Einmal je Sekunde, damit die verstrichene Zeit mitlaeuft. Ein
