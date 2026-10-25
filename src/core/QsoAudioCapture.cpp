@@ -11,6 +11,8 @@
 
 #include <QAudioDevice>
 #include <QAudioSource>
+#include <QPermissions>
+#include <QGuiApplication>
 #include <QIODevice>
 #include <QMediaDevices>
 
@@ -51,6 +53,7 @@ bool QsoAudioCapture::isRunning() const
 
 bool QsoAudioCapture::start(const QString& deviceName, QString* error)
 {
+
     if (isRunning()) { return false; }
     if (m_recorder == nullptr) {
         if (error) { *error = QStringLiteral("Kein Mitschneider angeschlossen."); }
@@ -86,6 +89,49 @@ bool QsoAudioCapture::start(const QString& deviceName, QString* error)
     // Was das Geraet bevorzugt, auf Int16 festgenagelt -- die
     // WAV-Datei ist Int16, und eine Umrechnung hier waere eine
     // zweite Stelle, an der Ton verloren gehen kann.
+    // Und jetzt die Freigabe fuers Mikrofon.
+    //
+    // ERST nach der Geraetewahl: ein unbekannter Geraetename ist ein
+    // Fehler fuer sich und soll nicht von der Rechtefrage verdeckt
+    // werden (tst_qso_audio_capture prueft genau das).
+    //
+    // Betreiber am 2026-10-25, am Mac mini: „nimmt nicht auf, die zeit
+    // laeuft nicht. die datei ist aber dann gespeichert" -- und die
+    // Datei war 44 Bytes gross, also nur der WAV-Kopf. Keine einzige
+    // Probe.
+    //
+    // Ohne Freigabe liefert macOS der App keinen Ton, ohne dass
+    // irgendetwas fehlschlaegt: QAudioSource oeffnet, der Strom
+    // bleibt leer, und das Programm schreibt eine Datei, in der
+    // nichts steht. Das Paket bringt NSMicrophoneUsageDescription
+    // mit, die Nachfrage kommt also -- aber wer sie einmal
+    // weggeklickt hat, sieht danach nie wieder einen Hinweis.
+    //
+    // Dazu kommt: die App ist nicht signiert (bewusst, siehe
+    // longpath-keine-apple-signierung), und macOS vergisst die
+    // Zustimmung, wenn sich die Binaerdatei aendert -- also nach
+    // jedem Austausch durch den Auto-Install.
+#if QT_CONFIG(permissions)
+    QMicrophonePermission mikrofon;
+    switch (qApp->checkPermission(mikrofon)) {
+    case Qt::PermissionStatus::Undetermined:
+        qApp->requestPermission(mikrofon, [](const QPermission&) {});
+        if (error) {
+            *error = QStringLiteral("Das Mikrofon muss einmal freigegeben werden -- bitte die "
+                                    "Nachfrage bestaetigen und den Mitschnitt noch einmal starten.");
+        }
+        return false;
+    case Qt::PermissionStatus::Denied:
+        if (error) {
+            *error = QStringLiteral("Der Ton bleibt leer: der Zugriff aufs Mikrofon ist fuer das "
+                                    "Contestprogramm gesperrt.");
+        }
+        return false;
+    case Qt::PermissionStatus::Granted:
+        break;
+    }
+#endif
+
     QAudioFormat f = geraet.preferredFormat();
     f.setSampleFormat(QAudioFormat::Int16);
     if (!geraet.isFormatSupported(f)) {
