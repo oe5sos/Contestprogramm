@@ -231,6 +231,13 @@ void MapWidget::buildControls()
                                  QStringLiteral("Wo gerade Dämmerung ist -- auf Kurzwelle die Zone, in der die "
                                                 "unteren Bänder aufmachen"),
                                  &MapWidget::setGreylineLayerVisible);
+    m_rotorDialsAction = addToggle(QStringLiteral("Rotoren in der Spalte"),
+                                  QStringLiteral("Zwei kleine Scheiben unter „Sonne hier\" -- live, und ein Klick "
+                                                 "dreht dorthin. Dann braucht es das Rotorfenster nicht mehr"),
+                                  &MapWidget::setRotorDialsVisible);
+    m_rotorDialsBackAction = addToggle(QStringLiteral("Rückrichtung zeigen"),
+                                       QStringLiteral("Die Gegenrichtung der Antenne als gepunktete Linie"),
+                                       &MapWidget::setRotorDialsBackward);
     m_spotsAction = addToggle(QStringLiteral("Spots anzeigen"),
                               QStringLiteral("Gespottete, noch nicht gearbeitete Stationen. Aus heisst: nur das "
                                              "eigene Log steht in der Karte"),
@@ -321,6 +328,8 @@ void MapWidget::syncControls()
     sync(m_bandColorsAction, m_bandColors);
     sync(m_labelsOnlyNeededAction, m_labelsOnlyNeeded);
     sync(m_spotsAction, m_showSpots);
+    sync(m_rotorDialsAction, m_rotorDials);
+    sync(m_rotorDialsBackAction, m_rotorDialsBackward);
     sync(m_approxHaloAction, m_approxHalo);
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
@@ -355,6 +364,8 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     menu->addAction(m_approxHaloAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
+    menu->addAction(m_rotorDialsAction);
+    menu->addAction(m_rotorDialsBackAction);
     menu->addAction(m_rotor1Action);
     menu->addAction(m_rotor2Action);
     QMenu* antennas1 = menu->addMenu(QStringLiteral("Antennen Rotor 1"));
@@ -472,6 +483,8 @@ MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
 MAPWIDGET_TOGGLE(setSpotsVisible, m_showSpots)
+MAPWIDGET_TOGGLE(setRotorDialsVisible, m_rotorDials)
+MAPWIDGET_TOGGLE(setRotorDialsBackward, m_rotorDialsBackward)
 MAPWIDGET_TOGGLE(setApproximateHaloEnabled, m_approxHalo)
 #undef MAPWIDGET_TOGGLE
 
@@ -681,7 +694,8 @@ QString MapWidget::preferencesText() const
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
                           "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16;"
-                          "bandcolors=%17;labelsneeded=%18;spots=%19;approxhalo=%20")
+                          "bandcolors=%17;labelsneeded=%18;spots=%19;approxhalo=%20;"
+                          "rotordials=%21;rotorback=%22")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
@@ -690,7 +704,8 @@ QString MapWidget::preferencesText() const
         .arg(m_fixedBeamwidthDeg, 0, 'f', 0)
         .arg(flag(m_fullBleed))
         .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded))
-        .arg(flag(m_showSpots), flag(m_approxHalo));
+        .arg(flag(m_showSpots), flag(m_approxHalo))
+        .arg(flag(m_rotorDials), flag(m_rotorDialsBackward));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -733,6 +748,10 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_showSpots);
         } else if (key == QStringLiteral("approxhalo")) {
             apply(m_approxHalo);
+        } else if (key == QStringLiteral("rotordials")) {
+            apply(m_rotorDials);
+        } else if (key == QStringLiteral("rotorback")) {
+            apply(m_rotorDialsBackward);
         } else if (key == QStringLiteral("greyline")) {
             apply(m_layers.greyline);
             syncGreylineTimer();
@@ -1797,6 +1816,88 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
         value(sunText, QColor(Style::kTextSecondary()), Style::kFontBody);
     }
 
+    // ── Die Rotorscheiben, unter „Sonne hier" ───────────────────────
+    //
+    // Betreiber am 2026-10-25: „man sollte als option die beiden
+    // rotoren unterhalb der sonne hier im fenster ein/ausblenden
+    // koennen, dann kann man auf wunsch ein fenster sparen. aber dort
+    // sollte man auch den rotor drehen koennen."
+    //
+    // Entwurf A: je eine kleine Scheibe, live, mit Keule wie im
+    // Rotorfenster, und auf Wunsch der Rueckrichtung. Ein Klick in
+    // die Scheibe dreht dorthin (mousePressEvent).
+    m_rotorDialRect[0] = QRectF();
+    m_rotorDialRect[1] = QRectF();
+    if (m_rotorDials) {
+        const double durchmesser = qMin(column.width() - 16.0, 150.0);
+        const double radius = durchmesser / 2.0;
+        for (int i = 0; i < 2; ++i) {
+            const bool verbunden = (i == 0) ? m_rotor1Connected : m_rotor2Connected;
+            const bool gezeigt   = (i == 0) ? m_showRotor1Heading : m_showRotor2Heading;
+            if (!verbunden || !gezeigt) { continue; }
+            if (y + durchmesser + 34.0 > column.bottom() - 24.0) { break; } // kein Platz mehr
+            const double az = wrap360((i == 0) ? m_rotor1AzimuthDeg : m_rotor2AzimuthDeg);
+            const bool live = (i == 0) ? m_rotor1Live : m_rotor2Live;
+            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive());
+
+            painter.setFont(Style::capsFont(font(), Style::kFontCaption));
+            painter.setPen(QColor(Style::kTextTertiary()));
+            painter.drawText(QPointF(x, y + 9.0), QStringLiteral("ROTOR %1").arg(i + 1));
+            y += 16.0;
+
+            const QPointF mitte(x + radius + 4.0, y + radius);
+            m_rotorDialRect[i] = QRectF(mitte.x() - radius, mitte.y() - radius, durchmesser, durchmesser);
+
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
+            painter.drawEllipse(mitte, radius, radius);
+            painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
+            for (int g = 0; g < 360; g += 30) {
+                const double a = qDegreesToRadians(double(g) - 90.0);
+                const double innen = radius - ((g % 90 == 0) ? 7.0 : 4.0);
+                painter.drawLine(QPointF(mitte.x() + innen * std::cos(a), mitte.y() + innen * std::sin(a)),
+                                 QPointF(mitte.x() + radius * std::cos(a), mitte.y() + radius * std::sin(a)));
+            }
+            // Die Keule, in derselben Breite wie in der Karte.
+            const double halb = ((i == 0) ? m_beamwidth1Deg : m_beamwidth2Deg) / 2.0;
+            const double a0 = qDegreesToRadians(az - 90.0);
+            QPainterPath keule;
+            keule.moveTo(mitte);
+            keule.arcTo(QRectF(mitte.x() - radius + 3.0, mitte.y() - radius + 3.0,
+                               durchmesser - 6.0, durchmesser - 6.0),
+                        90.0 - az - halb, 2.0 * halb);
+            keule.closeSubpath();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 90 : 40));
+            painter.drawPath(keule);
+
+            painter.setPen(QPen(nadel, 2.0));
+            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 3.0) * std::cos(a0),
+                                            mitte.y() + (radius - 3.0) * std::sin(a0)));
+            if (m_rotorDialsBackward) {
+                painter.setPen(QPen(withAlpha(Style::kAmberDim(), 160), 1.0, Qt::DotLine));
+                const double ab = a0 + M_PI;
+                painter.drawLine(mitte, QPointF(mitte.x() + (radius - 5.0) * std::cos(ab),
+                                                mitte.y() + (radius - 5.0) * std::sin(ab)));
+            }
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(nadel);
+            painter.drawEllipse(mitte, 2.5, 2.5);
+            y += durchmesser + 4.0;
+
+            painter.setFont(Style::monoFont(font(), Style::kFontReading));
+            painter.setPen(nadel);
+            painter.drawText(QPointF(x, y + 12.0), QStringLiteral("%1°").arg(az, 0, 'f', 0));
+            if (m_rotorDialsBackward) {
+                painter.setFont(Style::monoFont(font(), Style::kFontCaption));
+                painter.setPen(QColor(Style::kTextTertiary()));
+                painter.drawText(QPointF(x + 56.0, y + 12.0),
+                                 QStringLiteral("zurück %1°").arg(wrap360(az + 180.0), 0, 'f', 0));
+            }
+            y += 24.0;
+        }
+    }
+
     drawLegend(painter, QPointF(x, column.bottom() - 4.0), column.width());
 }
 
@@ -1967,6 +2068,20 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         }
         return;
     }
+    // Klick in eine der Rotorscheiben: dreh dorthin. Der Winkel ist
+    // der, auf den geklickt wurde -- wie im Rotorfenster, wo ein Klick
+    // auf den Scheibenrand dasselbe tut.
+    for (int i = 0; i < 2; ++i) {
+        if (m_rotorDialRect[i].isEmpty() || !m_rotorDialRect[i].contains(clickPos)) { continue; }
+        const QPointF mitte = m_rotorDialRect[i].center();
+        const double dx = clickPos.x() - mitte.x();
+        const double dy = clickPos.y() - mitte.y();
+        if (std::hypot(dx, dy) < 6.0) { return; } // die Mitte ist kein Ziel
+        const double grad = wrap360(qRadiansToDegrees(std::atan2(dy, dx)) + 90.0);
+        emit rotorRotateRequested(i + 1, grad);
+        return;
+    }
+
     const Station* hit = nullptr;
     double bestDistSq = kStationClickTolerancePx * kStationClickTolerancePx;
     const QRectF area = scopeRect();
