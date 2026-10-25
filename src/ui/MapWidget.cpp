@@ -231,6 +231,14 @@ void MapWidget::buildControls()
                                  QStringLiteral("Wo gerade Dämmerung ist -- auf Kurzwelle die Zone, in der die "
                                                 "unteren Bänder aufmachen"),
                                  &MapWidget::setGreylineLayerVisible);
+    m_spotsAction = addToggle(QStringLiteral("Spots anzeigen"),
+                              QStringLiteral("Gespottete, noch nicht gearbeitete Stationen. Aus heisst: nur das "
+                                             "eigene Log steht in der Karte"),
+                              &MapWidget::setSpotsVisible);
+    m_approxHaloAction = addToggle(QStringLiteral("Hof bei geschaetztem Ort"),
+                                   QStringLiteral("Gepunkteter Ring, wo nur der Mittelpunkt des Landes bekannt ist. "
+                                                  "Auf Kurzwelle betrifft das jede Station -- dort nur Unruhe"),
+                                   &MapWidget::setApproximateHaloEnabled);
     m_spokesAction = addToggle(QStringLiteral("Peilung"), QStringLiteral("Gradteilung am Rand, in der Karte auch Speichen"), &MapWidget::setSpokesLayerVisible);
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
     m_rotor1Action = addToggle(QStringLiteral("Rotor 1"), QStringLiteral("Peilung von Rotor 1 als Lichtkegel"), &MapWidget::setRotor1HeadingLayerVisible);
@@ -312,6 +320,8 @@ void MapWidget::syncControls()
     sync(m_fullBleedAction, m_fullBleed);
     sync(m_bandColorsAction, m_bandColors);
     sync(m_labelsOnlyNeededAction, m_labelsOnlyNeeded);
+    sync(m_spotsAction, m_showSpots);
+    sync(m_approxHaloAction, m_approxHalo);
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
@@ -339,8 +349,10 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     syncControls();
     menu->addAction(m_ringsAction);
     menu->addAction(m_greylineAction);
+    menu->addAction(m_spotsAction);
     menu->addAction(m_bandColorsAction);
     menu->addAction(m_labelsOnlyNeededAction);
+    menu->addAction(m_approxHaloAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
     menu->addAction(m_rotor1Action);
@@ -459,6 +471,8 @@ MAPWIDGET_TOGGLE(setFullBleedEnabled, m_fullBleed)
 MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
+MAPWIDGET_TOGGLE(setSpotsVisible, m_showSpots)
+MAPWIDGET_TOGGLE(setApproximateHaloEnabled, m_approxHalo)
 #undef MAPWIDGET_TOGGLE
 
 // Nicht über das Makro: diese Schicht hat einen Zeitgeber, der mit ihr
@@ -667,7 +681,7 @@ QString MapWidget::preferencesText() const
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
                           "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16;"
-                          "bandcolors=%17;labelsneeded=%18")
+                          "bandcolors=%17;labelsneeded=%18;spots=%19;approxhalo=%20")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
@@ -675,7 +689,8 @@ QString MapWidget::preferencesText() const
              flag(m_layers.greyline))
         .arg(m_fixedBeamwidthDeg, 0, 'f', 0)
         .arg(flag(m_fullBleed))
-        .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded));
+        .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded))
+        .arg(flag(m_showSpots), flag(m_approxHalo));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -714,6 +729,10 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_bandColors);
         } else if (key == QStringLiteral("labelsneeded")) {
             apply(m_labelsOnlyNeeded);
+        } else if (key == QStringLiteral("spots")) {
+            apply(m_showSpots);
+        } else if (key == QStringLiteral("approxhalo")) {
+            apply(m_approxHalo);
         } else if (key == QStringLiteral("greyline")) {
             apply(m_layers.greyline);
             syncGreylineTimer();
@@ -1525,6 +1544,13 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if ((pass == 0) != station.worked) {
                 continue;
             }
+            // Spots ganz aus: dann steht nur noch das eigene Log da.
+            // Betreiber am 2026-10-24, nach sechs QSOs in CQ WW: „also
+            // ich sehe nur grosse blaue icons aber keine einzig
+            // markiertes log von mir."
+            if (!station.worked && !m_showSpots) {
+                continue;
+            }
             if (p.distanceKm > m_visibleRangeKm * visibleRangeFactor()) {
                 continue;
             }
@@ -1544,19 +1570,26 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if (station.worked) {
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(color);
-                painter.drawEllipse(p.point, station.approximate ? 2.0 : 3.0, station.approximate ? 2.0 : 3.0);
+                // Nicht mehr kleiner, bloss weil der Ort geschaetzt
+                // ist: auf Kurzwelle ist er IMMER geschaetzt, und das
+                // eigene Log war damit der kleinste Punkt der ganzen
+                // Karte. Was geschaetzt ist, sagt der Hof -- wenn man
+                // ihn einschaltet.
+                painter.drawEllipse(p.point, 3.5, 3.5);
                 const bool fresh = ageSecs >= 0 && ageSecs < kFreshLabelMinutes * 60;
                 if (fresh) {
                     labels.place(painter, p.point, station.callsign, QColor(Style::kTextTertiary()));
                 }
             } else {
-                painter.setPen(QPen(color, 1.5));
+                // Ein Spot ist eine Nachricht von jemand anderem --
+                // er darf nicht groesser sein als das eigene QSO.
+                painter.setPen(QPen(color, 1.0));
                 painter.setBrush(Qt::NoBrush);
-                painter.drawEllipse(p.point, 4.0, 4.0);
+                painter.drawEllipse(p.point, 2.5, 2.5);
                 // Ein neuer Multiplikator bekommt einen zweiten Ring --
                 // er ist der Grund, warum man ueberhaupt hinsieht.
                 if (station.neededMultiplier) {
-                    painter.drawEllipse(p.point, 7.0, 7.0);
+                    painter.drawEllipse(p.point, 5.0, 5.0);
                 }
                 if (!m_labelsOnlyNeeded || station.neededMultiplier) {
                     labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
@@ -1565,12 +1598,12 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             // Nur der Mittelpunkt eines Landes, kein getauschter
             // Locator: ein gepunkteter Hof sagt, dass die Station
             // irgendwo dort drin sitzt und nicht genau da.
-            if (station.approximate) {
+            if (station.approximate && m_approxHalo) {
                 QColor halo = color;
                 halo.setAlpha(120);
                 painter.setPen(QPen(halo, 1.0, Qt::DotLine));
                 painter.setBrush(Qt::NoBrush);
-                painter.drawEllipse(p.point, 7.0, 7.0);
+                painter.drawEllipse(p.point, 6.0, 6.0);
             }
         }
     }
