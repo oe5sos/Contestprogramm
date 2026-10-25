@@ -23,6 +23,8 @@
 // =================================================================
 
 #include <QtTest>
+
+#include <QLabel>
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QPushButton>
@@ -165,8 +167,20 @@ private slots:
         // Ueber den echten Zeitgeber (1 s), nicht ueber einen
         // Prueflauf-Eingang: so ist mitgeprueft, dass die Anzeige von
         // selbst nachzieht und nicht erst, wenn jemand sie anstoesst.
+        // Der Knopf sagt, was der Druck TUT -- Betreiber am
+        // 2026-10-25: „ich will immer dort den ein und ausschalter
+        // haben und die zeit sehen, welche ich bereits aufgenommen
+        // habe." Vorher wechselte ein einziger Knopf zwischen Uhr,
+        // „aus" und „kein Ordner"; wer die Zeit sehen wollte, musste
+        // erst aufnehmen, und wer den Schalter suchte, fand eine Uhr.
         QTRY_VERIFY_WITH_TIMEOUT(
-            knopf->text().contains(QStringLiteral("aus")), 4000);
+            knopf->text().contains(QStringLiteral("starten")), 4000);
+
+        // Und die Zeit steht daneben, auch wenn nichts laeuft.
+        auto* uhr = fenster.findChild<QLabel*>(QStringLiteral("audioRecordTimeLabel"));
+        QVERIFY2(uhr, "keine Zeitanzeige neben dem Schalter");
+        QCOMPARE(uhr->text(), QStringLiteral("00:00:00"));
+        QVERIFY2(!uhr->isHidden(), "die Zeitanzeige ist versteckt");
     }
 
     // ── Ein Druck schaltet denselben Schalter wie der Haken ─────────

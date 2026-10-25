@@ -1248,7 +1248,20 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     statusBar()->addPermanentWidget(m_backupStatusLabel);
     statusBar()->addPermanentWidget(m_gridRadiusLabel);
     statusBar()->addPermanentWidget(m_weatherStatusLabel);
+    // Betreiber am 2026-10-25: „es sollte dort immer ein start, stop
+    // sein, ich will immer dort den ein und ausschalter haben und die
+    // zeit sehen, welche ich bereits aufgenommen habe."
+    //
+    // Bis dahin war es EIN Knopf, der je nach Zustand seinen Text
+    // wechselte: mal die Zeit, mal „aus", mal „kein Ordner". Wer die
+    // Zeit sehen wollte, musste also erst aufnehmen, und wer den
+    // Schalter suchte, fand eine Uhr. Jetzt stehen beide nebeneinander
+    // und bleiben, was sie sind.
+    m_audioRecordTimeLabel = new QLabel(this);
+    m_audioRecordTimeLabel->setObjectName(QStringLiteral("audioRecordTimeLabel"));
+    m_audioRecordTimeLabel->setFont(Style::monoFont(font(), Style::kFontCaption));
     statusBar()->addPermanentWidget(m_audioRecordButton);
+    statusBar()->addPermanentWidget(m_audioRecordTimeLabel);
     statusBar()->addPermanentWidget(m_modeToggleButton);
     aktualisiereMitschnittAnzeige();
 
@@ -2037,20 +2050,33 @@ void MainWindow::aktualisiereMitschnittAnzeige()
     const ContestSettings s = m_appController.settings();
     const bool ordnerFehlt = s.audioRecordFolder.trimmed().isEmpty();
 
+    // Der Knopf sagt, was der Druck TUT -- nicht, wie es gerade steht.
     QString text;
     if (laeuft) {
-        const qint64 sek = static_cast<qint64>(
-            m_appController.audioRecorder().recordedSeconds());
-        text = QStringLiteral("\u25cf Mitschnitt %1:%2:%3")
-                   .arg(sek / 3600, 2, 10, QLatin1Char('0'))
-                   .arg((sek / 60) % 60, 2, 10, QLatin1Char('0'))
-                   .arg(sek % 60, 2, 10, QLatin1Char('0'));
+        text = QStringLiteral("\u25a0 Mitschnitt stoppen");
     } else if (ordnerFehlt) {
-        text = QStringLiteral("\u25cb Mitschnitt: kein Ordner");
+        text = QStringLiteral("\u25cb Mitschnitt: erst Ordner waehlen");
     } else {
-        text = QStringLiteral("\u25cb Mitschnitt: aus");
+        text = QStringLiteral("\u25b6 Mitschnitt starten");
     }
     m_audioRecordButton->setText(text);
+
+    // Und die Zeit steht immer da, auch bei 00:00:00 -- dass sie
+    // weiterlaeuft, ist die eigentliche Aussage: ein stehender
+    // Zaehler ist eine Aufnahme, bei der nichts ankommt.
+    if (m_audioRecordTimeLabel != nullptr) {
+        const qint64 sek = laeuft
+            ? static_cast<qint64>(m_appController.audioRecorder().recordedSeconds())
+            : 0;
+        m_audioRecordTimeLabel->setText(
+            QStringLiteral("%1:%2:%3")
+                .arg(sek / 3600, 2, 10, QLatin1Char('0'))
+                .arg((sek / 60) % 60, 2, 10, QLatin1Char('0'))
+                .arg(sek % 60, 2, 10, QLatin1Char('0')));
+        m_audioRecordTimeLabel->setStyleSheet(
+            QStringLiteral("color: %1; padding: 0 6px;")
+                .arg(laeuft ? Style::kAmberText() : Style::kTextInactive()));
+    }
 
     m_audioRecordButton->setStyleSheet(
         QStringLiteral("QPushButton { background: %1; color: %2;"
