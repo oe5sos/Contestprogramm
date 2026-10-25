@@ -93,7 +93,24 @@ void TestPanelAbloesen::aPanelBecomesItsOwnWindowAndComesBack()
     QCoreApplication::processEvents();
     QVERIFY2(bandmap->isFloating(), "Das Panel wurde nicht abgelöst");
     QVERIFY2(bandmap->isWindow(), "Das abgelöste Panel ist kein eigenes Fenster");
-    QVERIFY2(bandmap->parentWidget() == nullptr, "Das abgelöste Panel hängt noch in der Fläche");
+    // Ein eigenes Fenster -- aber ein KIND des Hauptfensters.
+    //
+    // Betreiber am 2026-10-25, mit Bild vom Schreibtisch, auf dem acht
+    // Panels einzeln herumlagen: „so soll es nicht aussehen. fenster
+    // nur im eigenen contestprogramm schwebend sein, wenn ich diese in
+    // die taskleiste lege oder verkleinere muss das auch alle
+    // betreffen." Und davor: „wenn ich dieses zu mache muessen alle
+    // mit."
+    //
+    // Mit parentWidget() == nullptr war jedes abgeloeste Panel ein
+    // eigenstaendiges Fenster und blieb beim Minimieren stehen.
+    // Qt::Tool mit dem Hauptfenster als Elternteil haengt es daran.
+    QVERIFY2(bandmap->isWindow(), "Das abgelöste Panel ist kein eigenes Fenster geworden");
+    QVERIFY2(bandmap->parentWidget() == bandmap->window()->parentWidget()
+                 || bandmap->parentWidget() != nullptr,
+             "Das abgelöste Panel hängt an nichts -- es folgt dem Hauptfenster nicht");
+    QVERIFY2(bandmap->windowFlags().testFlag(Qt::Tool),
+             "Das abgelöste Panel ist kein Qt::Tool -- es folgt dem Hauptfenster nicht");
     qInfo().noquote() << "abgelöst:" << bandmap->windowTitle() << bandmap->geometry();
     // Klartext, nicht die interne Kennung -- live sofort aufgefallen:
     // im Fenstertitel stand "bandmap".

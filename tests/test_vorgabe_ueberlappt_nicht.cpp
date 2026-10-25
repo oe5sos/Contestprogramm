@@ -71,6 +71,7 @@ private slots:
     void allesBleibtInnerhalbDerFlaeche();
     void derLeereSeitenbereichStehtNichtImWeg();
     void dieEingabezeileStehtBeiJederBreiteInDerFlucht();
+    void zuruecksetzenHoltAllesHeim();
 
 private:
     std::unique_ptr<AppController> baueSteuerung(QTemporaryDir& dir, const QString& datei)
@@ -436,6 +437,69 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
     QVERIFY2(daneben.isEmpty(),
              qPrintable(QStringLiteral("Eingabezeile nicht in der Flucht bei Breite: %1")
                             .arg(daneben.join(QStringLiteral(", ")))));
+}
+
+// ── „Zuruecksetzen" holt alles heim ─────────────────────────────────
+//
+// Betreiber am 2026-10-25, mit Bild: er drueckt „Fenster
+// zuruecksetzen", und die Flaeche bleibt leer -- und im Vollbild sind
+// „alle weg". Der Grund: seine Panels lagen gar nicht auf der Flaeche.
+// Sechs steckten als Reiter im Seitenbereich, Log und Karte schwebten
+// als eigene Fenster. resetToDefaultLayout() setzt aber nur
+// GEOMETRIEN, und ein Panel, das anderswo wohnt, bekommt davon nichts
+// mit.
+void TestVorgabeUeberlapptNicht::zuruecksetzenHoltAllesHeim()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto c = baueSteuerung(dir, QStringLiteral("heim.sqlite"));
+    QVERIFY(c);
+
+    MainWindow fenster(*c);
+    fenster.resize(kEntwurfBreite, kEntwurfHoehe);
+    fenster.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&fenster));
+
+    // Genau sein Stand: drei Panels in den Seitenbereich, eines
+    // schwebend, eines ausgeblendet.
+    for (const QString& id : {QStringLiteral("chat"), QStringLiteral("skeds"),
+                              QStringLiteral("ratemeter")}) {
+        QMetaObject::invokeMethod(&fenster, "putPanelIntoSideArea", Qt::DirectConnection,
+                                  Q_ARG(QString, id), Q_ARG(QString, id));
+    }
+    auto* karte = fenster.panelForTest(QStringLiteral("map"));
+    QVERIFY(karte);
+    karte->setFloating(true);
+    auto* check = fenster.panelForTest(QStringLiteral("checkpartial"));
+    QVERIFY(check);
+    check->setVisible(false);
+    QCoreApplication::processEvents();
+
+    auto* reset = fenster.findChild<QAction*>();
+    QAction* zuruecksetzen = nullptr;
+    for (QAction* a : fenster.findChildren<QAction*>()) {
+        if (a->text().contains(QStringLiteral("zur\u00fccksetzen"))) { zuruecksetzen = a; break; }
+    }
+    Q_UNUSED(reset);
+    QVERIFY2(zuruecksetzen, "kein Eintrag „Fenster zuruecksetzen\" gefunden");
+    zuruecksetzen->trigger();
+    QCoreApplication::processEvents();
+
+    QStringList nichtHeim;
+    for (const QString& id : {QStringLiteral("chat"), QStringLiteral("skeds"),
+                              QStringLiteral("ratemeter"), QStringLiteral("map"),
+                              QStringLiteral("checkpartial")}) {
+        PanelContainerWidget* panel = fenster.panelForTest(id);
+        if (!panel) { nichtHeim << id + QStringLiteral(" (fehlt)"); continue; }
+        if (panel->isFloating()) { nichtHeim << id + QStringLiteral(" (schwebt)"); }
+        if (panel->isHidden())   { nichtHeim << id + QStringLiteral(" (versteckt)"); }
+        if (panel->parentWidget() != fenster.panelForTest(QStringLiteral("unifiedlog"))->parentWidget()) {
+            nichtHeim << id + QStringLiteral(" (nicht auf der Flaeche)");
+        }
+    }
+    QVERIFY2(nichtHeim.isEmpty(),
+             qPrintable(QStringLiteral("nach dem Zuruecksetzen nicht daheim: %1")
+                            .arg(nichtHeim.join(QStringLiteral(", ")))));
 }
 
 int main(int argc, char* argv[])
