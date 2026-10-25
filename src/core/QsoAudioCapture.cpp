@@ -134,6 +134,29 @@ bool QsoAudioCapture::start(const QString& deviceName, QString* error)
 
     QAudioFormat f = geraet.preferredFormat();
     f.setSampleFormat(QAudioFormat::Int16);
+    // Mehr als zwei Kanaele erst gar nicht oeffnen.
+    //
+    // Betreiber am 2026-10-25, gemessen: mit dem Headset (2 Kanaele,
+    // 48 kHz) laeuft der Mitschnitt, mit dem Aggregat „Funk +
+    // Mikrofon" (VIER Kanaele, 24 kHz) kommt keine einzige Probe --
+    // die Datei blieb bei 44 Bytes stehen, dem blossen WAV-Kopf.
+    //
+    // Das Aggregat selbst ist in Ordnung: sein Taktgeber (AetherSDR
+    // DAX 1) laeuft, und 24 kHz ist dessen normale Rate. Was nicht
+    // traegt, ist die Kanalzahl: QAudioSource oeffnet das Geraet mit
+    // vier Kanaelen, und dann bleibt der Strom leer.
+    //
+    // Also zwei Kanaele anfragen, wenn das Geraet sie hergibt. Das
+    // Geraet wird gefragt (isFormatSupported), nicht geraten; sagt es
+    // nein, bleibt es beim Wunschformat und die Stille-Meldung nennt
+    // die Zahlen.
+    if (f.channelCount() > 2) {
+        QAudioFormat zwei = f;
+        zwei.setChannelCount(2);
+        if (geraet.isFormatSupported(zwei)) {
+            f = zwei;
+        }
+    }
     if (!geraet.isFormatSupported(f)) {
         f = geraet.preferredFormat();
         if (f.sampleFormat() != QAudioFormat::Int16) {
