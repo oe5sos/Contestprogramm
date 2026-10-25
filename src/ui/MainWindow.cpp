@@ -1887,7 +1887,38 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // hides two panels after this constructor has run.
     connect(windowMenu, &QMenu::aboutToShow, this, syncPanelMenuChecks);
     connect(resetLayoutAction, &QAction::triggered, this, [this, syncPanelMenuChecks]() {
+        // Erst alles zurueckholen, dann die Plaetze setzen.
+        //
+        // Betreiber am 2026-10-25, mit Bild: er drueckt „Fenster
+        // zuruecksetzen", und es passiert fast nichts -- die Flaeche
+        // bleibt leer. Der Grund: seine Panels lagen gar nicht auf der
+        // Flaeche. Sechs steckten als Reiter im Seitenbereich, Log und
+        // Karte schwebten als eigene Fenster. resetToDefaultLayout()
+        // setzt aber nur GEOMETRIEN -- ein Panel, das anderswo
+        // wohnt, bekommt davon nichts mit.
+        //
+        // „Zuruecksetzen" muss heissen: alles kommt heim.
+        if (m_sideArea != nullptr) {
+            const QStringList imBereich = m_sideArea->pageIds();
+            for (const QString& id : imBereich) {
+                takePanelOutOfSideArea(id);
+            }
+        }
+        for (const QString& id : m_panelLayoutManager->panelIds()) {
+            PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+            if (panel == nullptr) { continue; }
+            if (panel->isFloating()) {
+                panel->setFloating(false);
+            }
+            // Die CW-Makrozeile haengt an ihrer eigenen Einstellung,
+            // und der Seitenbereich steht nur da, wenn etwas drin ist
+            // -- beide nicht von Hand einschalten.
+            if (id != QStringLiteral("cwMacroRow") && id != QStringLiteral("sidearea")) {
+                panel->setVisible(true);
+            }
+        }
         m_panelLayoutManager->resetToDefaultLayout();
+        syncSideAreaVisibility();
         syncPanelMenuChecks();
     });
 

@@ -151,8 +151,22 @@ void PanelContainerWidget::setFloating(bool floating)
             m_dockTarget = parentWidget();
         }
         const QPoint aufDemSchirm = mapToGlobal(QPoint(0, 0));
-        setParent(nullptr);
-        setWindowFlag(Qt::Window, true);
+        // Ein schwebendes Panel bleibt ein KIND des Hauptfensters.
+        //
+        // Betreiber am 2026-10-25: „fenster nur im eigenen
+        // contestprogramm schwebend sein, wenn ich diese in die
+        // taskleiste lege oder verkleinere muss das auch alle
+        // betreffen" -- und vorher: „wenn ich dieses zu mache muessen
+        // alle mit."
+        //
+        // Mit setParent(nullptr) wurde jedes abgedockte Panel ein
+        // eigenstaendiges Fenster: beim Minimieren blieb es stehen,
+        // beim Vollbild lag es irgendwo, und im Dock tauchte es
+        // einzeln auf. Qt::Tool mit dem Hauptfenster als Elternteil
+        // haengt es daran -- es folgt beim Minimieren, beim Wechsel
+        // des Schirms und beim Schliessen.
+        QWidget* hauptfenster = m_dockTarget ? m_dockTarget->window() : window();
+        setParent(hauptfenster, Qt::Tool);
         setWindowTitle(m_title.isEmpty() ? m_id : m_title);
         // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
         move(aufDemSchirm);
@@ -161,6 +175,7 @@ void PanelContainerWidget::setFloating(bool floating)
         raise();
         activateWindow();
     } else {
+        setWindowFlag(Qt::Tool, false);
         setWindowFlag(Qt::Window, false);
         setParent(m_dockTarget);
         if (m_dockedGeometry.isValid()) {
