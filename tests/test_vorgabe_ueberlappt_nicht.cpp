@@ -239,13 +239,78 @@ void TestVorgabeUeberlapptNicht::derLeereSeitenbereichStehtNichtImWeg()
 
 // ── Die Eingabezeile steht bei jeder Panelbreite in der Flucht ──────
 //
-// Beim Umbau auf Entwurf 3 wurde das Logpanel von 1440 auf 560
-// Bildpunkte schmaler -- und test_ruetteln wurde rot: „Rufzeichenfeld
-// bei 108, Spalte bei 110". Zwei Bildpunkte.
+// Beim Umbau auf Entwurf 3 wurde das Logpanel schmaler -- und
+// test_ruetteln wurde rot: „Rufzeichenfeld bei 108, Spalte bei 110".
 //
-// Die Frage, die dieser Lauf beantwortet: liegt das an der neuen
-// Vorgabe oder an der Breite an sich? Er misst denselben Versatz bei
-// Breiten, die der Bediener jederzeit von Hand ziehen kann.
+// Dieser Lauf misst den Versatz bei Breiten, die der Bediener
+// jederzeit von Hand ziehen kann. Gemessen wird bei jeder Breite mit
+// EIN- und mit AUSgeschalteter laufender Nummer, weil dabei eine
+// Spalte kommt und geht.
+//
+// ── Stand 2026-10-25 ───────────────────────────────────────────────
+//
+// Ab 700 Bildpunkten Panelbreite steht die Zeile sauber; das ist die
+// Breite der Arbeitsspalte in Entwurf 3 und damit die Vorgabe.
+// Darunter bleibt beim AUSschalten der Nummer ein Rest:
+//
+//     Breite 640: Feld bei 122, Spalte bei 130
+//     Breite 560: Feld bei 112, Spalte bei 120
+//     Breite 500: Feld bei 103, Spalte bei 110
+//     Breite 420: stimmt wieder
+//
+// Die Ursache ist eingekreist, aber nicht behoben. Belegt ist: die
+// Zeile ist zu SCHMAL fuer ihre eigenen Zellen und wird deshalb vom
+// QHBoxLayout gestaucht -- bei Breite 500 ist sie 322 Bildpunkte
+// breit, waehrend das Layout 540 braucht. Die Stauchung verteilt sich
+// auf die Zellen davor: die Zeit-Zelle liegt dann auf 55 statt 62,
+// und das Rufzeichenfeld faengt acht Bildpunkte zu frueh an. Der
+// Zustand ist STABIL -- auch nach acht weiteren Layout-Durchlaeufen
+// mit erzwungenem LayoutRequest bleibt er stehen.
+//
+// Die Zuordnung ist eindeutig -- der Lauf schreibt beide Zahlen mit:
+//
+//     Breite 640: Zeile 370 breit, Layout braucht 615  -> daneben
+//     Breite 560: Zeile 342 breit, Layout braucht 576  -> daneben
+//     Breite 500: Zeile 322 breit, Layout braucht 540  -> daneben
+//     Breite 420: Zeile 520 breit, Layout braucht 520  -> stimmt
+//
+// Wo die Zeile ihre volle Breite hat, stimmt die Flucht. Dass
+// ausgerechnet die SCHMALSTE Panelbreite die breiteste Zeile hat,
+// zeigt auch, woran es nicht liegt: nicht am Platz, sondern daran,
+// WANN die Breite gesetzt wird.
+//
+// syncEntryRowWidth() ist die einzige Stelle, die sie setzt, und sie
+// nimmt m_entryRow->sizeHint(). Der kommt aus einem Zwischenspeicher
+// und meldet beim Aufruf 322, waehrend dasselbe Layout kurz darauf
+// 540 sagt. Ihn durch den Layout-Wert zu ersetzen reicht nicht: auch
+// der steht an dieser Stelle noch auf 322, weil apply() die hinteren
+// Zellen (Austausch, km, Grad) zu dem Zeitpunkt noch nicht gesetzt
+// hat.
+//
+// Offen ist, warum die Zeile nicht auf die 540 waechst:
+// syncEntryRowWidth() sieht zum Zeitpunkt seines Aufrufs einen
+// Layout-sizeHint von 322 (gemessen), der erst spaeter auf 540 geht.
+//
+// Was NICHT die Ursache ist -- alles gemessen, alles wieder
+// ausgebaut, damit es niemand erneut probiert:
+//
+//   * die waagrechte Bildlaufleiste (QEvent::LayoutRequest an die
+//     Tabelle schicken und neu fitten aendert nichts)
+//   * ein zu frueher activate() nach replaceWidget() in
+//     rebuildExchangeCell()
+//   * m_entryRow->setMinimumWidth(Summe der sichtbaren Zellen) -- das
+//     ist genau der zu kleine Wert (322)
+//   * m_entryRowLayout->invalidate() + activate() bzw. setGeometry()
+//     am Ende von applyEntryRowWidths()
+//   * applyEntryRowWidths() am Ende von rebuildEntryRowLayout()
+//   * applyEntryRowWidths() als LETZTEN Schritt in eventFilter() und
+//     resizeEvent() (macht es schlimmer: dann ist auch 420 daneben)
+//   * der verzoegerte Nachschlag aus PR #48 (abgeschaltet gemessen --
+//     derselbe Versatz)
+//
+// Der Nachschlag aus #48 bleibt trotzdem: er hat den Fall „Spalte
+// EIN" geheilt und test_ruetteln von fuenf Fehlschlaegen auf null
+// gebracht.
 void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
 {
     QTemporaryDir dir;
@@ -269,19 +334,12 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
     // Auch mit der laufenden Nummer an und aus: dabei wird der
     // Austauschteil der Zeile ausgetauscht (replaceWidget), und genau
     // danach meldete test_ruetteln den Versatz.
-    // Geprueft wird ab 700 -- das ist die Breite der Arbeitsspalte in
-    // Entwurf 3 und alles darueber.
-    //
-    // Darunter bleibt ein Rest: bei 640, 560 und 500 steht das Feld
-    // nach dem AUSSCHALTEN der laufenden Nummer noch 7 bis 8
-    // Bildpunkte links von seiner Spalte (122/130, 112/120, 103/110),
-    // bei 420 dagegen wieder richtig. Der Nachschlag in
-    // UnifiedLogWidget::applyEntryRowWidths() hat den Fall „Spalte
-    // EIN" geheilt und test_ruetteln von fuenf Fehlschlaegen auf null
-    // gebracht; dieser Rest ist dieselbe Klasse und eine eigene
-    // Baustelle. Er steht hier als Zahl, damit ihn niemand neu suchen
-    // muss.
-    for (int breite : {1440, 1010, 760, 700}) {
+    // Gemessen wird ueber alle Breiten, hart geprueft ab 700 (siehe
+    // den Kopf dieser Datei). Die schmalen Breiten laufen als Zahl
+    // mit: wer den Rest behebt, sieht die Wirkung sofort im
+    // Protokoll, und wer etwas verschlechtert, auch.
+    constexpr int kGeprueftAb = 700;
+    for (int breite : {1440, 1010, 760, 700, 640, 560, 500, 420}) {
       for (bool nummer : {true, false}) {
         panel->trySetGeometry(QRect(0, 0, breite, 450));
         log->setRunningNumberVisible(nummer);
@@ -300,17 +358,75 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
         // schwingt es, bleibt die Abweichung stehen und der Lauf faellt.
         int zelleX = 0;
         int spalteX = 0;
-        for (int runde = 0; runde < 3; ++runde) {
+        for (int runde = 0; runde < 8; ++runde) {
             if (QLayout* l = zeile->layout()) { l->activate(); }
             zelleX  = ruf->mapTo(zeile, QPoint(0, 0)).x();
             spalteX = tabelle->horizontalHeader()->sectionPosition(UnifiedLogWidget::ColumnCall);
-            if (std::abs(zelleX - spalteX) <= 1) { break; }
+            if (std::abs(zelleX - spalteX) <= 1) {
+                if (runde > 0) { qInfo() << "      eingependelt nach Runde" << runde; }
+                break;
+            }
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
             QCoreApplication::processEvents();
         }
-        qInfo().noquote() << QStringLiteral("  Breite %1, Nummer %2: Feld bei %3, Spalte bei %4")
+        qInfo().noquote() << QStringLiteral("  Breite %1, Nummer %2: Feld bei %3, Spalte bei %4%5")
                                  .arg(breite, 5).arg(nummer ? QStringLiteral("an ") : QStringLiteral("aus"))
-                                 .arg(zelleX).arg(spalteX);
-        if (std::abs(zelleX - spalteX) > 1) {
+                                 .arg(zelleX).arg(spalteX)
+                                 .arg(std::abs(zelleX - spalteX) <= 1 ? QString()
+                                                                      : QStringLiteral("   <= daneben"));
+        if (QLayout* l = zeile->layout(); l && breite < kGeprueftAb) {
+            // Die Stauchung mitschreiben: ist die Zeile schmaler als
+            // ihr eigenes Layout braucht, verteilt das QHBoxLayout die
+            // fehlenden Bildpunkte auf die Zellen. Sie steht AUCH bei
+            // 420 da, wo die Flucht stimmt -- die Stauchung allein
+            // erklaert den Versatz also nicht, sie ist nur die
+            // Voraussetzung.
+            qInfo().noquote() << QStringLiteral("        Zeile %1 breit, Layout braucht %2")
+                                     .arg(zeile->width()).arg(l->minimumSize().width());
+        }
+        if (std::abs(zelleX - spalteX) > 1 && breite >= kGeprueftAb) {
+            // Zeigen, WO die Abweichung entsteht -- Zellen und Spalten
+            // nebeneinander, wie im Rüttel-Prüfstand.
+            QStringList zellen;
+            if (QLayout* l = zeile->layout()) {
+                for (int i = 0; i < l->count(); ++i) {
+                    QWidget* w = l->itemAt(i)->widget();
+                    if (!w) {
+                        zellen << QStringLiteral("[Abstandhalter x=%1+%2]")
+                                      .arg(l->itemAt(i)->geometry().x()).arg(l->itemAt(i)->geometry().width());
+                        continue;
+                    }
+                    zellen << QStringLiteral("%1%2 Widget=%3+%4 Layout=%5+%6%7")
+                                  .arg(w->objectName().isEmpty() ? QStringLiteral("(ohne Namen)") : w->objectName())
+                                  .arg(w->isHidden() ? QStringLiteral(" VERSTECKT") : QString())
+                                  .arg(w->mapTo(zeile, QPoint(0, 0)).x())
+                                  .arg(w->width())
+                                  .arg(l->itemAt(i)->geometry().x())
+                                  .arg(l->itemAt(i)->geometry().width())
+                                  .arg(w == ruf ? QStringLiteral(" <= RUF") : QString());
+                    if (w == ruf) { zellen << QStringLiteral("...(weitere folgen)"); break; }
+                }
+            }
+            QStringList spalten;
+            QHeaderView* kopf = tabelle->horizontalHeader();
+            for (int v = 0; v < kopf->count(); ++v) {
+                const int c = kopf->logicalIndex(v);
+                if (kopf->sectionPosition(c) > spalteX) { continue; }
+                spalten << QStringLiteral("Sp%1%2 x=%3 b=%4")
+                               .arg(c)
+                               .arg(kopf->isSectionHidden(c) ? QStringLiteral(" VERSTECKT") : QString())
+                               .arg(kopf->sectionPosition(c))
+                               .arg(tabelle->columnWidth(c));
+            }
+            if (QLayout* l = zeile->layout()) {
+                qInfo() << "      Zeile breit" << zeile->width()
+                        << "| Layout minimumSize" << l->minimumSize().width()
+                        << "sizeHint" << l->sizeHint().width()
+                        << "| Scrollbereich" << (zeile->parentWidget() ? zeile->parentWidget()->width() : -1);
+            }
+            qInfo().noquote() << "      Zellen: " << zellen.join(QStringLiteral(" | "));
+            qInfo().noquote() << "      Spalten:" << spalten.join(QStringLiteral(" | "));
             daneben << QStringLiteral("%1/%2 (%3 statt %4)")
                            .arg(breite).arg(nummer ? QStringLiteral("an") : QStringLiteral("aus"))
                            .arg(zelleX).arg(spalteX);

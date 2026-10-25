@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.20)
 # -DCMAKE_OSX_DEPLOYMENT_TARGET=... von der Befehlszeile gewinnt.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Mindest-macOS-Version")
 
-project(Contestprogramm VERSION 0.1.4 LANGUAGES CXX)
+project(Contestprogramm VERSION 0.1.5 LANGUAGES CXX)
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
 if(APPLE)
