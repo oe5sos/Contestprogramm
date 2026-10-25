@@ -123,6 +123,16 @@ public:
     // Sie lassen sich ganz ausblenden -- dann steht nur noch das
     // eigene Log in der Karte.
     void setSpotsVisible(bool on);
+    // Betreiber am 2026-10-25: „man sollte als option die beiden
+    // rotoren unterhalb der sonne hier im fenster ein/ausblenden
+    // koennen, dann kann man auf wunsch ein fenster sparen. aber dort
+    // sollte man auch den rotor drehen koennen."
+    //
+    // Entwurf A aus drei Blaettern: zwei kleine Scheiben in der
+    // Zahlenspalte, live, klickbar, mit der Rueckrichtung als eigenem
+    // Schalter.
+    void setRotorDialsVisible(bool on);
+    void setRotorDialsBackward(bool on);
     // Der gepunktete Hof um einen geschaetzten Ort. Auf Kurzwelle hat
     // KEINE Station einen getauschten Locator, also traegt dort jeder
     // Punkt einen Hof -- und ein Hinweis, der immer gilt, sagt nichts
@@ -232,6 +242,8 @@ public:
     QRectF canvasRectForTest() const { return scopeRect(); }
     // Was die Karte gerade als Peilung führt -- für Prüfstände, die
     // nachsehen, ob eine Drehung am Rotor hier ankommt.
+    /// Wo die Scheibe zuletzt lag (1 oder 2) -- fuer den Prueflauf.
+    QRectF rotorDialRectForTest(int rotor) const { return m_rotorDialRect[rotor == 2 ? 1 : 0]; }
     double rotorHeadingForTest(int rotor) const { return rotor == 2 ? m_rotor2AzimuthDeg : m_rotor1AzimuthDeg; }
     QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
 
@@ -246,6 +258,8 @@ signals:
     // "dies soll eine option sein, dann kann ich es selbst machen");
     // MainWindow stores it and feeds it back via setRotorNSecondAntenna.
     void secondAntennaToggled(int rotor, bool enabled);
+    /// Klick in eine der Scheiben in der Zahlenspalte: dreh dorthin.
+    void rotorRotateRequested(int rotor, double bearingDeg);
     // View or any layer toggle changed by the operator or a setter.
     void preferencesChanged();
 
@@ -363,6 +377,13 @@ private:
     QAction* m_labelsOnlyNeededAction = nullptr;
     /// Siehe setSpotsVisible / setApproximateHaloEnabled.
     bool m_showSpots = true;
+    /// Siehe setRotorDialsVisible / setRotorDialsBackward.
+    bool m_rotorDials = false;
+    bool m_rotorDialsBackward = false;
+    QAction* m_rotorDialsAction = nullptr;
+    QAction* m_rotorDialsBackAction = nullptr;
+    /// Wo die beiden Scheiben zuletzt lagen -- fuer den Klick.
+    mutable QRectF m_rotorDialRect[2];
     bool m_approxHalo = false;
     QAction* m_spotsAction = nullptr;
     QAction* m_approxHaloAction = nullptr;

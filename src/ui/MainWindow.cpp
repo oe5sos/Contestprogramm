@@ -2644,6 +2644,19 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // setTargetBearing() is NOT called here -- an aimed-but-
             // uncommitted-to-a-callsign heading has no "SP9XYZ · 471 km"
             // caption to show, unlike the candidate-click path).
+            // Dasselbe aus der Karte: die Scheiben in der Zahlenspalte
+            // (Betreiber am 2026-10-25, Entwurf A) drehen ueber genau
+            // diesen Weg, damit es nur EINE Stelle gibt, an der ein
+            // Drehbefehl entsteht.
+            if (m_mapWidget != nullptr) {
+                connect(m_mapWidget, &MapWidget::rotorRotateRequested, widget,
+                        [&client, nummer = insertIndex + 1](int rotor, double bearingDeg) {
+                            if (rotor != nummer || !client.isConnected()) { return; }
+                            const BeamHeading::Move move =
+                                BeamHeading::plan(client.azimuthDeg(), bearingDeg, BeamHeading::Stop::None);
+                            if (move.reachable) { client.setAzimuth(move.targetDeg); }
+                        });
+            }
             connect(widget, &RotorWidget::rotateRequested, widget, [&client](double bearingDeg) {
                 if (!client.isConnected()) {
                     return;
