@@ -669,6 +669,8 @@ private:
     /// Gruppen. Ein Mitschnitt, von dem man nicht sieht, ob er
     /// laeuft, ist keiner.
     QPushButton* m_audioRecordButton = nullptr;
+    /// Die aufgenommene Zeit, immer sichtbar neben dem Schalter.
+    QLabel* m_audioRecordTimeLabel = nullptr;
     class QTimer* m_audioRecordTicker = nullptr;
     void aktualisiereMitschnittAnzeige();
     // See saveWindowGeometry()'s doc comment.
