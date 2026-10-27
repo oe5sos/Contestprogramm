@@ -311,7 +311,40 @@ void TestVorgabeUeberlapptNicht::derLeereSeitenbereichStehtNichtImWeg()
 //
 // Der Nachschlag aus #48 bleibt trotzdem: er hat den Fall „Spalte
 // EIN" geheilt und test_ruetteln von fuenf Fehlschlaegen auf null
-// gebracht.
+// ── Geloest am 2026-10-27 ──────────────────────────────────────────
+//
+// Die Zeile war zu SCHMAL fuer ihre eigenen Zellen und wurde vom
+// QHBoxLayout gestaucht -- auch ueber setFixedSize() hinweg. Die
+// fehlenden Bildpunkte verteilten sich auf die Zellen davor: die
+// Zeit-Zelle lag auf 55 statt 62, das Rufzeichenfeld fing acht
+// Bildpunkte zu frueh an.
+//
+//     Breite 640: Zeile 370 breit, Layout braucht 615  -> daneben
+//     Breite 560: Zeile 342 breit, Layout braucht 576  -> daneben
+//     Breite 500: Zeile 322 breit, Layout braucht 540  -> daneben
+//     Breite 420: Zeile 520 breit, Layout braucht 520  -> stimmt
+//
+// Schuld war die Quelle der Breite: syncEntryRowWidth() nahm
+// m_entryRow->sizeHint(), und der kommt aus einem Zwischenspeicher,
+// den Qt erst beim naechsten Durchlauf erneuert. Nach einem
+// Spaltenwechsel steht dort die alte, kleinere Summe.
+//
+// Jetzt rechnet die Funktion die Breite aus den SPALTENPOSITIONEN der
+// Tabelle: die kommen vom QHeaderView, nicht aus einem Layout-Cache,
+// und ihre rechte Kante ist genau das, was die Zeile braucht.
+//
+// Was vorher nicht half -- gemessen und wieder ausgebaut, damit es
+// niemand erneut probiert: die waagrechte Bildlaufleiste (LayoutRequest
+// an die Tabelle), activate() nach replaceWidget(), setMinimumWidth auf
+// die Summe der sichtbaren Zellen (das ist genau der zu kleine Wert),
+// invalidate() + activate() bzw. setGeometry() am Ende von
+// applyEntryRowWidths(), applyEntryRowWidths() am Ende von
+// rebuildEntryRowLayout(), und applyEntryRowWidths() als LETZTEN
+// Schritt in eventFilter()/resizeEvent() -- das machte es schlimmer.
+//
+// Der verzoegerte Nachschlag in applyEntryRowWidths() bleibt: er hat
+// den Fall „Spalte EIN" geheilt und test_ruetteln von fuenf
+// Fehlschlaegen auf null gebracht.
 void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
 {
     QTemporaryDir dir;
@@ -335,11 +368,9 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
     // Auch mit der laufenden Nummer an und aus: dabei wird der
     // Austauschteil der Zeile ausgetauscht (replaceWidget), und genau
     // danach meldete test_ruetteln den Versatz.
-    // Gemessen wird ueber alle Breiten, hart geprueft ab 700 (siehe
-    // den Kopf dieser Datei). Die schmalen Breiten laufen als Zahl
-    // mit: wer den Rest behebt, sieht die Wirkung sofort im
-    // Protokoll, und wer etwas verschlechtert, auch.
-    constexpr int kGeprueftAb = 700;
+    // Alle Breiten, hart geprueft. Bis zum 2026-10-27 stand hier eine
+    // Decke bei 700, weil die schmalen Breiten nicht trugen.
+    constexpr int kGeprueftAb = 0;
     for (int breite : {1440, 1010, 760, 700, 640, 560, 500, 420}) {
       for (bool nummer : {true, false}) {
         panel->trySetGeometry(QRect(0, 0, breite, 450));
