@@ -2803,7 +2803,32 @@ void UnifiedLogWidget::syncEntryRowWidth()
     const int statusWidth = qBound(kColumnWidths[ColStatus], viewportWidth - baseWidth, kStatusColumnMaxWidth);
     const int rowHeight = m_feedTable->verticalHeader()->defaultSectionSize();
     m_statusPillLabel->setFixedSize(statusWidth, rowHeight);
-    m_entryRow->resize(m_entryRow->sizeHint());
+    // Die Zeile bekommt die Breite des RASTERS, nicht einen sizeHint.
+    //
+    // sizeHint() kommt aus einem Zwischenspeicher, den Qt erst beim
+    // naechsten Durchlauf erneuert. Nach einem Spaltenwechsel steht
+    // dort die alte, kleinere Summe -- und ein resize() darauf macht
+    // die Zeile schmaler als ihre eigenen Zellen. Ein QHBoxLayout
+    // staucht dann, auch ueber setFixedSize() hinweg, und verteilt die
+    // fehlenden Bildpunkte auf die Zellen davor: das Rufzeichenfeld
+    // steht ein paar Bildpunkte links von seiner Spalte.
+    //
+    // Gemessen am 2026-10-25 (Panelbreite 500, Nummer aus): Zeile 322
+    // breit, Layout braucht 540. Auf Windows traf es auch breitere
+    // Panels -- „Rufzeichenfeld bei 152, Spalte bei 154" im
+    // Ruettel-Prueflauf.
+    //
+    // Die Spaltenpositionen der Tabelle sind dagegen immer aktuell:
+    // sie kommen vom QHeaderView, nicht aus einem Layout-Cache. Ihre
+    // rechte Kante ist genau die Breite, die die Zeile braucht.
+    QHeaderView* rasterKopf = m_feedTable->horizontalHeader();
+    int rasterBreite = 0;
+    for (int c = 0; c < ColCount; ++c) {
+        if (m_feedTable->isColumnHidden(c)) { continue; }
+        rasterBreite = qMax(rasterBreite, rasterKopf->sectionPosition(c) + m_feedTable->columnWidth(c));
+    }
+    m_entryRow->resize(qMax(rasterBreite, m_entryRow->sizeHint().width()),
+                       m_entryRow->sizeHint().height());
 }
 
 void UnifiedLogWidget::setEntryWarning(const QString& text)
