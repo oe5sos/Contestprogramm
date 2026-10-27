@@ -158,7 +158,8 @@ private slots:
     // active contest (data/DupeRescore.h), write the ones that changed,
     // patch their rows in place. Returns how many changed.
     int rescoreDupes();
-    void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
+    void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                                  bool gridGeschaetzt = false);
     void handleCallsignLookupRequested(const QString& callsign);
     // Live km/bearing preview for the in-progress entry -- recomputes
     // from ContestSettings::ownGrid + whatever is currently typed in the
