@@ -39,6 +39,7 @@ private slots:
     void beideSchalterSindAusUndUeberlebenEinenNeustart();
     void dieStationKenntDenNeuenMultiplikator();
     void dieRotorscheibenSindOptionUndDrehbar();
+    void gearbeiteteAusblendenUndDerGewaehlteRing();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -148,6 +149,59 @@ void TestKarteKurzwelle::dieRotorscheibenSindOptionUndDrehbar()
     const double grad = spion.first().at(1).toDouble();
     QVERIFY2(grad < 5.0 || grad > 355.0,
              qPrintable(QStringLiteral("oben in der Scheibe sind 0 Grad, gemeldet wurden %1").arg(grad)));
+}
+
+// ── Gearbeitete ausblenden, und der gewaehlte Ring ──────────────────
+//
+// Betreiber am 2026-10-26: „die gespotteten soll man als option ein
+// und ausblenden koennen, genau so wie die bereits erreichten qso im
+// contest." Und: „wenn ich 500 km auswaehle, moechte ich den runden
+// ring (500 km) in gelb/braun -- unsere farben sehen."
+void TestKarteKurzwelle::gearbeiteteAusblendenUndDerGewaehlteRing()
+{
+    MapWidget karte;
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setLabelsOnlyNeededEnabled(true);
+    // Die Rasterfelder bleiben draussen: sie haben ihren eigenen
+    // Schalter („Gearbeitete Felder faerben"), und ein gearbeitetes
+    // QSO faerbt sonst sein ganzes Feld -- dann misst dieser Lauf die
+    // Flaeche statt den Punkt.
+    karte.setWorkedCellsLayerVisible(false);
+    karte.resize(600, 600);
+
+    MapWidget::Station s;
+    s.callsign = QStringLiteral("DL1ABC");
+    s.grid     = QStringLiteral("JN68AA");
+    s.worked   = true;
+    s.freqHz   = 144300000;
+
+    const QImage leer = karte.grab().toImage();
+    karte.setStations({s});
+    const QImage mit = karte.grab().toImage();
+    QVERIFY2(leer != mit, "das gearbeitete QSO wird gar nicht gezeichnet");
+
+    // Beide Schalter sind an, solange niemand sie ausschaltet.
+    QVERIFY2(karte.preferencesText().contains(QStringLiteral("worked=1")),
+             qPrintable(karte.preferencesText()));
+    karte.setWorkedVisible(false);
+    // Das Bild muss sich wieder aendern. Auf Gleichheit mit dem leeren
+    // Bild laesst sich nicht pruefen: eine gearbeitete Station setzt
+    // auch die ODX-Zahl in der Spalte und toent ihr Rasterfeld, und
+    // beides bleibt stehen -- zu Recht, es gilt ja weiter.
+    QVERIFY2(karte.grab().toImage() != mit,
+             "der Schalter „Gearbeitete anzeigen\" aendert nichts am Bild");
+    QVERIFY2(karte.preferencesText().contains(QStringLiteral("worked=0")),
+             qPrintable(karte.preferencesText()));
+    karte.setWorkedVisible(true);
+
+    // Der gewaehlte Radius wird in Bernstein gezogen: wechselt die
+    // Reichweite, aendert sich das Bild auch ohne Stationen.
+    karte.setStations({});
+    karte.setVisibleRangeKm(500.0);
+    const QImage bei500 = karte.grab().toImage();
+    karte.setVisibleRangeKm(750.0);
+    QVERIFY2(karte.grab().toImage() != bei500,
+             "der Ring folgt der gewaehlten Reichweite nicht");
 }
 
 int main(int argc, char* argv[])

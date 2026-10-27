@@ -123,6 +123,8 @@ public:
     // Sie lassen sich ganz ausblenden -- dann steht nur noch das
     // eigene Log in der Karte.
     void setSpotsVisible(bool on);
+    /// Die eigenen QSOs -- derselbe Schalter wie fuer die Spots.
+    void setWorkedVisible(bool on);
     // Betreiber am 2026-10-25: „man sollte als option die beiden
     // rotoren unterhalb der sonne hier im fenster ein/ausblenden
     // koennen, dann kann man auf wunsch ein fenster sparen. aber dort
@@ -377,6 +379,8 @@ private:
     QAction* m_labelsOnlyNeededAction = nullptr;
     /// Siehe setSpotsVisible / setApproximateHaloEnabled.
     bool m_showSpots = true;
+    bool m_showWorked = true;
+    QAction* m_workedAction = nullptr;
     /// Siehe setRotorDialsVisible / setRotorDialsBackward.
     bool m_rotorDials = false;
     bool m_rotorDialsBackward = false;
