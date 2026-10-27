@@ -1216,11 +1216,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                 if (!m_appController.audioRecorder().isRecording()) { return; }
                 if (m_appController.audioRecorder().recordedSeconds() > 0.0) { return; }
                 const QString geraet = m_appController.settings().audioRecordDevice.trimmed();
+                const QString format = m_appController.audioCapture().formatText();
                 statusBar()->showMessage(
-                    QStringLiteral("Mitschnitt: seit sechs Sekunden kommt kein Ton an%1 "
+                    QStringLiteral("Mitschnitt: seit sechs Sekunden kommt kein Ton an%1%2 "
                                    "-- die Datei bleibt leer.")
                         .arg(geraet.isEmpty() ? QString()
-                                              : QStringLiteral(" von \u201e%1\u201c").arg(geraet)),
+                                              : QStringLiteral(" von \u201e%1\u201c").arg(geraet),
+                             format.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(format)),
                     30000);
                 qWarning().noquote()
                     << QStringLiteral("QSO-Mitschnitt: keine Proben von \"%1\"").arg(geraet);

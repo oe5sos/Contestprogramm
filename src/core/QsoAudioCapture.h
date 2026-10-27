@@ -64,6 +64,14 @@ public:
     bool isRunning() const;
 
     QString deviceName() const { return m_deviceName; }
+    /// Was wirklich geoeffnet wurde, als Text: „48000 Hz, 2 Kanaele".
+    /// Steht in der Meldung, wenn keine Probe ankommt -- ohne diese
+    /// Zahlen laesst sich von aussen nicht sagen, WORAN es liegt.
+    QString formatText() const
+    {
+        if (!m_format.isValid()) { return {}; }
+        return QStringLiteral("%1 Hz, %2 Kanäle").arg(m_format.sampleRate()).arg(m_format.channelCount());
+    }
     int     sampleRateHz() const { return m_format.sampleRate(); }
     int     channels() const { return m_format.channelCount(); }
 
