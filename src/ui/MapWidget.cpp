@@ -238,6 +238,9 @@ void MapWidget::buildControls()
     m_rotorDialsBackAction = addToggle(QStringLiteral("Rückrichtung zeigen"),
                                        QStringLiteral("Die Gegenrichtung der Antenne als gepunktete Linie"),
                                        &MapWidget::setRotorDialsBackward);
+    m_workedAction = addToggle(QStringLiteral("Gearbeitete anzeigen"),
+                               QStringLiteral("Die eigenen QSOs des laufenden Contests"),
+                               &MapWidget::setWorkedVisible);
     m_spotsAction = addToggle(QStringLiteral("Spots anzeigen"),
                               QStringLiteral("Gespottete, noch nicht gearbeitete Stationen. Aus heisst: nur das "
                                              "eigene Log steht in der Karte"),
@@ -328,6 +331,7 @@ void MapWidget::syncControls()
     sync(m_bandColorsAction, m_bandColors);
     sync(m_labelsOnlyNeededAction, m_labelsOnlyNeeded);
     sync(m_spotsAction, m_showSpots);
+    sync(m_workedAction, m_showWorked);
     sync(m_rotorDialsAction, m_rotorDials);
     sync(m_rotorDialsBackAction, m_rotorDialsBackward);
     sync(m_approxHaloAction, m_approxHalo);
@@ -358,6 +362,7 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     syncControls();
     menu->addAction(m_ringsAction);
     menu->addAction(m_greylineAction);
+    menu->addAction(m_workedAction);
     menu->addAction(m_spotsAction);
     menu->addAction(m_bandColorsAction);
     menu->addAction(m_labelsOnlyNeededAction);
@@ -483,6 +488,7 @@ MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
 MAPWIDGET_TOGGLE(setSpotsVisible, m_showSpots)
+MAPWIDGET_TOGGLE(setWorkedVisible, m_showWorked)
 MAPWIDGET_TOGGLE(setRotorDialsVisible, m_rotorDials)
 MAPWIDGET_TOGGLE(setRotorDialsBackward, m_rotorDialsBackward)
 MAPWIDGET_TOGGLE(setApproximateHaloEnabled, m_approxHalo)
@@ -695,7 +701,7 @@ QString MapWidget::preferencesText() const
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
                           "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16;"
                           "bandcolors=%17;labelsneeded=%18;spots=%19;approxhalo=%20;"
-                          "rotordials=%21;rotorback=%22")
+                          "rotordials=%21;rotorback=%22;worked=%23")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
@@ -705,7 +711,8 @@ QString MapWidget::preferencesText() const
         .arg(flag(m_fullBleed))
         .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded))
         .arg(flag(m_showSpots), flag(m_approxHalo))
-        .arg(flag(m_rotorDials), flag(m_rotorDialsBackward));
+        .arg(flag(m_rotorDials), flag(m_rotorDialsBackward))
+        .arg(flag(m_showWorked));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -752,6 +759,8 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_rotorDials);
         } else if (key == QStringLiteral("rotorback")) {
             apply(m_rotorDialsBackward);
+        } else if (key == QStringLiteral("worked")) {
+            apply(m_showWorked);
         } else if (key == QStringLiteral("greyline")) {
             apply(m_layers.greyline);
             syncGreylineTimer();
@@ -1342,6 +1351,21 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
         painter.drawText(polar(center, 135.0, frac * halfWidth, frac * halfHeight) + QPointF(3.0, 10.0),
                          QString::number(static_cast<int>(km)));
     }
+
+    // Der GEWAEHLTE Radius bekommt einen eigenen Ring, in unserer
+    // Farbe. Betreiber am 2026-10-26: „wenn ich 500 km auswaehle,
+    // moechte ich den runden ring (500 km) in gelb/braun -- unsere
+    // farben sehen. bei 750 km auswahl, dann den ring mit 750 km usw."
+    //
+    // In der Scheibenansicht ist das der Rand; in Vollflaeche liegt er
+    // mitten im Bild, und genau dort fehlte bisher jede Markierung --
+    // die Karte reicht dann ueber den eingestellten Radius hinaus, und
+    // man sah nicht mehr, wo er endet.
+    painter.setPen(QPen(QColor(Style::kAmberText()), 1.4));
+    painter.drawEllipse(center, halfWidth, halfHeight);
+    painter.setPen(QColor(Style::kAmberText()));
+    painter.drawText(polar(center, 135.0, halfWidth, halfHeight) + QPointF(3.0, 10.0),
+                     QStringLiteral("%1 km").arg(static_cast<int>(m_visibleRangeKm)));
 }
 
 void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
@@ -1568,6 +1592,13 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             // ich sehe nur grosse blaue icons aber keine einzig
             // markiertes log von mir."
             if (!station.worked && !m_showSpots) {
+                continue;
+            }
+            // Und dasselbe fuer die eigenen QSOs. Betreiber am
+            // 2026-10-26: „die gespotteten soll man als option ein und
+            // ausblenden koennen, genau so wie die bereits erreichten
+            // qso im contest."
+            if (station.worked && !m_showWorked) {
                 continue;
             }
             if (p.distanceKm > m_visibleRangeKm * visibleRangeFactor()) {
