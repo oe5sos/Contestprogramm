@@ -252,7 +252,12 @@ public:
 
 signals:
     // A click on a station (marker or skyline tick).
-    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
+    // `gridGeschaetzt` sagt, dass `grid` nur der Mittelpunkt des
+    // Landes ist und NICHT der Locator der Station (Station::
+    // approximate). Zum Drehen des Rotors taugt er, als Austausch
+    // nicht -- siehe MainWindow::handleCandidateActivated.
+    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                            bool gridGeschaetzt = false);
     // The ⚙ menu's "Zweitantenne" entry for rotor 1 or 2 -- the same
     // station setting the settings dialog edits (operator, 2026-09-20:
     // "dies soll eine option sein, dann kann ich es selbst machen");
