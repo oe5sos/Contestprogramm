@@ -40,6 +40,7 @@ private slots:
     void dieStationKenntDenNeuenMultiplikator();
     void dieRotorscheibenSindOptionUndDrehbar();
     void gearbeiteteAusblendenUndDerGewaehlteRing();
+    void derGradStehtInDerScheibeUndWaechstMit();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -202,6 +203,42 @@ void TestKarteKurzwelle::gearbeiteteAusblendenUndDerGewaehlteRing()
     karte.setVisibleRangeKm(750.0);
     QVERIFY2(karte.grab().toImage() != bei500,
              "der Ring folgt der gewaehlten Reichweite nicht");
+}
+
+// ── Entwurf D: der Grad steht in der Scheibe ────────────────────────
+//
+// Betreiber am 2026-10-26: „vielleicht lassen sich auch die grad
+// digital anzeigen. vielleicht im rotor innerhalb. sollte mit der
+// groesse mitwachsen." Und zur Dopplung: „ich sehe gerade, dass rotor
+// 1 und rotor 2 im fenster ersichtlich ist! vielleicht gibt es eine
+// andere anordnung."
+void TestKarteKurzwelle::derGradStehtInDerScheibeUndWaechstMit()
+{
+    MapWidget karte;
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotor1Heading(true, 290.0, QStringLiteral("144"));
+    karte.resize(900, 600);
+
+    // Ohne Scheiben steht der Winkel oben als Text; mit Scheiben
+    // steht er IN der Scheibe -- und oben nicht mehr. Dass sich das
+    // Bild ueberhaupt aendert, zeigt schon der Schalter-Prueflauf;
+    // hier geht es um die Flaeche, die der Textblock frei macht.
+    const QImage ohne = karte.grab().toImage();
+    karte.setRotorDialsVisible(true);
+    const QImage mit = karte.grab().toImage();
+    QVERIFY2(ohne != mit, "die Scheiben aendern nichts");
+
+    // Mit der Groesse wachsen: eine breitere Spalte traegt eine
+    // groessere Scheibe, und damit eine groessere Zahl.
+    const QRectF klein = karte.rotorDialRectForTest(1);
+    QVERIFY2(!klein.isEmpty(), "keine Scheibe gezeichnet");
+    karte.resize(1400, 900);
+    karte.grab();
+    const QRectF gross = karte.rotorDialRectForTest(1);
+    QVERIFY2(!gross.isEmpty(), "nach dem Vergroessern keine Scheibe");
+    QVERIFY2(gross.width() >= klein.width(),
+             qPrintable(QStringLiteral("die Scheibe waechst nicht mit: %1 -> %2")
+                            .arg(klein.width()).arg(gross.width())));
 }
 
 int main(int argc, char* argv[])
