@@ -40,6 +40,7 @@ private slots:
     void dieStationKenntDenNeuenMultiplikator();
     void dieRotorscheibenSindOptionUndDrehbar();
     void gearbeiteteAusblendenUndDerGewaehlteRing();
+    void einGeschaetzterOrtIstKeinLocator();
     void derGradStehtInDerScheibeUndWaechstMit();
 };
 
@@ -203,6 +204,57 @@ void TestKarteKurzwelle::gearbeiteteAusblendenUndDerGewaehlteRing()
     karte.setVisibleRangeKm(750.0);
     QVERIFY2(karte.grab().toImage() != bei500,
              "der Ring folgt der gewaehlten Reichweite nicht");
+}
+
+// ── Ein geschaetzter Ort ist kein Locator ───────────────────────────
+//
+// Betreiber am 2026-10-26, nach dem Contest: „weiters stimmen einige
+// locator nicht automatisch mit den rufzeichen zusammen."
+//
+// Fuer jede Station ohne getauschten Locator traegt die Karte den
+// Mittelpunkt des LANDES, damit der Punkt ueberhaupt irgendwo sitzt.
+// Ein Klick darauf schrieb ihn bisher als Locator ins Austauschfeld
+// -- und von dort ging er ins Log und ins Cabrillo.
+void TestKarteKurzwelle::einGeschaetzterOrtIstKeinLocator()
+{
+    MapWidget karte;
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.resize(600, 600);
+
+    MapWidget::Station geschaetzt;
+    geschaetzt.callsign    = QStringLiteral("9A1AA");
+    geschaetzt.grid        = QStringLiteral("JN75"); // Mittelpunkt Kroatiens
+    geschaetzt.approximate = true;
+    geschaetzt.worked      = false;
+    geschaetzt.freqHz      = 144300000;
+    karte.setStations({geschaetzt});
+    karte.grab(); // zeichnen, damit die Punkte eine Lage haben
+
+    QSignalSpy spion(&karte, &MapWidget::candidateActivated);
+    QVERIFY(spion.isValid());
+
+    // Den Punkt anklicken: seine Lage kennt nur die Karte, also ueber
+    // das Bild suchen -- die einzige Stelle, die sich gegenueber der
+    // leeren Karte geaendert hat.
+    MapWidget leer;
+    leer.setOwnGrid(QStringLiteral("JN67VV"));
+    leer.resize(600, 600);
+    const QImage ohne = leer.grab().toImage();
+    const QImage mit  = karte.grab().toImage();
+    QPoint treffer;
+    for (int y = 0; y < ohne.height() && treffer.isNull(); ++y) {
+        for (int x = 0; x < ohne.width(); ++x) {
+            if (ohne.pixel(x, y) != mit.pixel(x, y)) { treffer = QPoint(x, y); break; }
+        }
+    }
+    QVERIFY2(!treffer.isNull(), "die Station wird gar nicht gezeichnet");
+    QTest::mouseClick(&karte, Qt::LeftButton, Qt::NoModifier, treffer);
+
+    QCOMPARE(spion.count(), 1);
+    QCOMPARE(spion.first().at(0).toString(), QStringLiteral("9A1AA"));
+    QCOMPARE(spion.first().at(1).toString(), QStringLiteral("JN75"));
+    QVERIFY2(spion.first().at(3).toBool(),
+             "die Karte meldet den Landesmittelpunkt als echten Locator");
 }
 
 // ── Entwurf D: der Grad steht in der Scheibe ────────────────────────

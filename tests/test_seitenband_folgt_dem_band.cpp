@@ -179,7 +179,12 @@ void TestSeitenbandFolgtDemBand::beimWechselAufVierzigGehtLsbHinaus()
     QVERIFY(c);
 
     MainWindow fenster(*c);
-    QTRY_VERIFY_WITH_TIMEOUT(c->rigctldClient().isConnected(), 5000);
+    // 15 s, nicht 5: auf dem Windows-Laeufer hat der Verbindungsaufbau
+    // die kurze Frist zweimal gerissen und den ganzen Lauf rot gemacht,
+    // waehrend der Pruefstand selbst nichts gefunden hatte. Die uebrigen
+    // Netz-Pruefstaende des Hauses (test_client_reconnect,
+    // test_rigctld_supervision) warten seit je 15 s.
+    QTRY_VERIFY_WITH_TIMEOUT(c->rigctldClient().isConnected(), 15000);
 
     // Erst auf 20 m und SSB -- die Lage, aus der heraus es schiefging.
     auto* zuZwanzig = fenster.findChild<QAction*>(QStringLiteral("bandAction_14"));

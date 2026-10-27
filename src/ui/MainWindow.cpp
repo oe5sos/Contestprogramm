@@ -918,7 +918,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
                                          m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(1158, 732, 282, 250),
                                          QRect(1042, 382, 330, 130));
-    connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
+    connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, [this](const QString& ruf, const QString& grid, qint64 hz) {
+        // Diese Quellen tragen einen ECHTEN Locator (aus dem Spot
+        // oder aus dem Log), keinen Landesmittelpunkt -- nur die
+        // Karte muss das unterscheiden.
+        handleCandidateActivated(ruf, grid, hz, false);
+    });
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
     // Rate meter now gets a real header -- it used to be a bare,
@@ -1001,7 +1006,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // eigenes Panel wie in N1MM und DXLog.net.
     m_chatPanel = new ChatPanelWidget(this);
     m_chatPanel->setFeedModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
-    connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
+    connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, [this](const QString& ruf, const QString& grid, qint64 hz) {
+        // Diese Quellen tragen einen ECHTEN Locator (aus dem Spot
+        // oder aus dem Log), keinen Landesmittelpunkt -- nur die
+        // Karte muss das unterscheiden.
+        handleCandidateActivated(ruf, grid, hz, false);
+    });
     connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
     PanelContainerWidget* chatContainer =
         // Im großen Entwurf unten rechts, neben den Skeds. Im KOMPAKTEN
@@ -3903,11 +3913,26 @@ void MainWindow::recheckDupeIndicator()
     m_unifiedLog->setDupeIndicator(true, detail);
 }
 
-void MainWindow::handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz)
+void MainWindow::handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                                          bool gridGeschaetzt)
 {
     m_unifiedLog->setCallsign(callsign);
     bool gridFieldSet = false;
-    if (!grid.isEmpty()) {
+    // Ein GESCHAETZTER Ort gehoert nicht in den Austausch.
+    //
+    // Betreiber am 2026-10-26, nach dem Contest: „weiters stimmen
+    // einige locator nicht automatisch mit den rufzeichen zusammen."
+    //
+    // Auf Kurzwelle -- und fuer jede Station ohne getauschten Locator
+    // -- traegt die Karte den Mittelpunkt des LANDES, damit der Punkt
+    // ueberhaupt irgendwo sitzt (MainWindow::mapGridForCallsign setzt
+    // dabei `approximate`). Der ist gut genug, um die Antenne zu
+    // drehen, aber als Locator ist er schlicht falsch: ein Klick auf
+    // die Station schrieb ihn bisher ins Austauschfeld, und von dort
+    // ging er ins Log und ins Cabrillo.
+    //
+    // Zum Drehen wird er unten weiterhin benutzt.
+    if (!grid.isEmpty() && !gridGeschaetzt) {
         const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
         const ContestDefinition::ExchangeField* gridField = def ? findFieldByType(*def, QStringLiteral("grid6")) : nullptr;
         if (gridField) {

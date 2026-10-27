@@ -2122,7 +2122,7 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         if (!open.isEmpty()) {
             const Station* next = open.at(m_openInBeamCursor % open.size());
             m_openInBeamCursor = (m_openInBeamCursor + 1) % open.size();
-            emit candidateActivated(next->callsign, next->grid, next->freqHz);
+            emit candidateActivated(next->callsign, next->grid, next->freqHz, next->approximate);
         }
         return;
     }
@@ -2153,7 +2153,7 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         }
     }
     if (hit) {
-        emit candidateActivated(hit->callsign, hit->grid, hit->freqHz);
+        emit candidateActivated(hit->callsign, hit->grid, hit->freqHz, hit->approximate);
         return;
     }
     QWidget::mousePressEvent(event);
