@@ -1742,6 +1742,13 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     // Verbindung steht "getrennt" in der KLEINEN Beschriftungszeile,
     // nicht im großen Wert -- dort trüge es sonst dasselbe Gewicht wie
     // die Peilung selbst.
+    //
+    // Stehen die Scheiben weiter unten, faellt dieser Block weg:
+    // Betreiber am 2026-10-26, mit Bild: „ich sehe gerade, dass rotor
+    // 1 und rotor 2 im fenster ersichtlich ist! vielleicht gibt es
+    // eine andere anordnung." Derselbe Winkel zweimal untereinander
+    // ist einmal zu viel; die Scheibe sagt es genauer.
+    if (!m_rotorDials) {
     {
         const QString band = m_rotor1Label.isEmpty() ? QString()
                                                      : QStringLiteral(" · %1").arg(m_rotor1Label);
@@ -1773,6 +1780,7 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
         value(text, m_rotor2Live ? QColor(Style::kTextSecondary()) : QColor(Style::kTextInactive()),
               Style::kFontBody);
     }
+    } // if (!m_rotorDials) -- siehe oben
 
     // Open stations inside any of rotor 1's cones -- blue, because a
     // click on it works them: each click hands the next one (farthest
@@ -1911,21 +1919,40 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
                 painter.drawLine(mitte, QPointF(mitte.x() + (radius - 5.0) * std::cos(ab),
                                                 mitte.y() + (radius - 5.0) * std::sin(ab)));
             }
+            // Der Grad steht IN der Scheibe. Entwurf D, vom Betreiber
+            // am 2026-10-26 aus drei Blaettern gewaehlt: „vielleicht
+            // lassen sich auch die grad digital anzeigen. vielleicht
+            // im rotor innerhalb. sollte mit der groesse mitwachsen."
+            //
+            // Die Schrift haengt am Radius, waechst also mit der
+            // Spalte mit. Darunter liegt ein kleines Feld in der
+            // Farbe der Flaeche, damit die Nadel nicht durch die
+            // Ziffern laeuft; den Mittelpunkt braucht es dann nicht
+            // mehr.
+            const QString gradText = QStringLiteral("%1°").arg(az, 0, 'f', 0);
+            QFont zahlFont = Style::monoFont(font(), Style::kFontReading);
+            zahlFont.setPointSizeF(qMax(11.0, radius * 0.46));
+            zahlFont.setBold(true);
+            painter.setFont(zahlFont);
+            const QRectF zahlKasten = QFontMetricsF(zahlFont)
+                                          .boundingRect(gradText)
+                                          .adjusted(-6.0, -2.0, 6.0, 2.0)
+                                          .translated(mitte);
             painter.setPen(Qt::NoPen);
-            painter.setBrush(nadel);
-            painter.drawEllipse(mitte, 2.5, 2.5);
+            painter.setBrush(QColor(Style::kPanelBg()));
+            painter.drawRoundedRect(zahlKasten, 3.0, 3.0);
+            painter.setPen(nadel);
+            painter.drawText(zahlKasten, Qt::AlignCenter, gradText);
             y += durchmesser + 4.0;
 
-            painter.setFont(Style::monoFont(font(), Style::kFontReading));
-            painter.setPen(nadel);
-            painter.drawText(QPointF(x, y + 12.0), QStringLiteral("%1°").arg(az, 0, 'f', 0));
             if (m_rotorDialsBackward) {
                 painter.setFont(Style::monoFont(font(), Style::kFontCaption));
                 painter.setPen(QColor(Style::kTextTertiary()));
-                painter.drawText(QPointF(x + 56.0, y + 12.0),
+                painter.drawText(QPointF(x, y + 11.0),
                                  QStringLiteral("zurück %1°").arg(wrap360(az + 180.0), 0, 'f', 0));
+                y += 16.0;
             }
-            y += 24.0;
+            y += 8.0;
         }
     }
 
