@@ -1931,13 +1931,34 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             const QPointF mitte(x + radius + 4.0, y + radius);
             m_rotorDialRect[i] = QRectF(mitte.x() - radius, mitte.y() - radius, durchmesser, durchmesser);
 
+            // ── Entwurf A ────────────────────────────────────────
+            //
+            // Betreiber am 2026-10-28, mit Bild: „rechts die rotoren
+            // sind noch zu verbessern, man sieht nur einen kreis." Er
+            // hatte recht: die Flaeche der Scheibe war dieselbe wie die
+            // der Spalte, und die Teilstriche standen in kBorderSubtle
+            // (#1f1f23) auf kPanelBg (#0c0c0e) -- rechnerisch ein
+            // Unterschied, auf dem Schirm keiner. Blieb der blosse Ring.
+            //
+            // Aus fuenf Blaettern hat er A gewaehlt: eigene, dunklere
+            // Flaeche, damit der Kreis ueberhaupt eine Scheibe ist;
+            // Striche alle 10 Grad, laenger und heller bei 30 und 90;
+            // N O S W innen am Rand; die Gradzahl unten statt in der
+            // Mitte, wo sie bisher ueber der Nadel lag.
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(Style::kInsetBg()));
+            painter.drawEllipse(mitte, radius, radius);
             painter.setBrush(Qt::NoBrush);
             painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
             painter.drawEllipse(mitte, radius, radius);
-            painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
-            for (int g = 0; g < 360; g += 30) {
+            for (int g = 0; g < 360; g += 10) {
                 const double a = qDegreesToRadians(double(g) - 90.0);
-                const double innen = radius - ((g % 90 == 0) ? 7.0 : 4.0);
+                const bool viertel = (g % 90 == 0);
+                const bool drittel = (g % 30 == 0);
+                const double lang  = viertel ? 8.0 : (drittel ? 6.0 : 3.0);
+                painter.setPen(QPen(QColor(drittel ? Style::kTextScale() : Style::kBorderSubtle()),
+                                    viertel ? 1.5 : 1.0));
+                const double innen = radius - lang;
                 painter.drawLine(QPointF(mitte.x() + innen * std::cos(a), mitte.y() + innen * std::sin(a)),
                                  QPointF(mitte.x() + radius * std::cos(a), mitte.y() + radius * std::sin(a)));
             }
@@ -1951,12 +1972,33 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
                         90.0 - az - halb, 2.0 * halb);
             keule.closeSubpath();
             painter.setPen(Qt::NoPen);
-            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 90 : 40));
+            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 110 : 55));
             painter.drawPath(keule);
 
-            painter.setPen(QPen(nadel, 2.0));
-            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 3.0) * std::cos(a0),
-                                            mitte.y() + (radius - 3.0) * std::sin(a0)));
+            // N O S W, innen am Rand: ohne sie liest man die Richtung
+            // nur aus der Gradzahl, und die Scheibe waere Zierde.
+            painter.setFont(Style::capsFont(font(), Style::kFontSmall));
+            painter.setPen(QColor(Style::kTextTertiary()));
+            {
+                const double rText = radius - 17.0;
+                const QFontMetricsF fm(painter.font());
+                const struct { int grad; const char* zeichen; } rose[] = {
+                    {0, "N"}, {90, "O"}, {180, "S"}, {270, "W"}};
+                for (const auto& punkt : rose) {
+                    const double a = qDegreesToRadians(double(punkt.grad) - 90.0);
+                    const QPointF p(mitte.x() + rText * std::cos(a), mitte.y() + rText * std::sin(a));
+                    const QString t = QString::fromLatin1(punkt.zeichen);
+                    painter.drawText(QRectF(p.x() - 9.0, p.y() - fm.height() / 2.0, 18.0, fm.height()),
+                                     Qt::AlignCenter, t);
+                }
+            }
+
+            painter.setPen(QPen(nadel, 3.0));
+            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 6.0) * std::cos(a0),
+                                            mitte.y() + (radius - 6.0) * std::sin(a0)));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(nadel);
+            painter.drawEllipse(mitte, 3.0, 3.0);
             if (m_rotorDialsBackward) {
                 painter.setPen(QPen(withAlpha(Style::kAmberDim(), 160), 1.0, Qt::DotLine));
                 const double ab = a0 + M_PI;
@@ -1968,20 +2010,27 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             // lassen sich auch die grad digital anzeigen. vielleicht
             // im rotor innerhalb. sollte mit der groesse mitwachsen."
             //
-            // Die Schrift haengt am Radius, waechst also mit der
-            // Spalte mit. Darunter liegt ein kleines Feld in der
-            // Farbe der Flaeche, damit die Nadel nicht durch die
-            // Ziffern laeuft; den Mittelpunkt braucht es dann nicht
-            // mehr.
+            // Seit Entwurf A (2026-10-28) steht sie UNTEN in der
+            // Scheibe und kleiner (Radius mal 0,22 statt 0,46): in der
+            // Mitte nahm sie mit der Nabe denselben Platz ein, und was
+            // die Scheibe zeigen soll -- Richtung, Keule, Skala --
+            // beginnt genau dort. Die Schrift haengt weiter am Radius,
+            // waechst also mit der Spalte mit; das Feld darunter
+            // traegt die Farbe der Flaeche, damit die Skala nicht
+            // durch die Ziffern laeuft.
             const QString gradText = QStringLiteral("%1°").arg(az, 0, 'f', 0);
             QFont zahlFont = Style::monoFont(font(), Style::kFontReading);
-            zahlFont.setPointSizeF(qMax(11.0, radius * 0.46));
+            zahlFont.setPointSizeF(qMax(10.0, radius * 0.22));
             zahlFont.setBold(true);
             painter.setFont(zahlFont);
-            const QRectF zahlKasten = QFontMetricsF(zahlFont)
-                                          .boundingRect(gradText)
-                                          .adjusted(-6.0, -2.0, 6.0, 2.0)
-                                          .translated(mitte);
+            // moveCenter, nicht translate: boundingRect() beginnt am
+            // Ursprung, ein translate(mitte) legt den Kasten also
+            // RECHTS neben die Mitte. Das fiel erst auf, als die Zahl
+            // nach unten wanderte und dort ueber den Rand ragte.
+            QRectF zahlKasten = QFontMetricsF(zahlFont)
+                                    .boundingRect(gradText)
+                                    .adjusted(-5.0, -1.0, 5.0, 1.0);
+            zahlKasten.moveCenter(QPointF(mitte.x(), mitte.y() + radius * 0.45));
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(Style::kPanelBg()));
             painter.drawRoundedRect(zahlKasten, 3.0, 3.0);

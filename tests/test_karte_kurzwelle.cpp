@@ -43,6 +43,7 @@ private slots:
     void einGeschaetzterOrtIstKeinLocator();
     void derGradStehtInDerScheibeUndWaechstMit();
     void dieRueckkeuleStehtInDerKarte();
+    void dieScheibeIstMehrAlsEinKreis();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -339,6 +340,59 @@ void TestKarteKurzwelle::dieRueckkeuleStehtInDerKarte()
 
     QVERIFY2(karte.grab().toImage() != bildOhne,
              "die Rueckkeule aendert nichts am Bild");
+}
+
+
+// ── „man sieht nur einen kreis" ─────────────────────────────────────
+//
+// Betreiber am 2026-10-28, mit Bild. Zwei Ursachen, beide messbar:
+// die Scheibe hatte keine eigene Flaeche (sie lag in der Farbe der
+// Spalte), und die Gradzahl stand in der MITTE -- bei 0 Grad, dem
+// Stand nach jedem Start, deckte ihr Kasten genau die Nadel zu.
+//
+// Entwurf A (aus fuenf Blaettern gewaehlt) behebt beides. Dieser Lauf
+// haelt die zwei Punkte fest, nicht das Aussehen: eine eigene, vom
+// Spaltengrund verschiedene Flaeche, und ueber der Mitte etwas
+// Helleres als der Grund, naemlich die Nadel.
+void TestKarteKurzwelle::dieScheibeIstMehrAlsEinKreis()
+{
+    MapWidget karte;
+    karte.resize(900, 620);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotorDialsVisible(true);
+    // Die Keule zeigt nach Osten, damit sie dem N oben nicht in die
+    // Pruefung faellt: bei 0 Grad liegt sie genau darauf und macht die
+    // Stelle auch ohne Schrift hell (so gemessen, 2026-10-28).
+    karte.setRotor1Heading(true, 90.0, QStringLiteral("144"));
+
+    const QImage bild = karte.grab().toImage();
+    const QRectF scheibe = karte.rotorDialRectForTest(1);
+    QVERIFY2(!scheibe.isEmpty(), "die Scheibe hat keine Flaeche");
+
+    const QPoint mitte = scheibe.center().toPoint();
+    // Ein Punkt in der Scheibe, abseits von Keule, Nadel und Zahl:
+    // auf halbem Weg nach Westen.
+    const QRgb innen = bild.pixel(mitte.x() - int(scheibe.width() * 0.28), mitte.y());
+    // Und einer ausserhalb, im Grund der Spalte.
+    const QRgb grund = bild.pixel(int(scheibe.right()) + 6, mitte.y());
+    QVERIFY2(innen != grund,
+             "die Scheibe traegt dieselbe Farbe wie die Spalte -- sie ist nur ein Ring");
+
+    // Und die Himmelsrichtungen: ohne sie liest man die Richtung nur
+    // aus der Gradzahl ab, und der Ring ist Zierde. N steht oben,
+    // innen am Rand -- dort muss Schrift liegen, also etwas deutlich
+    // Helleres als der Grund.
+    const int rText = int(scheibe.width() / 2.0) - 17;
+    int hellstes = 0;
+    for (int dx = -9; dx <= 9; ++dx) {
+        for (int dy = -8; dy <= 8; ++dy) {
+            hellstes = qMax(hellstes, qGray(bild.pixel(mitte.x() + dx, mitte.y() - rText + dy)));
+        }
+    }
+    const int hellInnen = qGray(innen);
+    QVERIFY2(hellstes > hellInnen + 40,
+             qPrintable(QStringLiteral("oben am Rand steht kein N (hellstes %1, Grund %2)")
+                            .arg(hellstes).arg(hellInnen)));
 }
 
 
