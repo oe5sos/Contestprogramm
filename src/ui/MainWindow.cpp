@@ -2764,13 +2764,23 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // (Betreiber am 2026-10-25, Entwurf A) drehen ueber genau
             // diesen Weg, damit es nur EINE Stelle gibt, an der ein
             // Drehbefehl entsteht.
+            //
+            // Betreiber am 2026-10-28, mit Bild: „die rotorsteuerung
+            // sollte auch in KARTE/Verbindungen funktionieren!" Sie
+            // ging hier am Bedienfeld VORBEI -- der Klick in die
+            // Kartenscheibe sprach direkt den Client an und gab bei
+            // getrenntem Rotor still auf. Damit tat derselbe Klick je
+            // nach Fenster zweierlei: im Rotorfenster setzte er auch
+            // ohne Draht ein ZIEL und liess die Nadel laufen, in der
+            // Karte nichts. Jetzt geht er durch RotorWidget::aimAt(),
+            // also durch dieselbe Tuer wie ein Klick ins Zifferblatt;
+            // das Kommando an die Steuerung entsteht eine Zeile
+            // weiter unten aus rotateRequested().
             if (m_mapWidget != nullptr) {
                 connect(m_mapWidget, &MapWidget::rotorRotateRequested, widget,
-                        [&client, nummer = insertIndex + 1](int rotor, double bearingDeg) {
-                            if (rotor != nummer || !client.isConnected()) { return; }
-                            const BeamHeading::Move move =
-                                BeamHeading::plan(client.azimuthDeg(), bearingDeg, BeamHeading::Stop::None);
-                            if (move.reachable) { client.setAzimuth(move.targetDeg); }
+                        [widget, nummer = insertIndex + 1](int rotor, double bearingDeg) {
+                            if (rotor != nummer) { return; }
+                            widget->aimAt(bearingDeg);
                         });
             }
             connect(widget, &RotorWidget::rotateRequested, widget, [&client](double bearingDeg) {

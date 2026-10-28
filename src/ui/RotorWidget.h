@@ -80,6 +80,18 @@ public:
 
     void setConnected(bool connected);
 
+    // Dieselbe Drehung, die ein Klick ins eigene Zifferblatt ausloest --
+    // fuer die Scheiben in der Zahlenspalte der Karte
+    // (MapWidget::rotorRotateRequested). Betreiber am 2026-10-28, mit
+    // Bild: "die rotorsteuerung sollte auch in KARTE/Verbindungen
+    // funktionieren!" Sie ging vorher einen EIGENEN Weg, der am
+    // Bedienfeld vorbei direkt den rotctld-Client ansprach und bei
+    // getrenntem Rotor still aufgab: kein ZIEL, keine Nadel, nichts --
+    // waehrend derselbe Klick im Rotorfenster ohne Draht sehr wohl
+    // etwas tut (commitManualTarget()). Jetzt gibt es wieder nur EINEN
+    // Weg zu einem Drehbefehl.
+    void aimAt(double bearingDeg);
+
     // The currently selected/clicked candidate's bearing, per the plan's
     // "Turn Antenna" direction -- only ever set from an actual chat-feed
     // click (see MainWindow::handleCandidateActivated); there is no
