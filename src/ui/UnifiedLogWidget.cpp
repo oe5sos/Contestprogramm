@@ -2650,7 +2650,26 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
         // Ein früherer Anlauf an derselben Stelle brach die
         // DXLog-Vollspalten (6 px Versatz). Das lag an der damaligen
         // Rechnung aus SPALTENBREITEN; seit applyEntryRowWidths() die
-        // ABSTÄNDE der Spaltenpositionen nimmt, stimmt beides.
+        // ABSTÄNDE der Spaltenpositionen nimmt, stimmt beides -- und
+        // nur diese zweite Rechnung stimmt per Konstruktion, weil sich
+        // Ränder, Gitterlinien und Rundungen sonst aufsummieren.
+        //
+        // Warum der Aufruf auf DIESEM Weg bisher nie lief: seine
+        // Schranke prüft m_entryRowLayoutBuilt, und das wird erst in
+        // der Zeile darüber gesetzt. Jeder Aufruf aus dem Neuaufbau
+        // heraus verpuffte still; der else-Zweig unten rief ihn,
+        // dieser nicht.
+        //
+        // Gemessen am 2026-10-28 (Qt 6.11.1, macOS): über acht
+        // Panelbreiten, beide Ansichten, Nummer an und aus liefern
+        // Breiten- und Positionsrechnung HIER denselben Wert -- die
+        // Zeile ist auf macOS also folgenlos. Sie steht trotzdem, weil
+        // die Positionsrechnung die verbindliche ist und es keinen
+        // Grund gibt, dass ausgerechnet dieser Weg ohne sie auskommt.
+        //
+        // Sie ist NICHT die Erklärung für den Windows-Fehlschlag in
+        // test_ruetteln: dort lagen Feld und Spalte 94 Punkte
+        // auseinander, das ist eine ganze Spalte und keine Rundung.
         applyEntryRowWidths();
     } else {
         applyEntryRowWidths();

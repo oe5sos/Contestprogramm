@@ -371,9 +371,17 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
     // Alle Breiten, hart geprueft. Bis zum 2026-10-27 stand hier eine
     // Decke bei 700, weil die schmalen Breiten nicht trugen.
     constexpr int kGeprueftAb = 0;
+    // Und mit BEIDEN Ansichten: ein echter Ansichtswechsel baut die
+    // Eingabezeile neu auf (rebuildEntryRowLayout), und der nahm seine
+    // Masse aus den Spaltenbreiten statt aus den Spaltenpositionen --
+    // genau der Weg, auf dem der Windows-Lauf in test_ruetteln am
+    // 2026-10-16 und am 2026-10-28 danebenlag.
     for (int breite : {1440, 1010, 760, 700, 640, 560, 500, 420}) {
       for (bool nummer : {true, false}) {
+       for (const auto ansicht : {ContestSettings::LogViewMode::Compact,
+                                   ContestSettings::LogViewMode::DxLogFullColumns}) {
         panel->trySetGeometry(QRect(0, 0, breite, 450));
+        log->setViewMode(ansicht);
         log->setRunningNumberVisible(nummer);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCoreApplication::processEvents();
@@ -402,11 +410,14 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
             QCoreApplication::sendPostedEvents(nullptr, QEvent::LayoutRequest);
             QCoreApplication::processEvents();
         }
-        qInfo().noquote() << QStringLiteral("  Breite %1, Nummer %2: Feld bei %3, Spalte bei %4%5")
+        qInfo().noquote() << QStringLiteral("  Breite %1, Nummer %2, %6: Feld bei %3, Spalte bei %4%5")
                                  .arg(breite, 5).arg(nummer ? QStringLiteral("an ") : QStringLiteral("aus"))
                                  .arg(zelleX).arg(spalteX)
                                  .arg(std::abs(zelleX - spalteX) <= 1 ? QString()
-                                                                      : QStringLiteral("   <= daneben"));
+                                                                      : QStringLiteral("   <= daneben"))
+                                 .arg(ansicht == ContestSettings::LogViewMode::Compact
+                                          ? QStringLiteral("kompakt")
+                                          : QStringLiteral("dxlog  "));
         if (QLayout* l = zeile->layout(); l && breite < kGeprueftAb) {
             // Die Stauchung mitschreiben: ist die Zeile schmaler als
             // ihr eigenes Layout braucht, verteilt das QHBoxLayout die
@@ -463,6 +474,7 @@ void TestVorgabeUeberlapptNicht::dieEingabezeileStehtBeiJederBreiteInDerFlucht()
                            .arg(breite).arg(nummer ? QStringLiteral("an") : QStringLiteral("aus"))
                            .arg(zelleX).arg(spalteX);
         }
+       }
       }
     }
     QVERIFY2(daneben.isEmpty(),
