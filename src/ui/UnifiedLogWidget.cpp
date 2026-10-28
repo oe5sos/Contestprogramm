@@ -2638,6 +2638,31 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
             rebuildExchangeCell(exchangeReceived());
         }
         m_entryRowLayoutBuilt = true;
+        // Und danach noch einmal auf die SPALTENPOSITIONEN nachziehen.
+        // rebuildEntryRowLayout() baut die Zellen aus den Spalten-
+        // BREITEN (columnWidthFor), applyEntryRowWidths() aus den
+        // ABSTÄNDEN der Positionen -- und nur die zweite Rechnung
+        // stimmt per Konstruktion, weil sich Ränder, Gitterlinien und
+        // Rundungen sonst aufsummieren (siehe den Kommentar dort: auf
+        // dem CI-Mac fing das Rufzeichenfeld dadurch 6 px vor seiner
+        // Spalte an).
+        //
+        // Auf diesem Weg lief die zweite Rechnung bisher NIE: ihre
+        // Schranke prüft m_entryRowLayoutBuilt, und das wird erst in
+        // der Zeile darüber gesetzt -- jeder Aufruf aus dem Neuaufbau
+        // heraus verpuffte still. Der else-Zweig unten rief sie, dieser
+        // nicht.
+        //
+        // Gemessen am 2026-10-28 (Qt 6.11.1, macOS): über acht
+        // Panelbreiten, beide Ansichten, Nummer an und aus liefern
+        // Breiten- und Positionsrechnung HIER denselben Wert, diese
+        // Zeile ist also folgenlos. Sie steht trotzdem, weil die
+        // Positionsrechnung die verbindliche ist und es keinen Grund
+        // gibt, dass ausgerechnet dieser Weg ohne sie auskommt. Sie ist
+        // NICHT als Erklärung für den Windows-Fehlschlag in
+        // test_ruetteln gedacht: dort lagen Feld und Spalte 94 Punkte
+        // auseinander, das ist eine ganze Spalte und keine Rundung.
+        applyEntryRowWidths();
     } else {
         applyEntryRowWidths();
     }
