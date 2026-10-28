@@ -2638,29 +2638,37 @@ void UnifiedLogWidget::setViewMode(ContestSettings::LogViewMode mode)
             rebuildExchangeCell(exchangeReceived());
         }
         m_entryRowLayoutBuilt = true;
-        // Und danach noch einmal auf die SPALTENPOSITIONEN nachziehen.
-        // rebuildEntryRowLayout() baut die Zellen aus den Spalten-
-        // BREITEN (columnWidthFor), applyEntryRowWidths() aus den
-        // ABSTÄNDEN der Positionen -- und nur die zweite Rechnung
-        // stimmt per Konstruktion, weil sich Ränder, Gitterlinien und
-        // Rundungen sonst aufsummieren (siehe den Kommentar dort: auf
-        // dem CI-Mac fing das Rufzeichenfeld dadurch 6 px vor seiner
-        // Spalte an).
+        // Frisch gebaut heißt: in Standardbreiten, und die leere
+        // QSO-Nummern-Zelle steht noch auf dem Zustand von vorher.
+        // Erst das hier legt die Zeile auf die Spalten. Ohne den
+        // Aufruf fing das Rufzeichenfeld nach einem Ansichtswechsel
+        // bei 70 an, während seine Spalte bei 185 begann -- von der
+        // Windows-CI im Rüttel-Prüfstand gefunden (2026-09-30). Auf
+        // macOS fängt ein späterer Layout-Durchlauf es ein, deshalb
+        // fiel es hier nie auf.
         //
-        // Auf diesem Weg lief die zweite Rechnung bisher NIE: ihre
+        // Ein früherer Anlauf an derselben Stelle brach die
+        // DXLog-Vollspalten (6 px Versatz). Das lag an der damaligen
+        // Rechnung aus SPALTENBREITEN; seit applyEntryRowWidths() die
+        // ABSTÄNDE der Spaltenpositionen nimmt, stimmt beides -- und
+        // nur diese zweite Rechnung stimmt per Konstruktion, weil sich
+        // Ränder, Gitterlinien und Rundungen sonst aufsummieren.
+        //
+        // Warum der Aufruf auf DIESEM Weg bisher nie lief: seine
         // Schranke prüft m_entryRowLayoutBuilt, und das wird erst in
-        // der Zeile darüber gesetzt -- jeder Aufruf aus dem Neuaufbau
-        // heraus verpuffte still. Der else-Zweig unten rief sie, dieser
-        // nicht.
+        // der Zeile darüber gesetzt. Jeder Aufruf aus dem Neuaufbau
+        // heraus verpuffte still; der else-Zweig unten rief ihn,
+        // dieser nicht.
         //
         // Gemessen am 2026-10-28 (Qt 6.11.1, macOS): über acht
         // Panelbreiten, beide Ansichten, Nummer an und aus liefern
-        // Breiten- und Positionsrechnung HIER denselben Wert, diese
-        // Zeile ist also folgenlos. Sie steht trotzdem, weil die
-        // Positionsrechnung die verbindliche ist und es keinen Grund
-        // gibt, dass ausgerechnet dieser Weg ohne sie auskommt. Sie ist
-        // NICHT als Erklärung für den Windows-Fehlschlag in
-        // test_ruetteln gedacht: dort lagen Feld und Spalte 94 Punkte
+        // Breiten- und Positionsrechnung HIER denselben Wert -- die
+        // Zeile ist auf macOS also folgenlos. Sie steht trotzdem, weil
+        // die Positionsrechnung die verbindliche ist und es keinen
+        // Grund gibt, dass ausgerechnet dieser Weg ohne sie auskommt.
+        //
+        // Sie ist NICHT die Erklärung für den Windows-Fehlschlag in
+        // test_ruetteln: dort lagen Feld und Spalte 94 Punkte
         // auseinander, das ist eine ganze Spalte und keine Rundung.
         applyEntryRowWidths();
     } else {
