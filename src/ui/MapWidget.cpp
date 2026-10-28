@@ -236,7 +236,9 @@ void MapWidget::buildControls()
                                                  "dreht dorthin. Dann braucht es das Rotorfenster nicht mehr"),
                                   &MapWidget::setRotorDialsVisible);
     m_rotorDialsBackAction = addToggle(QStringLiteral("Rückrichtung zeigen"),
-                                       QStringLiteral("Die Gegenrichtung der Antenne als gepunktete Linie"),
+                                       QStringLiteral("Was die Antenne nach hinten abstrahlt -- in der Karte als "
+                                                      "blasse, gepunktete Keule in ihrer Farbe, und in den Scheiben "
+                                                      "als Gegenrichtung"),
                                        &MapWidget::setRotorDialsBackward);
     m_workedAction = addToggle(QStringLiteral("Gearbeitete anzeigen"),
                                QStringLiteral("Die eigenen QSOs des laufenden Contests"),
@@ -1483,6 +1485,45 @@ QVector<MapWidget::Beam> MapWidget::beams() const
             out.append(second);
         }
     }
+
+    // ── Und jede davon strahlt nach hinten ───────────────────────────
+    //
+    // Betreiber am 2026-10-28, mit Bild: „der beam strahlt auf der
+    // rueckseite auch. dies wollte ich auch farblich, aber im anderen
+    // design markieren."
+    //
+    // Eine Yagi hat ein Rueckwaertsverhaeltnis, keine Wand: was hinten
+    // ankommt, ist schwaecher, aber da -- und im Contest erklaert
+    // genau das die Station, die man hoert, obwohl man woanders hin
+    // steht. Darum dieselbe Farbe wie vorne (man sieht, WESSEN
+    // Rueckseite es ist), aber blasser und gepunktet, und ohne
+    // Gradzahl: die Karte traegt schon genug Zahlen, und die
+    // Rueckrichtung liest man an der Lage ab.
+    //
+    // Am selben Schalter wie die Scheiben („Rueckrichtung zeigen"):
+    // es ist dieselbe Frage, nur an zwei Orten beantwortet.
+    if (m_rotorDialsBackward) {
+        const int vorne = out.size();
+        for (int i = 0; i < vorne; ++i) {
+            Beam hinten = out[i];
+            hinten.azimuthDeg = wrap360(hinten.azimuthDeg + 180.0);
+            hinten.lineStyle = Qt::DotLine;
+            hinten.label.clear();
+            hinten.rear = true;
+            out.append(hinten);
+        }
+    }
+    return out;
+}
+
+QVector<QPair<double, bool>> MapWidget::beamAzimuthsForTest() const
+{
+    QVector<QPair<double, bool>> out;
+    const QVector<Beam> keulen = beams();
+    out.reserve(keulen.size());
+    for (const Beam& b : keulen) {
+        out.append({b.azimuthDeg, b.rear});
+    }
     return out;
 }
 
@@ -1503,8 +1544,11 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         }
         wedge.lineTo(rimPoint(area, beam.azimuthDeg + beam.halfWidthDeg, 0.0));
         wedge.closeSubpath();
+        // Die Rueckseite: dieselbe Farbe, ein Drittel der Deckung.
+        // Sie soll zu sehen sein, nie mit der Hauptrichtung
+        // verwechselt werden und nichts verdecken, was darunter liegt.
         QColor inner = beam.color;
-        inner.setAlpha(60);
+        inner.setAlpha(beam.rear ? 22 : 60);
         QColor outer = beam.color;
         outer.setAlpha(0);
         QRadialGradient grad(center, std::max(rx, ry) * visibleRangeFactor());
@@ -1514,8 +1558,8 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         painter.setBrush(grad);
         painter.drawPath(wedge);
         QColor line = beam.color;
-        line.setAlpha(200);
-        painter.setPen(QPen(line, 1.2, beam.lineStyle));
+        line.setAlpha(beam.rear ? 105 : 200);
+        painter.setPen(QPen(line, beam.rear ? 1.0 : 1.2, beam.lineStyle));
         painter.drawLine(center, rimPoint(area, beam.azimuthDeg, 0.0));
         return;
     }
@@ -1877,7 +1921,12 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             if (y + durchmesser + 34.0 > column.bottom() - 24.0) { break; } // kein Platz mehr
             const double az = wrap360((i == 0) ? m_rotor1AzimuthDeg : m_rotor2AzimuthDeg);
             const bool live = (i == 0) ? m_rotor1Live : m_rotor2Live;
-            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive());
+            // Betreiber am 2026-10-28: „Die Farbe geht ab, leider nur
+            // grau." Der Zustand (gemessen oder nur verfolgt) bleibt
+            // ablesbar -- aber als HELLIGKEIT im selben Bernstein, nicht
+            // als Farbwechsel nach Grau. Ein Rotor ohne Draht ist kein
+            // anderes Instrument, er ist dasselbe, blasser.
+            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kAmberDim());
 
             painter.setFont(Style::capsFont(font(), Style::kFontCaption));
             painter.setPen(QColor(Style::kTextTertiary()));
@@ -1887,13 +1936,38 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             const QPointF mitte(x + radius + 4.0, y + radius);
             m_rotorDialRect[i] = QRectF(mitte.x() - radius, mitte.y() - radius, durchmesser, durchmesser);
 
-            painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
+            // ── Entwurf A ────────────────────────────────────────
+            //
+            // Betreiber am 2026-10-28, mit Bild: „rechts die rotoren
+            // sind noch zu verbessern, man sieht nur einen kreis." Er
+            // hatte recht: die Flaeche der Scheibe war dieselbe wie die
+            // der Spalte, und die Teilstriche standen in kBorderSubtle
+            // (#1f1f23) auf kPanelBg (#0c0c0e) -- rechnerisch ein
+            // Unterschied, auf dem Schirm keiner. Blieb der blosse Ring.
+            //
+            // Aus fuenf Blaettern hat er A gewaehlt: eigene, dunklere
+            // Flaeche, damit der Kreis ueberhaupt eine Scheibe ist;
+            // Striche alle 10 Grad, laenger und heller bei 30 und 90;
+            // N O S W innen am Rand; die Gradzahl unten statt in der
+            // Mitte, wo sie bisher ueber der Nadel lag.
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(Style::kInsetBg()));
             painter.drawEllipse(mitte, radius, radius);
-            painter.setPen(QPen(QColor(Style::kBorderSubtle()), 1.0));
-            for (int g = 0; g < 360; g += 30) {
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(Style::kAmberBorder()), 1.0));
+            painter.drawEllipse(mitte, radius, radius);
+            for (int g = 0; g < 360; g += 10) {
                 const double a = qDegreesToRadians(double(g) - 90.0);
-                const double innen = radius - ((g % 90 == 0) ? 7.0 : 4.0);
+                const bool viertel = (g % 90 == 0);
+                const bool drittel = (g % 30 == 0);
+                const double lang  = viertel ? 8.0 : (drittel ? 6.0 : 3.0);
+                // Die Skala traegt dieselbe Farbe wie alles andere am
+                // Instrument, gestuft nach Gewicht: 90 Grad am
+                // hellsten, 10 Grad nur angedeutet.
+                painter.setPen(QPen(QColor(viertel ? Style::kAmberWarn()
+                                           : (drittel ? Style::kAmberBorder() : Style::kBorderSubtle())),
+                                    viertel ? 1.5 : 1.0));
+                const double innen = radius - lang;
                 painter.drawLine(QPointF(mitte.x() + innen * std::cos(a), mitte.y() + innen * std::sin(a)),
                                  QPointF(mitte.x() + radius * std::cos(a), mitte.y() + radius * std::sin(a)));
             }
@@ -1907,12 +1981,33 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
                         90.0 - az - halb, 2.0 * halb);
             keule.closeSubpath();
             painter.setPen(Qt::NoPen);
-            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 90 : 40));
+            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 110 : 55));
             painter.drawPath(keule);
 
-            painter.setPen(QPen(nadel, 2.0));
-            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 3.0) * std::cos(a0),
-                                            mitte.y() + (radius - 3.0) * std::sin(a0)));
+            // N O S W, innen am Rand: ohne sie liest man die Richtung
+            // nur aus der Gradzahl, und die Scheibe waere Zierde.
+            painter.setFont(Style::capsFont(font(), Style::kFontSmall));
+            painter.setPen(QColor(Style::kAmberWarn()));
+            {
+                const double rText = radius - 17.0;
+                const QFontMetricsF fm(painter.font());
+                const struct { int grad; const char* zeichen; } rose[] = {
+                    {0, "N"}, {90, "O"}, {180, "S"}, {270, "W"}};
+                for (const auto& punkt : rose) {
+                    const double a = qDegreesToRadians(double(punkt.grad) - 90.0);
+                    const QPointF p(mitte.x() + rText * std::cos(a), mitte.y() + rText * std::sin(a));
+                    const QString t = QString::fromLatin1(punkt.zeichen);
+                    painter.drawText(QRectF(p.x() - 9.0, p.y() - fm.height() / 2.0, 18.0, fm.height()),
+                                     Qt::AlignCenter, t);
+                }
+            }
+
+            painter.setPen(QPen(nadel, 3.0));
+            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 6.0) * std::cos(a0),
+                                            mitte.y() + (radius - 6.0) * std::sin(a0)));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(nadel);
+            painter.drawEllipse(mitte, 3.0, 3.0);
             if (m_rotorDialsBackward) {
                 painter.setPen(QPen(withAlpha(Style::kAmberDim(), 160), 1.0, Qt::DotLine));
                 const double ab = a0 + M_PI;
@@ -1924,20 +2019,27 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             // lassen sich auch die grad digital anzeigen. vielleicht
             // im rotor innerhalb. sollte mit der groesse mitwachsen."
             //
-            // Die Schrift haengt am Radius, waechst also mit der
-            // Spalte mit. Darunter liegt ein kleines Feld in der
-            // Farbe der Flaeche, damit die Nadel nicht durch die
-            // Ziffern laeuft; den Mittelpunkt braucht es dann nicht
-            // mehr.
+            // Seit Entwurf A (2026-10-28) steht sie UNTEN in der
+            // Scheibe und kleiner (Radius mal 0,22 statt 0,46): in der
+            // Mitte nahm sie mit der Nabe denselben Platz ein, und was
+            // die Scheibe zeigen soll -- Richtung, Keule, Skala --
+            // beginnt genau dort. Die Schrift haengt weiter am Radius,
+            // waechst also mit der Spalte mit; das Feld darunter
+            // traegt die Farbe der Flaeche, damit die Skala nicht
+            // durch die Ziffern laeuft.
             const QString gradText = QStringLiteral("%1°").arg(az, 0, 'f', 0);
             QFont zahlFont = Style::monoFont(font(), Style::kFontReading);
-            zahlFont.setPointSizeF(qMax(11.0, radius * 0.46));
+            zahlFont.setPointSizeF(qMax(10.0, radius * 0.22));
             zahlFont.setBold(true);
             painter.setFont(zahlFont);
-            const QRectF zahlKasten = QFontMetricsF(zahlFont)
-                                          .boundingRect(gradText)
-                                          .adjusted(-6.0, -2.0, 6.0, 2.0)
-                                          .translated(mitte);
+            // moveCenter, nicht translate: boundingRect() beginnt am
+            // Ursprung, ein translate(mitte) legt den Kasten also
+            // RECHTS neben die Mitte. Das fiel erst auf, als die Zahl
+            // nach unten wanderte und dort ueber den Rand ragte.
+            QRectF zahlKasten = QFontMetricsF(zahlFont)
+                                    .boundingRect(gradText)
+                                    .adjusted(-5.0, -1.0, 5.0, 1.0);
+            zahlKasten.moveCenter(QPointF(mitte.x(), mitte.y() + radius * 0.45));
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(Style::kPanelBg()));
             painter.drawRoundedRect(zahlKasten, 3.0, 3.0);

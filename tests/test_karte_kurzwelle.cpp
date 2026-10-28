@@ -42,6 +42,9 @@ private slots:
     void gearbeiteteAusblendenUndDerGewaehlteRing();
     void einGeschaetzterOrtIstKeinLocator();
     void derGradStehtInDerScheibeUndWaechstMit();
+    void dieRueckkeuleStehtInDerKarte();
+    void dieScheibeIstMehrAlsEinKreis();
+    void inDerScheibeIstNichtsGrau();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -292,6 +295,167 @@ void TestKarteKurzwelle::derGradStehtInDerScheibeUndWaechstMit()
              qPrintable(QStringLiteral("die Scheibe waechst nicht mit: %1 -> %2")
                             .arg(klein.width()).arg(gross.width())));
 }
+
+// ── Die Rueckseite der Keule, in der Karte ──────────────────────────
+//
+// Betreiber am 2026-10-28, mit Bild: „der beam strahlt auf der
+// rueckseite auch. dies wollte ich auch farblich, aber im anderen
+// design markieren."
+//
+// Der Schalter „Rueckrichtung zeigen" gab es da schon -- er wirkte
+// aber nur in den kleinen Scheiben der Zahlenspalte, nicht in der
+// Karte selbst. Dieser Lauf haelt beide Haelften fest: ohne den
+// Schalter genau eine Keule je Antenne, mit ihm eine zweite, 180 Grad
+// gegenueber und als Rueckseite gekennzeichnet.
+void TestKarteKurzwelle::dieRueckkeuleStehtInDerKarte()
+{
+    MapWidget karte;
+    karte.resize(900, 600);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotor1Heading(true, 290.0, QStringLiteral("144"));
+
+    auto rueckseiten = [](const QVector<QPair<double, bool>>& keulen) {
+        QVector<double> out;
+        for (const auto& k : keulen) {
+            if (k.second) { out.append(k.first); }
+        }
+        return out;
+    };
+
+    const QVector<QPair<double, bool>> ohne = karte.beamAzimuthsForTest();
+    QVERIFY2(!ohne.isEmpty(), "die Karte zeichnet gar keine Keule");
+    QVERIFY2(rueckseiten(ohne).isEmpty(),
+             "ohne den Schalter darf keine Rueckkeule da sein");
+    const QImage bildOhne = karte.grab().toImage();
+
+    karte.setRotorDialsBackward(true);
+    const QVector<QPair<double, bool>> mit = karte.beamAzimuthsForTest();
+    QCOMPARE(mit.size(), ohne.size() * 2);
+
+    const QVector<double> hinten = rueckseiten(mit);
+    QCOMPARE(hinten.size(), ohne.size());
+    // 290 Grad vorne heisst 110 Grad hinten.
+    QVERIFY2(!hinten.isEmpty() && qAbs(hinten.first() - 110.0) < 0.5,
+             qPrintable(QStringLiteral("Rueckkeule bei %1 Grad statt 110")
+                            .arg(hinten.isEmpty() ? -1.0 : hinten.first())));
+
+    QVERIFY2(karte.grab().toImage() != bildOhne,
+             "die Rueckkeule aendert nichts am Bild");
+}
+
+
+// ── „man sieht nur einen kreis" ─────────────────────────────────────
+//
+// Betreiber am 2026-10-28, mit Bild. Zwei Ursachen, beide messbar:
+// die Scheibe hatte keine eigene Flaeche (sie lag in der Farbe der
+// Spalte), und die Gradzahl stand in der MITTE -- bei 0 Grad, dem
+// Stand nach jedem Start, deckte ihr Kasten genau die Nadel zu.
+//
+// Entwurf A (aus fuenf Blaettern gewaehlt) behebt beides. Dieser Lauf
+// haelt die zwei Punkte fest, nicht das Aussehen: eine eigene, vom
+// Spaltengrund verschiedene Flaeche, und ueber der Mitte etwas
+// Helleres als der Grund, naemlich die Nadel.
+void TestKarteKurzwelle::dieScheibeIstMehrAlsEinKreis()
+{
+    MapWidget karte;
+    karte.resize(900, 620);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotorDialsVisible(true);
+    // Die Keule zeigt nach Osten, damit sie dem N oben nicht in die
+    // Pruefung faellt: bei 0 Grad liegt sie genau darauf und macht die
+    // Stelle auch ohne Schrift hell (so gemessen, 2026-10-28).
+    karte.setRotor1Heading(true, 90.0, QStringLiteral("144"));
+
+    const QImage bild = karte.grab().toImage();
+    const QRectF scheibe = karte.rotorDialRectForTest(1);
+    QVERIFY2(!scheibe.isEmpty(), "die Scheibe hat keine Flaeche");
+
+    const QPoint mitte = scheibe.center().toPoint();
+    // Ein Punkt in der Scheibe, abseits von Keule, Nadel und Zahl:
+    // auf halbem Weg nach Westen.
+    const QRgb innen = bild.pixel(mitte.x() - int(scheibe.width() * 0.28), mitte.y());
+    // Und einer ausserhalb, im Grund der Spalte.
+    const QRgb grund = bild.pixel(int(scheibe.right()) + 6, mitte.y());
+    QVERIFY2(innen != grund,
+             "die Scheibe traegt dieselbe Farbe wie die Spalte -- sie ist nur ein Ring");
+
+    // Und die Himmelsrichtungen: ohne sie liest man die Richtung nur
+    // aus der Gradzahl ab, und der Ring ist Zierde. N steht oben,
+    // innen am Rand -- dort muss Schrift liegen, also etwas deutlich
+    // Helleres als der Grund.
+    const int rText = int(scheibe.width() / 2.0) - 17;
+    int hellstes = 0;
+    for (int dx = -9; dx <= 9; ++dx) {
+        for (int dy = -8; dy <= 8; ++dy) {
+            hellstes = qMax(hellstes, qGray(bild.pixel(mitte.x() + dx, mitte.y() - rText + dy)));
+        }
+    }
+    const int hellInnen = qGray(innen);
+    QVERIFY2(hellstes > hellInnen + 40,
+             qPrintable(QStringLiteral("oben am Rand steht kein N (hellstes %1, Grund %2)")
+                            .arg(hellstes).arg(hellInnen)));
+}
+
+
+// ── „Die Farbe geht ab, leider nur grau" ────────────────────────────
+//
+// Betreiber am 2026-10-28, nachdem Entwurf A gebaut war. Er hatte
+// recht: bernsteinfarben war nur die Keule. Ring (kBorder), Skala
+// (kTextScale), Himmelsrichtungen (kTextTertiary) und die Nadel eines
+// getrennten Rotors (kTextInactive) waren allesamt Grautoene, und die
+// nehmen auf einer kleinen Scheibe den groesseren Teil der Flaeche
+// ein.
+//
+// Gemessen wird die Eigenschaft, nicht der Farbwert: alles in der
+// Scheibe, was ueberhaupt zu sehen ist, muss WARM sein -- mehr Rot als
+// Blau. Ein Grauton hat beides gleich. Das gilt auch fuer den
+// getrennten Rotor: sein Zustand steht in der Helligkeit, nicht in
+// einem Wechsel nach Grau.
+void TestKarteKurzwelle::inDerScheibeIstNichtsGrau()
+{
+    MapWidget karte;
+    karte.resize(900, 620);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotorDialsVisible(true);
+    karte.setRotorDialsBackward(true);
+
+    for (bool amDraht : {true, false}) {
+        karte.setRotor1Heading(true, 290.0, QStringLiteral("144"));
+        karte.setRotorLinkLive(1, amDraht);
+        const QImage bild = karte.grab().toImage();
+        const QRectF scheibe = karte.rotorDialRectForTest(1);
+        QVERIFY2(!scheibe.isEmpty(), "die Scheibe hat keine Flaeche");
+
+        const QPointF mitte = scheibe.center();
+        const double r = scheibe.width() / 2.0;
+        int kalt = 0;
+        int warm = 0;
+        QRgb schlimmster = 0;
+        for (int dy = int(-r); dy <= int(r); ++dy) {
+            for (int dx = int(-r); dx <= int(r); ++dx) {
+                if (dx * dx + dy * dy > int(r * r)) { continue; }
+                const QRgb px = bild.pixel(int(mitte.x()) + dx, int(mitte.y()) + dy);
+                // Nur was sich ueberhaupt abhebt; der Grund selbst ist
+                // fast schwarz und hat keine Farbe zu zeigen.
+                if (qGray(px) < 30) { continue; }
+                if (qRed(px) > qBlue(px) + 8) {
+                    ++warm;
+                } else {
+                    ++kalt;
+                    if (schlimmster == 0) { schlimmster = px; }
+                }
+            }
+        }
+        QVERIFY2(warm > 200,
+                 qPrintable(QStringLiteral("am Draht=%1: fast nichts zu sehen in der Scheibe (%2 Punkte)")
+                                .arg(amDraht).arg(warm)));
+        QVERIFY2(kalt * 20 < warm,
+                 qPrintable(QStringLiteral("am Draht=%1: %2 graue gegen %3 warme Punkte, z.B. #%4")
+                                .arg(amDraht).arg(kalt).arg(warm)
+                                .arg(QString::number(schlimmster & 0xffffff, 16))));
+    }
+}
+
 
 int main(int argc, char* argv[])
 {

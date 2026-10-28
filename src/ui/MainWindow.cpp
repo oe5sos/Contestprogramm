@@ -1107,9 +1107,26 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // otherwise report.
     m_layoutProfileManager = new LayoutProfileManager(
         m_appController.database(), *m_panelLayoutManager,
+        // Jedes Panel, dessen Sichtbarkeit und Lage im Profil wohnen.
+        //
+        // Betreiber am 2026-10-28, mit Bild: „der chatraum ist ueberall
+        // automatisch, ich kann ihn nicht ausblenden." Der Schalter in
+        // Fenster > Panels wirkte, er hielt nur nicht: „chat" stand
+        // nicht in dieser Liste, also schrieb serializeCurrentState()
+        // keine Zeile dafuer und applyState() ruehrte das Panel nie an
+        // -- in allen drei Profilen blieb es sichtbar, so wie
+        // registerPanel() es beim Anmelden zeigt.
+        //
+        // Nicht dabei und mit Absicht: „cwMacroRow" (haengt an der
+        // eigenen Einstellung cw_macro_panel_visible) und „sidearea"
+        // (steht nur da, wenn etwas drin ist, siehe
+        // syncSideAreaVisibility). Alles andere gehoert herein --
+        // tests/test_jedes_panel_ausblendbar.cpp haelt das fest, indem
+        // es jedes Panel mit Schalter ausblendet und das Fenster neu
+        // baut.
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
-         QStringLiteral("bandmap"), QStringLiteral("skeds")},
+         QStringLiteral("bandmap"), QStringLiteral("skeds"), QStringLiteral("chat")},
         this);
     // A fresh database only: the panels get the design that fits the
     // canvas once it has its real size, and profile "1" is snapshotted

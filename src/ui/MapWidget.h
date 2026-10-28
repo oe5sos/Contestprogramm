@@ -248,6 +248,10 @@ public:
     QRectF rotorDialRectForTest(int rotor) const { return m_rotorDialRect[rotor == 2 ? 1 : 0]; }
     double rotorHeadingForTest(int rotor) const { return rotor == 2 ? m_rotor2AzimuthDeg : m_rotor1AzimuthDeg; }
     QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
+    /// Jede Keule, die die Karte gerade zeichnet: Richtung in Grad und
+    /// ob es die Rueckseite ist. Fuer den Prueflauf -- Beam selbst
+    /// bleibt privat.
+    QVector<QPair<double, bool>> beamAzimuthsForTest() const;
 
     QSize minimumSizeHint() const override;
     QSize sizeHint() const override;
@@ -335,6 +339,14 @@ private:
         Qt::PenStyle lineStyle = Qt::SolidLine;
         QString label;
         int labelPx = 11;
+        // Die Rueckseite derselben Antenne. Betreiber am 2026-10-28:
+        // „der beam strahlt auf der rueckseite auch. dies wollte ich
+        // auch farblich, aber im anderen design markieren." Also die
+        // FARBE der Antenne, damit man sieht, wessen Rueckseite es ist
+        // -- aber blasser, gepunktet und ohne Gradzahl, damit sie nie
+        // mit der Hauptrichtung verwechselt wird. drawBeam() macht den
+        // Unterschied.
+        bool rear = false;
     };
     QVector<Beam> beams() const; // every antenna direction currently to draw
     void drawBeam(QPainter& painter, const QRectF& area, const Beam& beam, bool labelsOnly,
