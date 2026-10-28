@@ -503,6 +503,16 @@ void RotorWidget::mouseDoubleClickEvent(QMouseEvent* event)
     commitManualTarget(deg);
 }
 
+void RotorWidget::aimAt(double bearingDeg)
+{
+    if (m_fixedAntenna) {
+        // Kein Ziel, kein Drehen: siehe setFixedAntenna(). Dieselbe
+        // Schranke, die mousePressEvent() vor dem Zifferblatt zieht.
+        return;
+    }
+    commitManualTarget(BeamHeading::wrap360(bearingDeg));
+}
+
 void RotorWidget::commitManualTarget(double bearingDeg)
 {
     // Show the bearing as the new ZIEL right away, whether or not a
