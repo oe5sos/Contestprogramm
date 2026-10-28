@@ -1921,7 +1921,12 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             if (y + durchmesser + 34.0 > column.bottom() - 24.0) { break; } // kein Platz mehr
             const double az = wrap360((i == 0) ? m_rotor1AzimuthDeg : m_rotor2AzimuthDeg);
             const bool live = (i == 0) ? m_rotor1Live : m_rotor2Live;
-            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive());
+            // Betreiber am 2026-10-28: „Die Farbe geht ab, leider nur
+            // grau." Der Zustand (gemessen oder nur verfolgt) bleibt
+            // ablesbar -- aber als HELLIGKEIT im selben Bernstein, nicht
+            // als Farbwechsel nach Grau. Ein Rotor ohne Draht ist kein
+            // anderes Instrument, er ist dasselbe, blasser.
+            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kAmberDim());
 
             painter.setFont(Style::capsFont(font(), Style::kFontCaption));
             painter.setPen(QColor(Style::kTextTertiary()));
@@ -1949,14 +1954,18 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             painter.setBrush(QColor(Style::kInsetBg()));
             painter.drawEllipse(mitte, radius, radius);
             painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
+            painter.setPen(QPen(QColor(Style::kAmberBorder()), 1.0));
             painter.drawEllipse(mitte, radius, radius);
             for (int g = 0; g < 360; g += 10) {
                 const double a = qDegreesToRadians(double(g) - 90.0);
                 const bool viertel = (g % 90 == 0);
                 const bool drittel = (g % 30 == 0);
                 const double lang  = viertel ? 8.0 : (drittel ? 6.0 : 3.0);
-                painter.setPen(QPen(QColor(drittel ? Style::kTextScale() : Style::kBorderSubtle()),
+                // Die Skala traegt dieselbe Farbe wie alles andere am
+                // Instrument, gestuft nach Gewicht: 90 Grad am
+                // hellsten, 10 Grad nur angedeutet.
+                painter.setPen(QPen(QColor(viertel ? Style::kAmberWarn()
+                                           : (drittel ? Style::kAmberBorder() : Style::kBorderSubtle())),
                                     viertel ? 1.5 : 1.0));
                 const double innen = radius - lang;
                 painter.drawLine(QPointF(mitte.x() + innen * std::cos(a), mitte.y() + innen * std::sin(a)),
@@ -1978,7 +1987,7 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             // N O S W, innen am Rand: ohne sie liest man die Richtung
             // nur aus der Gradzahl, und die Scheibe waere Zierde.
             painter.setFont(Style::capsFont(font(), Style::kFontSmall));
-            painter.setPen(QColor(Style::kTextTertiary()));
+            painter.setPen(QColor(Style::kAmberWarn()));
             {
                 const double rText = radius - 17.0;
                 const QFontMetricsF fm(painter.font());

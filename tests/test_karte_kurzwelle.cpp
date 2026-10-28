@@ -44,6 +44,7 @@ private slots:
     void derGradStehtInDerScheibeUndWaechstMit();
     void dieRueckkeuleStehtInDerKarte();
     void dieScheibeIstMehrAlsEinKreis();
+    void inDerScheibeIstNichtsGrau();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -393,6 +394,66 @@ void TestKarteKurzwelle::dieScheibeIstMehrAlsEinKreis()
     QVERIFY2(hellstes > hellInnen + 40,
              qPrintable(QStringLiteral("oben am Rand steht kein N (hellstes %1, Grund %2)")
                             .arg(hellstes).arg(hellInnen)));
+}
+
+
+// ── „Die Farbe geht ab, leider nur grau" ────────────────────────────
+//
+// Betreiber am 2026-10-28, nachdem Entwurf A gebaut war. Er hatte
+// recht: bernsteinfarben war nur die Keule. Ring (kBorder), Skala
+// (kTextScale), Himmelsrichtungen (kTextTertiary) und die Nadel eines
+// getrennten Rotors (kTextInactive) waren allesamt Grautoene, und die
+// nehmen auf einer kleinen Scheibe den groesseren Teil der Flaeche
+// ein.
+//
+// Gemessen wird die Eigenschaft, nicht der Farbwert: alles in der
+// Scheibe, was ueberhaupt zu sehen ist, muss WARM sein -- mehr Rot als
+// Blau. Ein Grauton hat beides gleich. Das gilt auch fuer den
+// getrennten Rotor: sein Zustand steht in der Helligkeit, nicht in
+// einem Wechsel nach Grau.
+void TestKarteKurzwelle::inDerScheibeIstNichtsGrau()
+{
+    MapWidget karte;
+    karte.resize(900, 620);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotorDialsVisible(true);
+    karte.setRotorDialsBackward(true);
+
+    for (bool amDraht : {true, false}) {
+        karte.setRotor1Heading(true, 290.0, QStringLiteral("144"));
+        karte.setRotorLinkLive(1, amDraht);
+        const QImage bild = karte.grab().toImage();
+        const QRectF scheibe = karte.rotorDialRectForTest(1);
+        QVERIFY2(!scheibe.isEmpty(), "die Scheibe hat keine Flaeche");
+
+        const QPointF mitte = scheibe.center();
+        const double r = scheibe.width() / 2.0;
+        int kalt = 0;
+        int warm = 0;
+        QRgb schlimmster = 0;
+        for (int dy = int(-r); dy <= int(r); ++dy) {
+            for (int dx = int(-r); dx <= int(r); ++dx) {
+                if (dx * dx + dy * dy > int(r * r)) { continue; }
+                const QRgb px = bild.pixel(int(mitte.x()) + dx, int(mitte.y()) + dy);
+                // Nur was sich ueberhaupt abhebt; der Grund selbst ist
+                // fast schwarz und hat keine Farbe zu zeigen.
+                if (qGray(px) < 30) { continue; }
+                if (qRed(px) > qBlue(px) + 8) {
+                    ++warm;
+                } else {
+                    ++kalt;
+                    if (schlimmster == 0) { schlimmster = px; }
+                }
+            }
+        }
+        QVERIFY2(warm > 200,
+                 qPrintable(QStringLiteral("am Draht=%1: fast nichts zu sehen in der Scheibe (%2 Punkte)")
+                                .arg(amDraht).arg(warm)));
+        QVERIFY2(kalt * 20 < warm,
+                 qPrintable(QStringLiteral("am Draht=%1: %2 graue gegen %3 warme Punkte, z.B. #%4")
+                                .arg(amDraht).arg(kalt).arg(warm)
+                                .arg(QString::number(schlimmster & 0xffffff, 16))));
+    }
 }
 
 
