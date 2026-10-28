@@ -252,6 +252,12 @@ public:
     /// ob es die Rueckseite ist. Fuer den Prueflauf -- Beam selbst
     /// bleibt privat.
     QVector<QPair<double, bool>> beamAzimuthsForTest() const;
+    /// Wo der Block der Rotorscheiben zuletzt endete und wo die
+    /// Legende beginnt -- beide in Widget-Koordinaten, beide beim
+    /// Zeichnen gesetzt. Der Prueflauf haelt fest, dass sie einander
+    /// nicht ueberschreiben.
+    double rotorBlockBottomForTest() const { return m_rotorBlockBottom; }
+    double legendTopForTest() const { return m_legendTop; }
 
     QSize minimumSizeHint() const override;
     QSize sizeHint() const override;
@@ -405,6 +411,8 @@ private:
     QAction* m_rotorDialsBackAction = nullptr;
     /// Wo die beiden Scheiben zuletzt lagen -- fuer den Klick.
     mutable QRectF m_rotorDialRect[2];
+    mutable double m_rotorBlockBottom = 0.0;
+    mutable double m_legendTop = 0.0;
     bool m_approxHalo = false;
     QAction* m_spotsAction = nullptr;
     QAction* m_approxHaloAction = nullptr;

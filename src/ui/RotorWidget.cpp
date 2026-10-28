@@ -907,8 +907,13 @@ void RotorWidget::drawTicks(QPainter& painter, const QPointF& center, double rad
     // of two, and the rose gains the outer 11-14px back for the ticks
     // themselves. See RotorDialWidget.cpp's own comment on this move
     // ("die Rose gewinnt aussen 11 px").
+    // O, nicht E: die Karte beschriftet ihren Kompass seit je deutsch
+    // (MapWidget.cpp, case 90 -> „O"), und seit dem 2026-10-28 auch die
+    // kleine Rotorscheibe in der Zahlenspalte. Zwei Instrumente fuer
+    // dieselbe Richtung sollen nicht zwei Sprachen sprechen. Gilt fuer
+    // alle drei Darstellungen hier: Scheibe, Ring und Band.
     drawCompassLabel(painter, center, radius * 0.755, 0.0, QStringLiteral("N"));
-    drawCompassLabel(painter, center, radius * 0.755, 90.0, QStringLiteral("E"));
+    drawCompassLabel(painter, center, radius * 0.755, 90.0, QStringLiteral("O"));
     drawCompassLabel(painter, center, radius * 0.755, 180.0, QStringLiteral("S"));
     drawCompassLabel(painter, center, radius * 0.755, 270.0, QStringLiteral("W"));
 
@@ -1875,7 +1880,7 @@ void RotorWidget::drawPartialArcTicks(QPainter& painter, const QPointF& center, 
     // N/E/W only -- south sits inside the gap, so it carries no
     // cardinal letter in this style (Rotor-C.dc.html has none either).
     drawCompassLabel(painter, center, radius + 14.0, 0.0, QStringLiteral("N"));
-    drawCompassLabel(painter, center, radius + 14.0, 90.0, QStringLiteral("E"));
+    drawCompassLabel(painter, center, radius + 14.0, 90.0, QStringLiteral("O"));
     drawCompassLabel(painter, center, radius + 14.0, 270.0, QStringLiteral("W"));
 
     // Sparser degree numbers than FullCompass (every 30 degrees there):
@@ -2033,7 +2038,7 @@ void RotorWidget::drawLinearTicks(QPainter& painter, double trackLeft, double tr
     // has room for.
     drawLinearCardinalTick(painter, xForDeg(0.0), trackY, QStringLiteral("N"));
     drawLinearIntercardinalTick(painter, xForDeg(45.0), trackY, 45.0);
-    drawLinearCardinalTick(painter, xForDeg(90.0), trackY, QStringLiteral("E"));
+    drawLinearCardinalTick(painter, xForDeg(90.0), trackY, QStringLiteral("O"));
     drawLinearIntercardinalTick(painter, xForDeg(135.0), trackY, 135.0);
     drawLinearCardinalTick(painter, xForDeg(180.0), trackY, QStringLiteral("S"));
     drawLinearIntercardinalTick(painter, xForDeg(225.0), trackY, 225.0);
