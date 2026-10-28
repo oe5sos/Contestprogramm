@@ -45,6 +45,7 @@ private slots:
     void dieRueckkeuleStehtInDerKarte();
     void dieScheibeIstMehrAlsEinKreis();
     void inDerScheibeIstNichtsGrau();
+    void dieScheibeDraengtDieLegendeNichtWeg();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -453,6 +454,54 @@ void TestKarteKurzwelle::inDerScheibeIstNichtsGrau()
                  qPrintable(QStringLiteral("am Draht=%1: %2 graue gegen %3 warme Punkte, z.B. #%4")
                                 .arg(amDraht).arg(kalt).arg(warm)
                                 .arg(QString::number(schlimmster & 0xffffff, 16))));
+    }
+}
+
+
+// ── „zurück 180°" stand auf „GEARBEITET" ────────────────────────────
+//
+// Betreiber am 2026-10-28, mit Bild. Die Legende steht fest am
+// unteren Rand der Zahlenspalte und weicht keiner Scheibe aus; die
+// Schranke, die ueber eine weitere Scheibe entscheidet, liess ihr
+// pauschal 24 Punkte. Sie braucht aber zwei oder drei Zeilen zu je
+// 16, je nachdem ob „Berge verdecken" dabei ist -- und die Zeile
+// „zurück N°" unter der Scheibe war in der Rechnung gar nicht drin.
+//
+// Gemessen wird an mehreren Hoehen, weil der Fehler nur auftritt, wo
+// es knapp wird: der Block der Scheiben muss ueber der Legende enden.
+void TestKarteKurzwelle::dieScheibeDraengtDieLegendeNichtWeg()
+{
+    for (int hoehe : {520, 560, 600, 620, 660, 700, 760}) {
+        MapWidget karte;
+        karte.resize(900, hoehe);
+        karte.setOwnGrid(QStringLiteral("JN67VV"));
+        karte.setRotorDialsVisible(true);
+        karte.setRotorDialsBackward(true);
+        // Mit Horizontprofil hat die Legende DREI Zeilen statt zwei --
+        // genau der Fall aus Martins Bild. Ohne es ging die alte
+        // Schranke um sechs Punkte auf, und der Lauf haette nichts
+        // gefunden (2026-10-28 gemessen).
+        karte.setHorizonProfile(QVector<double>(360, 2.0));
+        karte.setHorizonLayerVisible(true);
+        karte.setRotor1Heading(true, 0.0, QStringLiteral("144"));
+        karte.setRotor2Heading(true, 120.0, QStringLiteral("432"));
+        karte.grab();
+
+        const double unten = karte.rotorBlockBottomForTest();
+        const double legende = karte.legendTopForTest();
+        if (unten <= 0.0) { continue; }  // bei dieser Hoehe passt keine Scheibe
+        QVERIFY2(unten <= legende,
+                 qPrintable(QStringLiteral("Hoehe %1: die Scheiben enden bei %2, die Legende "
+                                           "beginnt schon bei %3")
+                                .arg(hoehe).arg(unten, 0, 'f', 0).arg(legende, 0, 'f', 0)));
+
+        // Und beide Rotoren sind da. Die Schranke allein haette das
+        // Gegenteil bewirkt: strenger gerechnet, waere Rotor 2 oefter
+        // weggefallen als vorher. Darum richtet sich der Durchmesser
+        // nach dem Platz, der fuer alle anstehenden bleibt.
+        QVERIFY2(!karte.rotorDialRectForTest(2).isEmpty(),
+                 qPrintable(QStringLiteral("Hoehe %1: Rotor 2 fehlt, obwohl er angeschlossen ist")
+                                .arg(hoehe)));
     }
 }
 

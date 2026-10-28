@@ -1911,14 +1911,49 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     // die Scheibe dreht dorthin (mousePressEvent).
     m_rotorDialRect[0] = QRectF();
     m_rotorDialRect[1] = QRectF();
+    m_rotorBlockBottom = 0.0;
     if (m_rotorDials) {
-        const double durchmesser = qMin(column.width() - 16.0, 150.0);
+        // Die Legende steht FEST am unteren Rand der Spalte
+        // (drawLegend, column.bottom()) und weicht keiner Scheibe aus.
+        // Die alte Schranke liess ihr pauschal 24 Punkte -- sie braucht
+        // aber zwei oder drei Zeilen zu je 16, je nachdem ob „Berge
+        // verdecken" dabei ist, und die Zeile „zurück N°" unter der
+        // Scheibe stand gar nicht in der Rechnung. Betreiber am
+        // 2026-10-28, mit Bild: „zurück 180°" und „GEARBEITET" standen
+        // uebereinander.
+        const double legendeHoehe =
+            ((hasHorizon() && m_showHorizon) ? 3.0 : 2.0) * 16.0 + 6.0;
+        // Was eine Scheibe ausser ihrem Kreis braucht: die Zeile
+        // „ROTOR n", der Abstand darunter, auf Wunsch „zurück N°", und
+        // die Luft zur naechsten.
+        const double drumherum = 16.0 + 4.0 + (m_rotorDialsBackward ? 16.0 : 0.0) + 8.0;
+
+        int wieviele = 0;
+        for (int i = 0; i < 2; ++i) {
+            const bool verbunden = (i == 0) ? m_rotor1Connected : m_rotor2Connected;
+            const bool gezeigt   = (i == 0) ? m_showRotor1Heading : m_showRotor2Heading;
+            if (verbunden && gezeigt) { ++wieviele; }
+        }
+
+        // Lieber zwei kleinere Scheiben als eine grosse und eine
+        // fehlende: der Durchmesser richtet sich nach dem Platz, der
+        // fuer ALLE anstehenden bleibt. Erst unterhalb von 72 Punkten
+        // -- da wird die Skala unleserlich -- faellt die zweite weg,
+        // und das besorgt dann die Schranke in der Schleife.
+        const double platz = column.bottom() - legendeHoehe - y;
+        double durchmesser = qMin(column.width() - 16.0, 150.0);
+        if (wieviele > 1) {
+            const double proScheibe = platz / double(wieviele) - drumherum;
+            if (proScheibe >= 72.0) {
+                durchmesser = qMin(durchmesser, proScheibe);
+            }
+        }
         const double radius = durchmesser / 2.0;
         for (int i = 0; i < 2; ++i) {
             const bool verbunden = (i == 0) ? m_rotor1Connected : m_rotor2Connected;
             const bool gezeigt   = (i == 0) ? m_showRotor1Heading : m_showRotor2Heading;
             if (!verbunden || !gezeigt) { continue; }
-            if (y + durchmesser + 34.0 > column.bottom() - 24.0) { break; } // kein Platz mehr
+            if (y + durchmesser + drumherum > column.bottom() - legendeHoehe) { break; } // kein Platz mehr
             const double az = wrap360((i == 0) ? m_rotor1AzimuthDeg : m_rotor2AzimuthDeg);
             const bool live = (i == 0) ? m_rotor1Live : m_rotor2Live;
             // Betreiber am 2026-10-28: „Die Farbe geht ab, leider nur
@@ -2041,7 +2076,12 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
                                     .adjusted(-5.0, -1.0, 5.0, 1.0);
             zahlKasten.moveCenter(QPointF(mitte.x(), mitte.y() + radius * 0.45));
             painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(Style::kPanelBg()));
+            // kInsetBg, nicht kPanelBg: der Kasten liegt AUF der
+            // Scheibe, und die ist seit Entwurf A dunkler als die
+            // Spalte. In der Farbe der Spalte sass dort ein heller
+            // Block (so gesehen am 2026-10-28). Jetzt verschwindet er
+            // im Grund und laesst nur die Ziffern stehen.
+            painter.setBrush(QColor(Style::kInsetBg()));
             painter.drawRoundedRect(zahlKasten, 3.0, 3.0);
             painter.setPen(nadel);
             painter.drawText(zahlKasten, Qt::AlignCenter, gradText);
@@ -2055,6 +2095,7 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
                 y += 16.0;
             }
             y += 8.0;
+            m_rotorBlockBottom = y;
         }
     }
 
@@ -2066,6 +2107,9 @@ void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft, double 
     painter.setFont(Style::capsFont(font(), Style::kFontCaption));
     const QColor text{Style::kTextTertiary()};
     double y = bottomLeft.y();
+    // Oberkante der obersten Zeile, die gleich gezeichnet wird --
+    // drawNumbersColumn muss darueber bleiben, siehe die Schranke dort.
+    m_legendTop = y - ((hasHorizon() && m_showHorizon) ? 3.0 : 2.0) * 16.0;
     const double x = bottomLeft.x();
     // Die Zeile beginnt 14 Bildpunkte rechts vom Zeichen; so viel
     // weniger Platz hat ihre Schrift. Siehe drawNumbersColumn().
