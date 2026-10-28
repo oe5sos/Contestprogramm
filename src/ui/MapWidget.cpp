@@ -236,7 +236,9 @@ void MapWidget::buildControls()
                                                  "dreht dorthin. Dann braucht es das Rotorfenster nicht mehr"),
                                   &MapWidget::setRotorDialsVisible);
     m_rotorDialsBackAction = addToggle(QStringLiteral("Rückrichtung zeigen"),
-                                       QStringLiteral("Die Gegenrichtung der Antenne als gepunktete Linie"),
+                                       QStringLiteral("Was die Antenne nach hinten abstrahlt -- in der Karte als "
+                                                      "blasse, gepunktete Keule in ihrer Farbe, und in den Scheiben "
+                                                      "als Gegenrichtung"),
                                        &MapWidget::setRotorDialsBackward);
     m_workedAction = addToggle(QStringLiteral("Gearbeitete anzeigen"),
                                QStringLiteral("Die eigenen QSOs des laufenden Contests"),
@@ -1483,6 +1485,45 @@ QVector<MapWidget::Beam> MapWidget::beams() const
             out.append(second);
         }
     }
+
+    // ── Und jede davon strahlt nach hinten ───────────────────────────
+    //
+    // Betreiber am 2026-10-28, mit Bild: „der beam strahlt auf der
+    // rueckseite auch. dies wollte ich auch farblich, aber im anderen
+    // design markieren."
+    //
+    // Eine Yagi hat ein Rueckwaertsverhaeltnis, keine Wand: was hinten
+    // ankommt, ist schwaecher, aber da -- und im Contest erklaert
+    // genau das die Station, die man hoert, obwohl man woanders hin
+    // steht. Darum dieselbe Farbe wie vorne (man sieht, WESSEN
+    // Rueckseite es ist), aber blasser und gepunktet, und ohne
+    // Gradzahl: die Karte traegt schon genug Zahlen, und die
+    // Rueckrichtung liest man an der Lage ab.
+    //
+    // Am selben Schalter wie die Scheiben („Rueckrichtung zeigen"):
+    // es ist dieselbe Frage, nur an zwei Orten beantwortet.
+    if (m_rotorDialsBackward) {
+        const int vorne = out.size();
+        for (int i = 0; i < vorne; ++i) {
+            Beam hinten = out[i];
+            hinten.azimuthDeg = wrap360(hinten.azimuthDeg + 180.0);
+            hinten.lineStyle = Qt::DotLine;
+            hinten.label.clear();
+            hinten.rear = true;
+            out.append(hinten);
+        }
+    }
+    return out;
+}
+
+QVector<QPair<double, bool>> MapWidget::beamAzimuthsForTest() const
+{
+    QVector<QPair<double, bool>> out;
+    const QVector<Beam> keulen = beams();
+    out.reserve(keulen.size());
+    for (const Beam& b : keulen) {
+        out.append({b.azimuthDeg, b.rear});
+    }
     return out;
 }
 
@@ -1503,8 +1544,11 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         }
         wedge.lineTo(rimPoint(area, beam.azimuthDeg + beam.halfWidthDeg, 0.0));
         wedge.closeSubpath();
+        // Die Rueckseite: dieselbe Farbe, ein Drittel der Deckung.
+        // Sie soll zu sehen sein, nie mit der Hauptrichtung
+        // verwechselt werden und nichts verdecken, was darunter liegt.
         QColor inner = beam.color;
-        inner.setAlpha(60);
+        inner.setAlpha(beam.rear ? 22 : 60);
         QColor outer = beam.color;
         outer.setAlpha(0);
         QRadialGradient grad(center, std::max(rx, ry) * visibleRangeFactor());
@@ -1514,8 +1558,8 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
         painter.setBrush(grad);
         painter.drawPath(wedge);
         QColor line = beam.color;
-        line.setAlpha(200);
-        painter.setPen(QPen(line, 1.2, beam.lineStyle));
+        line.setAlpha(beam.rear ? 105 : 200);
+        painter.setPen(QPen(line, beam.rear ? 1.0 : 1.2, beam.lineStyle));
         painter.drawLine(center, rimPoint(area, beam.azimuthDeg, 0.0));
         return;
     }

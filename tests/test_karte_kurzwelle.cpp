@@ -42,6 +42,7 @@ private slots:
     void gearbeiteteAusblendenUndDerGewaehlteRing();
     void einGeschaetzterOrtIstKeinLocator();
     void derGradStehtInDerScheibeUndWaechstMit();
+    void dieRueckkeuleStehtInDerKarte();
 };
 
 // ── Aus, bis jemand sie einschaltet ─────────────────────────────────
@@ -292,6 +293,54 @@ void TestKarteKurzwelle::derGradStehtInDerScheibeUndWaechstMit()
              qPrintable(QStringLiteral("die Scheibe waechst nicht mit: %1 -> %2")
                             .arg(klein.width()).arg(gross.width())));
 }
+
+// ── Die Rueckseite der Keule, in der Karte ──────────────────────────
+//
+// Betreiber am 2026-10-28, mit Bild: „der beam strahlt auf der
+// rueckseite auch. dies wollte ich auch farblich, aber im anderen
+// design markieren."
+//
+// Der Schalter „Rueckrichtung zeigen" gab es da schon -- er wirkte
+// aber nur in den kleinen Scheiben der Zahlenspalte, nicht in der
+// Karte selbst. Dieser Lauf haelt beide Haelften fest: ohne den
+// Schalter genau eine Keule je Antenne, mit ihm eine zweite, 180 Grad
+// gegenueber und als Rueckseite gekennzeichnet.
+void TestKarteKurzwelle::dieRueckkeuleStehtInDerKarte()
+{
+    MapWidget karte;
+    karte.resize(900, 600);
+    karte.setOwnGrid(QStringLiteral("JN67VV"));
+    karte.setRotor1Heading(true, 290.0, QStringLiteral("144"));
+
+    auto rueckseiten = [](const QVector<QPair<double, bool>>& keulen) {
+        QVector<double> out;
+        for (const auto& k : keulen) {
+            if (k.second) { out.append(k.first); }
+        }
+        return out;
+    };
+
+    const QVector<QPair<double, bool>> ohne = karte.beamAzimuthsForTest();
+    QVERIFY2(!ohne.isEmpty(), "die Karte zeichnet gar keine Keule");
+    QVERIFY2(rueckseiten(ohne).isEmpty(),
+             "ohne den Schalter darf keine Rueckkeule da sein");
+    const QImage bildOhne = karte.grab().toImage();
+
+    karte.setRotorDialsBackward(true);
+    const QVector<QPair<double, bool>> mit = karte.beamAzimuthsForTest();
+    QCOMPARE(mit.size(), ohne.size() * 2);
+
+    const QVector<double> hinten = rueckseiten(mit);
+    QCOMPARE(hinten.size(), ohne.size());
+    // 290 Grad vorne heisst 110 Grad hinten.
+    QVERIFY2(!hinten.isEmpty() && qAbs(hinten.first() - 110.0) < 0.5,
+             qPrintable(QStringLiteral("Rueckkeule bei %1 Grad statt 110")
+                            .arg(hinten.isEmpty() ? -1.0 : hinten.first())));
+
+    QVERIFY2(karte.grab().toImage() != bildOhne,
+             "die Rueckkeule aendert nichts am Bild");
+}
+
 
 int main(int argc, char* argv[])
 {

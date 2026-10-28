@@ -45,6 +45,7 @@ class TestJedesPanelAusblendbar : public QObject
 private slots:
     void jedesAngemeldetePanelHatEinenSchalter();
     void derSeitenbereichLaesstSichAusUndWiederEinschalten();
+    void ausgeblendetBleibtAusgeblendetNachEinemNeustart();
 
 private:
     std::unique_ptr<AppController> baueSteuerung(QTemporaryDir& dir, const QString& datei)
@@ -126,6 +127,66 @@ void TestJedesPanelAusblendbar::derSeitenbereichLaesstSichAusUndWiederEinschalte
     // Und wieder ein.
     schalter->setChecked(true);
     QTRY_VERIFY_WITH_TIMEOUT(!panel->isHidden(), 3000);
+}
+
+// Betreiber am 2026-10-28, mit Bild: „der chatraum ist ueberall
+// automatisch, ich kann ihn nicht ausblenden."
+//
+// Der Schalter war da und wirkte auch -- er hielt nur nicht. Die
+// Sichtbarkeit wohnt im Layoutprofil, und dessen Panelliste wurde beim
+// Anlegen von Hand aufgezaehlt (MainWindow.cpp, LayoutProfileManager-
+// Konstruktor). Das Chat-Panel kam spaeter dazu und stand nie darin:
+// gespeichert wurde es nie, und beim naechsten Anwenden eines Profils
+// blieb es unberuehrt -- also sichtbar, in jedem der drei Profile.
+//
+// Darum prueft dieser Lauf nicht eine Liste, sondern das Verhalten:
+// ausblenden, Fenster weg, Fenster neu -- es muss weg bleiben. Das
+// fasst jedes kuenftige Panel mit, ohne dass hier jemand nachtraegt.
+void TestJedesPanelAusblendbar::ausgeblendetBleibtAusgeblendetNachEinemNeustart()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto c = baueSteuerung(dir, QStringLiteral("ueberdauern.sqlite"));
+    QVERIFY(c);
+
+    QStringList ausgeblendet;
+    {
+        MainWindow fenster(*c);
+        fenster.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&fenster));
+
+        for (QAction* a : fenster.findChildren<QAction*>()) {
+            const QString name = a->objectName();
+            if (!name.startsWith(QStringLiteral("panelAction_"))) { continue; }
+            const QString id = name.mid(QStringLiteral("panelAction_").size());
+            // Die CW-Makro-Reihe haengt an ihrer eigenen Einstellung,
+            // der Seitenbereich steht nur da, wenn etwas drin ist --
+            // beide fuehren ihre Sichtbarkeit nicht im Profil.
+            if (id == QStringLiteral("cwMacroRow")
+                || id == QStringLiteral("sidearea")) { continue; }
+            PanelContainerWidget* panel = fenster.panelForTest(id);
+            if (panel == nullptr || panel->isHidden()) { continue; }
+            a->setChecked(false);
+            QTRY_VERIFY_WITH_TIMEOUT(panel->isHidden(), 3000);
+            ausgeblendet << id;
+        }
+        QVERIFY2(ausgeblendet.contains(QStringLiteral("chat")),
+                 "das Chat-Panel war gar nicht sichtbar -- der Fall traegt nichts");
+    }
+
+    // Dasselbe Profil, dieselbe Datenbank, neues Fenster.
+    MainWindow wieder(*c);
+    wieder.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&wieder));
+
+    QStringList zurueckgekehrt;
+    for (const QString& id : ausgeblendet) {
+        PanelContainerWidget* panel = wieder.panelForTest(id);
+        if (panel != nullptr && !panel->isHidden()) { zurueckgekehrt << id; }
+    }
+    QVERIFY2(zurueckgekehrt.isEmpty(),
+             qPrintable(QStringLiteral("ausgeblendet und trotzdem wieder da: %1")
+                            .arg(zurueckgekehrt.join(QStringLiteral(", ")))));
 }
 
 int main(int argc, char* argv[])
