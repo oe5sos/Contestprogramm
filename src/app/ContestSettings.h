@@ -35,6 +35,11 @@ struct ContestSettings {
     double antennaHeightM = 0.0;
     QString tciHost = QStringLiteral("127.0.0.1");
     int tciPort = 50001;
+    // Der Wasserfall (ui/WaterfallWidget.h) holt sein Spektrum über
+    // dieselbe TCI-Adresse. AUS als Vorgabe, mit Absicht: ohne laufendes
+    // Longpath gäbe es nur ein leeres Feld, und ein Logbuch soll nicht
+    // beim Start an einer Leitung ziehen, die niemand bestellt hat.
+    bool spectrumEnabled = false;
     // Hamlib rigctld -- the contest station's actual CAT radio path
     // (Kenwood TS-590 / Elecraft K3), per the plan's "Funkgerät:
     // klassischer TRX statt zwingend Longpath/SDR" section. rigctld's

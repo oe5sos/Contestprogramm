@@ -27,6 +27,7 @@ namespace Contestprogramm {
 class AppController;
 class ContestDefinition;
 class BandmapWidget;
+class WaterfallWidget;
 class ChatPanelWidget;
 class SideAreaWidget;
 class OnlineScoreboard;
@@ -123,6 +124,7 @@ private slots:
     void handleLogRequested();
     void recheckDupeIndicator();
     void openSettingsDialog();
+    void applyWaterfallVisibility();
     void openContestRulesEditor();
     void openContestPicker();
     void exportCabrillo();
@@ -564,6 +566,7 @@ private:
     // a 15 s timer for the age-out.
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
+    WaterfallWidget* m_waterfallWidget = nullptr;
     // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
     // ChatPanelWidget's Klassenkommentar.
     ChatPanelWidget* m_chatPanel = nullptr;

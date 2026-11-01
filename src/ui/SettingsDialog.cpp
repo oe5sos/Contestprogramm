@@ -61,6 +61,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_contestEndEdit(new QDateTimeEdit(this))
     , m_tciHostEdit(new QLineEdit(this))
     , m_tciPortSpin(new QSpinBox(this))
+    , m_spectrumEnabledCheck(new QCheckBox(QStringLiteral("Wasserfall von Longpath holen"), this))
     , m_rigctldHostEdit(new QLineEdit(this))
     , m_rigctldPortSpin(new QSpinBox(this))
     , m_rigModelCombo(new QComboBox(this))
@@ -221,10 +222,16 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // verstecken. Gelesen und zurückgeschrieben werden sie weiterhin,
     // damit ein vorhandener Eintrag erhalten bleibt.
     m_tciHostEdit->setText(initial.tciHost);
-    m_tciHostEdit->hide();
     m_tciPortSpin->setRange(1, 65535);
     m_tciPortSpin->setValue(initial.tciPort);
-    m_tciPortSpin->hide();
+    m_spectrumEnabledCheck->setChecked(initial.spectrumEnabled);
+    // Adresse nur eingeben, wenn sie auch gebraucht wird.
+    auto tciFelderNachziehen = [this](bool an) {
+        m_tciHostEdit->setEnabled(an);
+        m_tciPortSpin->setEnabled(an);
+    };
+    connect(m_spectrumEnabledCheck, &QCheckBox::toggled, this, tciFelderNachziehen);
+    tciFelderNachziehen(m_spectrumEnabledCheck->isChecked());
 
     m_rigctldHostEdit->setText(initial.rigctldHost);
     // Das Funkgerät: oben die kurze, nach Wahrscheinlichkeit geordnete
@@ -576,20 +583,25 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* catGroup = new QGroupBox(QStringLiteral("CAT (rigctld)"), this);
     catGroup->setLayout(catForm);
 
-    // Not wired up yet -- TciClient lands in a later phase if the
-    // operator ends up using Longpath/SDR as the radio instead of the
-    // CAT rig. ON4KST credentials are used by On4kstClient, but live
-    // connection to the real server is deliberately left to the
-    // operator (see AppController::applyNetworkSettings).
-    // TCI-Host/-Port standen hier bis zum 2026-10-16 -- zwei Felder,
-    // die nichts taten: einen TciClient gibt es in diesem Programm
-    // nicht (AppController.h nennt ihn als nicht gebautes Stück des
-    // Plans), CAT geht über rigctld. Wer vor dem Contest die Adresse
-    // seines Geräts dort einträgt, wartet hinterher auf eine
-    // Verbindung, die niemand aufbaut. Die Einstellungen selbst
-    // (ContestSettings::tciHost/tciPort) bleiben, damit ein
-    // vorhandener Eintrag nicht verlorengeht; angeboten werden sie
-    // wieder, wenn es etwas gibt, das sie benutzt.
+    // ON4KST credentials are used by On4kstClient, but live connection
+    // to the real server is deliberately left to the operator (see
+    // AppController::applyNetworkSettings).
+    //
+    // TCI-Host/-Port standen hier bis zum 2026-10-16 nur herum: zwei
+    // Felder, die nichts taten, weil es nichts gab, das sie benutzte.
+    // Damals stand hier „angeboten werden sie wieder, wenn es etwas
+    // gibt, das sie benutzt." Seit dem 2026-11-01 gibt es das:
+    // SpectrumClient holt über genau diese Adresse das fertige
+    // Spektrum für das Wasserfall-Panel. CAT geht weiterhin über
+    // rigctld, nicht über TCI -- diese Verbindung HOLT nur ein Bild
+    // und bedient nichts.
+    auto* spektrumForm = new QFormLayout();
+    spektrumForm->addRow(QString(), m_spectrumEnabledCheck);
+    spektrumForm->addRow(QStringLiteral("Longpath-Host:"), m_tciHostEdit);
+    spektrumForm->addRow(QStringLiteral("Longpath-Port:"), m_tciPortSpin);
+    auto* spektrumGroup = new QGroupBox(QStringLiteral("Wasserfall (Longpath, TCI)"), this);
+    spektrumGroup->setLayout(spektrumForm);
+
     auto* networkForm = new QFormLayout();
     networkForm->addRow(QStringLiteral("ON4KST-Benutzer:"), m_on4kstUserEdit);
     networkForm->addRow(QStringLiteral("ON4KST-Passwort:"), m_on4kstPassEdit);
@@ -812,6 +824,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* scrollLayout = new QVBoxLayout(scrollContent);
     scrollLayout->addWidget(stationGroup);
     scrollLayout->addWidget(catGroup);
+    scrollLayout->addWidget(spektrumGroup);
     scrollLayout->addWidget(networkGroup);
     scrollLayout->addWidget(callbookGroup);
     scrollLayout->addWidget(rotor1Group);
@@ -885,6 +898,7 @@ ContestSettings SettingsDialog::settings() const
     result.contestEndUtc = m_contestEndSetCheck->isChecked() ? m_contestEndEdit->dateTime().toString(Qt::ISODate) : QString();
     result.tciHost = m_tciHostEdit->text().trimmed();
     result.tciPort = m_tciPortSpin->value();
+    result.spectrumEnabled = m_spectrumEnabledCheck->isChecked();
     result.rigctldHost = m_rigctldHostEdit->text().trimmed();
     result.rigctldHamlibModel = m_rigModelCombo->currentData().toInt();
     result.rigctldDevice = m_rigDeviceEdit->text().trimmed();

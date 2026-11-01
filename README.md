@@ -140,9 +140,10 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Vor der Abgabe | *Datei › Log prüfen…* findet Zeilen, die nichts zählen (kein Locator, keine empfangene Nummer, unpassender Rapport); ein Klick springt zur Zeile. Der Export fragt von sich aus nach, wenn noch Fehler drin sind | *Datei › Log prüfen…* |
 | Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo (fragt vorher nach Bediener, Hilfsmitteln, Leistung, Sender, Station, Club, E-Mail und merkt sich die Angaben), ADIF (mit Rapport, getauschtem Text und eigener Station -- direkt einlesbar in Log4OM, DXKeeper, TQSL) | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
+| Wasserfall | Panadapter-Panel, das sein Bild **fertig gerechnet von Longpath** holt (TCI, eigener Stromtyp): oben die Spur des Spektrums, darunter der Wasserfall, ein Bernsteinton vom Rauschteppich bis zur Ortsstation. Hier wird nichts gerechnet -- keine FFT, kein I/Q-Strom (rund 27 kB/s statt 400), kein eigener Faden. Die Punktzahl nennt das Panel, Longpath verdichtet darauf über den **Spitzenwert**, damit ein schmaler Träger im Rauschen nicht verschwindet. Die Verbindung **holt nur ein Bild und bedient nichts** -- sie kann das Funkgerät weder abstimmen noch tasten. Ab Werk aus; ist Longpath nicht erreichbar, steht es da und sagt das. | *Datei › Einstellungen › Wasserfall*, Panel „Wasserfall" |
 | Farbthema | Zwei Varianten: **Bernstein** (Standard, die Longpath-Farben) und **Grün** (dunkles Anthrazit, helle Schrift, grüner Akzent für Messwerte und Kopfzeilen, Bernstein nur noch für Warnungen); wird beim nächsten Start wirksam | *Datei › Einstellungen › Farbthema* |
 
-Neue Panele (Check, Bandmap, Skeds) sind in bereits gespeicherten Layout-Profilen
+Neue Panele (Check, Bandmap, Skeds, Wasserfall) sind in bereits gespeicherten Layout-Profilen
 zunächst ausgeblendet – *Fenster › Panels* schaltet sie ein; die Position
 bleibt dann im Profil. Ein frischer Start (und *Fenster › Fenster zurücksetzen*)
 wählt die Anordnung nach der Fensterfläche: die große für Flächen ab

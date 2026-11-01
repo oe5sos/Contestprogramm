@@ -496,6 +496,18 @@ void AppController::applyNetworkSettings()
         m_clusterFeedModel.setContestBands(def->bands());
     }
 
+    // Der Wasserfall haengt an derselben Adresse wie der uebrige
+    // TCI-Verkehr. AUS bleibt AUS: ohne den Schalter wird nicht einmal
+    // eine Verbindung versucht, damit ein Logbuch ohne Longpath keine
+    // Leitung aufmacht, die niemand bestellt hat.
+    m_spectrumClient.setEndpunkt(m_settings.tciHost,
+                                 static_cast<quint16>(m_settings.tciPort));
+    if (m_settings.spectrumEnabled) {
+        m_spectrumClient.starten();
+    } else {
+        m_spectrumClient.beenden();
+    }
+
     m_rigctldClient.setTarget(m_settings.rigctldHost, static_cast<quint16>(m_settings.rigctldPort));
     // A rigctld of ours that the new settings no longer want (or want
     // with other arguments) goes first; starting one is left to the

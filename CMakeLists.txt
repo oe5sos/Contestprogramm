@@ -47,7 +47,9 @@ endif()
 # Mitschneider selbst (core/QsoAudioRecorder.h) braucht es NICHT --
 # er nimmt Abtastwerte und bleibt ohne Tongeraet pruefbar.
 # In der CI heisst das Modul `qtmultimedia`, siehe .github/workflows.
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test Multimedia)
+# WebSockets kam am 2026-11-01 dazu: der Wasserfall holt sein Spektrum
+# ueber Longpaths TCI-Server, und TCI ist ein WebSocket-Protokoll.
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network WebSockets Test Multimedia)
 
 # Phase 2 terrain line-of-sight (core/terrain/SrtmTileLoader) needs real
 # gzip decompression for the SRTM1 tiles it downloads -- Qt's own
@@ -71,6 +73,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/GeoFilter.cpp
     src/core/RigctldClient.h
     src/core/RigctldClient.cpp
+    src/core/SpectrumClient.h
+    src/core/SpectrumClient.cpp
     src/core/RotctldClient.h
     src/core/RotctldClient.cpp
     src/core/RotorModels.h
@@ -253,6 +257,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/BackupRestoreDialog.cpp
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
+    src/ui/WaterfallWidget.h
+    src/ui/WaterfallWidget.cpp
     src/ui/ChatPanelWidget.cpp
     src/ui/SideAreaIcons.cpp
     src/ui/SideAreaWidget.cpp
@@ -290,7 +296,7 @@ add_custom_target(contestprogramm_buildinfo
     COMMENT "BuildInfo.h (Version, Commit, Datum)")
 add_dependencies(ContestprogrammCore contestprogramm_buildinfo)
 target_include_directories(ContestprogrammCore PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
-target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network Qt6::Multimedia ZLIB::ZLIB)
+target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Multimedia ZLIB::ZLIB)
 
 # Dev-build fallback so the app finds resources/contest_definitions/*.json
 # without a packaging step; see ui/MainWindow.cpp findContestDefinitionsDir().

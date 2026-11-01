@@ -93,9 +93,20 @@ private:
     // ausgeschaltet (ContestSettings::cwMacroPanelVisible = false) und
     // liegt als Leiste ueber der ganzen Breite. Wer sie einschaltet,
     // bekommt sie bewusst ueber die obere Reihe gelegt.
+    //
+    // Der Wasserfall aus demselben Grund (seit 2026-11-01): er ist per
+    // Vorgabe ausgeschaltet (ContestSettings::spectrumEnabled = false,
+    // und MainWindow::applyWaterfallVisibility haelt ihn dann
+    // versteckt) und gehoert nicht zu Entwurf 3 „Karte als Buehne",
+    // den der Betreiber am 2026-10-24 aus vier Blaettern gewaehlt hat.
+    // Sein Vorgabeplatz IST der der Karte: beide sind das grosse Bild,
+    // auf das man schaut, und man schaut immer nur auf eines. Entwurf 3
+    // dafuer umzubauen waere eine Entscheidung ueber ein gewaehltes
+    // Blatt, und die gehoert nicht in einen Prueflauf.
     static bool zaehltMit(const QString& id)
     {
-        return id != QStringLiteral("cwMacroRow");
+        return id != QStringLiteral("cwMacroRow")
+               && id != QStringLiteral("wasserfall");
     }
 };
 
