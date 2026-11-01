@@ -104,7 +104,18 @@ void TestWasserfallLeitung::einBildKommtBisInsPanel()
     client.setEndpunkt(QStringLiteral("127.0.0.1"), server.port());
     client.setGeometrie(256, 10);
     client.starten();
-    QTRY_VERIFY_WITH_TIMEOUT(server.hasClient(), 5000);
+    // Auf den Stand des CLIENTS warten, nicht auf den des Servers.
+    //
+    // Hier stand zuerst `server.hasClient()` -- und auf Windows ist das
+    // zu frueh: der Server hat die Verbindung schon angenommen, waehrend
+    // der WebSocket-Handschlag auf unserer Seite noch laeuft. Der
+    // Nachzug unten las dann `false` und der Lauf fiel rot aus (CI
+    // 2026-11-01, einBildKommtBisInsPanel). Auf macOS und Linux ging es
+    // durch, weil der Handschlag dort schneller fertig war als die
+    // naechste Runde der Ereignisschleife -- ein Zeitrennen, kein
+    // Plattformunterschied.
+    QTRY_VERIFY_WITH_TIMEOUT(client.istVerbunden(), 5000);
+    QVERIFY(server.hasClient());
 
     WaterfallWidget panel;
     panel.resize(256, 300);
@@ -113,12 +124,12 @@ void TestWasserfallLeitung::einBildKommtBisInsPanel()
                      [&panel](const QVector<quint8>& werte, int) { panel.zeigeSpektrum(werte); });
     QObject::connect(&client, &SpectrumClient::verbindungGeaendert, &panel,
                      [&panel](bool an) { panel.setVerbunden(an); });
-    // Wie im Fenster: den Stand gleich nachziehen. Hier hing der
-    // Prüfstand zuerst -- die Verbindung stand schon, die Meldung
-    // darüber war vorbei, und das Panel wartete auf etwas, das nicht
-    // mehr kommt. Im Fenster ist das kein erfundener Fall:
-    // AppController::openDatabase schaltet das Spektrum ein, bevor
-    // MainWindow überhaupt existiert.
+    // Wie im Fenster: den Stand gleich nachziehen. Genau darum geht es
+    // in diesem Prüfpunkt -- die Verbindung steht oben schon, die
+    // Meldung darüber ist vorbei, und ohne diesen Nachzug wartete das
+    // Panel auf etwas, das nicht mehr kommt. Im Fenster ist das kein
+    // erfundener Fall: AppController::openDatabase schaltet das
+    // Spektrum ein, bevor MainWindow überhaupt existiert.
     panel.setVerbunden(client.istVerbunden());
     QVERIFY(panel.istVerbunden());
 
