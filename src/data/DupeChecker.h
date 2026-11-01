@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -53,6 +54,34 @@ public:
                                     const QString& mode,
                                     const QString& contestId,
                                     const QStringList& dupeScope) const;
+
+    // Alle gearbeiteten Stationen eines Contests auf EINMAL.
+    //
+    // isDupe() fragt nach EINER Station und braucht dafür einen
+    // Tabellendurchlauf: die Regel vergleicht Grundrufzeichen (IARU R1
+    // GC 2023, 1.2 -- S50AAA/P ist dieselbe Station wie S50AAA), und
+    // das geht in SQL nur als `UPPER(callsign) LIKE '%BASE%'`, was
+    // keinen Index benutzen kann. Für einen Tastendruck ist das
+    // richtig und schnell genug (gemessen 0,2-0,45 ms bei 1 200-2 000
+    // QSOs), für HUNDERTE Fragen hintereinander nicht:
+    // ChatFeedModel::refreshWorkedAndScores() fragt nach jedem
+    // geloggten QSO für jede Station in der Chatliste, und das waren
+    // gemessen 60 ms je Liste, zweimal.
+    //
+    // Diese Methode liest den Contest einmal und gibt zurück, was
+    // gearbeitet ist -- dieselbe Regel, dieselbe Ausnahme für
+    // ungültige QSOs, nur eine Abfrage.
+    struct WorkedStations {
+        // "GRUNDRUFZEICHEN|BAND" (Band groß und ohne Rand) und nur
+        // "GRUNDRUFZEICHEN".
+        QSet<QString> byCallAndBand;
+        QSet<QString> byCall;
+        QStringList bands; // die Bänder, auf denen überhaupt etwas steht
+
+        bool workedOnBand(const QString& callsign, const QString& band) const;
+        bool workedAtAll(const QString& callsign) const;
+    };
+    WorkedStations workedStations(const QString& contestId) const;
 
     // Empty after a successful isDupe() call (including a genuine
     // "not a dupe" result); the query's error text after a failed one.

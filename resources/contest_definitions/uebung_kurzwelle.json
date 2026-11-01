@@ -1,0 +1,13 @@
+{
+  "id": "KW_UEBUNG",
+  "name": "Kurzwelle – Übungslog (RST + laufende Nummer)",
+  "bands": ["1.8", "3.5", "7", "14", "21", "28"],
+  "dupe_scope": ["callsign", "band", "mode"],
+  "scoring": "qso_count",
+  "serial_scope": "contest",
+  "multiplier_field": "prefix",
+  "exchange_fields": [
+    { "key": "rst",    "label": "RST", "type": "rst" },
+    { "key": "serial", "label": "Nr.", "type": "int", "auto_increment": true }
+  ]
+}

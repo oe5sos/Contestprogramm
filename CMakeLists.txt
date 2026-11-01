@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
-project(Contestprogramm VERSION 0.1.1 LANGUAGES CXX)
+
+# macOS: Mindestsystem ausdrücklich festlegen -- MUSS vor project() stehen,
+# danach ist die Compiler-Erkennung gelaufen und die Vorgabe greift nicht
+# mehr. Ohne diese Zeile stempelt CMake die Version der BAUMASCHINE als
+# Mindestsystem in die Binärdatei (LC_BUILD_VERSION minos); eine auf
+# macOS 26 gebaute App startet dann auf einem älteren Mac gar nicht
+# erst ("erfordert eine neuere Version von macOS"). 12.0 ist das
+# Mindestsystem von Qt 6.8 und damit die tiefste Marke, die sich mit
+# dieser Werkzeugkette ehrlich versprechen lässt.
+#
+# Kein if(APPLE) davor: APPLE wird erst von project() gesetzt, und auf
+# Windows/Linux ist die Variable wirkungslos. Ohne FORCE, damit ein
+# -DCMAKE_OSX_DEPLOYMENT_TARGET=... von der Befehlszeile gewinnt.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Mindest-macOS-Version")
+
+project(Contestprogramm VERSION 0.1.7 LANGUAGES CXX)
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
 if(APPLE)
@@ -27,7 +42,12 @@ endif()
 
 # Network is needed from Phase 1 step 5 on: RigctldClient (CAT, QTcpSocket)
 # and On4kstClient (ON4KST chat/spots, QTcpSocket + QTcpServer in tests).
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test)
+# Multimedia seit 2026-10-22: der stundenlange QSO-Mitschnitt
+# (core/QsoAudioCapture.h) oeffnet damit ein Eingangsgeraet. Der
+# Mitschneider selbst (core/QsoAudioRecorder.h) braucht es NICHT --
+# er nimmt Abtastwerte und bleibt ohne Tongeraet pruefbar.
+# In der CI heisst das Modul `qtmultimedia`, siehe .github/workflows.
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test Multimedia)
 
 # Phase 2 terrain line-of-sight (core/terrain/SrtmTileLoader) needs real
 # gzip decompression for the SRTM1 tiles it downloads -- Qt's own
@@ -40,6 +60,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Sql Network Test)
 find_package(ZLIB REQUIRED)
 
 set(CONTESTPROGRAMM_CORE_SOURCES
+    src/core/AsciiText.h
+    src/core/AsciiText.cpp
     src/core/Maidenhead.h
     src/core/Maidenhead.cpp
     src/core/SpotCandidate.h
@@ -54,6 +76,12 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/RotorModels.h
     src/core/RotctldProcess.h
     src/core/RotctldProcess.cpp
+    src/core/HamlibBinary.h
+    src/core/HamlibBinary.cpp
+    src/core/RigctldProcess.h
+    src/core/RigctldProcess.cpp
+    src/core/RigModels.h
+    src/core/RigModels.cpp
     src/core/HamlibInstaller.h
     src/core/HamlibInstaller.cpp
     src/core/BeamHeading.h
@@ -80,9 +108,21 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/core/ClockCheck.cpp
     src/core/BandUtils.h
     src/core/BandUtils.cpp
+    src/core/DxInfo.h
+    src/core/DxInfo.cpp
+    src/core/CountryPrefixIndex.h
+    src/core/CountryPrefixIndex.cpp
+    src/core/CallsignPrefix.h
+    src/core/SolarPosition.h
+    src/core/SolarPosition.cpp
+    src/core/CallsignPrefix.cpp
     src/core/Transverter.cpp
     src/core/BroadcastPublisher.h
     src/core/BroadcastPublisher.cpp
+    src/core/QsoAudioRecorder.h
+    src/core/QsoAudioRecorder.cpp
+    src/core/QsoAudioCapture.h
+    src/core/QsoAudioCapture.cpp
     src/core/ChatImportanceScorer.h
     src/core/ChatImportanceScorer.cpp
     src/core/ChatVisibilityPolicy.h
@@ -115,6 +155,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/AppController.cpp
     src/app/AppActivation.h
     src/app/AppActivation.cpp
+    src/app/AppLanguage.h
+    src/app/AppLanguage.cpp
     src/app/SingleInstanceGuard.h
     src/app/SingleInstanceGuard.cpp
     src/app/SelfUpdater.h
@@ -130,6 +172,7 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/CabrilloExporter.cpp
     src/data/AdifExporter.h
     src/data/AdifExporter.cpp
+    src/data/QsoJournal.cpp
     src/data/EdiExporter.h
     src/data/EdiExporter.cpp
     src/data/ContestScoring.h
@@ -149,6 +192,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/data/ContestStatistics.cpp
     src/data/LogFileReader.h
     src/data/LogFileReader.cpp
+    src/data/FileWrite.h
+    src/data/FileWrite.cpp
     src/data/MultiplierTracker.h
     src/data/MultiplierTracker.cpp
     src/models/LogTableModel.h
@@ -188,6 +233,8 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/SettingsDialog.cpp
     src/ui/ContestRulesEditor.h
     src/ui/ContestRulesEditor.cpp
+    src/ui/CabrilloExportDialog.h
+    src/ui/CabrilloExportDialog.cpp
     src/ui/ContestPickerDialog.h
     src/ui/ContestPickerDialog.cpp
     src/ui/MultiplierWindow.h
@@ -206,6 +253,9 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/BackupRestoreDialog.cpp
     src/ui/BandmapWidget.h
     src/ui/BandmapWidget.cpp
+    src/ui/ChatPanelWidget.cpp
+    src/ui/SideAreaIcons.cpp
+    src/ui/SideAreaWidget.cpp
     src/ui/SkedPanel.h
     src/ui/SkedPanel.cpp
     src/ui/ScoreboardDialog.h
@@ -240,7 +290,7 @@ add_custom_target(contestprogramm_buildinfo
     COMMENT "BuildInfo.h (Version, Commit, Datum)")
 add_dependencies(ContestprogrammCore contestprogramm_buildinfo)
 target_include_directories(ContestprogrammCore PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
-target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network ZLIB::ZLIB)
+target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network Qt6::Multimedia ZLIB::ZLIB)
 
 # Dev-build fallback so the app finds resources/contest_definitions/*.json
 # without a packaging step; see ui/MainWindow.cpp findContestDefinitionsDir().
@@ -270,6 +320,10 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT "OE5SOS"
+        # Eigene Vorlage wegen NSMicrophoneUsageDescription -- siehe
+        # packaging/macos/Info.plist.in. Ohne den Schluessel beendet
+        # macOS die App beim ersten Zugriff auf ein Tongeraet.
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
 endif()
 target_link_libraries(Contestprogramm PRIVATE ContestprogrammCore)
@@ -297,6 +351,25 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/resources"
             "$<TARGET_FILE_DIR:Contestprogramm>/resources"
+    # resources/mac/ gehoert NICHT ins Bundle: darin liegt
+    # AppIcon.iconset, ein Verzeichnis voller PNGs. Ein .iconset an
+    # dieser Stelle macht das Bundle fuer codesign ungueltig
+    # ("bundle format unrecognized, invalid, or unsuitable"), und
+    # macOS weigert sich dann, es zu starten ("Launch failed",
+    # RBSRequestErrorDomain Code=5). Am 2026-09-23 beim Installieren
+    # nach /Applications aufgefallen: erst nach dem Entfernen dieses
+    # Ordners liess sich die Kopie signieren und oeffnen.
+    #
+    # Das fertige Symbol braucht das Programm hier ohnehin nicht --
+    # AppIcon.icns wird ueber MACOSX_BUNDLE_ICON_FILE nach
+    # Contents/Resources gelegt. Was unter resources/mac liegt, ist
+    # Baumaterial, keine Laufzeitdatei.
+    #
+    # Erst kopieren, dann entfernen (statt gezielt zu kopieren): so
+    # muss niemand diese Liste pflegen, wenn ein neues
+    # Ressourcenverzeichnis dazukommt.
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+            "$<TARGET_FILE_DIR:Contestprogramm>/resources/mac"
     COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/resources_copied.stamp"
     DEPENDS ${CONTESTPROGRAMM_RESOURCE_FILES}
     COMMENT "Copying resources/ next to the built binary"

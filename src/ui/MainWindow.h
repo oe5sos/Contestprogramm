@@ -9,12 +9,15 @@
 #include <QSet>
 #include <QString>
 
+class QAction;
 class QCloseEvent;
+class QShortcut;
 class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMoveEvent;
 class QCheckBox;
+class QMenu;
 class QPushButton;
 class QResizeEvent;
 class QTimer;
@@ -24,6 +27,8 @@ namespace Contestprogramm {
 class AppController;
 class ContestDefinition;
 class BandmapWidget;
+class ChatPanelWidget;
+class SideAreaWidget;
 class OnlineScoreboard;
 class CheckPartialWidget;
 class ContestRulesEditor;
@@ -83,6 +88,31 @@ public:
     // closed.
     bool performRestore(const QString& backupPath, QString* errorOut = nullptr);
 
+    // Das Band, auf dem geloggt wird. Es hat keine eigene Anzeige im
+    // Fenster (siehe den Klassenkommentar): es kommt vom Funkgerät oder
+    // von einer Frequenz im Rufzeichenfeld. Die Fußzeile zeigt es an
+    // der CAT-Plakette, und die Prüfstände fragen hier.
+    QString currentBand() const { return m_currentBand; }
+    /// Die Betriebsart, wie das Log sie fuehrt ("SSB", "CW", ...).
+    /// Fuer Prueflaeufe, die eine Lage herstellen muessen, bevor sie
+    /// etwas messen -- siehe tests/test_seitenband_folgt_dem_band.cpp.
+    QString currentMode() const { return m_currentMode; }
+    /// Die Kennungen aller angemeldeten Panels, und ein einzelnes
+    /// Panel dazu. Fuer tests/test_jedes_panel_ausblendbar.cpp.
+    QStringList panelIdsForTest() const;
+    class PanelContainerWidget* panelForTest(const QString& id) const;
+    /// Der Vorgabeplatz aus dem Entwurf, nicht die gerade sichtbare Lage.
+    QRect defaultGeometryForTest(const QString& id) const;
+    QRect compactGeometryForTest(const QString& id) const;
+    /// Die eigene CQ-Zone, aus dem eigenen Rufzeichen ueber dieselbe
+    /// Laenderliste wie die der Gegenstation. 0 = unbekannt, dann wird
+    /// nichts vorbelegt. Oeffentlich, weil der Prueflauf sie braucht.
+    int eigeneCqZone() const;
+    /// Was jetzt als eigener Austausch hinausginge. Oeffentlich fuer
+    /// tests/test_eigene_cq_zone.cpp -- die Zusammensetzung dieser
+    /// Zeile ist das, was im Log und im Cabrillo landet.
+    QString currentSentExchangeTextForTest() const { return currentSentExchangeText(); }
+
 signals:
     // Datei > Sicherung wiederherstellen has put a backup in place of
     // the database: main() releases the instance lock, starts a fresh
@@ -99,7 +129,14 @@ private slots:
     void exportAdif();
     void exportEdi();
     void loadScpFile();
+    void loadCountryFile();
+    QString mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate = nullptr) const;
     void importOldLogs();
+    // Eine veröffentlichte Ergebnisliste (CSV) als Locator-Quelle.
+    void importResultsCsv();
+    // Vor einem Export: bei Fehlerzeilen im Log nachfragen. true =
+    // exportieren.
+    bool confirmExportDespiteLogErrors();
     void archiveActiveContest();
     void refreshCheckPartial();
     void openMultiplierWindow();
@@ -121,7 +158,8 @@ private slots:
     // active contest (data/DupeRescore.h), write the ones that changed,
     // patch their rows in place. Returns how many changed.
     int rescoreDupes();
-    void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
+    void handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                                  bool gridGeschaetzt = false);
     void handleCallsignLookupRequested(const QString& callsign);
     // Live km/bearing preview for the in-progress entry -- recomputes
     // from ContestSettings::ownGrid + whatever is currently typed in the
@@ -129,6 +167,8 @@ private slots:
     // UnifiedLogWidget::receivedGridChanged) and pushes the result back
     // via UnifiedLogWidget::setEntryDistanceBearing().
     void handleReceivedGridChanged(const QString& grid);
+    void refreshDxInfoLine();
+    void refreshMultiplierHint(const QString& grid);
     // Tier 3 (QRZ/HamQTH) result, arriving asynchronously well after
     // handleCallsignLookupRequested() returned -- see core/
     // CallsignLocatorLookup.h. Re-checks the entry row's callsign field
@@ -151,9 +191,21 @@ private slots:
     void handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign);
     void handleHistoryExchangeRcvdEditRequested(int qsoId, const QString& newText);
     void handleHistoryInvalidToggleRequested(int qsoId);
+    // Ein QSO aus dem Log nehmen (ContestDatabase::deleteQso -- es
+    // wandert in den Papierkorb, nicht in den Müll) und die Umkehrung.
+    void handleHistoryDeleteRequested(int qsoId);
+    void undoLastDelete();
+    void refreshAfterLogChange();
+    // Der getippte Locator gegen den bekannten (Tucnaks
+    // "cross control couple callsign - locator").
+    void refreshLocatorCrossCheck(const QString& typedGrid);
+    QString knownGridForCallsign(const QString& callsign) const;
     void handleHistoryTimeEditRequested(int qsoId, const QString& newText);
     void backupLogNow();
     void restoreBackup();
+    // QSOs aus dem Journal zurück ins aktive Log holen -- die letzte
+    // Rettungsleine, wenn die Datenbank hin ist (siehe QsoJournal).
+    void restoreFromJournal();
     // Datei > Zweiter Sicherungsordner... / ...entfernen: where every
     // backup is also copied (LogBackup::setMirrorDirectory), kept in
     // the settings table as backup_mirror_dir.
@@ -179,6 +231,11 @@ private slots:
     void applyRotorWidgetSettings();
     // The rotor dials' beam cones take the map's beamwidth preferences.
     void applyRotorBeamwidths();
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled) anlegen,
+    // auffrischen oder wieder entfernen.
+    void showRotorPanelOptionsPopup();
+    void applyFixedAntennaSettings();
+    void pushFixedAntennaToMap();
     // Rebuilds MapWidget's worked/spotted station set from the current
     // contest's logged QSOs (ContestDatabase::qsosWithGrid) plus both
     // ChatFeedModels' currently-visible, not-yet-worked rows -- called
@@ -326,7 +383,9 @@ private:
     // Empty for a band this program doesn't operate/an as-yet-unknown
     // band -- syncOn4kstRoomForCurrentBand() below then leaves the
     // current room alone rather than switching to a meaningless value.
-    static QString on4kstRoomValueForBand(const QString& band);
+    // Die chat_id des Raums, der zu diesem Band gehört; 0 = keiner bekannt.
+    static int on4kstRoomValueForBand(const QString& band);
+    QString on4kstRoomStatusText() const;
     // Automatic 23cm room-switch (plan's chat-capability item 4,
     // 2026-09-12): m_currentBand is already fully CAT-driven with no
     // manual UI control (see the class comment above) -- reusing that
@@ -389,6 +448,27 @@ private:
     // is only ever reached via the signal/function-pointer connect()
     // below, never QMetaObject::invokeMethod.
     void showLogViewOptionsPopup();
+    // Das ⚙ des Chat-Panels: Raum, Anwesenheit, CQ, Filter, Reichweite
+    // -- siehe die Umsetzung. Q_INVOKABLE, damit der Prüfstand es rufen
+    // kann, ohne den ⚙-Knopf zu treffen.
+    Q_INVOKABLE void showChatOptionsPopup();
+    // Panels in den Seitenbereich legen und wieder herausnehmen.
+    // Q_INVOKABLE, damit der Prüfstand sie rufen kann, ohne das Menü
+    // zu treffen.
+    Q_INVOKABLE void putPanelIntoSideArea(const QString& id, const QString& title);
+    Q_INVOKABLE void takePanelOutOfSideArea(const QString& id);
+    // Ein losgelassenes Panel über dem Seitenbereich -- siehe dort.
+    Q_INVOKABLE void dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos);
+    // Der Rückweg: aus dem Seitenbereich heraus an die Stelle, wo man
+    // losgelassen hat.
+    Q_INVOKABLE void dragPanelOutOfSideArea(const QString& id, const QPoint& globalPos);
+    // Wer im Seitenbereich liegt, welche Seite oben ist und ob er
+    // zugeklappt war -- das überlebt den Neustart, wie jede andere
+    // Panel-Lage auch.
+    void saveSideAreaState();
+    void restoreSideAreaState();
+    /// Der Seitenbereich erscheint, wenn etwas drin ist -- und nur dann.
+    void syncSideAreaVisibility();
 
     AppController& m_appController;
 
@@ -404,9 +484,20 @@ private:
     // The transverter between rig and antenna (core/Transverter.h):
     // every rig frequency goes through rfFrequencyHz() before it names
     // a band, and every QSY through rigFrequencyHz(). Loaded from the
-    // settings table with the window, switched by m_transverterCheck.
+    // settings table with the window, switched by m_transverterAction
+    // im ⚙-Menü der obersten Zeile.
     TransverterSetup m_transverter;
-    QCheckBox* m_transverterCheck = nullptr;
+    QAction* m_transverterAction = nullptr;
+    QMenu* m_windowOptionsMenu = nullptr;
+    // Band und Betriebsart als sichtbare Bedienung in der obersten
+    // Zeile -- der einzige Weg dorthin, solange kein Funkgerät hängt
+    // (Martin, 2026-09-27). Die Menüs werden bei jedem Contestwechsel
+    // aus dessen Bändern/Betriebsarten neu gebaut.
+    QPushButton* m_bandButton = nullptr;
+    QPushButton* m_modeButton = nullptr;
+    QMenu* m_bandMenu = nullptr;
+    QMenu* m_modeMenu = nullptr;
+    QVector<QShortcut*> m_bandShortcuts;
     // Set by handleLogRequested() when Enter met an incomplete exchange
     // (first Enter: focus the missing field); cleared by any entry-row
     // edit. A second Enter in that state logs anyway.
@@ -415,19 +506,54 @@ private:
     // one place a rig frequency becomes m_currentBand: the transverter
     // applied, bands outside the contest ignored.
     qint64 currentRfFrequencyHz() const;
+    // Die zuletzt von Hand eingetippte Frequenz auf der Antenne (siehe
+    // tuneToFrequency()). Ohne CAT ist sie die einzige, die es gibt --
+    // ohne sie stünde im Cabrillo-Log die Bandkante statt der Stelle,
+    // an der das QSO wirklich lief. Ein Funkgerät, das seine eigene
+    // Frequenz meldet, löscht sie: seine gilt.
+    qint64 m_typedFrequencyHz = 0;
+    // Das zuletzt gelöschte QSO, für Strg+Z. Gelöscht wird ohne
+    // Rückfrage -- Martin will es schnell (2026-09-27) -- und genau
+    // darum muss ein Griff daneben in einem Tastendruck zurückzunehmen
+    // sein. -1: nichts zurückzunehmen.
+    int m_lastDeletedQsoId = -1;
     void applyRigFrequency(qint64 rigHz);
     void syncTransverterCheck();
+    // Auf eine Frequenz auf der Antenne gehen (Hertz): Funkgerät
+    // mitnehmen, falls verbunden, und das Band im Log umstellen. Der
+    // einzige Weg zu einem anderen Band ohne CAT -- ausgelöst durch
+    // eine Zahl im Rufzeichenfeld, wie bei N1MM und DXLog.
+    void tuneToFrequency(qint64 rfHz);
+    // Band bzw. Betriebsart von Hand wählen. Hängt ein Funkgerät dran,
+    // wird es mitgenommen (QSY auf die Bandkante, Betriebsart gesetzt)
+    // -- sonst überschriebe sein nächster Abfragetakt die Wahl sofort
+    // wieder. Ohne Gerät gilt sie einfach im Log.
+    void chooseBand(const QString& band);
+    void chooseMode(const QString& mode);
+    // Baut die beiden Menüs aus dem laufenden Contest und schreibt den
+    // aktuellen Stand auf die Knöpfe.
+    void rebuildBandModeControls();
+    // Nur den Stand nachziehen (Knopftexte, Häkchen) -- ohne die Menüs
+    // neu zu bauen, siehe die Begründung an der Umsetzung.
+    void syncBandModeControls();
     // The ON4KST room this program last actually switched into -- see
     // syncOn4kstRoomForCurrentBand()'s own doc comment. Empty until the
     // first sync, so that call's "differs from current" check does not
     // skip the very first (post-login) switch.
     QString m_currentOn4kstRoom;
+    // Der Raum, den der Server WIRKLICH liefert (chat_id aus den
+    // eingehenden Zeilen) -- nicht der, den wir angefordert haben.
+    int m_observedOn4kstRoom = -1;
     RateMeterWidget* m_rateMeterWidget = nullptr;
     // Check Partial (core/CheckPartialIndex.h + ui/CheckPartialWidget.h):
     // the index is refilled by reloadCheckPartialSources() on every
     // contest switch and logged QSO, the widget is refreshed from
     // the entry row's formChanged.
     CheckPartialIndex m_checkPartialIndex;
+    // Die Länderliste selbst liegt im AppController (auch der
+    // Multiplikator-Zähler braucht sie); hier steht nur, ob sie beim
+    // Start schon einmal vom gemerkten Pfad gelesen wurde.
+    bool m_countryListLoaded = false;
     CheckPartialWidget* m_checkPartialWidget = nullptr;
     void reloadCheckPartialSources();
     bool m_scpLoaded = false;
@@ -438,6 +564,14 @@ private:
     // a 15 s timer for the age-out.
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
+    // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
+    // ChatPanelWidget's Klassenkommentar.
+    ChatPanelWidget* m_chatPanel = nullptr;
+    // Der Seitenbereich und die Lagen, aus denen die Panels dorthin
+    // gewandert sind -- siehe putPanelIntoSideArea().
+    SideAreaWidget* m_sideArea = nullptr;
+    QHash<QString, QRect> m_sideAreaHomeGeometry;
+    bool m_restoringSideArea = false;
     void refreshBandmap();
     // Online scoreboard (core/OnlineScoreboard.h): config follows the
     // settings/contest, records follow the log.
@@ -467,6 +601,10 @@ private:
     QHBoxLayout* m_rotorLayout = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;
     RotorWidget* m_rotor2Widget = nullptr;
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled): dasselbe
+    // Instrument, nur ohne Rotor dahinter -- kein RotctldClient, keine
+    // Verbindung, keine Zielvorgabe.
+    RotorWidget* m_fixedAntennaWidget = nullptr;
     MapWidget* m_mapWidget = nullptr;
     // The rotorrow panel's own container -- kept (unlike most other
     // panels, whose container is looked up via m_panelLayoutManager->
@@ -508,12 +646,34 @@ private:
     QLabel* m_rigctldStatusLabel = nullptr;
     QLabel* m_on4kstStatusLabel = nullptr;
     QLabel* m_clusterStatusLabel = nullptr;
+    // Wann zuletzt gesichert wurde -- fest in der Fußzeile, nicht als
+    // Meldung, die nach fünf Sekunden weg ist. Martin, 2026-09-27:
+    // "automatische speicherung immer wieder". Sie lief auch vorher,
+    // aber zu sehen war sie nur, wenn sie scheiterte; zwischen zwei
+    // Kopien wusste niemand, ob überhaupt noch eine kommt.
+    QLabel* m_backupStatusLabel = nullptr;
     QLabel* m_gridRadiusLabel = nullptr;
     // Rough tropo-ducting indicator (WeatherClient) -- plain readout
     // label, not a connect/disconnect badge, same treatment as
     // m_gridRadiusLabel above.
     QLabel* m_weatherStatusLabel = nullptr;
+    // Welche Fassung läuft -- aus BuildInfo.h, also immer die gebaute.
+    QLabel* m_versionLabel = nullptr;
     QPushButton* m_modeToggleButton = nullptr;
+
+    /// ── Der Mitschnitt, sichtbar ──────────────────────────────────
+    ///
+    /// Betreiber am 2026-10-22: „wo starte und beende ich die
+    /// aufnahme. sollte zu sehen sein." Bis dahin war der Haken in
+    /// den Einstellungen der einzige Schalter und der einzige
+    /// Hinweis -- und der steht hinter zwei Klicks und acht
+    /// Gruppen. Ein Mitschnitt, von dem man nicht sieht, ob er
+    /// laeuft, ist keiner.
+    QPushButton* m_audioRecordButton = nullptr;
+    /// Die aufgenommene Zeit, immer sichtbar neben dem Schalter.
+    QLabel* m_audioRecordTimeLabel = nullptr;
+    class QTimer* m_audioRecordTicker = nullptr;
+    void aktualisiereMitschnittAnzeige();
     // See saveWindowGeometry()'s doc comment.
     QTimer* m_geometrySaveTimer = nullptr;
 };

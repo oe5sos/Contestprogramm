@@ -1,5 +1,8 @@
 #include "ui/StyleKit.h"
 
+#include <QColor>
+#include <QHash>
+#include <QStringList>
 #include <QWidget>
 
 #include <algorithm>
@@ -143,6 +146,49 @@ QString kBlueBorder() { return colorAt(IdxBlueBorder); }
 QString kBlueText() { return colorAt(IdxBlueText); }
 
 QString kAmberText() { return colorAt(IdxAmberText); }
+
+QString kMentionMagenta()
+{
+    // Helligkeit vom Haupttext übernehmen: auf einem dunklen Thema
+    // muss die Farbe hell genug sein, auf einem hellen dunkel genug.
+    const QColor text(kTextPrimary());
+    const int l = text.lightness();
+    // Kräftig genug, um zwischen grauen Zeilen sofort aufzufallen,
+    // aber nicht vollgesättigt -- das flimmert auf Schrift.
+    return QColor::fromHsl(310, 200, std::clamp(l, 115, 170)).name();
+}
+
+QString bandTint(const QString& band)
+{
+    // Grad Abstand zum Akzentton des Themas, nicht absolute Farbtöne:
+    // das niedrigste Band trägt den Akzentton selbst, die höheren
+    // laufen im Kreis davon weg. Elf Bänder wollen elf unterscheidbare
+    // Töne, also wird der Kreis weit ausgenutzt -- benachbarte Bänder
+    // liegen aber nie dichter als 20 Grad beieinander.
+    static const QHash<QString, int> kOffsets{
+        {QStringLiteral("1.8"), -20},  {QStringLiteral("3.5"), 0},    {QStringLiteral("7"), 35},
+        {QStringLiteral("10"), 70},    {QStringLiteral("14"), 105},   {QStringLiteral("18"), 130},
+        {QStringLiteral("21"), 150},   {QStringLiteral("24"), 185},   {QStringLiteral("28"), 225},
+        {QStringLiteral("50"), 260},   {QStringLiteral("70"), 290},
+    };
+    const auto it = kOffsets.constFind(band.trimmed());
+    if (it == kOffsets.constEnd()) {
+        return QString();
+    }
+    const QColor accent(kAmberText());
+    int hue = accent.hslHue();
+    if (hue < 0) {
+        // Ein grauer Akzent hat keinen Ton -- dann von Bernstein aus.
+        hue = 40;
+    }
+    hue = (hue + it.value() % 360 + 360) % 360;
+    // Gedämpfter als der Akzent (die Zelle soll nicht schreien) und so
+    // hell wie der normale Text, damit sie auf derselben dunklen
+    // Fläche gleich gut lesbar ist.
+    const int saturation = qBound(70, accent.hslSaturation() * 3 / 4, 160);
+    const int lightness = qBound(130, QColor(kTextPrimary()).lightness() - 55, 205);
+    return QColor::fromHsl(hue, saturation, lightness).name();
+}
 QString kAmberDim() { return colorAt(IdxAmberDim); }
 QString kAmberWarn() { return colorAt(IdxAmberWarn); }
 QString kAmberBg() { return colorAt(IdxAmberBg); }
@@ -181,6 +227,27 @@ QFont capsFont(const QFont& base, int px)
     return f;
 }
 
+namespace {
+// Eine Liste, zwei Wege hinaus: monoFont() fuer QFont, monoFontFamilyCss()
+// fuer die wenigen Stellen, die eine Schrift in Rich Text setzen muessen.
+QStringList monoFamilies()
+{
+    return {QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("Consolas"),
+            QStringLiteral("Cascadia Mono"), QStringLiteral("DejaVu Sans Mono"),
+            QStringLiteral("Liberation Mono"), QStringLiteral("Courier New")};
+}
+} // namespace
+
+QString monoFontFamilyCss()
+{
+    QStringList quoted;
+    for (const QString& family : monoFamilies()) {
+        quoted << QStringLiteral("\"%1\"").arg(family);
+    }
+    quoted << QStringLiteral("monospace");
+    return quoted.join(QStringLiteral(", "));
+}
+
 QFont monoFont(const QFont& base, int px, QFont::Weight weight)
 {
     QFont f = base;
@@ -202,9 +269,7 @@ QFont monoFont(const QFont& base, int px, QFont::Weight weight)
     // DejaVu/Liberation pair on Linux, all of them 0.55-0.6 em wide like
     // Menlo, so the readout's measured column budgets (RotorWidget.cpp,
     // kReadoutMinWidth) hold on every platform.
-    f.setFamilies({QStringLiteral("SF Mono"), QStringLiteral("Menlo"), QStringLiteral("Consolas"),
-                   QStringLiteral("Cascadia Mono"), QStringLiteral("DejaVu Sans Mono"),
-                   QStringLiteral("Liberation Mono"), QStringLiteral("Courier New")});
+    f.setFamilies(monoFamilies());
     f.setStyleHint(QFont::Monospace);
     f.setFixedPitch(true);
     return f;
@@ -303,6 +368,21 @@ QString appStyleSheet()
         "QMenu { background: %4; color: %2; border: 1px solid %3; }"
         "QMenu::item { padding: 4px 20px; }"
         "QMenu::item:selected { background: %8; color: %9; }"
+
+        // Die Leiste des Seitenbereichs. Ohne eigene Regel sah man dem
+        // gedrückten Knopf nichts an -- Martin, 2026-09-28: "wird nicht
+        // übernommen", mit zwei Bildern, auf denen verschiedene Seiten
+        // vorne lagen und trotzdem immer dasselbe Kürzel hell wirkte.
+        // Aktiv = Akzentfarbe plus Balken am Rand, wie in Longpath.
+        "QWidget#sideAreaRail QToolButton { background: transparent; color: %12;"
+        "  border: none; border-left: 2px solid transparent; border-radius: 0;"
+        // Links etwas Luft, damit das Symbol nicht am Rand klebt, und
+        // zwischen Symbol und Name der Abstand, den QToolButton selbst
+        // nicht hergibt.
+        "  padding: 6px 4px 6px 8px; text-align: left; }"
+        "QWidget#sideAreaRail QToolButton:hover { background: %14; color: %2; }"
+        "QWidget#sideAreaRail QToolButton:checked { background: %4; color: %8;"
+        "  border-left: 2px solid %8; }"
 
         "QStatusBar { background: %19; border-top: 1px solid %3; color: %5; }"
         "QStatusBar::item { border: none; }"

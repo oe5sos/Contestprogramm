@@ -14,8 +14,7 @@
 
 #include "core/RotctldProcess.h"
 
-#include <QFileInfo>
-#include <QStandardPaths>
+#include "core/HamlibBinary.h"
 
 namespace Contestprogramm {
 
@@ -36,27 +35,10 @@ RotctldProcess::~RotctldProcess()
 
 QString RotctldProcess::findBinary()
 {
-    // PATH first: an operator who installed Hamlib somewhere unusual
-    // and put it on PATH has already answered this question.
-    const QString onPath = QStandardPaths::findExecutable(
-        QStringLiteral("rotctld"));
-    if (!onPath.isEmpty()) { return onPath; }
-
-    // Then the places package managers actually put it. A GUI launched
-    // from Finder does not inherit the shell's PATH, so Homebrew's
-    // directories have to be named explicitly or Hamlib is invisible to
-    // this program while being plainly present in the terminal.
-    static const QStringList kDirs = {
-        QStringLiteral("/opt/homebrew/bin"),   // Apple silicon Homebrew
-        QStringLiteral("/usr/local/bin"),      // Intel Homebrew, and most else
-        QStringLiteral("/opt/local/bin"),      // MacPorts
-        QStringLiteral("/usr/bin"),
-    };
-    for (const QString& dir : kDirs) {
-        const QString candidate = dir + QStringLiteral("/rotctld");
-        if (QFileInfo(candidate).isExecutable()) { return candidate; }
-    }
-    return {};
+    // The search itself now lives in core/HamlibBinary.h -- rigctld is
+    // found exactly the same way (see core/RigctldProcess.h), and one
+    // copy of "where does Homebrew put things" is enough.
+    return findHamlibBinary(QStringLiteral("rotctld"));
 }
 
 QStringList RotctldProcess::arguments(int hamlibModel, const QString& device,

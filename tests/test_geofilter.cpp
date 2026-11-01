@@ -32,6 +32,7 @@ private slots:
     void bearingIsComputedWhenDistanceIsKnown();
     void terrainBlockedHardExcludesEvenWithinRadius();
     void noTerrainDataManagerLeavesInRangePurelyRadiusBased();
+    void radiusNullHeisstKeinFilter();
 };
 
 void TestGeoFilter::inRangeCandidateClassifiedInRange()
@@ -46,6 +47,28 @@ void TestGeoFilter::inRangeCandidateClassifiedInRange()
     QVERIFY(result.distanceKnown);
     QVERIFY(result.inRange);
     QVERIFY(result.distanceKm > 100.0 && result.distanceKm < 250.0);
+}
+
+// Radius 0 im Einstellungsfenster liest sich wie "keine Grenze" --
+// gerechnet hieß es "alles weiter als 0 km fällt weg", und damit
+// verschwand jede Station, deren Entfernung überhaupt bekannt ist.
+// Übrig blieben die ohne Locator. Das Feld lässt 0 ausdrücklich zu
+// (setRange(0, 5000)), also muss 0 das heißen, wonach es aussieht.
+void TestGeoFilter::radiusNullHeisstKeinFilter()
+{
+    GeoFilter filter;
+    filter.setOwnGrid(QStringLiteral("JN77QT"));
+    filter.setRadiusKm(0.0);
+
+    // Eine Station am anderen Ende der Welt: ohne Grenze bleibt sie
+    // sichtbar.
+    const GeoFilter::Result weit = filter.classify(makeCandidate(QStringLiteral("W1TST"), QStringLiteral("FN31PR")));
+    QVERIFY(weit.distanceKnown);
+    QVERIFY2(weit.inRange, "Radius 0 muss 'keine Grenze' heißen, nicht 'alles weg'");
+
+    // Und eine nebenan erst recht.
+    const GeoFilter::Result nah = filter.classify(makeCandidate(QStringLiteral("OE1ABC"), QStringLiteral("JN88TC")));
+    QVERIFY(nah.inRange);
 }
 
 void TestGeoFilter::outOfRangeCandidateClassifiedOutOfRange()

@@ -46,10 +46,19 @@ struct ContestScore {
     const BandScore* band(const QString& band) const;
 };
 
+// Die Entfernung einer Verbindung fuer die Wertung, ganze km
+// (abgeschnitten): die gespeicherte (beim Loggen nach iaruQrbKm
+// gerechnet, bei jedem Wechsel des eigenen Locators fuer das laufende
+// Log neu -- ContestDatabase::recomputeDistances), sonst aus `ownGrid`
+// gerechnet. -1, wenn der empfangene Locator nicht sechsstellig ist
+// (IARU R1 GC 2023, 1.9.1) oder sich nichts rechnen laesst.
+int qsoDistanceKm(const QsoRecord& record, const QString& ownGrid);
+
 // Distance points for one record, the IARU Region 1 way: the distance
-// (the record's stored one, else computed from `ownGrid` and the
-// record's locator) truncated to whole kilometres plus 1 -- a same-
-// square contact scores 1; 0 without a locator.
+// truncated to whole kilometres plus 1 -- a same-square contact scores
+// 1. 0 when the QSO is incomplete: no full 6-digit locator on either
+// side, or no received serial number (REG1TEST: incomplete QSOs are
+// claimed with 0 points; IARU R1 GC 2023, 1.9.1).
 int qsoDistancePoints(const QsoRecord& record, const QString& ownGrid);
 
 // Points for one record under `scoring` ("distance_km" / "qso_count").

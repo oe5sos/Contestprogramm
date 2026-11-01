@@ -69,7 +69,11 @@ void TestCheckPartialWidget::rendersMatchesAndEmitsTheClickedCall()
 
     // The link carries call and grid; activating it hands both on.
     QSignalSpy chosen(&widget, &CheckPartialWidget::callsignChosen);
-    QLabel* matchesLabel = widget.findChildren<QLabel*>().first();
+    // Über den Namen, nicht über die Reihenfolge: seit die
+    // Multiplikatorzeile darüber steht, ist der erste Label nicht mehr
+    // der mit den Treffern.
+    QLabel* matchesLabel = widget.findChild<QLabel*>(QStringLiteral("checkMatches"));
+    QVERIFY(matchesLabel);
     emit matchesLabel->linkActivated(QStringLiteral("OE5XYZ|JN67UT"));
     QCOMPARE(chosen.size(), 1);
     QCOMPARE(chosen.first().at(0).toString(), QStringLiteral("OE5XYZ"));

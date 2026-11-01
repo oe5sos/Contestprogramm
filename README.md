@@ -58,7 +58,17 @@ Log, Einstellungen, Layout-Profile, importierte Locator-Liste.
 über *Datei › Contest-Regeln…* landen als Override im Anwendungsdatenordner.
 Mitgeliefert: IARU R1 VHF (144, September), UHF/Microwave (432 + 1296,
 Oktober), Marconi Memorial (144 CW, November), die Subregionals
-(144 + 432, März/Mai/Juli) und ein ÖVSV-Contest.
+(144 + 432, März/Mai/Juli), ein ÖVSV-Contest und ein Kurzwellen-Übungslog
+(RST + laufende Nummer, keine echte Ausschreibung – zum Mitloggen am
+Gerät).
+
+Über *Datei › Contest-Regeln…* lässt sich **jede** dieser Regeln selbst
+setzen – Name, Bänder, Exchange-Felder, Wertung, Nummernkreis,
+Multiplikator, Dupe-Regel, erlaubte Betriebsarten, Cabrillo-Name – und
+mit *Neuer Contest…* eine Ausschreibung von Null anlegen. Die Kennung
+wird aus dem Namen abgeleitet und ändert sich danach nicht mehr: sie
+steht in jedem geloggten QSO. *Zurücksetzen* wirft die eigenen
+Einstellungen wieder weg.
 
 ```json
 {
@@ -82,7 +92,16 @@ Oktober), Marconi Memorial (144 CW, November), die Subregionals
 abgerundet auf ganze km plus 1, Summe je Band, keine Multiplikatoren; so
 werten IARU R1, ÖVSV und DARC) oder `qso_count` (1 Punkt je QSO).
 `serial_scope`: `band` (Standard – Seriennummer beginnt auf jedem Band bei
-001, IARU-R1-Regel) oder `contest`. `dupe_scope`: bei IARU R1/ÖVSV
+001, IARU-R1-Regel) oder `contest` (eine Folge über den ganzen Contest).
+Feldtypen: `rst`, `int` (laufende Nummer, mit `auto_increment`),
+`grid6` (Locator), `cqzone` (CQ-Zone 1–40, aus der Länderliste
+vorbelegt, sobald das Rufzeichen dasteht) und `text` für alles andere.
+
+`multiplier_field`: `grid` (Standard – Locator-Großfeld), `prefix`
+(WPX-Regel, rechnet sich allein aus dem Rufzeichen), `dxcc` (Land,
+braucht eine geladene Länderliste) oder `none`. `cabrillo_name`
+(optional): der Name, unter dem der Robot den Contest kennt
+(`CQ-WW-CW`); ohne ihn steht die interne Kennung im Kopf der Datei. `dupe_scope`: bei IARU R1/ÖVSV
 `["callsign", "band"]` – einmal je Band, unabhängig von der Betriebsart.
 `modes` (optional): erlaubte Betriebsarten, sonst alle; bei genau einer
 startet das Programm ohne CAT in dieser Betriebsart (Marconi: CW/599). `schedule`
@@ -96,10 +115,16 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Bereich | Was | Wo |
 |---|---|---|
 | Loggen | Eingabezeile mit Contest-Exchange, Auto-Seriennummer, Dupe-Check, Run/S&P, Locator-Vorbelegung aus eigenem Log (auch aus früheren Contests; die empfangene Nummer wird nie vorbelegt), Locator-Liste, QRZ/HamQTH. Enter loggt aus jedem Feld; fehlt Nummer oder Locator, springt das erste Enter ins leere Feld, ein zweites Enter loggt trotzdem. Geloggte Dupes tragen „DUPE“, ungültige „UNGÜLTIG“; bei einem Dupe sagt die Statuszeile des Panels sofort, als welche Nummer und um wie viel Uhr (UTC) die Station schon im Log steht, und markiert die Zeile. Nummern stehen überall dreistellig (001); der Fokus liegt beim Start im Rufzeichenfeld, das neueste QSO bleibt sichtbar | Panel „Log" |
-| Vor/nach dem Contest | *Datei › Neues Log beginnen (altes archivieren)* (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
+| Bekannte Rufzeichen | Vorschläge beim Tippen aus **eigenen früheren Logs** (auch archivierten), **eingelesenen Ergebnislisten**, `master.scp` und den Cluster/Chat-Feeds — in dieser Reihenfolge, die eigenen Logs zuerst, QRZ/HamQTH zuletzt. Eine Ergebnisliste nennt den Locator, **von dem gefahren wurde**; QRZ kennt nur den Heimatstandort, und auf UKW ist das selten derselbe Berg. Den CSV-Export gibt es je Contest beim [ÖVSV-Auswerteserver](https://ukwauswertung.oevsv.at) — die Spalten `Call` und `WWL` werden an ihren Überschriften erkannt, gleich an welcher Stelle sie stehen. Passt der getippte Locator nicht zu dem, unter dem die Station bekannt ist, sagt es die Zeile über der Eingabe (gewarnt, nicht gesperrt: sie kann umgezogen sein) | *Check-Panel, Eingabezeile* |
+| Sicherung | Jedes QSO steht sofort in der Datenbank; dazu jede Minute eine vollständige Kopie (400 Stände, optional zusätzlich auf USB). Wann zuletzt gesichert wurde, steht fest in der Fußzeile | *Datei › Sicherungen* |
+| Fehler | QSO löschen mit *⌫* oder Rechtsklick (es wandert in den Papierkorb, *Strg+Z* holt es zurück); als **ungültig** markieren, wenn es sichtbar bleiben soll; Rufzeichen, Nr./Locator und Zeit per Doppelklick korrigieren | *Log-Historie* |
+| Zweite Antenne | Je Rotor im ⚙ des Rotors: **Zweite Antenne** an/aus und ihr **Versatz** gegen die Rotorstellung. Eine Antenne je Rotor braucht keinen Versatz; bei zweien dreht die zweite um diesen Winkel versetzt mit. Karte und Rotorscheibe zeichnen dann beide Richtungen | *Rotor-Panel ⚙* |
+| Band und Betriebsart | Zwei Knöpfe links oben, auch ohne Funkgerät; *Alt+B* / *Alt+M* für die Menüs, *Strg+1…9* für die Bänder des Contests. Mit Funkgerät geht der Wechsel ans Gerät | *oberste Zeile* |
+| Vor/nach dem Contest | *Datei › Neues Log beginnen (altes bleibt im Archiv)* (Neustart bei 001, alte QSOs bleiben fürs Locator-Gedächtnis); Locator aus alten EDI/ADIF-Logs anderer Programme übernehmen | *Datei › Log abschließen…*, *Datei › Locator aus alten Logs übernehmen…* |
 | Korrigieren | Call, Nr./Grid und Zeit direkt in der Log-Zeile (Doppelklick/Enter; in Nr./Grid zählt, was ein Wert ist -- „JN58SD“ allein bleibt der Locator, „12“ allein die Nummer); statt Löschen „ungültig" markieren (zählt dann nirgends mehr mit). Nach jeder Korrektur werden die Dupe-Markierungen des Logs neu berechnet (N1MM „Rescore") | Panel „Log" |
 | Wertung | QSOs, Punkte (km je Band, Σ), 10 min/Stunde mit Trend und bester Stunde, ODX, Großfelder -- als Instrument, das der Panelgröße folgt: niedrig und breit die Zählerleiste mit Balken je Band und Sechs-Stunden-Sparkline, sonst Kacheln (bei 270×130 die vier wichtigsten, größer alle sechs mit Unterzeile) | Panel „Rate"; *Fenster › Statistik…* (je Band, je Stunde, längste QSOs) |
-| Locator-Felder | gearbeitete/offene Großfelder je Band | *Fenster › Locator-Felder…* |
+| Multiplikatoren | gearbeitete/offene Multiplikatoren je Band -- Locator-Großfelder, WPX-Präfixe oder Länder, je nach Contest-Regel; das Fenster heißt nach dem, was drinsteht | *Fenster › Locator-Felder…* |
+| Kurzwelle | Bänder 1,8 bis 28 MHz, Band folgt dem Funkgerät oder einer Frequenz im Rufzeichenfeld (`14045` + Enter = 14,045 MHz, `14.045` ebenso — die Betriebsart kommt dann aus dem Bandplan, die Frequenz steht im Log); Multiplikator wahlweise WPX-Präfix (rechnet sich aus dem Rufzeichen) oder Land; Karte bis 20 000 km mit Graulinie; Cabrillo mit kHz und Kategorien. Ohne getauschten Locator setzt die **Länderliste** (cty.dat von country-files.com, selbst geladen) die Station auf den Mittelpunkt ihres Landes -- gepunkteter Hof heißt „ungefähr", ins Log kommt dieser Ort nie. Rotor: *Einstellungen › Band-Zuordnung › Übrige Bänder* | *Datei › Länderliste laden (cty.dat)…* |
 | Check Partial | Rufzeichen-Vorschläge beim Tippen aus Log, Locator-Liste, gehörten Stationen, SCP-Liste; N+1 ab vier Zeichen; Klick übernimmt Call+Locator | Panel „Check"; *Datei › SCP-Liste laden…* |
 | Bandmap | Spots (KST/Cluster) auf der Frequenzachse, eigene Frequenz, gearbeitet gedimmt; Klick = QSY | Panel „Bandmap" |
 | Skeds | Verabredungen mit Zeitleiste der nächsten Stunde; Eingabe von Hand oder als Vorschlag aus einer KST-Nachricht an dich; Klick = QSY + Rotor + Eingabezeile; Alarm 2 min vorher; ein QSO schließt den Sked | Panel „Skeds" |
@@ -112,7 +137,8 @@ Hand gesetztes Contest-Ende in den Einstellungen hat Vorrang.
 | Tastenkürzel | Alle Tasten und Griffe auf einer Seite (Eingabezeile, CW, Korrekturen, Klicks auf Station/Spot/Radar, Rotor-Ziel, Panels) | *Hilfe › Tastenkürzel…* |
 | Über | Version, Commit und Baudatum (bei jedem Bauen erzeugt), Qt, Datenbank- und Sicherungspfade, „Datenordner zeigen" | *Hilfe › Über Contestprogramm…* |
 | Contest wählen | Liste der Definitionen; der eigene Locator wird jedes Mal mit abgefragt (vorbelegt, OK nur mit gültigem Locator, „Exakter Standort: JN67UT übernehmen" wenn die Einstellungen woanders liegen) | *Datei › Contest wählen…* |
-| Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo, ADIF | *Datei › EDI exportieren…* usw. |
+| Vor der Abgabe | *Datei › Log prüfen…* findet Zeilen, die nichts zählen (kein Locator, keine empfangene Nummer, unpassender Rapport); ein Klick springt zur Zeile. Der Export fragt von sich aus nach, wenn noch Fehler drin sind | *Datei › Log prüfen…* |
+| Abgabe | **EDI/REG1TEST** (eine Datei je Band, das Format der IARU-R1/ÖVSV-Roboter), Cabrillo (fragt vorher nach Bediener, Hilfsmitteln, Leistung, Sender, Station, Club, E-Mail und merkt sich die Angaben), ADIF (mit Rapport, getauschtem Text und eigener Station -- direkt einlesbar in Log4OM, DXKeeper, TQSL) | *Datei › EDI exportieren…* usw. |
 | Scoreboard | Contest-Online-Score-XML per HTTP POST, aus bis konfiguriert | *Datei › Online-Scoreboard…* |
 | Farbthema | Zwei Varianten: **Bernstein** (Standard, die Longpath-Farben) und **Grün** (dunkles Anthrazit, helle Schrift, grüner Akzent für Messwerte und Kopfzeilen, Bernstein nur noch für Warnungen); wird beim nächsten Start wirksam | *Datei › Einstellungen › Farbthema* |
 
@@ -142,11 +168,16 @@ Vorher, zu Hause:
    welches Band).
 3. *Datei › Transverter…*, falls ein Band über einen Transverter läuft;
    der Schalter oben bleibt aus, bis er wirklich dranhängt.
-4. *Datei › Neues Log beginnen (altes archivieren)*, damit die Nummern bei 001
+4. *Datei › Listen laden › Ergebnisliste eines Contests (CSV)*: die
+   Einreichungen früherer Conteste vom
+   [ÖVSV-Auswerteserver](https://ukwauswertung.oevsv.at) (je Contest
+   „CSV Export"), am besten von der ältesten zur neuesten. Damit kennt
+   das Programm die Standorte, von denen die Stationen wirklich fahren.
+5. *Datei › Neues Log beginnen (altes bleibt im Archiv)*, damit die Nummern bei 001
    beginnen; *Datei › Locator aus alten Logs übernehmen* für die
    Locator-Vorschläge.
-5. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.
-6. Einmal mit Internet starten, damit die Geländedaten um den Standort
+6. *Datei › Zweiter Sicherungsordner…* auf einen USB-Stick.
+7. Einmal mit Internet starten, damit die Geländedaten um den Standort
    im Cache liegen (Startcheck: „Geländedaten“).
 
 Am Standort, vor dem ersten CQ: *Datei › Startcheck (bereit?)…* — alles
@@ -155,6 +186,31 @@ grün oder bewusst gelb (CAT, Rotoren, ON4KST, Uhrzeit, Sicherung).
 Danach: *Datei › Log prüfen…*, dann *Datei › EDI exportieren…* (eine Datei
 je Band); der ÖVSV-Roboter nimmt die Logs etwa vier Tage nach Contestende
 an.
+
+## Kurzwelle ausprobieren
+
+Das Programm ist für VHF/UHF gebaut, kann aber Kurzwelle. Für einen
+Probelauf reicht das mitgelieferte Übungslog:
+
+1. Eine **Länderliste** besorgen und laden: `cty.dat` von
+   [country-files.com](https://www.country-files.com/), dann *Datei ›
+   Länderliste laden (cty.dat)…*. Ohne sie steht keine Station auf der
+   Karte und ein Länder-Multiplikator zählt nicht — der Startcheck sagt
+   es auch.
+2. *Datei › Contest wählen…* → **Kurzwelle – Übungslog** (RST +
+   laufende Nummer, 1,8 bis 28 MHz). Wer andere Regeln will: *Datei ›
+   Contest-Regeln…* — Bänder, Tauschfelder, Wertung, Nummernkreis,
+   Multiplikator und Dupe-Regel stehen dort alle zur Wahl.
+3. Band wechseln: die Frequenz ins **Rufzeichenfeld** tippen und Enter.
+   `14045` sind Kilohertz, `14.045` Megahertz. Hängt ein Funkgerät
+   dran, geht es mit; hängt keines dran, ist das der einzige Weg auf
+   ein anderes Band. Die Betriebsart kommt dann aus dem Bandplan (CW
+   unten, SSB oben), die Frequenz steht im exportierten Log.
+4. Rotor auf Kurzwelle: *Einstellungen › Band-Zuordnung › Übrige
+   Bänder*.
+5. Hinterher: *Datei › Cabrillo exportieren…* (fragt einmal nach
+   Kategorie, Leistung und so weiter) oder *Datei › ADIF exportieren…*
+   fürs eigene Logbuch.
 
 ## Abgleich mit N1MM Logger+ und DXLog.net
 
@@ -167,9 +223,14 @@ Skimmer/RBN, Netzwerk-Multi-Op, Voice-Keyer.
 ## Download
 
 Fertige Pakete liegen bei den [GitHub-Releases](https://github.com/oe5sos/Contestprogramm/releases):
-macOS (Apple Silicon) als DMG. Das Programm ist nicht bei Apple beglaubigt --
-beim ersten Start Rechtsklick › Öffnen. Windows- und Linux-Pakete folgen
-über die CI. Die Seite dazu: <https://www.longpath.at/contest/>.
+macOS als DMG -- **zwei getrennte Pakete, Apple Silicon und Intel**;
+Windows als portables ZIP, Linux als AppImage. Das Mindestsystem auf
+macOS ist **12 (Monterey)** -- damit laufen auch ältere Rechner: ein Mac
+mini 2018 (Intel) wie ein Mac von 2015, der auf Monterey endet. Geprüft
+wird das nicht an der Hauptdatei allein, sondern am ganzen Paket: eine
+App ist nur so alt wie das neueste Qt-Framework darin (`tests/pruefe_mindestsystem.sh`). Es ist nicht bei Apple beglaubigt -- beim
+ersten Start Rechtsklick › Öffnen. Die Seite dazu:
+<https://www.longpath.at/contest/>.
 
 Ein laufendes Programm holt sich die nächste Version selbst: **Hilfe ›
 Auf neueste Version aktualisieren…** fragt die GitHub-Releases ab, lädt das

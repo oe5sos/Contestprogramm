@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <limits>
+#include <algorithm>
+#include <QDateTime>
 #include <QPushButton>
 #include <QLineEdit>
 #include <QDialogButtonBox>
@@ -43,6 +46,7 @@ private slots:
     void dialogSelectedContestIdFollowsRowSelection();
     void pickingDifferentContestRebuildsUnifiedLogExchangeFields();
     void dialogAsksForTheOwnLocatorAndOffersTheExactSquare();
+    void derNaechsteTerminStehtObenUndIstVorgewaehlt();
 };
 
 namespace {
@@ -100,12 +104,18 @@ void TestContestPicker::dialogSelectedContestIdFollowsRowSelection()
     auto* table = dialog.findChild<QTableWidget*>();
     QVERIFY(table);
 
+    // Die Kennung wird in ALLEN Spalten gesucht, nicht in einer fest
+    // genannten. Hier stand „column 1 == ID", und als am 2026-10-23
+    // die Spalte „Nächster Termin" nach vorn kam, fiel dieser Lauf an
+    // einer Stelle, an der sich nichts Falsches geaendert hatte.
     int iaruRow = -1;
-    for (int row = 0; row < table->rowCount(); ++row) {
-        QTableWidgetItem* idItem = table->item(row, 1); // column 1 == ID, see ContestPickerDialog.cpp
-        if (idItem && idItem->text() == QStringLiteral("IARU_R1_VHF_UHF")) {
-            iaruRow = row;
-            break;
+    for (int row = 0; row < table->rowCount() && iaruRow < 0; ++row) {
+        for (int col = 0; col < table->columnCount(); ++col) {
+            QTableWidgetItem* item = table->item(row, col);
+            if (item && item->text() == QStringLiteral("IARU_R1_VHF_UHF")) {
+                iaruRow = row;
+                break;
+            }
         }
     }
     QVERIFY(iaruRow >= 0);
@@ -216,4 +226,76 @@ int main(int argc, char* argv[])
     TestContestPicker tc;
     return QTest::qExec(&tc, argc, argv);
 }
+// ── Der nächste Termin steht oben und ist vorgewählt ─────────────────
+//
+// Betreiber am 2026-10-23: „toll wäre es, immer die conteste der
+// nächsten 4 wochen zu sehen, sodass man nicht lange suchen muss.
+// diese sollten dann automatisch vorgeschlagen werden."
+//
+// Mit dreizehn ausgelieferten Regeln ist „welcher ist am Wochenende"
+// aus einer alphabetischen Liste nicht mehr abzulesen.
+void TestContestPicker::derNaechsteTerminStehtObenUndIstVorgewaehlt()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeReadyController(dir, QStringLiteral("picker_termin.sqlite"));
+    QVERIFY(controller);
+
+    const QVector<ContestDefinition> regeln = controller->availableContestDefinitions();
+    QVERIFY2(regeln.size() >= 10,
+             "zu wenige Regeln -- dieser Lauf sagt dann nichts über Sortierung");
+
+    // Ohne vorgegebenen Contest: die Vorauswahl ist der nächste
+    // anstehende, nicht einfach die erste Zeile einer Dateiliste.
+    ContestPickerDialog dialog(regeln, QString());
+    auto* table = dialog.findChild<QTableWidget*>();
+    QVERIFY(table);
+    QCOMPARE(table->columnCount(), 5);
+    QCOMPARE(table->horizontalHeaderItem(0)->text(), QStringLiteral("Nächster Termin"));
+
+    // Die Spalte ist nach Frist sortiert: jede Zeile ist höchstens so
+    // weit weg wie die darunter. Geprüft wird gegen die Regeln selbst,
+    // nicht gegen eine im Prüflauf nachgebaute Reihenfolge.
+    const QDateTime jetzt = QDateTime::currentDateTimeUtc();
+    qint64 vorige = std::numeric_limits<qint64>::min();
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QString id;
+        for (int col = 0; col < table->columnCount(); ++col) {
+            QTableWidgetItem* it = table->item(row, col);
+            if (it && regeln.cend() != std::find_if(regeln.cbegin(), regeln.cend(),
+                    [&](const ContestDefinition& d) { return d.id() == it->text(); })) {
+                id = it->text();
+                break;
+            }
+        }
+        QVERIFY2(!id.isEmpty(), qPrintable(QStringLiteral("Zeile %1 ohne Kennung").arg(row)));
+
+        const auto* def = controller->findContestDefinition(id);
+        QVERIFY(def);
+        qint64 frist = std::numeric_limits<qint64>::max();
+        if (def->schedule().isValid()) {
+            const ContestWindow w = def->schedule().windowUpcoming(jetzt);
+            if (w.isValid()) {
+                frist = w.contains(jetzt) ? -1 : jetzt.secsTo(w.startUtc);
+            }
+        }
+        QVERIFY2(frist >= vorige,
+                 qPrintable(QStringLiteral("Zeile %1 (%2) steht nach einem "
+                                           "späteren Termin").arg(row).arg(id)));
+        vorige = frist;
+    }
+
+    // Und die Vorauswahl liegt auf der obersten Zeile mit einem Termin
+    // -- das ist der „automatisch vorgeschlagen" aus dem Wunsch.
+    QVERIFY(table->currentRow() >= 0);
+    QVERIFY2(table->currentRow() <= 1,
+             qPrintable(QStringLiteral("vorgewählt ist Zeile %1, nicht der "
+                                       "nächste Termin").arg(table->currentRow())));
+
+    // Ein ausdrücklich genannter Contest schlägt den Vorschlag -- sonst
+    // überginge die Automatik die Wahl des Betreibers.
+    ContestPickerDialog mitVorgabe(regeln, QStringLiteral("IARU_R1_MARCONI"));
+    QCOMPARE(mitVorgabe.selectedContestId(), QStringLiteral("IARU_R1_MARCONI"));
+}
+
 #include "test_contest_picker.moc"

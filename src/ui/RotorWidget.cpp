@@ -9,6 +9,7 @@
 #include <QIntValidator>
 #include <QLineEdit>
 #include <QLinearGradient>
+#include <QInputDialog>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -43,6 +44,9 @@ constexpr int kDialMargin = 18;
 // separately-eyeballed number that could silently drift out of sync.
 constexpr int kReadoutTopPad = 6;
 constexpr int kReadoutLabelHeight = 14;  // "Aktuell"/"Ziel"/"Entfernung" caps labels
+// Ab wann der lange Weg überhaupt eine Frage ist. Darunter ist die
+// Gegenrichtung nie die bessere, und die Zeile bliebe nur im Weg.
+constexpr double kLongPathFromKm = 5000.0;
 constexpr int kReadoutValueHeight = 46;  // kFontDisplay (38px) big numbers + leading
 constexpr int kReadoutRowGap = 4;
 constexpr int kReadoutLineHeight = 18;   // one generic text line -- caption row and connection-status row both use this
@@ -294,6 +298,23 @@ void RotorWidget::setBandLabel(const QString& label)
     update();
 }
 
+void RotorWidget::setFixedAntenna(bool fixed)
+{
+    if (m_fixedAntenna == fixed) {
+        return;
+    }
+    m_fixedAntenna = fixed;
+    if (fixed) {
+        // Eine feste Antenne hat kein Ziel -- und ihre Richtung ist
+        // bekannt, nicht "unbekannt mangels Verbindung": die Zelle
+        // AKTUELL zeigt sie, wie sie es bei einem verbundenen Rotor
+        // auch taete.
+        clearTargetBearing();
+        m_connected = true;
+    }
+    update();
+}
+
 void RotorWidget::setConnected(bool connected)
 {
     if (m_connected == connected) {
@@ -443,6 +464,11 @@ void RotorWidget::resizeEvent(QResizeEvent* event)
 
 void RotorWidget::mousePressEvent(QMouseEvent* event)
 {
+    if (m_fixedAntenna) {
+        // Kein Ziel, kein Drehen: siehe setFixedAntenna().
+        QWidget::mousePressEvent(event);
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
         return;
@@ -464,7 +490,9 @@ void RotorWidget::mouseDoubleClickEvent(QMouseEvent* event)
     // comment). This override exists only so Qt doesn't fall back to its
     // default double-click handling (which would otherwise also
     // re-dispatch as a second ordinary press) inside the dial ring.
-    if (event->button() != Qt::LeftButton) {
+    if (event->button() != Qt::LeftButton || m_fixedAntenna) {
+        // Eine feste Antenne dreht nicht -- ein Klick ins Zifferblatt
+        // darf ihr auch keine Richtung vortaeuschen.
         QWidget::mouseDoubleClickEvent(event);
         return;
     }
@@ -473,6 +501,16 @@ void RotorWidget::mouseDoubleClickEvent(QMouseEvent* event)
         return;
     }
     commitManualTarget(deg);
+}
+
+void RotorWidget::aimAt(double bearingDeg)
+{
+    if (m_fixedAntenna) {
+        // Kein Ziel, kein Drehen: siehe setFixedAntenna(). Dieselbe
+        // Schranke, die mousePressEvent() vor dem Zifferblatt zieht.
+        return;
+    }
+    commitManualTarget(BeamHeading::wrap360(bearingDeg));
 }
 
 void RotorWidget::commitManualTarget(double bearingDeg)
@@ -616,7 +654,7 @@ void RotorWidget::drawPanelHeader(QPainter& painter) const
     // driving m_azimuthDeg toward the target (see its own comment) --
     // same "unbekannt zeigt nichts falsches an" rule this codebase
     // applies everywhere else (HAUSSTIL rule 7).
-    if (m_hasTarget && (m_connected || m_simulated)) {
+    if (!m_fixedAntenna && m_hasTarget && (m_connected || m_simulated)) {
         const double rawDiff = std::fmod(std::abs(m_azimuthDeg - m_targetBearingDeg), 360.0);
         const double angleDiff = std::min(rawDiff, 360.0 - rawDiff);
         const bool onTarget = angleDiff <= kArrivalToleranceDeg;
@@ -757,6 +795,49 @@ void RotorWidget::showOptionsPopup()
     addStyleAction(RotorDialStyle::PartialArc, QStringLiteral("Rotor-Box (Bogen)"));
     addStyleAction(RotorDialStyle::Digital, QStringLiteral("Digital (Zahlen)"));
 
+    // Die zweite Antenne an diesem Rotor. Martin, 2026-09-27: "ich
+    // möchte bei den rotoren eine option haben, ob und in welche
+    // richtung die zweite antenne versetzt steht ... dies soll in der
+    // taskleiste einzustellen sein", und auf die Rückfrage: "wenn es
+    // nur eine richtung gibt, dann kein versatz, wenn es 2 richtungen
+    // gibt, dann versatz". Richtung 1 ist also immer die Rotorstellung
+    // selbst; nur die zweite hat einen Versatz.
+    //
+    // Die Einstellung gab es schon, aber nur im Einstellungsfenster --
+    // mitten im Contest ist das zu weit weg.
+    menu->addSeparator();
+    QAction* secondAction = menu->addAction(QStringLiteral("Zweite Antenne"));
+    secondAction->setCheckable(true);
+    secondAction->setChecked(m_secondAntennaEnabled);
+    connect(secondAction, &QAction::triggered, this, [this](bool on) {
+        setSecondAntenna(on, m_secondAntennaOffsetDeg);
+        emit secondAntennaRequested(on, m_secondAntennaOffsetDeg);
+    });
+    QAction* offsetAction = menu->addAction(
+        QStringLiteral("Versatz der zweiten Antenne: %1°…").arg(m_secondAntennaOffsetDeg, 0, 'f', 0));
+    offsetAction->setEnabled(m_secondAntennaEnabled);
+    connect(offsetAction, &QAction::triggered, this, [this]() {
+        bool ok = false;
+        const int chosen = QInputDialog::getInt(this, QStringLiteral("Zweite Antenne"),
+                                                 QStringLiteral("Versatz gegen die Rotorstellung, in Grad:"),
+                                                 qRound(m_secondAntennaOffsetDeg), -180, 180, 1, &ok);
+        if (!ok) {
+            return;
+        }
+        setSecondAntenna(m_secondAntennaEnabled, chosen);
+        emit secondAntennaRequested(m_secondAntennaEnabled, chosen);
+    });
+
+    // Der lange Weg zum aktuellen Ziel -- nur wenn es eines gibt und es
+    // weit genug weg ist, dass die Gegenrichtung überhaupt eine Frage
+    // ist.
+    if (m_hasTarget && m_targetDistanceKm >= kLongPathFromKm) {
+        menu->addSeparator();
+        const double longPath = BeamHeading::longPath(m_targetBearingDeg);
+        QAction* action = menu->addAction(QStringLiteral("Auf langen Weg drehen (%1°)").arg(longPath, 0, 'f', 0));
+        connect(action, &QAction::triggered, this, [this, longPath]() { emit rotateRequested(longPath); });
+    }
+
     // Below the button, right-aligned with it -- the same positioning
     // rule the real Longpath TxApplet::showFinePopup() uses for its own
     // gear-triggered popup ("Unter dem Zahnrad, aber rechtsbündig mit
@@ -836,8 +917,13 @@ void RotorWidget::drawTicks(QPainter& painter, const QPointF& center, double rad
     // of two, and the rose gains the outer 11-14px back for the ticks
     // themselves. See RotorDialWidget.cpp's own comment on this move
     // ("die Rose gewinnt aussen 11 px").
+    // O, nicht E: die Karte beschriftet ihren Kompass seit je deutsch
+    // (MapWidget.cpp, case 90 -> „O"), und seit dem 2026-10-28 auch die
+    // kleine Rotorscheibe in der Zahlenspalte. Zwei Instrumente fuer
+    // dieselbe Richtung sollen nicht zwei Sprachen sprechen. Gilt fuer
+    // alle drei Darstellungen hier: Scheibe, Ring und Band.
     drawCompassLabel(painter, center, radius * 0.755, 0.0, QStringLiteral("N"));
-    drawCompassLabel(painter, center, radius * 0.755, 90.0, QStringLiteral("E"));
+    drawCompassLabel(painter, center, radius * 0.755, 90.0, QStringLiteral("O"));
     drawCompassLabel(painter, center, radius * 0.755, 180.0, QStringLiteral("S"));
     drawCompassLabel(painter, center, radius * 0.755, 270.0, QStringLiteral("W"));
 
@@ -1354,6 +1440,15 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
     drawConnectionStatusRow(painter, QRect(area.left(), y, area.width(), kReadoutLineHeight));
 }
 
+QString RotorWidget::captionText() const
+{
+    QString text;
+    QColor color;
+    bool show = false;
+    computeCaptionLine(text, color, show);
+    return show ? text : QString();
+}
+
 void RotorWidget::computeCaptionLine(QString& text, QColor& color, bool& show) const
 {
     const QColor tertiaryColor{Style::kTextTertiary()};
@@ -1400,6 +1495,14 @@ void RotorWidget::computeCaptionLine(QString& text, QColor& color, bool& show) c
             if (m_targetDistanceKm >= 0.0) {
                 parts << QStringLiteral("%1 km").arg(m_targetDistanceKm, 0, 'f', 0);
             }
+            // Ab einer gewissen Entfernung ist der lange Weg eine
+            // ernsthafte zweite Möglichkeit -- darunter nicht, und dann
+            // steht er auch nicht da.
+            if (m_targetDistanceKm >= kLongPathFromKm) {
+                parts << QStringLiteral("lang %1° · %2 km")
+                             .arg(BeamHeading::longPath(m_targetBearingDeg), 0, 'f', 0)
+                             .arg(BeamHeading::longPathDistanceKm(m_targetDistanceKm), 0, 'f', 0);
+            }
             text = parts.join(QStringLiteral(" · "));
             show = true;
         }
@@ -1419,8 +1522,20 @@ void RotorWidget::drawConnectionStatusRow(QPainter& painter, const QRect& row) c
     const QColor inactiveColor{Style::kTextInactive()};
     const QFont capLabelFont = Style::capsFont(painter.font());
 
-    const QColor dotColor = m_connected ? greenColor : inactiveColor;
-    const QString statusText = m_connected ? QStringLiteral(" verbunden") : QStringLiteral(" getrennt");
+    const QColor dotColor = m_fixedAntenna ? QColor(Style::kTextScale())
+                                           : (m_connected ? greenColor : inactiveColor);
+    // Bei der festen Antenne steht hier ihr Name und ihre Richtung.
+    // In die Kopfzeile gehoert er nicht: Martin, 2026-09-14, zu genau
+    // dieser Stelle -- "die markierung 2m und 23 und 70 cm weglassen,
+    // kostet platz". Die Fusszeile hat den Platz, und bei einem
+    // Instrument ohne Rotor steht dort ohnehin nichts ueber eine
+    // Verbindung, die es nicht gibt.
+    const QString statusText =
+        m_fixedAntenna
+            ? QStringLiteral(" %1 · fest auf %2°")
+                  .arg(m_bandLabel.isEmpty() ? QStringLiteral("Antenne Fix") : m_bandLabel,
+                       QString::number(qRound(m_azimuthDeg)).rightJustified(3, QLatin1Char('0')))
+            : (m_connected ? QStringLiteral(" verbunden") : QStringLiteral(" getrennt"));
     constexpr int kDotSize = 6;
     const QFontMetrics fm(capLabelFont);
     const int textWidth = fm.horizontalAdvance(statusText);
@@ -1775,7 +1890,7 @@ void RotorWidget::drawPartialArcTicks(QPainter& painter, const QPointF& center, 
     // N/E/W only -- south sits inside the gap, so it carries no
     // cardinal letter in this style (Rotor-C.dc.html has none either).
     drawCompassLabel(painter, center, radius + 14.0, 0.0, QStringLiteral("N"));
-    drawCompassLabel(painter, center, radius + 14.0, 90.0, QStringLiteral("E"));
+    drawCompassLabel(painter, center, radius + 14.0, 90.0, QStringLiteral("O"));
     drawCompassLabel(painter, center, radius + 14.0, 270.0, QStringLiteral("W"));
 
     // Sparser degree numbers than FullCompass (every 30 degrees there):
@@ -1933,7 +2048,7 @@ void RotorWidget::drawLinearTicks(QPainter& painter, double trackLeft, double tr
     // has room for.
     drawLinearCardinalTick(painter, xForDeg(0.0), trackY, QStringLiteral("N"));
     drawLinearIntercardinalTick(painter, xForDeg(45.0), trackY, 45.0);
-    drawLinearCardinalTick(painter, xForDeg(90.0), trackY, QStringLiteral("E"));
+    drawLinearCardinalTick(painter, xForDeg(90.0), trackY, QStringLiteral("O"));
     drawLinearIntercardinalTick(painter, xForDeg(135.0), trackY, 135.0);
     drawLinearCardinalTick(painter, xForDeg(180.0), trackY, QStringLiteral("S"));
     drawLinearIntercardinalTick(painter, xForDeg(225.0), trackY, 225.0);

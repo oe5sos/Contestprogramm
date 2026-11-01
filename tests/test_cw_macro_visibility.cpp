@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QAction>
 #include <QCheckBox>
 #include <QTemporaryDir>
 
@@ -49,18 +50,13 @@ std::unique_ptr<AppController> makeReadyController(QTemporaryDir& dir, const QSt
     return controller;
 }
 
-// The "CW-Makros anzeigen" checkbox lives in MainWindow's filter row
-// alongside the existing raw-feed toggle and has no distinguishing
-// objectName (matching the existing rawFeedCheck's own local-variable
-// style) -- found here by its visible text instead.
-QCheckBox* findCheckboxByText(QWidget* root, const QString& text)
+// "CW-Makros anzeigen" hängt seit 2026-09-23 im ⚙-Menü der obersten
+// Zeile (vorher ein Kästchen in einer eigenen Filterzeile) -- Martins
+// Regel: Optionen gehören rechts oben unter das Zahnrad. Über den
+// objectName gesucht, nicht über den sichtbaren Text.
+QAction* findOption(QWidget* root, const QString& objectName)
 {
-    for (QCheckBox* box : root->findChildren<QCheckBox*>()) {
-        if (box->text() == text) {
-            return box;
-        }
-    }
-    return nullptr;
+    return root->findChild<QAction*>(objectName);
 }
 
 } // namespace
@@ -139,7 +135,7 @@ void TestCwMacroVisibility::checkboxTogglePersistsSettingAndFlipsRowVisibility()
     QVERIFY(cwRow);
     QVERIFY(cwRow->isHidden());
 
-    QCheckBox* cwCheck = findCheckboxByText(&window, QStringLiteral("CW-Makros anzeigen"));
+    QAction* cwCheck = findOption(&window, QStringLiteral("optionCwMacros"));
     QVERIFY(cwCheck);
     QVERIFY(!cwCheck->isChecked());
 

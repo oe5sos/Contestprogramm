@@ -64,6 +64,19 @@ public:
         bool worked = false;
         qint64 freqHz = 0;
         QDateTime workedAtUtc;
+        // Der Ort ist nur der Mittelpunkt eines Landes, nicht ein
+        // getauschter Locator (auf Kurzwelle der Normalfall, siehe
+        // MainWindow::mapGridForCallsign). Solche Punkte bekommen einen
+        // gepunkteten Hof -- ein blanker Punkt behauptet eine
+        // Genauigkeit, die es hier nicht gibt. Steht bewusst am Ende:
+        // die Reihenfolge davor ist die, in der überall im Baum
+        // Stationen aufgezählt werden.
+        bool approximate = false;
+        // Waere diese Station auf diesem Band ein NEUER Multiplikator?
+        // Bei CQ WW also ein neues Land. MainWindow fuellt es aus dem
+        // MultiplierTracker; die Karte entscheidet damit, wen sie
+        // beschriftet, wenn nur noch das Wesentliche hingehoert.
+        bool neededMultiplier = false;
     };
 
     explicit MapWidget(QWidget* parent = nullptr);
@@ -87,8 +100,58 @@ public:
     void setWorkedCellsLayerVisible(bool visible);
     void setBordersLayerVisible(bool visible);
     void setCitiesLayerVisible(bool visible);
+    // Die Dämmerungszone: wo gerade die Sonne auf- oder untergeht
+    // (core/SolarPosition.h). Auf Kurzwelle die eine Schicht, die über
+    // die Ausbreitung etwas sagt; auf UKW ohne Bedeutung, darum aus.
+    void setGreylineLayerVisible(bool visible);
+    // ── Zwei Schalter fuer die Kurzwelle (2026-10-23) ────────────────
+    //
+    // Betreiber hat aus vier Entwuerfen „3c" gewaehlt: Punkte nach
+    // BAND eingefaerbt, und beschriftet wird nur, was ein neues Land
+    // waere. Der Grund steht im Entwurf: auf 10 000 km draengen sich
+    // zwanzig Rufzeichen auf wenigen Bildpunkten, und die Farbe sagt
+    // mehr als der Name -- sie sagt, wo das Band offen ist.
+    //
+    // Beide aus, solange niemand sie einschaltet: auf UKW ist das
+    // eine Verschlechterung (ein Band, und jeder Name zaehlt).
+    void setBandColorsEnabled(bool enabled);
+    void setLabelsOnlyNeededEnabled(bool enabled);
+    // Betreiber am 2026-10-24: „die symbole fuer die spots sehr gross,
+    // ggf. andere variante plus ein ein und ausblenden als option."
+    //
+    // Spots sind die gespotteten, noch nicht gearbeiteten Stationen.
+    // Sie lassen sich ganz ausblenden -- dann steht nur noch das
+    // eigene Log in der Karte.
+    void setSpotsVisible(bool on);
+    /// Die eigenen QSOs -- derselbe Schalter wie fuer die Spots.
+    void setWorkedVisible(bool on);
+    // Betreiber am 2026-10-25: „man sollte als option die beiden
+    // rotoren unterhalb der sonne hier im fenster ein/ausblenden
+    // koennen, dann kann man auf wunsch ein fenster sparen. aber dort
+    // sollte man auch den rotor drehen koennen."
+    //
+    // Entwurf A aus drei Blaettern: zwei kleine Scheiben in der
+    // Zahlenspalte, live, klickbar, mit der Rueckrichtung als eigenem
+    // Schalter.
+    void setRotorDialsVisible(bool on);
+    void setRotorDialsBackward(bool on);
+    // Der gepunktete Hof um einen geschaetzten Ort. Auf Kurzwelle hat
+    // KEINE Station einen getauschten Locator, also traegt dort jeder
+    // Punkt einen Hof -- und ein Hinweis, der immer gilt, sagt nichts
+    // mehr und kostet nur den dreifachen Durchmesser. Deshalb aus;
+    // auf UKW, wo er wirklich die Ausnahme meint, einschaltbar.
+    void setApproximateHaloEnabled(bool on);
     void setAgingEnabled(bool enabled);
     void setFitToWindowEnabled(bool enabled);
+    // "Vollfläche": the map uses the whole panel and the panel's own
+    // frame is its rim -- no scope circle at all (operator, 2026-10-18:
+    // "nicht durch den runden kreis minimiert ... sondern optional
+    // flächenfüllend ... die linien des fensters als begrenzer. nur als
+    // zusätzliche option"). Off by default; the disc stays the default
+    // face. The projection stays azimuthal equidistant and isotropic --
+    // the range still lands on the nearer pair of edges, the corners
+    // simply reach further out.
+    void setFullBleedEnabled(bool enabled);
     void setRotor1HeadingLayerVisible(bool visible);
     void setRotor2HeadingLayerVisible(bool visible);
     void setHorizonLayerVisible(bool visible);
@@ -98,8 +161,10 @@ public:
     bool workedCellsLayerVisible() const { return m_layers.cells; }
     bool bordersLayerVisible() const { return m_layers.borders; }
     bool citiesLayerVisible() const { return m_layers.cities; }
+    bool greylineLayerVisible() const { return m_layers.greyline; }
     bool agingEnabled() const { return m_showAging; }
     bool fitToWindowEnabled() const { return m_fitToWindow; }
+    bool fullBleedEnabled() const { return m_fullBleed; }
     bool rotor1HeadingLayerVisible() const { return m_showRotor1Heading; }
     bool rotor2HeadingLayerVisible() const { return m_showRotor2Heading; }
     bool horizonLayerVisible() const { return m_showHorizon; }
@@ -114,6 +179,13 @@ public:
     void setTerrainSectors(const QVector<LineOfSightClass>& sectorsByDegree);
 
     void setRotor1Heading(bool connected, double azimuthDeg, const QString& label);
+    // Ob die Verbindung zu diesem Rotor gerade wirklich steht. Die
+    // Speiche zeigt weiter, was der Steckplatz verfolgt (Martin,
+    // 2026-09-14) -- aber ohne Verbindung gestrichelt und gedämpft,
+    // wie der Ring der Rotorscheibe daneben, statt wie eine gemessene
+    // Peilung auszusehen. `rotor` ist 1 oder 2.
+    void setRotorLinkLive(int rotor, bool live);
+    bool rotorLinkLive(int rotor) const { return rotor == 2 ? m_rotor2Live : m_rotor1Live; }
     void setRotor2Heading(bool connected, double azimuthDeg, const QString& label);
     // A second antenna on the same rotor (ContestSettings::rotorN
     // SecondAntennaEnabled/-OffsetDeg): its own cone at heading +
@@ -124,6 +196,14 @@ public:
     // Opening angle (full -3 dB beamwidth) of each rotor's antennas --
     // the cone's width. A map preference (⚙ menu), persisted with the
     // layer toggles; 30° unless set.
+    // Die feste Antenne (ContestSettings::fixedAntennaEnabled) -- eine
+    // Keule wie die der Rotoren, nur dass sie steht. Martin,
+    // 2026-10-08: "bitte auch die keule". `vorhanden` false nimmt sie
+    // wieder aus der Karte.
+    void setFixedAntennaHeading(bool vorhanden, double azimuthDeg, const QString& label);
+    void setFixedAntennaBeamwidthDeg(double degrees);
+    double fixedAntennaBeamwidthDeg() const { return m_fixedBeamwidthDeg; }
+
     void setRotor1BeamwidthDeg(double degrees);
     void setRotor2BeamwidthDeg(double degrees);
     double rotor1BeamwidthDeg() const { return m_beamwidth1Deg; }
@@ -162,19 +242,41 @@ public:
     // The scope rectangle -- its centre is the own station. Tests click
     // there.
     QRectF canvasRectForTest() const { return scopeRect(); }
+    // Was die Karte gerade als Peilung führt -- für Prüfstände, die
+    // nachsehen, ob eine Drehung am Rotor hier ankommt.
+    /// Wo die Scheibe zuletzt lag (1 oder 2) -- fuer den Prueflauf.
+    QRectF rotorDialRectForTest(int rotor) const { return m_rotorDialRect[rotor == 2 ? 1 : 0]; }
+    double rotorHeadingForTest(int rotor) const { return rotor == 2 ? m_rotor2AzimuthDeg : m_rotor1AzimuthDeg; }
     QRectF openInBeamRectForTest() const { return m_openInBeamRect; }
+    /// Jede Keule, die die Karte gerade zeichnet: Richtung in Grad und
+    /// ob es die Rueckseite ist. Fuer den Prueflauf -- Beam selbst
+    /// bleibt privat.
+    QVector<QPair<double, bool>> beamAzimuthsForTest() const;
+    /// Wo der Block der Rotorscheiben zuletzt endete und wo die
+    /// Legende beginnt -- beide in Widget-Koordinaten, beide beim
+    /// Zeichnen gesetzt. Der Prueflauf haelt fest, dass sie einander
+    /// nicht ueberschreiben.
+    double rotorBlockBottomForTest() const { return m_rotorBlockBottom; }
+    double legendTopForTest() const { return m_legendTop; }
 
     QSize minimumSizeHint() const override;
     QSize sizeHint() const override;
 
 signals:
     // A click on a station (marker or skyline tick).
-    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
+    // `gridGeschaetzt` sagt, dass `grid` nur der Mittelpunkt des
+    // Landes ist und NICHT der Locator der Station (Station::
+    // approximate). Zum Drehen des Rotors taugt er, als Austausch
+    // nicht -- siehe MainWindow::handleCandidateActivated.
+    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                            bool gridGeschaetzt = false);
     // The ⚙ menu's "Zweitantenne" entry for rotor 1 or 2 -- the same
     // station setting the settings dialog edits (operator, 2026-09-20:
     // "dies soll eine option sein, dann kann ich es selbst machen");
     // MainWindow stores it and feeds it back via setRotorNSecondAntenna.
     void secondAntennaToggled(int rotor, bool enabled);
+    /// Klick in eine der Scheiben in der Zahlenspalte: dreh dorthin.
+    void rotorRotateRequested(int rotor, double bearingDeg);
     // View or any layer toggle changed by the operator or a setter.
     void preferencesChanged();
 
@@ -206,6 +308,7 @@ private:
 
     // Geometry
     QRectF canvasRect() const;       // everything below the controls
+    QRectF paintRect() const;        // what the map is clipped to (the frame in Vollfläche)
     QRectF scopeRect() const;        // the (possibly elliptical) map/scope area
     QRectF numbersRect() const;      // Radar: the column to the right, empty when too narrow
     // The open (spotted, not worked) stations inside rotor 1's cone(s),
@@ -215,11 +318,20 @@ private:
     double horizonAngleAt(int bearingDeg) const; // profile, else from sectors, 0 = flat
     bool hasHorizon() const;
     QVector<Plotted> plotStations(const QRectF& area) const;
+    // Where the bearing ray leaves the painted area, pulled `inset` px
+    // back along it (negative = outside): the ellipse's rim, or the
+    // panel edge in Vollfläche.
+    QPointF rimPoint(const QRectF& area, double bearingDeg, double inset) const;
+    // How far past visibleRangeKm the painted area still reaches --
+    // 1.0 for the disc, up to the diagonal when the frame is the rim.
+    double visibleRangeFactor() const;
     QVector<GridCell> computeGridCells(const QRectF& area) const;
 
     // Painting
     void drawScopeFace(QPainter& painter, const QRectF& area) const;
     void drawBordersLayer(QPainter& painter, const QRectF& area) const;
+    void drawGreylineLayer(QPainter& painter, const QRectF& area) const;
+    void syncGreylineTimer();
     void drawCitiesLayer(QPainter& painter, const QRectF& area) const;
     void drawGridLayer(QPainter& painter, const QRectF& area) const;
     void drawRingsLayer(QPainter& painter, const QRectF& area) const;
@@ -233,6 +345,14 @@ private:
         Qt::PenStyle lineStyle = Qt::SolidLine;
         QString label;
         int labelPx = 11;
+        // Die Rueckseite derselben Antenne. Betreiber am 2026-10-28:
+        // „der beam strahlt auf der rueckseite auch. dies wollte ich
+        // auch farblich, aber im anderen design markieren." Also die
+        // FARBE der Antenne, damit man sieht, wessen Rueckseite es ist
+        // -- aber blasser, gepunktet und ohne Gradzahl, damit sie nie
+        // mit der Hauptrichtung verwechselt wird. drawBeam() macht den
+        // Unterschied.
+        bool rear = false;
     };
     QVector<Beam> beams() const; // every antenna direction currently to draw
     void drawBeam(QPainter& painter, const QRectF& area, const Beam& beam, bool labelsOnly,
@@ -240,7 +360,7 @@ private:
     void drawStations(QPainter& painter, const QRectF& area) const;
     void drawHomeMarker(QPainter& painter, const QRectF& area) const;
     void drawNumbersColumn(QPainter& painter, const QRectF& column) const;
-    void drawLegend(QPainter& painter, const QPointF& bottomLeft) const;
+    void drawLegend(QPainter& painter, const QPointF& bottomLeft, double width) const;
 
     QString m_ownGrid;
     QString m_ownLabel;
@@ -256,12 +376,46 @@ private:
         bool cells = true;
         bool borders = false;
         bool cities = false;
+        bool greyline = false;
     };
     Layers m_layers;
     bool m_showRings = true;
     bool m_showSpokes = true;
     bool m_showAging = true;
-    bool m_fitToWindow = true;
+    // Aus: die Scheibe ist ein Kreis. Angepasst füllt sie zwar die
+    // Fläche, aber die Entfernungsringe werden dabei zu Ellipsen, und
+    // damit stimmt der abgelesene Winkel nicht mehr -- eine Station auf
+    // 45° sitzt auf dem Schirm woanders. Bei einer Karte, deren Zweck
+    // das Ablesen von Richtungen ist, wiegt das schwerer als die
+    // ungenutzte Breite links und rechts (Martins Entscheidung am
+    // Blätterpaar, 2026-09-23). Über das ⚙ der Karte weiterhin
+    // umschaltbar.
+    bool m_fitToWindow = false;
+    // Vollfläche lässt denselben runden Maßstab stehen -- sie nimmt nur
+    // den Kreis als Rand weg: deshalb bleibt der abgelesene Winkel hier
+    // richtig, anders als beim Anpassen oben.
+    bool m_fullBleed = false;
+    /// Siehe setBandColorsEnabled / setLabelsOnlyNeededEnabled.
+    bool m_bandColors = false;
+    bool m_labelsOnlyNeeded = false;
+    QAction* m_bandColorsAction = nullptr;
+    QAction* m_labelsOnlyNeededAction = nullptr;
+    /// Siehe setSpotsVisible / setApproximateHaloEnabled.
+    bool m_showSpots = true;
+    bool m_showWorked = true;
+    QAction* m_workedAction = nullptr;
+    /// Siehe setRotorDialsVisible / setRotorDialsBackward.
+    bool m_rotorDials = false;
+    bool m_rotorDialsBackward = false;
+    QAction* m_rotorDialsAction = nullptr;
+    QAction* m_rotorDialsBackAction = nullptr;
+    /// Wo die beiden Scheiben zuletzt lagen -- fuer den Klick.
+    mutable QRectF m_rotorDialRect[2];
+    mutable double m_rotorBlockBottom = 0.0;
+    mutable double m_legendTop = 0.0;
+    bool m_approxHalo = false;
+    QAction* m_spotsAction = nullptr;
+    QAction* m_approxHaloAction = nullptr;
     bool m_showRotor1Heading = true;
     bool m_showRotor2Heading = true;
     bool m_showHorizon = true;
@@ -269,6 +423,8 @@ private:
     QVector<double> m_horizonProfile;
     QVector<LineOfSightClass> m_terrainSectors;
     bool m_rotor1Connected = false;
+    bool m_rotor1Live = false;
+    bool m_rotor2Live = false;
     double m_rotor1AzimuthDeg = 0.0;
     QString m_rotor1Label;
     bool m_rotor2Connected = false;
@@ -278,6 +434,10 @@ private:
     double m_rotor1SecondOffsetDeg = 0.0;
     bool m_rotor2SecondEnabled = false;
     double m_rotor2SecondOffsetDeg = 0.0;
+    bool m_fixedAntennaPresent = false;
+    double m_fixedAntennaAzimuthDeg = 0.0;
+    QString m_fixedAntennaLabel;
+    double m_fixedBeamwidthDeg = 30.0;
     double m_beamwidth1Deg = 30.0;
     double m_beamwidth2Deg = 30.0;
     int m_scoreQsos = -1;
@@ -295,6 +455,7 @@ private:
     QAction* m_citiesAction = nullptr;
     QAction* m_agingAction = nullptr;
     QAction* m_fitAction = nullptr;
+    QAction* m_fullBleedAction = nullptr;
     QAction* m_rotor1Action = nullptr;
     QAction* m_rotor2Action = nullptr;
     QAction* m_horizonAction = nullptr;
@@ -305,7 +466,11 @@ private:
     QPushButton* m_zoomOutButton = nullptr;
     QPushButton* m_zoomInButton = nullptr;
     QLabel* m_zoomRangeLabel = nullptr;
+    QAction* m_greylineAction = nullptr;
     QTimer* m_agingRefreshTimer = nullptr;
+    // Die Graulinie wandert 15 Grad je Stunde -- einmal je Minute neu
+    // zeichnen reicht, und nur solange die Schicht an ist.
+    QTimer* m_greylineTimer = nullptr;
     bool m_syncingControls = false;
 };
 

@@ -3,6 +3,8 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QString>
+#include <QDate>
+#include <QMap>
 #include <QTime>
 
 namespace Contestprogramm {
@@ -40,10 +42,46 @@ struct ContestWindow {
 // is 7/8 November, not 1 November.
 struct ContestSchedule {
     int month = 0;                // 1-12; 0 = no schedule known
-    int weekend = 1;              // 1 = first full weekend of the month
-    int startDay = Qt::Saturday;  // Qt::DayOfWeek the window opens on
+    /// 1 = erstes volles Wochenende des Monats, 2 = zweites, ...
+    /// NEGATIV zaehlt vom Monatsende: -1 = letztes volles Wochenende,
+    /// -2 = vorletztes. Die grossen Kurzwellenconteste rechnen so
+    /// („das letzte volle Wochenende im Oktober"), und „voll" heisst
+    /// Samstag UND Sonntag im selben Monat.
+    int weekend = 1;
+    /// Qt::Saturday, Qt::Sunday oder Qt::Friday. Der FREITAG ist der
+    /// Tag VOR dem Wochenende, das `weekend` meint -- CQ WW 160 CW
+    /// faengt am letzten vollen Januarwochenende schon freitags um
+    /// 22:00 UTC an.
+    int startDay = Qt::Saturday;
     QTime startTimeUtc{14, 0};
     int hours = 24;
+
+    /// ── Die Ausnahme „nie an diesem Tag" ─────────────────────────────
+    ///
+    /// „MM-TT", leer heisst keine. Faellt der ausgerechnete Termin auf
+    /// dieses Datum, rueckt er eine Woche weiter.
+    ///
+    /// Es gibt genau einen Grund dafuer, und der steht in den Regeln
+    /// des ARRL RTTY Roundup: „first full weekend of January, but
+    /// never on January 1". Ohne diese Zeile waere der gezeigte
+    /// Termin in jedem Jahr falsch, in dem der 1. Januar ein Samstag
+    /// ist.
+    QString neverOn;
+
+    /// ── Ein Jahr, das aus der Reihe faellt ───────────────────────────
+    ///
+    /// Jahr -> Datum des Beginns ("JJJJ-MM-TT"). Schlaegt die Regel
+    /// fuer genau dieses Jahr.
+    ///
+    /// Auch hierfuer gibt es einen belegten Fall: CQ WW 160 SSB wurde
+    /// 2026 um eine Woche verschoben, weil er sonst mit ARRL DX CW
+    /// zusammengefallen waere. Das ist keine Regel, sondern eine
+    /// Entscheidung der Veranstalter -- und genau deshalb steht sie
+    /// als Datum da und nicht als Rechnung.
+    ///
+    /// Ein Eintrag fuer ein vergangenes Jahr schadet nicht; er greift
+    /// nie wieder.
+    QMap<int, QDate> exceptions;
 
     bool isValid() const;
 

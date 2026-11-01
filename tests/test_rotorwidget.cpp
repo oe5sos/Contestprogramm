@@ -318,6 +318,7 @@ private slots:
     void pickingAnEntryEmitsDialStyleRequestedWithThatStyle();
     void pickingDigitalEntryChangesDialStyleImmediately();
     void pickingDigitalEntryEmitsDialStyleRequestedWithThatStyle();
+    void aFarTargetAddsTheLongPathEntry();
 };
 
 namespace {
@@ -343,12 +344,50 @@ QMenu* openOptionsMenu(RotorWidget& widget)
 
 } // namespace
 
+// Und man kommt auch hin: das ⚙-Menü bietet den langen Weg an, sobald
+// ein weites Ziel gesetzt ist.
+void TestRotorWidgetOptionsPopup::aFarTargetAddsTheLongPathEntry()
+{
+    RotorWidget widget(QStringLiteral("20m"));
+    // Ohne Ziel bleibt das Menü, wie es war.
+    QMenu* menu = openOptionsMenu(widget);
+    QVERIFY(menu);
+    // Vier Anzeigestile, dann ein Trenner und die beiden Einträge für
+    // die zweite Antenne (2026-09-27) -- der lange Weg kommt erst mit
+    // einem weiten Ziel dazu.
+    QCOMPARE(menu->actions().size(), 7);
+    // Schließen UND abräumen lassen: das Menü löscht sich per
+    // WA_DeleteOnClose, aber erst über die Ereignisschleife -- sonst
+    // findet findChild() unten noch das alte.
+    menu->close();
+    QCoreApplication::processEvents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+    widget.setTargetBearing(95.0, 16280.0, QStringLiteral("VK3RRR"), QStringLiteral("QF22LD"));
+    menu = openOptionsMenu(widget);
+    QVERIFY(menu);
+    QAction* longPath = nullptr;
+    for (QAction* action : menu->actions()) {
+        if (action->text().contains(QStringLiteral("langen Weg"))) {
+            longPath = action;
+        }
+    }
+    QVERIFY2(longPath, "Kein Eintrag für den langen Weg");
+    QCOMPARE(longPath->text(), QStringLiteral("Auf langen Weg drehen (275°)"));
+
+    QSignalSpy rotate(&widget, &RotorWidget::rotateRequested);
+    longPath->trigger();
+    QCOMPARE(rotate.count(), 1);
+    QCOMPARE(rotate.first().first().toDouble(), 275.0);
+}
+
 void TestRotorWidgetOptionsPopup::clickingOptionsButtonOpensMenuWithFourStyleEntries()
 {
     RotorWidget widget(QStringLiteral("2m"));
     QMenu* menu = openOptionsMenu(widget);
     QVERIFY(menu);
-    QCOMPARE(menu->actions().size(), 4);
+    // Vier Anzeigestile, Trenner, zweite Antenne an/aus, ihr Versatz.
+    QCOMPARE(menu->actions().size(), 7);
     // Same labels as SettingsDialog's own "Rotor-Anzeige" combo, in the
     // same order (RotorDialStyle::FullCompass/LinearScale/PartialArc/
     // Digital).
@@ -356,6 +395,17 @@ void TestRotorWidgetOptionsPopup::clickingOptionsButtonOpensMenuWithFourStyleEnt
     QCOMPARE(menu->actions().at(1)->text(), QStringLiteral("Skala (linear)"));
     QCOMPARE(menu->actions().at(2)->text(), QStringLiteral("Rotor-Box (Bogen)"));
     QCOMPARE(menu->actions().at(3)->text(), QStringLiteral("Digital (Zahlen)"));
+
+    // Die zweite Antenne: aus, und der Versatz darum nicht anwählbar --
+    // ein Versatz ohne zweite Richtung ergibt nichts (Martin,
+    // 2026-09-27: "wenn es nur eine richtung gibt, dann kein versatz").
+    QVERIFY(menu->actions().at(4)->isSeparator());
+    QCOMPARE(menu->actions().at(5)->text(), QStringLiteral("Zweite Antenne"));
+    QVERIFY(menu->actions().at(5)->isCheckable());
+    QVERIFY(!menu->actions().at(5)->isChecked());
+    QVERIFY2(menu->actions().at(6)->text().startsWith(QStringLiteral("Versatz der zweiten Antenne")),
+              qPrintable(menu->actions().at(6)->text()));
+    QVERIFY(!menu->actions().at(6)->isEnabled());
 }
 
 void TestRotorWidgetOptionsPopup::currentStyleStartsCheckedInTheMenu()
@@ -533,7 +583,30 @@ private slots:
     void minimumSizeHintFitsTheThreeColumnReadoutBlock();
     void minimumSizeHintAccountsForDigitalGlassPanels();
     void readoutGivesWayBeforeTheDialInALowPanel();
+    void captionCarriesTheLongPathOnlyForFarTargets();
 };
+
+// Auf Kurzwelle ist die Gegenrichtung eine echte zweite Möglichkeit --
+// aber nur bei weiten Zielen; bei 300 km wäre sie Unsinn und steht
+// deshalb auch nicht da.
+void TestRotorWidgetReadout::captionCarriesTheLongPathOnlyForFarTargets()
+{
+    RotorWidget widget(QStringLiteral("20m"));
+    // Nahes Ziel: nur Rufzeichen, Locator, Entfernung.
+    widget.setTargetBearing(45.0, 300.0, QStringLiteral("OE3XYZ"), QStringLiteral("JN88TC"));
+    QString caption = widget.captionText();
+    QVERIFY2(caption.contains(QStringLiteral("OE3XYZ")), qPrintable(caption));
+    QVERIFY2(!caption.contains(QStringLiteral("lang")), qPrintable(caption));
+
+    // Weites Ziel: der lange Weg dahinter, Gegenrichtung und der Rest
+    // des Weges um die Erde.
+    widget.setTargetBearing(95.0, 16280.0, QStringLiteral("VK3RRR"), QStringLiteral("QF22LD"));
+    caption = widget.captionText();
+    QVERIFY2(caption.contains(QStringLiteral("VK3RRR")), qPrintable(caption));
+    QVERIFY2(caption.contains(QStringLiteral("16280 km")), qPrintable(caption));
+    QVERIFY2(caption.contains(QStringLiteral("lang 275°")), qPrintable(caption));
+    QVERIFY2(caption.contains(QStringLiteral("23750 km")), qPrintable(caption));
+}
 
 void TestRotorWidgetReadout::targetAccessorsReturnWhatSetTargetBearingWasGiven()
 {

@@ -25,6 +25,10 @@ public:
     }
 
     bool startListening() { return m_server.listen(QHostAddress::LocalHost, 0); }
+
+    // A rotctld that answers the position query with one line MORE than
+    // the two this client reads -- see the matching test below.
+    void setExtraLineAfterPosition(const QByteArray& line) { m_extraAfterPosition = line; }
     quint16 port() const { return m_server.serverPort(); }
 
     QList<QByteArray> commandsReceived() const { return m_commandsReceived; }
@@ -71,6 +75,9 @@ private:
         if (!m_client) { return; }
         if (line == "p") {
             m_client->write(QStringLiteral("%1\n%2\n").arg(m_azDeg, 0, 'f', 6).arg(m_elDeg, 0, 'f', 6).toLatin1());
+            if (!m_extraAfterPosition.isEmpty()) {
+                m_client->write(m_extraAfterPosition);
+            }
         } else if (line.startsWith("P ")) {
             const QList<QByteArray> parts = line.split(' ');
             if (parts.size() >= 3) {
@@ -84,6 +91,7 @@ private:
     QTcpServer m_server;
     QTcpSocket* m_client = nullptr;
     QByteArray m_buffer;
+    QByteArray m_extraAfterPosition;
     QList<QByteArray> m_commandsReceived;
     double m_azDeg = 145.0;
     double m_elDeg = 0.0;
@@ -102,6 +110,7 @@ private slots:
 
     void liveClientReceivesAzimuth();
     void liveClientSendsSetAzimuthWithZeroElevation();
+    void leftoverReplyLineNeverShiftsTheNextAnswer();
 };
 
 void TestRotctldProtocol::positionReplyParses()
@@ -190,6 +199,42 @@ void TestRotctldProtocol::liveClientSendsSetAzimuthWithZeroElevation()
         return false;
     }, 3000);
     QVERIFY(sawSetAzimuth);
+}
+
+// Same class of fault as RigctldClient's own test of this name: an
+// unread leftover line was handed to the next command as its reply.
+// With a third NUMERIC line (a rotor/rotctld that reports more than
+// azimuth+elevation) the shifted reply parses perfectly well -- as a
+// heading of 0 degrees, while the rotor stands at 145. The dial then
+// points north and the operator turns the antenna to correct it.
+void TestRotctldProtocol::leftoverReplyLineNeverShiftsTheNextAnswer()
+{
+    MockRotctldServer server;
+    server.setExtraLineAfterPosition(QByteArrayLiteral("0.000000\n"));
+    QVERIFY(server.startListening());
+
+    RotctldClient client;
+    client.setPollIntervalMs(200);
+    QSignalSpy azimuthSpy(&client, &RotctldClient::azimuthChanged);
+    client.setTarget(QStringLiteral("127.0.0.1"), server.port());
+    client.connectToRotor();
+
+    const bool sawRounds = QTest::qWaitFor([&server]() {
+        int positionQueries = 0;
+        for (const QByteArray& cmd : server.commandsReceived()) {
+            if (cmd == "p") { ++positionQueries; }
+        }
+        return positionQueries >= 6;
+    }, 6000);
+    QVERIFY(sawRounds);
+
+    // The rotor never moved, so EVERY reported heading must be 145.
+    QVERIFY(!azimuthSpy.isEmpty());
+    for (const QList<QVariant>& emission : azimuthSpy) {
+        QCOMPARE(emission.at(0).toDouble(), 145.0);
+    }
+    QCOMPARE(client.azimuthDeg(), 145.0);
+    QVERIFY(client.isConnected());
 }
 
 int main(int argc, char* argv[])

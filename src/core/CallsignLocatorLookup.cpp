@@ -24,6 +24,8 @@
 #include <QUrlQuery>
 #include <QXmlStreamReader>
 
+#include <optional>
+
 namespace Contestprogramm {
 
 namespace {
@@ -53,6 +55,29 @@ QString firstElementText(const QString& xml, const QString& tagName)
 QString normalizeCallsign(const QString& callsign)
 {
     return callsign.trimmed().toUpper();
+}
+
+// Der Locator aus einer Rufzeichendatenbank, brauchbar gemacht -- oder
+// nichts.
+//
+// Was von QRZ/HamQTH kommt, ist von Hand eingetragen: klein
+// geschrieben, mit Leerzeichen, achtstellig, oder gar kein Locator
+// ("Wien", "48.2N 16.4E"). Der CSV-Import prüft jede Zeile seit jeher
+// mit isValidGridSquare(); der Netz-Weg tat es nicht und reichte durch,
+// was auch immer im <grid>-Element stand -- in das Locator-Feld der
+// Eingabe UND dauerhaft in die Tabelle imported_locators, aus der es
+// beim nächsten Mal wieder vorgeschlagen wird.
+//
+// Ein QSO ohne gültigen Locator zählt 0 Punkte (data/ContestScoring.h),
+// deshalb ist "nichts" hier besser als "irgendwas": ohne Vorschlag
+// tippt der Operator den Locator, mit falschem Vorschlag übernimmt er
+// ihn womöglich.
+std::optional<QString> usableGrid(const QString& raw)
+{
+    // Die Zurechtbiegung steht jetzt in core/Maidenhead.h: der
+    // Journal-Import und die EDI-Abgabe brauchen genau dieselbe, und
+    // eine zweite Abschrift hätte sich mit der Zeit auseinanderlebt.
+    return normalizedGridSquare(raw);
 }
 
 } // namespace
@@ -251,10 +276,18 @@ CallsignLocatorLookup::SessionResult CallsignLocatorLookup::parseQrzSessionXml(c
 CallsignLocatorLookup::GridLookupResult CallsignLocatorLookup::parseQrzLookupXml(const QString& xml)
 {
     GridLookupResult result;
-    const QString grid = firstElementText(xml, QStringLiteral("grid"));
-    if (!grid.isEmpty()) {
+    const QString rawGrid = firstElementText(xml, QStringLiteral("grid"));
+    if (const std::optional<QString> grid = usableGrid(rawGrid)) {
         result.found = true;
-        result.grid = grid;
+        result.grid = *grid;
+        return result;
+    }
+    if (!rawGrid.isEmpty()) {
+        // Es STAND etwas da, nur nichts Brauchbares. Nicht gefunden --
+        // und gesagt, was es war, sonst sucht man den Grund im Netz.
+        // (Ohne das Wort "session", das die Sitzungs-Erkennung unten
+        // auslösen würde.)
+        result.error = QStringLiteral("Locator \"%1\" ist keiner").arg(rawGrid.simplified());
         return result;
     }
     result.error = firstElementText(xml, QStringLiteral("Error"));
@@ -283,10 +316,18 @@ CallsignLocatorLookup::SessionResult CallsignLocatorLookup::parseHamQthSessionXm
 CallsignLocatorLookup::GridLookupResult CallsignLocatorLookup::parseHamQthLookupXml(const QString& xml)
 {
     GridLookupResult result;
-    const QString grid = firstElementText(xml, QStringLiteral("grid"));
-    if (!grid.isEmpty()) {
+    const QString rawGrid = firstElementText(xml, QStringLiteral("grid"));
+    if (const std::optional<QString> grid = usableGrid(rawGrid)) {
         result.found = true;
-        result.grid = grid;
+        result.grid = *grid;
+        return result;
+    }
+    if (!rawGrid.isEmpty()) {
+        // Es STAND etwas da, nur nichts Brauchbares. Nicht gefunden --
+        // und gesagt, was es war, sonst sucht man den Grund im Netz.
+        // (Ohne das Wort "session", das die Sitzungs-Erkennung unten
+        // auslösen würde.)
+        result.error = QStringLiteral("Locator \"%1\" ist keiner").arg(rawGrid.simplified());
         return result;
     }
     result.error = firstElementText(xml, QStringLiteral("error"));
@@ -297,27 +338,125 @@ CallsignLocatorLookup::GridLookupResult CallsignLocatorLookup::parseHamQthLookup
     return result;
 }
 
+namespace {
+
+// Ein Feld darf in Anführungszeichen stehen; der ÖVSV-Export setzt sie
+// um jedes. Verdoppelte Anführungszeichen im Feld sind eines.
+QStringList splitCsvLine(const QString& line, QChar separator)
+{
+    QStringList fields;
+    QString current;
+    bool inQuotes = false;
+    for (int i = 0; i < line.size(); ++i) {
+        const QChar c = line.at(i);
+        if (c == QLatin1Char('"')) {
+            if (inQuotes && i + 1 < line.size() && line.at(i + 1) == QLatin1Char('"')) {
+                current.append(QLatin1Char('"'));
+                ++i;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (c == separator && !inQuotes) {
+            fields.append(current);
+            current.clear();
+        } else {
+            current.append(c);
+        }
+    }
+    fields.append(current);
+    return fields;
+}
+
+// Komma, Semikolon oder Tabulator -- was in der Kopfzeile am
+// häufigsten vorkommt. Bei Gleichstand das Komma, die alte Vorgabe.
+QChar guessSeparator(const QString& line)
+{
+    const QChar candidates[] = {QLatin1Char(','), QLatin1Char(';'), QLatin1Char('\t')};
+    QChar best = QLatin1Char(',');
+    int bestCount = 0;
+    for (const QChar candidate : candidates) {
+        const int count = static_cast<int>(line.count(candidate));
+        if (count > bestCount) {
+            bestCount = count;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+// Welche Spalte trägt das Rufzeichen, welche den Locator? -1, wenn die
+// Zeile keine Überschriften sind, die wir erkennen.
+void findNamedColumns(const QStringList& header, int& callColumn, int& gridColumn, int& nameColumn)
+{
+    static const QStringList kCallNames{QStringLiteral("CALL"), QStringLiteral("CALLSIGN"),
+                                         QStringLiteral("RUFZEICHEN"), QStringLiteral("STATION")};
+    static const QStringList kGridNames{QStringLiteral("WWL"), QStringLiteral("LOCATOR"), QStringLiteral("LOC"),
+                                         QStringLiteral("GRID"), QStringLiteral("GRIDSQUARE"),
+                                         QStringLiteral("QTH"), QStringLiteral("QTH-LOCATOR"),
+                                         QStringLiteral("QTHLOCATOR")};
+    callColumn = -1;
+    gridColumn = -1;
+    nameColumn = -1;
+    for (int i = 0; i < header.size(); ++i) {
+        const QString name = header.at(i).trimmed().toUpper();
+        if (callColumn < 0 && kCallNames.contains(name)) {
+            callColumn = i;
+        } else if (gridColumn < 0 && kGridNames.contains(name)) {
+            gridColumn = i;
+        } else if (nameColumn < 0 && name == QStringLiteral("NAME")) {
+            nameColumn = i;
+        }
+    }
+}
+
+} // namespace
+
 CallsignLocatorLookup::CsvParseResult CallsignLocatorLookup::parseCsv(const QString& csvText)
 {
     CsvParseResult result;
     const QStringList lines = csvText.split(QRegularExpression(QStringLiteral("\r\n|\n|\r")), Qt::SkipEmptyParts);
-    for (const QString& rawLine : lines) {
-        const QString line = rawLine.trimmed();
+    if (lines.isEmpty()) {
+        return result;
+    }
+
+    const QChar separator = guessSeparator(lines.first());
+    // Die Spalten aus der Kopfzeile, falls sie welche benennt -- so
+    // liest sich eine Ergebnisliste, in der das Rufzeichen an fünfter
+    // und der Locator an sechster Stelle steht (ÖVSV-Auswerteserver),
+    // ohne dass jemand die Datei vorher umbauen muss.
+    int callColumn = 0;
+    int gridColumn = 1;
+    int nameColumn = 2;
+    bool headerConsumed = false;
+    findNamedColumns(splitCsvLine(lines.first(), separator), callColumn, gridColumn, nameColumn);
+    if (callColumn >= 0 && gridColumn >= 0) {
+        headerConsumed = true;
+    } else {
+        // Keine erkennbaren Überschriften: die alte Regel, Rufzeichen
+        // in der ersten, Locator in der zweiten, Name in der dritten
+        // Spalte.
+        callColumn = 0;
+        gridColumn = 1;
+        nameColumn = 2;
+    }
+
+    for (int lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+        if (lineIndex == 0 && headerConsumed) {
+            continue; // die Kopfzeile ist keine Station
+        }
+        const QString line = lines.at(lineIndex).trimmed();
         if (line.isEmpty()) {
             continue;
         }
-        const QStringList fields = line.split(QLatin1Char(','));
-        if (fields.size() < 2) {
+        const QStringList fields = splitCsvLine(line, separator);
+        if (fields.size() <= qMax(callColumn, gridColumn)) {
             result.skipped++;
             continue;
         }
-        const QString callsign = fields.at(0).trimmed().toUpper();
-        const QString grid = fields.at(1).trimmed().toUpper();
-        // isValidGridSquare doubles as the header-row filter: a header
-        // like "callsign,grid,name" or "CALL,LOCATOR" has a second field
-        // that is not a valid Maidenhead locator either, so it is
-        // skipped here exactly like any other malformed data line -- no
-        // separate "is this a header" special case needed.
+        const QString callsign = fields.at(callColumn).trimmed().toUpper();
+        const QString grid = fields.at(gridColumn).trimmed().toUpper();
+        // isValidGridSquare filtert nebenbei eine Kopfzeile heraus, die
+        // keine bekannte Spalte benennt: ihr "Locator" ist keiner.
         if (callsign.isEmpty() || !isValidGridSquare(grid)) {
             result.skipped++;
             continue;
@@ -325,8 +464,10 @@ CallsignLocatorLookup::CsvParseResult CallsignLocatorLookup::parseCsv(const QStr
         CsvRow row;
         row.callsign = callsign;
         row.grid = grid;
-        if (fields.size() >= 3) {
-            row.name = fields.at(2).trimmed();
+        // Den Namen nur aus einer Spalte, die auch eine ist: in einer
+        // Ergebnisliste steht an dritter Stelle der Rang, nicht Bernd.
+        if (nameColumn >= 0 && fields.size() > nameColumn) {
+            row.name = fields.at(nameColumn).trimmed();
         }
         result.rows.append(row);
     }

@@ -1,5 +1,7 @@
 #include "data/ContestDefinition.h"
 
+#include "data/FileWrite.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -7,6 +9,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QRegularExpression>
+#include <QSet>
 #include <QStandardPaths>
 
 namespace Contestprogramm {
@@ -69,7 +73,21 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         return def;
     }
     for (const QJsonValue& v : root.value(QStringLiteral("dupe_scope")).toArray()) {
-        def.m_dupeScope.append(v.toString());
+        const QString scope = v.toString().trimmed();
+        if (!scope.isEmpty()) {
+            def.m_dupeScope.append(scope);
+        }
+    }
+    // An EMPTY dupe scope is not "no dupe rule", it is a rule that
+    // matches every QSO of the contest -- DupeChecker's WHERE clause
+    // would be contest_id alone, so the second contact of the weekend
+    // and every one after it would be flagged a dupe and scored 0.
+    // Rejected here, where a bad rules file is still a startup error
+    // rather than a silently empty log (see DupeChecker::firstMatchId,
+    // which also refuses to run on an empty scope).
+    if (def.m_dupeScope.isEmpty()) {
+        if (errorOut) { *errorOut = QStringLiteral("\"dupe_scope\" must not be empty"); }
+        return ContestDefinition();
     }
 
     if (!root.value(QStringLiteral("exchange_fields")).isArray()) {
@@ -118,6 +136,12 @@ ContestDefinition ContestDefinition::loadFromJson(const QByteArray& json, QStrin
         }
         def.m_serialScope = scope;
     }
+    if (root.value(QStringLiteral("everyday_log")).isBool()) {
+        def.m_everydayLog = root.value(QStringLiteral("everyday_log")).toBool();
+    }
+    if (root.value(QStringLiteral("cabrillo_name")).isString()) {
+        def.m_cabrilloName = root.value(QStringLiteral("cabrillo_name")).toString().trimmed();
+    }
     if (root.contains(QStringLiteral("schedule"))) {
         if (!root.value(QStringLiteral("schedule")).isObject()) {
             if (errorOut) { *errorOut = QStringLiteral("\"schedule\" is not an object"); }
@@ -156,6 +180,169 @@ QString ContestDefinition::overrideDirectory()
 QString ContestDefinition::overrideFilePath(const QString& contestId)
 {
     return overrideDirectory() + QLatin1Char('/') + contestId + QStringLiteral(".json");
+}
+
+ContestDefinition::Rules ContestDefinition::rules() const
+{
+    Rules r;
+    r.name = m_name;
+    r.bands = m_bands;
+    r.dupeScope = m_dupeScope;
+    r.exchangeFields = m_exchangeFields;
+    r.multiplierField = m_multiplierField;
+    r.scoring = m_scoring;
+    r.serialScope = m_serialScope;
+    r.cabrilloName = m_cabrilloName;
+    r.modes = m_modes;
+    return r;
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::scoringChoices()
+{
+    return {{QStringLiteral("distance_km"), QStringLiteral("Entfernung in km (UKW: km abgerundet + 1)")},
+            {QStringLiteral("qso_count"), QStringLiteral("Ein Punkt je QSO")}};
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::serialScopeChoices()
+{
+    return {{QStringLiteral("band"), QStringLiteral("Je Band wieder ab 001")},
+            {QStringLiteral("contest"), QStringLiteral("Eine Folge über den ganzen Contest")}};
+}
+
+QVector<QPair<QString, QString>> ContestDefinition::multiplierChoices()
+{
+    return {{QStringLiteral("grid"), QStringLiteral("Locator-Großfeld (JN67)")},
+            {QStringLiteral("prefix"), QStringLiteral("Präfix (WPX: OE5, DL1, W1)")},
+            {QStringLiteral("dxcc"), QStringLiteral("Land (DXCC — braucht eine geladene Länderliste)")},
+            {QStringLiteral("none"), QStringLiteral("Keiner")}};
+}
+
+bool ContestDefinition::validateRules(const Rules& rules, QString* errorOut)
+{
+    const auto fail = [errorOut](const QString& message) {
+        if (errorOut) {
+            *errorOut = message;
+        }
+        return false;
+    };
+    if (rules.name.trimmed().isEmpty()) {
+        return fail(QStringLiteral("Der Contest braucht einen Namen."));
+    }
+    if (rules.bands.isEmpty()) {
+        return fail(QStringLiteral("Mindestens ein Band muss angekreuzt sein."));
+    }
+    if (rules.exchangeFields.isEmpty()) {
+        return fail(QStringLiteral("Mindestens ein Exchange-Feld wird benötigt."));
+    }
+    QSet<QString> seen;
+    for (const ExchangeField& field : rules.exchangeFields) {
+        if (field.key.trimmed().isEmpty()) {
+            return fail(QStringLiteral("Ein Exchange-Feld ohne Key geht nicht."));
+        }
+        if (seen.contains(field.key)) {
+            return fail(QStringLiteral("Feld-Key \"%1\" ist mehrfach vergeben.").arg(field.key));
+        }
+        seen.insert(field.key);
+    }
+    // Ohne Rufzeichen ist die Dupe-Prüfung keine: sie würde jedes QSO
+    // auf demselben Band als Doppel melden.
+    if (!rules.dupeScope.contains(QStringLiteral("callsign"))) {
+        return fail(QStringLiteral("Die Dupe-Regel muss das Rufzeichen enthalten."));
+    }
+    for (const QString& scope : rules.dupeScope) {
+        if (scope != QStringLiteral("callsign") && scope != QStringLiteral("band") && scope != QStringLiteral("mode")) {
+            return fail(QStringLiteral("Unbekannter Teil der Dupe-Regel: \"%1\".").arg(scope));
+        }
+    }
+    const auto known = [](const QVector<QPair<QString, QString>>& choices, const QString& value) {
+        for (const auto& choice : choices) {
+            if (choice.first == value) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!known(scoringChoices(), rules.scoring)) {
+        return fail(QStringLiteral("Unbekannte Wertung: \"%1\".").arg(rules.scoring));
+    }
+    if (!known(serialScopeChoices(), rules.serialScope)) {
+        return fail(QStringLiteral("Unbekannter Nummernkreis: \"%1\".").arg(rules.serialScope));
+    }
+    if (!known(multiplierChoices(), rules.multiplierField)) {
+        return fail(QStringLiteral("Unbekannter Multiplikator: \"%1\".").arg(rules.multiplierField));
+    }
+    // Km-Wertung braucht beides im Austausch: den Locator, aus dem die
+    // Entfernung kommt, und die Nummer, ohne die ein QSO nach IARU R1
+    // 1.9.1 unvollstaendig ist (data/ContestScoring.cpp gibt dafuer 0
+    // Punkte). Fehlt eines davon, wertet das Programm das ganze Log mit
+    // null -- und sagt dabei nichts. Lieber hier eine Zeile im Dialog
+    // als am Contestabend eine Null in der Punktekachel.
+    if (rules.scoring == QStringLiteral("distance_km")) {
+        bool hatLocator = false;
+        bool hatNummer = false;
+        for (const ExchangeField& field : rules.exchangeFields) {
+            // Dieselben Merkmale, nach denen MainWindow die Felder
+            // sucht: der Typ "grid6" ist der Locator, das
+            // mitzaehlende Feld die Nummer -- nie der Schluesselname,
+            // den darf sich jeder Contest selbst geben.
+            if (field.type == QStringLiteral("grid6")) {
+                hatLocator = true;
+            }
+            if (field.autoIncrement) {
+                hatNummer = true;
+            }
+        }
+        if (!hatLocator) {
+            return fail(QStringLiteral(
+                "Wertung nach Entfernung braucht ein Locator-Feld im Austausch -- "
+                "ohne Locator zaehlt jedes QSO 0 Punkte."));
+        }
+        if (!hatNummer) {
+            return fail(QStringLiteral(
+                "Wertung nach Entfernung braucht ein Nummern-Feld im Austausch -- "
+                "ein QSO ohne empfangene Nummer zaehlt 0 Punkte (IARU R1 1.9.1). "
+                "Fuer einen Aktivitaetsabend ohne Nummern passt die Wertung "
+                "\"ein Punkt je QSO\"."));
+        }
+    }
+    if (errorOut) {
+        errorOut->clear();
+    }
+    return true;
+}
+
+ContestDefinition ContestDefinition::withRules(const Rules& rules, QString* errorOut) const
+{
+    if (!validateRules(rules, errorOut)) {
+        return ContestDefinition();
+    }
+    ContestDefinition copy = *this;
+    copy.m_name = rules.name.trimmed();
+    copy.m_bands = rules.bands;
+    copy.m_dupeScope = rules.dupeScope;
+    copy.m_exchangeFields = rules.exchangeFields;
+    copy.m_multiplierField = rules.multiplierField;
+    copy.m_scoring = rules.scoring;
+    copy.m_serialScope = rules.serialScope;
+    copy.m_cabrilloName = rules.cabrilloName.trimmed();
+    copy.m_modes = rules.modes;
+    copy.m_valid = true;
+    return copy;
+}
+
+ContestDefinition ContestDefinition::fromRules(const QString& id, const Rules& rules, QString* errorOut)
+{
+    const QString trimmedId = id.trimmed();
+    static const QRegularExpression idPattern(QStringLiteral("^[A-Z0-9_]+$"));
+    if (!idPattern.match(trimmedId).hasMatch()) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("Die Kennung darf nur A-Z, 0-9 und _ enthalten (sie wird ein Dateiname).");
+        }
+        return ContestDefinition();
+    }
+    ContestDefinition def;
+    def.m_id = trimmedId;
+    return def.withRules(rules, errorOut);
 }
 
 ContestDefinition ContestDefinition::withExchangeFields(const QVector<ExchangeField>& fields) const
@@ -198,6 +385,9 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
     root.insert(QStringLiteral("serial_scope"), m_serialScope);
     // Optional keys are written only when set, so a saved override of a
     // definition without them stays identical in shape to the shipped file.
+    if (!m_cabrilloName.isEmpty()) {
+        root.insert(QStringLiteral("cabrillo_name"), m_cabrilloName);
+    }
     if (m_schedule.isValid()) {
         root.insert(QStringLiteral("schedule"), m_schedule.toJson());
     }
@@ -217,15 +407,16 @@ bool ContestDefinition::saveToFile(const QString& path, QString* errorOut) const
         return false;
     }
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    // Checked: a half-written rules file is a contest definition that
+    // will not parse on the next start, and the editor would have said
+    // it saved fine.
+    QString writeError;
+    if (!writeFileChecked(path, QJsonDocument(root).toJson(QJsonDocument::Indented), &writeError)) {
         if (errorOut) {
-            *errorOut = QStringLiteral("cannot open %1: %2").arg(path, file.errorString());
+            *errorOut = QStringLiteral("cannot write %1: %2").arg(path, writeError);
         }
         return false;
     }
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    file.close();
     return true;
 }
 

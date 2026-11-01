@@ -1,7 +1,33 @@
+# Prüfstände laufen auf dem Offscreen-Schirm.
+#
+# Nicht aus Bequemlichkeit, sondern weil die Oberflächen-Prüfstände auf
+# einem BENUTZTEN Rechner sonst nicht aussagekräftig sind: Die Löschtaste
+# hängt an einem QShortcut mit Qt::WidgetWithChildrenShortcut, und Qt
+# stellt Kurzbefehle nur einem AKTIVEN Fenster zu. Ein Prüfstand, der
+# hinter dem Fenster des Bedieners startet, bekommt den Tastaturfokus
+# nicht -- die Taste verpufft, und der Prüfstand meldet einen Fehler, der
+# keiner ist.
+#
+# Gemessen am 2026-10-20 auf dem MacBook, voller Lauf, dieselbe Fassung:
+#   mit dem echten Schirm:  8 von 124 rot (zwei davon mit SIGABRT), 451 s
+#   offscreen:              0 von 124 rot,                          114 s
+# In der CI fiel das nie auf -- dort setzen die Linux- und Windows-Läufe
+# QT_QPA_PLATFORM schon lange auf offscreen, nur der macOS-Lauf nicht,
+# und auf einem Runner konkurriert kein zweites Fenster um den Fokus.
+#
+# Wer zusehen will, baut mit -DCONTESTPROGRAMM_TEST_PLATFORM=cocoa (oder
+# leer für die Systemvorgabe). Siehe auch tests/Tastatureingabe.h.
+set(CONTESTPROGRAMM_TEST_PLATFORM "offscreen" CACHE STRING
+    "QT_QPA_PLATFORM für die Prüfstände; leer = Systemvorgabe")
+
 function(contestprogramm_add_test name)
     add_executable(${name} ${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE ContestprogrammCore Qt6::Test)
     add_test(NAME ${name} COMMAND ${name})
+    if(CONTESTPROGRAMM_TEST_PLATFORM)
+        set_tests_properties(${name} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=${CONTESTPROGRAMM_TEST_PLATFORM}")
+    endif()
 endfunction()
 
 contestprogramm_add_test(test_maidenhead)
@@ -10,14 +36,61 @@ contestprogramm_add_test(test_dupechecker)
 contestprogramm_add_test(test_cabrilloexporter)
 contestprogramm_add_test(test_geofilter)
 contestprogramm_add_test(test_rigctldprotocol)
+# Gegen ein echtes Longpath (rigctld-Bruecke, oe5sos/Longpath#308).
+# Ohne CONTEST_RIGCTLD_HOST ueberspringt er sich -- die CI hat kein
+# Longpath.
+contestprogramm_add_test(test_rigctld_gegen_longpath)
 contestprogramm_add_test(test_on4kstprotocol mocks/MockOn4kstServer.cpp)
 contestprogramm_add_test(test_dxclusterprotocol mocks/MockDxClusterServer.cpp)
 contestprogramm_add_test(test_grid_autofill)
 contestprogramm_add_test(test_adifexporter)
+contestprogramm_add_test(test_frequency_entry)
+contestprogramm_add_test(test_kurzwelle_generalprobe)
+contestprogramm_add_test(test_neues_log_frage)
+contestprogramm_add_test(test_band_mode_ohne_geraet)
+contestprogramm_add_test(test_seitenband_folgt_dem_band)
+contestprogramm_add_test(test_eigene_cq_zone)
+contestprogramm_add_test(test_jedes_panel_ausblendbar)
+contestprogramm_add_test(test_karte_kurzwelle)
+contestprogramm_add_test(test_vorgabe_ueberlappt_nicht)
+contestprogramm_add_test(test_spots_kleiner_und_abschaltbar)
+contestprogramm_add_test(test_empfangener_austausch_sichtbar)
+contestprogramm_add_test(test_qso_loeschen)
+contestprogramm_add_test(test_export_warnt)
+contestprogramm_add_test(test_korrektur_live)
+contestprogramm_add_test(test_log_haltbarkeit)
+contestprogramm_add_test(test_layout_bleibt)
+contestprogramm_add_test(test_durchgang_tastatur)
+contestprogramm_add_test(test_dupe_sofort)
+contestprogramm_add_test(test_loeschen_taste)
+contestprogramm_add_test(test_locator_kommt_von_selbst)
+contestprogramm_add_test(test_alte_logs_als_quelle)
+contestprogramm_add_test(test_laufende_nummer)
+contestprogramm_add_test(test_eingabezeile_in_flucht)
+contestprogramm_add_test(test_baender_beim_contestbeginn)
+contestprogramm_add_test(test_ruetteln)
+contestprogramm_add_test(test_chat_panel)
+contestprogramm_add_test(test_panel_abloesen)
+contestprogramm_add_test(test_seitenbereich)
+contestprogramm_add_test(test_bekannte_rufzeichen)
+contestprogramm_add_test(test_zweite_antenne)
+contestprogramm_add_test(test_alle_conteste_zeichnen)
+contestprogramm_add_test(test_sicherung_sichtbar)
+contestprogramm_add_test(test_grosses_log)
+contestprogramm_add_test(test_ergebnisliste)
 contestprogramm_add_test(test_ediexporter)
 contestprogramm_add_test(test_edi_export_dialog)
+contestprogramm_add_test(test_grenzfaelle)
+contestprogramm_add_test(test_rate_sofort)
+contestprogramm_add_test(test_vorgangsprotokoll)
+contestprogramm_add_test(test_multiplikatoren_nur_kw)
+target_compile_definitions(test_multiplikatoren_nur_kw PRIVATE CP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(test_grenzfaelle PRIVATE CP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 contestprogramm_add_test(test_contest_scoring)
+contestprogramm_add_test(test_wertung_iaru_gc2023)
+target_compile_definitions(test_wertung_iaru_gc2023 PRIVATE CP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 contestprogramm_add_test(test_contest_schedule)
+contestprogramm_add_test(test_ausgelieferte_regeln)
 contestprogramm_add_test(test_log_check)
 contestprogramm_add_test(test_log_check_window)
 contestprogramm_add_test(test_dupe_rescore)
@@ -36,7 +109,10 @@ contestprogramm_add_test(test_online_scoreboard)
 contestprogramm_add_test(test_cw_macro_keys)
 contestprogramm_add_test(test_contest_statistics)
 contestprogramm_add_test(test_log_file_reader)
+contestprogramm_add_test(test_file_write)
+contestprogramm_add_test(test_menu_actions)
 contestprogramm_add_test(test_serial_per_band)
+contestprogramm_add_test(test_full_contest_run)
 contestprogramm_add_test(test_sked_rules)
 contestprogramm_add_test(test_sked_panel)
 contestprogramm_add_test(test_multipliertracker)
@@ -46,6 +122,8 @@ contestprogramm_add_test(test_rotormodels)
 contestprogramm_add_test(test_rotctldprocess)
 contestprogramm_add_test(test_client_reconnect)
 contestprogramm_add_test(test_rotctld_supervision)
+contestprogramm_add_test(test_rigctld_supervision)
+contestprogramm_add_test(test_netz_unter_stoerung)
 contestprogramm_add_test(test_readiness_check)
 contestprogramm_add_test(test_clock_check)
 contestprogramm_add_test(test_about_dialog)
@@ -54,8 +132,12 @@ contestprogramm_add_test(test_hamlibinstaller)
 contestprogramm_add_test(test_beamheading)
 contestprogramm_add_test(test_rotorwidget)
 contestprogramm_add_test(test_broadcastpublisher)
+contestprogramm_add_test(test_qso_audio_recorder)
+contestprogramm_add_test(test_mitschnitt_sichtbar)
+contestprogramm_add_test(test_qso_audio_capture)
 contestprogramm_add_test(test_entrybar_dynamic_fields)
 contestprogramm_add_test(test_contestrules_override)
+contestprogramm_add_test(test_antenne_fix)
 contestprogramm_add_test(test_rotor_settings)
 contestprogramm_add_test(test_mainwindow_rotor_toggle)
 contestprogramm_add_test(test_mapwidget)
@@ -79,3 +161,22 @@ contestprogramm_add_test(test_color_theme)
 contestprogramm_add_test(test_country_borders)
 contestprogramm_add_test(test_cities)
 contestprogramm_add_test(test_map_mockup)
+contestprogramm_add_test(test_hf_bands)
+contestprogramm_add_test(test_window_sheet)
+contestprogramm_add_test(test_solar_position)
+contestprogramm_add_test(test_country_prefix_index)
+contestprogramm_add_test(test_dx_info)
+contestprogramm_add_test(test_edi_spezifikation)
+contestprogramm_add_test(test_fenster_bei_leerem_log)
+contestprogramm_add_test(test_chat_dauerlast)
+contestprogramm_add_test(test_enter_am_contestende)
+
+# macOS: hält fest, dass das fertige Programm auf älteren Systemen
+# startet. Kein C++-Prüfstand, weil die Frage nicht am Verhalten hängt,
+# sondern am Stempel in der gebauten Datei (LC_BUILD_VERSION minos) --
+# siehe tests/pruefe_mindestsystem.sh.
+if(APPLE)
+    add_test(NAME test_mindestsystem
+             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/pruefe_mindestsystem.sh"
+                     "$<TARGET_FILE:Contestprogramm>" "12.0")
+endif()

@@ -2,6 +2,10 @@
 
 #include "core/GeoFilter.h"
 #include "core/SpotCandidate.h"
+// Vollständig eingebunden statt vorwärts deklariert: die Schnittstelle
+// unten nennt DupeChecker::WorkedStations (siehe
+// refreshWorkedAndScores()).
+#include "data/DupeChecker.h"
 
 #include <QAbstractTableModel>
 #include <QString>
@@ -10,7 +14,6 @@
 
 namespace Contestprogramm {
 
-class DupeChecker;
 class MultiplierTracker;
 class RecentPropagationTracker;
 
@@ -80,6 +83,10 @@ public:
     // a candidate without a frequency (see the class comment). Empty
     // falls back to callsign-only.
     void setContestBands(const QStringList& bands);
+    // Läuft der aktive Contest überhaupt auf dem Band dieser Frequenz?
+    // Siehe die Erklärung an der Definition -- Kurzwellen-Spots des
+    // Clusters haben in einem UKW-Contest nichts im Chat verloren.
+    bool bandBelongsToContest(qint64 freqHz) const;
 
     // Optional (nullptr = no multiplier boost, e.g. before
     // AppController has recomputed one yet). Non-owning; the caller
@@ -102,6 +109,26 @@ public:
     void setCurrentRatePerTenMinutes(double ratePerTenMinutes);
 
     const SpotCandidate& candidateAt(int row) const;
+
+    // ALLE Zeilen, die hereingekommen sind -- nicht nur die, die der
+    // Filter durchlässt (siehe rebuildVisibleRows(): außer Reichweite
+    // raus, schon gearbeitet raus, und der Rest noch nach Punktzahl je
+    // nach Tempo).
+    //
+    // Für die Vorschläge ist dieses Filtern richtig: dort soll stehen,
+    // was sich lohnt. Für den CHATVERLAUF ist es falsch -- ein Chat,
+    // aus dem Zeilen verschwinden, ohne dass man erfährt warum, ist
+    // keiner. ChatPanelWidget liest deshalb hierüber. Martin,
+    // 2026-09-28: "erkläre bitte den chat ... was ich sehe".
+    struct FeedLine {
+        SpotCandidate candidate;
+        bool worked = false;
+        bool distanceKnown = false;
+        double distanceKm = 0.0;
+        double bearingDeg = 0.0;
+    };
+    int lineCount() const { return m_allEntries.size(); }
+    FeedLine lineAt(int index) const;
     // The same ChatImportanceScorer value rebuildVisibleRows() already
     // computes per entry (used internally to drive ChatVisibilityPolicy's
     // rate-adaptive threshold), exposed directly for NextTargetSuggester
@@ -132,6 +159,16 @@ public:
     // closes.
     void refreshWorkedAndScores();
 
+signals:
+    // Es ist etwas hereingekommen oder hat sich geändert, OHNE dass
+    // sich die Zusammensetzung der sichtbaren Zeilen geändert hätte --
+    // zum Beispiel eine Zeile, die der Filter aussortiert. Das
+    // Chatpanel zeigt wahlweise ALLE Zeilen, nicht nur die sichtbaren
+    // (ui/ChatPanelWidget.cpp, "alles zeigen"), und braucht deshalb
+    // ein Signal, das auch dann kommt, wenn das Modell selbst keine
+    // sichtbare Zeile vorzuweisen hat.
+    void feedChanged();
+
 public slots:
     void addCandidate(const SpotCandidate& candidate);
 
@@ -145,7 +182,15 @@ private:
 
     double computeScore(const SpotCandidate& candidate, bool worked, const GeoFilter::Result& geo) const;
     void rebuildVisibleRows();
-    bool computeWorked(const QString& callsign, qint64 freqHz) const;
+    // Welche Einträge sichtbar wären -- ohne etwas zu ändern, damit
+    // rebuildVisibleRows() vergleichen kann (siehe dort).
+    QVector<int> sichtbareZeilen() const;
+    // `vorab` ist die einmal gelesene Liste der gearbeiteten Stationen
+    // (DupeChecker::workedStations) -- gesetzt, wenn hunderte Einträge
+    // hintereinander beantwortet werden; sonst nullptr, dann wird je
+    // Station gefragt.
+    bool computeWorked(const QString& callsign, qint64 freqHz,
+                       const DupeChecker::WorkedStations* vorab = nullptr) const;
 
     GeoFilter& m_geoFilter;
     DupeChecker& m_dupeChecker;

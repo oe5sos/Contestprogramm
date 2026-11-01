@@ -31,7 +31,15 @@ QString stamp(const QDateTime& utc)
 
 bool ContestWindow::contains(const QDateTime& utc) const
 {
-    return isValid() && utc.isValid() && utc >= startUtc && utc <= endUtc;
+    if (!isValid() || !utc.isValid()) {
+        return false;
+    }
+    // Auf die Minute abgeschnitten, wie das EDI sie fuehrt: ein QSO um
+    // 14:00:30 am Sonntag steht dort als 1400 und gilt fuer den Robot
+    // noch als im Contest -- hier galt es vorher als "ausserhalb".
+    QDateTime minute = utc.toUTC();
+    minute.setTime(QTime(minute.time().hour(), minute.time().minute()));
+    return minute >= startUtc && minute <= endUtc;
 }
 
 qint64 ContestWindow::distanceSecs(const QDateTime& utc) const
@@ -58,8 +66,11 @@ QString ContestWindow::describe() const
 
 bool ContestSchedule::isValid() const
 {
-    return month >= 1 && month <= 12 && weekend >= 1 && weekend <= kMaxWeekend
-        && (startDay == Qt::Saturday || startDay == Qt::Sunday) && startTimeUtc.isValid() && hours >= 1
+    return month >= 1 && month <= 12
+        && ((weekend >= 1 && weekend <= kMaxWeekend)
+            || (weekend <= -1 && weekend >= -kMaxWeekend))
+        && (startDay == Qt::Friday || startDay == Qt::Saturday || startDay == Qt::Sunday)
+        && startTimeUtc.isValid() && hours >= 1
         && hours <= kMaxHours;
 }
 
@@ -76,10 +87,73 @@ ContestWindow ContestSchedule::windowIn(int year) const
         return window;
     }
     const int toSaturday = (Qt::Saturday - first.dayOfWeek() + 7) % 7;
-    QDate start = first.addDays(toSaturday + 7 * (weekend - 1));
+
+    QDate start;
+    if (weekend >= 1) {
+        start = first.addDays(toSaturday + 7 * (weekend - 1));
+    } else {
+        // ── Vom Monatsende her gezaehlt ──────────────────────────────
+        //
+        // Dazugekommen 2026-10-23 fuer die Kurzwellenconteste. Die
+        // grossen rechnen nicht vom Monatsanfang, sondern vom Ende:
+        // CQ WW SSB ist „das letzte volle Wochenende im Oktober", CQ
+        // WPX CW „das letzte volle Wochenende im Mai". Mit `weekend`
+        // ab 1 waere das jedes Jahr eine andere Zahl -- also zaehlt
+        // eine NEGATIVE Zahl von hinten: -1 ist das letzte, -2 das
+        // vorletzte.
+        //
+        // „Voll" heisst: Samstag UND Sonntag liegen im Monat. Ein
+        // Samstag am 31. ist also nicht das letzte volle Wochenende,
+        // sondern der Sonntag faellt schon in den naechsten Monat --
+        // genau der Fall, an dem eine Rechnung „letzter Samstag"
+        // falsch liegt. CQ WW 2026 ist dafuer das Beispiel: der 31.
+        // Oktober ist ein Samstag, der Contest aber am 24./25.
+        const QDate last(year, month, first.daysInMonth());
+        // Der letzte Sonntag des Monats -- sein Samstag ist der Tag
+        // davor und liegt damit immer im selben Monat.
+        const int backToSunday = (last.dayOfWeek() - Qt::Sunday + 7) % 7;
+        const QDate letzterSonntag = last.addDays(-backToSunday);
+        start = letzterSonntag.addDays(-1 - 7 * (-weekend - 1));
+        if (start.month() != month) {
+            return window;   // so weit zurueck gibt es den Monat nicht
+        }
+    }
     if (startDay == Qt::Sunday) {
         start = start.addDays(1);
+    } else if (startDay == Qt::Friday) {
+        // ── Der Freitag VOR dem Wochenende ───────────────────────────
+        //
+        // Dazugekommen 2026-10-23: CQ WW 160 CW faengt am „letzten
+        // vollen Wochenende im Januar" schon freitags um 22:00 UTC an
+        // und laeuft 48 Stunden. Das Wochenende bleibt der Anker --
+        // der Freitag ist der Tag davor, nicht ein eigenes Datum.
+        start = start.addDays(-1);
     }
+    // ── Ein Jahr, das die Veranstalter verschoben haben ──────────────
+    //
+    // Schlaegt alles darueber. Siehe ContestSchedule::exceptions --
+    // der belegte Fall ist CQ WW 160 SSB 2026.
+    if (const auto it = exceptions.constFind(year); it != exceptions.constEnd()) {
+        if (it.value().isValid()) {
+            window.startUtc = QDateTime(it.value(), startTimeUtc, QTimeZone::UTC);
+            window.endUtc = window.startUtc.addSecs(static_cast<qint64>(hours) * 3600);
+            return window;
+        }
+    }
+
+    // ── „nie an diesem Tag" ──────────────────────────────────────────
+    //
+    // Der ARRL RTTY Roundup ist das erste volle Januarwochenende,
+    // „but never on January 1". Faellt der Beginn darauf, geht es eine
+    // Woche weiter.
+    if (!neverOn.isEmpty()) {
+        const QDate verboten = QDate::fromString(
+            QStringLiteral("%1-%2").arg(year).arg(neverOn), QStringLiteral("yyyy-MM-dd"));
+        if (verboten.isValid() && start == verboten) {
+            start = start.addDays(7);
+        }
+    }
+
     window.startUtc = QDateTime(start, startTimeUtc, QTimeZone::UTC);
     window.endUtc = window.startUtc.addSecs(static_cast<qint64>(hours) * 3600);
     return window;
@@ -137,9 +211,14 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
         return fail(QStringLiteral("\"schedule\".\"month\" must be 1-12"));
     }
     if (object.contains(QStringLiteral("weekend"))) {
-        schedule.weekend = object.value(QStringLiteral("weekend")).toInt(-1);
-        if (schedule.weekend < 1 || schedule.weekend > kMaxWeekend) {
-            return fail(QStringLiteral("\"schedule\".\"weekend\" must be 1-%1").arg(kMaxWeekend));
+        // 0 ist kein gueltiger Wert und damit ein brauchbarer Fehlwert:
+        // „weekend": "foo" wird zu 0 und faellt unten durch.
+        schedule.weekend = object.value(QStringLiteral("weekend")).toInt(0);
+        const int betrag = schedule.weekend < 0 ? -schedule.weekend : schedule.weekend;
+        if (schedule.weekend == 0 || betrag > kMaxWeekend) {
+            return fail(QStringLiteral("\"schedule\".\"weekend\" must be 1-%1 "
+                                       "(or -1..-%1 counting back from the end "
+                                       "of the month)").arg(kMaxWeekend));
         }
     }
     if (object.contains(QStringLiteral("day"))) {
@@ -148,8 +227,10 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
             schedule.startDay = Qt::Saturday;
         } else if (day == QStringLiteral("sun")) {
             schedule.startDay = Qt::Sunday;
+        } else if (day == QStringLiteral("fri")) {
+            schedule.startDay = Qt::Friday;
         } else {
-            return fail(QStringLiteral("\"schedule\".\"day\" must be \"sat\" or \"sun\""));
+            return fail(QStringLiteral("\"schedule\".\"day\" must be \"fri\", \"sat\" or \"sun\""));
         }
     }
     if (object.contains(QStringLiteral("start"))) {
@@ -168,6 +249,37 @@ ContestSchedule ContestSchedule::fromJson(const QJsonObject& object, QString* er
     if (errorOut) {
         errorOut->clear();
     }
+    if (object.contains(QStringLiteral("never_on"))) {
+        const QString wert = object.value(QStringLiteral("never_on")).toString().trimmed();
+        if (!QDate::fromString(QStringLiteral("2000-%1").arg(wert),
+                               QStringLiteral("yyyy-MM-dd")).isValid()) {
+            return fail(QStringLiteral("\"schedule\".\"never_on\" must be \"MM-DD\""));
+        }
+        schedule.neverOn = wert;
+    }
+
+    if (object.contains(QStringLiteral("exceptions"))) {
+        if (!object.value(QStringLiteral("exceptions")).isObject()) {
+            return fail(QStringLiteral("\"schedule\".\"exceptions\" must be an object"));
+        }
+        const QJsonObject aus = object.value(QStringLiteral("exceptions")).toObject();
+        for (auto it = aus.constBegin(); it != aus.constEnd(); ++it) {
+            bool ok = false;
+            const int jahr = it.key().toInt(&ok);
+            const QDate datum = QDate::fromString(it.value().toString(), Qt::ISODate);
+            if (!ok || !datum.isValid()) {
+                return fail(QStringLiteral("\"schedule\".\"exceptions\": \"%1\" -> "
+                                           "\"%2\" is not year -> YYYY-MM-DD")
+                                .arg(it.key(), it.value().toString()));
+            }
+            if (datum.year() != jahr) {
+                return fail(QStringLiteral("\"schedule\".\"exceptions\": %1 points at %2")
+                                .arg(jahr).arg(datum.toString(Qt::ISODate)));
+            }
+            schedule.exceptions.insert(jahr, datum);
+        }
+    }
+
     return schedule;
 }
 
@@ -176,9 +288,23 @@ QJsonObject ContestSchedule::toJson() const
     QJsonObject object;
     object.insert(QStringLiteral("month"), month);
     object.insert(QStringLiteral("weekend"), weekend);
-    object.insert(QStringLiteral("day"), startDay == Qt::Sunday ? QStringLiteral("sun") : QStringLiteral("sat"));
+    object.insert(QStringLiteral("day"),
+                  startDay == Qt::Sunday   ? QStringLiteral("sun")
+                  : startDay == Qt::Friday ? QStringLiteral("fri")
+                                           : QStringLiteral("sat"));
     object.insert(QStringLiteral("start"), startTimeUtc.toString(QStringLiteral("HH:mm")));
     object.insert(QStringLiteral("hours"), hours);
+    if (!neverOn.isEmpty()) {
+        object.insert(QStringLiteral("never_on"), neverOn);
+    }
+    if (!exceptions.isEmpty()) {
+        QJsonObject aus;
+        for (auto it = exceptions.cbegin(); it != exceptions.cend(); ++it) {
+            aus.insert(QString::number(it.key()),
+                       it.value().toString(Qt::ISODate));
+        }
+        object.insert(QStringLiteral("exceptions"), aus);
+    }
     return object;
 }
 

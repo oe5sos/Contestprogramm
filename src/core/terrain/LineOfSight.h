@@ -21,6 +21,11 @@ enum class LineOfSightClass {
     // actually exceeds the direct line height somewhere along the
     // path -- a real, physical obstruction, not a Fresnel-clearance
     // nicety.
+    //
+    // Nur INNERHALB des Funkhorizonts der beiden Höhen: darüber hinaus
+    // liegt die Gerade ohnehin unter dem Erdbauch, dort hieße
+    // "verdeckt" nur "weiter als der Horizont" (siehe
+    // classifyLineOfSight()).
     Blocked,
     // Not the same as Blocked -- deliberately. At least one sampled
     // point's elevation is unknown (its SRTM tile hasn't been fetched

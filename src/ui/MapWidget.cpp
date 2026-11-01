@@ -3,6 +3,7 @@
 #include "core/Cities.h"
 #include "core/CountryBorders.h"
 #include "core/Maidenhead.h"
+#include "core/SolarPosition.h"
 #include "ui/StyleKit.h"
 
 #include <QAction>
@@ -31,6 +32,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Contestprogramm {
 
@@ -46,9 +48,38 @@ constexpr int kMinScopeWidthWithNumbers = 240;
 constexpr double kStripMaxElevationDeg = 8.0;
 constexpr double kRimMaxThicknessPx = 22.0;
 constexpr double kMinVisibleRangeKm = 25.0;
-constexpr double kMaxVisibleRangeKm = 3200.0;
+// Kurzwelle: eine Station auf der anderen Seite der Erde ist gut
+// 20 000 km weit weg. Die Obergrenze lag bei 3 200 km -- richtig,
+// solange nur UKW im Spiel war.
+constexpr double kMaxVisibleRangeKm = 20000.0;
 // Operator, 2026-09-14: "mache schritte beim radius bitte alle 250km".
 constexpr double kVisibleRangeStepKm = 250.0;
+
+// Was im ⚙-Menü als Sprungweite steht: vom Nahbereich bis zur
+// Weltkarte, ohne zwanzigmal auf die Zoomtaste zu drücken.
+constexpr double kRangePresetsKm[] = {100.0, 300.0, 1000.0, 3000.0, 10000.0, 20000.0};
+
+// Die Graulinie wandert gut 15 Grad je Stunde, also rund 0,25 Grad je
+// Minute -- einmal je Minute neu zeichnen ist mehr, als man sieht.
+constexpr int kGreylineRefreshIntervalMs = 60 * 1000;
+// Bürgerliche Dämmerung: die Sonne 6 Grad unter dem Horizont. Auf der
+// Kugel sind das 6/90 des Viertelumfangs jenseits der Tag-Nacht-Grenze,
+// rund 667 km -- so breit ist das Band, das gezeichnet wird.
+constexpr double kCivilTwilightDeg = 6.0;
+
+// Der Schritt der beiden Zoomtasten. Unter 3 200 km bleibt es bei
+// Martins 250 km (2026-09-14: "mache schritte beim radius bitte alle
+// 250km") -- darüber wären das 67 Klicks bis zur Gegenseite der Erde.
+double zoomStepKm(double rangeKm)
+{
+    if (rangeKm < 3200.0) {
+        return kVisibleRangeStepKm;
+    }
+    if (rangeKm < 10000.0) {
+        return 1000.0;
+    }
+    return 2500.0;
+}
 // Operator, 2026-09-12: "die wichtigsten großen städte ab 150 km".
 constexpr double kCityMinDistanceKm = 150.0;
 // Operator, 2026-09-13: "alte Kontakte ausgrauen" -- full colour for
@@ -60,7 +91,6 @@ constexpr int kAgingRefreshIntervalMs = 60000;
 // just dots -- the log has the names, the map should show the shape.
 constexpr int kFreshLabelMinutes = 60;
 constexpr double kStationClickTolerancePx = 9.0;
-constexpr double kDefaultBeamwidthDeg = 30.0;
 constexpr double kMinBeamwidthDeg = 5.0;
 constexpr double kMaxBeamwidthDeg = 120.0;
 const int kBeamwidthChoices[] = {10, 15, 20, 25, 30, 40, 50, 60};
@@ -160,6 +190,11 @@ MapWidget::MapWidget(QWidget* parent)
     if (m_showAging) {
         m_agingRefreshTimer->start();
     }
+
+    m_greylineTimer = new QTimer(this);
+    m_greylineTimer->setInterval(kGreylineRefreshIntervalMs);
+    connect(m_greylineTimer, &QTimer::timeout, this, QOverload<>::of(&MapWidget::update));
+    syncGreylineTimer();
 }
 
 void MapWidget::buildControls()
@@ -192,6 +227,30 @@ void MapWidget::buildControls()
         return action;
     };
     m_ringsAction = addToggle(QStringLiteral("Entfernungsringe"), QStringLiteral("Ringe alle 100 km"), &MapWidget::setRingsLayerVisible);
+    m_greylineAction = addToggle(QStringLiteral("Graulinie"),
+                                 QStringLiteral("Wo gerade Dämmerung ist -- auf Kurzwelle die Zone, in der die "
+                                                "unteren Bänder aufmachen"),
+                                 &MapWidget::setGreylineLayerVisible);
+    m_rotorDialsAction = addToggle(QStringLiteral("Rotoren in der Spalte"),
+                                  QStringLiteral("Zwei kleine Scheiben unter „Sonne hier\" -- live, und ein Klick "
+                                                 "dreht dorthin. Dann braucht es das Rotorfenster nicht mehr"),
+                                  &MapWidget::setRotorDialsVisible);
+    m_rotorDialsBackAction = addToggle(QStringLiteral("Rückrichtung zeigen"),
+                                       QStringLiteral("Was die Antenne nach hinten abstrahlt -- in der Karte als "
+                                                      "blasse, gepunktete Keule in ihrer Farbe, und in den Scheiben "
+                                                      "als Gegenrichtung"),
+                                       &MapWidget::setRotorDialsBackward);
+    m_workedAction = addToggle(QStringLiteral("Gearbeitete anzeigen"),
+                               QStringLiteral("Die eigenen QSOs des laufenden Contests"),
+                               &MapWidget::setWorkedVisible);
+    m_spotsAction = addToggle(QStringLiteral("Spots anzeigen"),
+                              QStringLiteral("Gespottete, noch nicht gearbeitete Stationen. Aus heisst: nur das "
+                                             "eigene Log steht in der Karte"),
+                              &MapWidget::setSpotsVisible);
+    m_approxHaloAction = addToggle(QStringLiteral("Hof bei geschaetztem Ort"),
+                                   QStringLiteral("Gepunkteter Ring, wo nur der Mittelpunkt des Landes bekannt ist. "
+                                                  "Auf Kurzwelle betrifft das jede Station -- dort nur Unruhe"),
+                                   &MapWidget::setApproximateHaloEnabled);
     m_spokesAction = addToggle(QStringLiteral("Peilung"), QStringLiteral("Gradteilung am Rand, in der Karte auch Speichen"), &MapWidget::setSpokesLayerVisible);
     m_horizonAction = addToggle(QStringLiteral("Horizont"), QStringLiteral("Berge als Rand des Radars bzw. als Skyline unter der Karte"), &MapWidget::setHorizonLayerVisible);
     m_rotor1Action = addToggle(QStringLiteral("Rotor 1"), QStringLiteral("Peilung von Rotor 1 als Lichtkegel"), &MapWidget::setRotor1HeadingLayerVisible);
@@ -227,6 +286,7 @@ void MapWidget::buildControls()
     m_rotor2SecondAction = addAntennaChoice(2, true);
     m_agingAction = addToggle(QStringLiteral("Alte Kontakte verblassen"), QStringLiteral("Gearbeitete Stationen werden nach 30 min langsam grau"), &MapWidget::setAgingEnabled);
     m_fitAction = addToggle(QStringLiteral("Fläche füllen"), QStringLiteral("Scheibe füllt die Fläche (elliptisch); aus: Kreis"), &MapWidget::setFitToWindowEnabled);
+    m_fullBleedAction = addToggle(QStringLiteral("Vollfläche (Fensterrand)"), QStringLiteral("Keine Scheibe: die Karte geht bis an die Panelkanten, der Rahmen ist der Rand. Peilung und Maßstab bleiben gleich -- der Radius liegt an der kürzeren Kante, die Ecken reichen weiter."), &MapWidget::setFullBleedEnabled);
     m_bordersAction = addToggle(QStringLiteral("Grenzen"), QStringLiteral("Staatsgrenzen/Küstenlinien (Natural Earth 1:110m)"), &MapWidget::setBordersLayerVisible);
     m_citiesAction = addToggle(QStringLiteral("Städte"), QStringLiteral("Wichtigste Großstädte ab 150 km (Natural Earth 1:110m)"), &MapWidget::setCitiesLayerVisible);
     m_gridAction = addToggle(QStringLiteral("Locator-Raster"), QStringLiteral("Großfelder als Raster mit Beschriftung"), &MapWidget::setGridLayerVisible);
@@ -262,12 +322,21 @@ void MapWidget::syncControls()
     };
     sync(m_gridAction, m_layers.grid);
     sync(m_ringsAction, m_showRings);
+    sync(m_greylineAction, m_layers.greyline);
     sync(m_spokesAction, m_showSpokes);
     sync(m_workedCellsAction, m_layers.cells);
     sync(m_bordersAction, m_layers.borders);
     sync(m_citiesAction, m_layers.cities);
     sync(m_agingAction, m_showAging);
     sync(m_fitAction, m_fitToWindow);
+    sync(m_fullBleedAction, m_fullBleed);
+    sync(m_bandColorsAction, m_bandColors);
+    sync(m_labelsOnlyNeededAction, m_labelsOnlyNeeded);
+    sync(m_spotsAction, m_showSpots);
+    sync(m_workedAction, m_showWorked);
+    sync(m_rotorDialsAction, m_rotorDials);
+    sync(m_rotorDialsBackAction, m_rotorDialsBackward);
+    sync(m_approxHaloAction, m_approxHalo);
     sync(m_rotor1Action, m_showRotor1Heading);
     sync(m_rotor2Action, m_showRotor2Heading);
     sync(m_horizonAction, m_showHorizon);
@@ -294,8 +363,16 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     }
     syncControls();
     menu->addAction(m_ringsAction);
+    menu->addAction(m_greylineAction);
+    menu->addAction(m_workedAction);
+    menu->addAction(m_spotsAction);
+    menu->addAction(m_bandColorsAction);
+    menu->addAction(m_labelsOnlyNeededAction);
+    menu->addAction(m_approxHaloAction);
     menu->addAction(m_spokesAction);
     menu->addAction(m_horizonAction);
+    menu->addAction(m_rotorDialsAction);
+    menu->addAction(m_rotorDialsBackAction);
     menu->addAction(m_rotor1Action);
     menu->addAction(m_rotor2Action);
     QMenu* antennas1 = menu->addMenu(QStringLiteral("Antennen Rotor 1"));
@@ -320,7 +397,27 @@ void MapWidget::populateOptionsMenu(QMenu* menu)
     };
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 1"), m_beamwidth1Deg, &MapWidget::setRotor1BeamwidthDeg);
     beamwidthMenu(QStringLiteral("Öffnungswinkel Rotor 2"), m_beamwidth2Deg, &MapWidget::setRotor2BeamwidthDeg);
+    // Nur anbieten, wenn es die feste Antenne überhaupt gibt -- sonst
+    // stünde im Menü ein Winkel für etwas, das niemand eingeschaltet
+    // hat.
+    if (m_fixedAntennaPresent) {
+        beamwidthMenu(QStringLiteral("Öffnungswinkel Antenne Fix"), m_fixedBeamwidthDeg,
+                      &MapWidget::setFixedAntennaBeamwidthDeg);
+    }
+    // Sprungweiten statt Klicken: von 300 km auf die Weltkarte wären es
+    // mit den beiden Zoomtasten zwanzig Klicks.
+    QMenu* rangeMenu = menu->addMenu(QStringLiteral("Reichweite"));
+    auto* rangeGroup = new QActionGroup(rangeMenu);
+    rangeGroup->setExclusive(true);
+    for (double km : kRangePresetsKm) {
+        QAction* action = rangeMenu->addAction(QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(km))));
+        action->setCheckable(true);
+        action->setChecked(std::fabs(m_visibleRangeKm - km) < 0.5);
+        rangeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [this, km] { setVisibleRangeKm(km); });
+    }
     menu->addAction(m_agingAction);
+    menu->addAction(m_fullBleedAction);
     menu->addAction(m_fitAction);
     menu->addSeparator();
     menu->addAction(m_bordersAction);
@@ -339,7 +436,8 @@ void MapWidget::notePreferenceChange()
 void MapWidget::refreshZoomLabel() const
 {
     if (m_zoomRangeLabel) {
-        m_zoomRangeLabel->setText(QStringLiteral("%1 km").arg(m_visibleRangeKm, 0, 'f', 0));
+        m_zoomRangeLabel->setText(
+            QStringLiteral("%1 km").arg(groupedKm(static_cast<qint64>(std::llround(m_visibleRangeKm)))));
     }
 }
 
@@ -387,10 +485,69 @@ MAPWIDGET_TOGGLE(setWorkedCellsLayerVisible, m_layers.cells)
 MAPWIDGET_TOGGLE(setBordersLayerVisible, m_layers.borders)
 MAPWIDGET_TOGGLE(setCitiesLayerVisible, m_layers.cities)
 MAPWIDGET_TOGGLE(setFitToWindowEnabled, m_fitToWindow)
+MAPWIDGET_TOGGLE(setFullBleedEnabled, m_fullBleed)
 MAPWIDGET_TOGGLE(setRotor1HeadingLayerVisible, m_showRotor1Heading)
 MAPWIDGET_TOGGLE(setRotor2HeadingLayerVisible, m_showRotor2Heading)
 MAPWIDGET_TOGGLE(setHorizonLayerVisible, m_showHorizon)
+MAPWIDGET_TOGGLE(setSpotsVisible, m_showSpots)
+MAPWIDGET_TOGGLE(setWorkedVisible, m_showWorked)
+MAPWIDGET_TOGGLE(setRotorDialsVisible, m_rotorDials)
+MAPWIDGET_TOGGLE(setRotorDialsBackward, m_rotorDialsBackward)
+MAPWIDGET_TOGGLE(setApproximateHaloEnabled, m_approxHalo)
 #undef MAPWIDGET_TOGGLE
+
+// Nicht über das Makro: diese Schicht hat einen Zeitgeber, der mit ihr
+// an- und ausgeht.
+void MapWidget::setBandColorsEnabled(bool enabled)
+{
+    if (m_bandColors == enabled) {
+        return;
+    }
+    m_bandColors = enabled;
+    if (m_bandColorsAction) {
+        const QSignalBlocker blocker(m_bandColorsAction);
+        m_bandColorsAction->setChecked(enabled);
+    }
+    update();
+    emit preferencesChanged();
+}
+
+void MapWidget::setLabelsOnlyNeededEnabled(bool enabled)
+{
+    if (m_labelsOnlyNeeded == enabled) {
+        return;
+    }
+    m_labelsOnlyNeeded = enabled;
+    if (m_labelsOnlyNeededAction) {
+        const QSignalBlocker blocker(m_labelsOnlyNeededAction);
+        m_labelsOnlyNeededAction->setChecked(enabled);
+    }
+    update();
+    emit preferencesChanged();
+}
+
+void MapWidget::setGreylineLayerVisible(bool on)
+{
+    if (m_layers.greyline == on) {
+        syncControls();
+        return;
+    }
+    m_layers.greyline = on;
+    syncGreylineTimer();
+    notePreferenceChange();
+}
+
+void MapWidget::syncGreylineTimer()
+{
+    if (!m_greylineTimer) {
+        return;
+    }
+    if (m_layers.greyline) {
+        m_greylineTimer->start();
+    } else {
+        m_greylineTimer->stop();
+    }
+}
 
 void MapWidget::setAgingEnabled(bool enabled)
 {
@@ -429,6 +586,16 @@ void MapWidget::setRotor1Heading(bool connected, double azimuthDeg, const QStrin
     update();
 }
 
+void MapWidget::setRotorLinkLive(int rotor, bool live)
+{
+    bool& member = rotor == 2 ? m_rotor2Live : m_rotor1Live;
+    if (member == live) {
+        return;
+    }
+    member = live;
+    update();
+}
+
 void MapWidget::setRotor2Heading(bool connected, double azimuthDeg, const QString& label)
 {
     m_rotor2Connected = connected;
@@ -450,6 +617,28 @@ void MapWidget::setRotor2SecondAntenna(bool enabled, double offsetDeg)
     m_rotor2SecondEnabled = enabled;
     m_rotor2SecondOffsetDeg = offsetDeg;
     syncControls();
+    update();
+}
+
+void MapWidget::setFixedAntennaHeading(bool vorhanden, double azimuthDeg, const QString& label)
+{
+    if (m_fixedAntennaPresent == vorhanden && qFuzzyCompare(m_fixedAntennaAzimuthDeg + 1.0, azimuthDeg + 1.0)
+        && m_fixedAntennaLabel == label) {
+        return;
+    }
+    m_fixedAntennaPresent = vorhanden;
+    m_fixedAntennaAzimuthDeg = azimuthDeg;
+    m_fixedAntennaLabel = label;
+    update();
+}
+
+void MapWidget::setFixedAntennaBeamwidthDeg(double degrees)
+{
+    const double neu = qBound(5.0, degrees, 120.0);
+    if (qFuzzyCompare(m_fixedBeamwidthDeg + 1.0, neu + 1.0)) {
+        return;
+    }
+    m_fixedBeamwidthDeg = neu;
     update();
 }
 
@@ -496,12 +685,14 @@ void MapWidget::setVisibleRangeKm(double rangeKm)
 
 void MapWidget::zoomIn()
 {
-    setVisibleRangeKm(m_visibleRangeKm - kVisibleRangeStepKm);
+    // Der Schritt der Stufe, in die es hineingeht, nicht der, aus der
+    // es kommt -- sonst springt ein Klick bei 3 200 km um 1 000 km.
+    setVisibleRangeKm(m_visibleRangeKm - zoomStepKm(m_visibleRangeKm - 1.0));
 }
 
 void MapWidget::zoomOut()
 {
-    setVisibleRangeKm(m_visibleRangeKm + kVisibleRangeStepKm);
+    setVisibleRangeKm(m_visibleRangeKm + zoomStepKm(m_visibleRangeKm));
 }
 
 QString MapWidget::preferencesText() const
@@ -510,11 +701,20 @@ QString MapWidget::preferencesText() const
     // The layer keys keep their "r" prefix from the days of two views,
     // so a stored preference string still reads the same.
     return QStringLiteral("rings=%1;spokes=%2;aging=%3;fit=%4;rotor1=%5;rotor2=%6;horizon=%7;bw1=%8;bw2=%9;"
-                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13")
+                          "rgrid=%10;rcells=%11;rborders=%12;rcities=%13;greyline=%14;bwfix=%15;fullbleed=%16;"
+                          "bandcolors=%17;labelsneeded=%18;spots=%19;approxhalo=%20;"
+                          "rotordials=%21;rotorback=%22;worked=%23")
         .arg(flag(m_showRings), flag(m_showSpokes), flag(m_showAging), flag(m_fitToWindow), flag(m_showRotor1Heading),
              flag(m_showRotor2Heading), flag(m_showHorizon))
         .arg(m_beamwidth1Deg, 0, 'f', 0).arg(m_beamwidth2Deg, 0, 'f', 0)
-        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities));
+        .arg(flag(m_layers.grid), flag(m_layers.cells), flag(m_layers.borders), flag(m_layers.cities),
+             flag(m_layers.greyline))
+        .arg(m_fixedBeamwidthDeg, 0, 'f', 0)
+        .arg(flag(m_fullBleed))
+        .arg(flag(m_bandColors), flag(m_labelsOnlyNeeded))
+        .arg(flag(m_showSpots), flag(m_approxHalo))
+        .arg(flag(m_rotorDials), flag(m_rotorDialsBackward))
+        .arg(flag(m_showWorked));
 }
 
 void MapWidget::applyPreferencesText(const QString& text)
@@ -549,6 +749,23 @@ void MapWidget::applyPreferencesText(const QString& text)
             apply(m_layers.borders);
         } else if (key == QStringLiteral("rcities")) {
             apply(m_layers.cities);
+        } else if (key == QStringLiteral("bandcolors")) {
+            apply(m_bandColors);
+        } else if (key == QStringLiteral("labelsneeded")) {
+            apply(m_labelsOnlyNeeded);
+        } else if (key == QStringLiteral("spots")) {
+            apply(m_showSpots);
+        } else if (key == QStringLiteral("approxhalo")) {
+            apply(m_approxHalo);
+        } else if (key == QStringLiteral("rotordials")) {
+            apply(m_rotorDials);
+        } else if (key == QStringLiteral("rotorback")) {
+            apply(m_rotorDialsBackward);
+        } else if (key == QStringLiteral("worked")) {
+            apply(m_showWorked);
+        } else if (key == QStringLiteral("greyline")) {
+            apply(m_layers.greyline);
+            syncGreylineTimer();
         } else if (key == QStringLiteral("aging")) {
             if (m_showAging != on) {
                 changed = true;
@@ -563,17 +780,22 @@ void MapWidget::applyPreferencesText(const QString& text)
             }
         } else if (key == QStringLiteral("fit")) {
             apply(m_fitToWindow);
+        } else if (key == QStringLiteral("fullbleed")) {
+            apply(m_fullBleed);
         } else if (key == QStringLiteral("rotor1")) {
             apply(m_showRotor1Heading);
         } else if (key == QStringLiteral("rotor2")) {
             apply(m_showRotor2Heading);
         } else if (key == QStringLiteral("horizon")) {
             apply(m_showHorizon);
-        } else if (key == QStringLiteral("bw1") || key == QStringLiteral("bw2")) {
+        } else if (key == QStringLiteral("bw1") || key == QStringLiteral("bw2")
+                   || key == QStringLiteral("bwfix")) {
             bool ok = false;
             const double deg = value.toDouble(&ok);
             if (ok) {
-                double& member = key == QStringLiteral("bw1") ? m_beamwidth1Deg : m_beamwidth2Deg;
+                double& member = key == QStringLiteral("bw1")   ? m_beamwidth1Deg
+                                 : key == QStringLiteral("bw2") ? m_beamwidth2Deg
+                                                                : m_fixedBeamwidthDeg;
                 const double clamped = std::clamp(deg, kMinBeamwidthDeg, kMaxBeamwidthDeg);
                 if (!qFuzzyCompare(member, clamped)) {
                     member = clamped;
@@ -622,6 +844,31 @@ QVector<QPointF> MapWidget::projectGridSquareCorners(const QString& gridSquare, 
         corners.append(projectBearingDistance(bearing, distance, visibleRangeKm, mapRect));
     }
     return corners;
+}
+
+// ── Die Farbe des Bandes ─────────────────────────────────────────────
+//
+// Entwurf „3c", vom Betreiber gewaehlt: auf 10 000 km sagt die Farbe
+// mehr als der Name -- sie sagt, WO das Band offen ist. Die Grenzen
+// sind die Bandgrenzen, nicht gerundete Zahlen; was dazwischen faellt
+// (WARC, ausserhalb), bekommt die gewoehnliche Farbe.
+QColor bandColorForFrequency(qint64 freqHz)
+{
+    struct Band { qint64 von, bis; const char* farbe; };
+    static const Band kBaender[] = {
+        {1800000,   2000000,  "#9678c8"},   // 160 m
+        {3500000,   4000000,  "#5a8cd2"},   //  80 m
+        {7000000,   7300000,  "#50b4b4"},   //  40 m
+        {14000000, 14350000,  "#d8a55f"},   //  20 m
+        {21000000, 21450000,  "#e6825a"},   //  15 m
+        {28000000, 29700000,  "#dc5a6e"},   //  10 m
+    };
+    for (const Band& b : kBaender) {
+        if (freqHz >= b.von && freqHz <= b.bis) {
+            return QColor(QLatin1String(b.farbe));
+        }
+    }
+    return {};
 }
 
 QColor MapWidget::markerColor(bool worked)
@@ -689,16 +936,29 @@ QRectF MapWidget::numbersRect() const
     return QRectF(canvas.right() - kNumbersColumnWidth + 12, canvas.top(), kNumbersColumnWidth - 12, canvas.height());
 }
 
-QRectF MapWidget::scopeRect() const
+QRectF MapWidget::paintRect() const
 {
     QRectF area = canvasRect();
     const QRectF numbers = numbersRect();
     if (!numbers.isEmpty()) {
         area.setRight(numbers.left() - 8.0);
     }
-    // The rim labels and the beam labels outside them need air.
-    area.adjust(32.0, 32.0, -32.0, -32.0);
+    // On the disc the rim labels and the beam labels outside them need
+    // air; in Vollfläche there is no rim to label around -- the map
+    // runs out to the panel's own frame and the labels move inside.
+    if (!m_fullBleed) {
+        area.adjust(32.0, 32.0, -32.0, -32.0);
+    }
     if (area.width() <= 0.0 || area.height() <= 0.0) {
+        return QRectF();
+    }
+    return area;
+}
+
+QRectF MapWidget::scopeRect() const
+{
+    const QRectF area = paintRect();
+    if (area.isEmpty()) {
         return QRectF();
     }
     if (m_fitToWindow) {
@@ -706,6 +966,48 @@ QRectF MapWidget::scopeRect() const
     }
     const double side = std::min(area.width(), area.height());
     return QRectF(area.center().x() - side / 2.0, area.center().y() - side / 2.0, side, side);
+}
+
+double MapWidget::visibleRangeFactor() const
+{
+    if (!m_fullBleed) {
+        return 1.0;
+    }
+    const QRectF scope = scopeRect();
+    const QRectF frame = paintRect();
+    if (scope.isEmpty() || frame.isEmpty()) {
+        return 1.0;
+    }
+    const QPointF centre = scope.center();
+    const double fx = std::max(centre.x() - frame.left(), frame.right() - centre.x()) / (scope.width() / 2.0);
+    const double fy = std::max(centre.y() - frame.top(), frame.bottom() - centre.y()) / (scope.height() / 2.0);
+    return std::max(1.0, std::hypot(fx, fy));
+}
+
+QPointF MapWidget::rimPoint(const QRectF& area, double bearingDeg, double inset) const
+{
+    const QPointF centre = area.center();
+    if (!m_fullBleed) {
+        const double rx = area.width() / 2.0;
+        const double ry = area.height() / 2.0;
+        return polar(centre, bearingDeg, rx - inset, ry - inset * ry / std::max(1.0, rx));
+    }
+    const QRectF frame = paintRect();
+    const double a = qDegreesToRadians(bearingDeg);
+    const double dx = std::sin(a);
+    const double dy = -std::cos(a);
+    double t = std::numeric_limits<double>::max();
+    if (std::fabs(dx) > 1e-9) {
+        t = std::min(t, ((dx > 0.0 ? frame.right() : frame.left()) - centre.x()) / dx);
+    }
+    if (std::fabs(dy) > 1e-9) {
+        t = std::min(t, ((dy > 0.0 ? frame.bottom() : frame.top()) - centre.y()) / dy);
+    }
+    if (t == std::numeric_limits<double>::max()) {
+        t = 0.0;
+    }
+    t = std::max(0.0, t - inset);
+    return QPointF(centre.x() + dx * t, centre.y() + dy * t);
 }
 
 bool MapWidget::hasHorizon() const
@@ -804,12 +1106,20 @@ QVector<MapWidget::GridCell> MapWidget::computeGridCells(const QRectF& area) con
 void MapWidget::drawScopeFace(QPainter& painter, const QRectF& area) const
 {
     // Sunk, black, a touch lighter at the centre -- the instrument face
-    // the dots sit on; the ellipse is the scope's rim.
-    QRadialGradient face(area.center(), std::max(area.width(), area.height()) / 2.0);
+    // the dots sit on; the ellipse is the scope's rim. In Vollfläche
+    // the same face is a rectangle out to the panel's frame, with no
+    // rim line of its own: the panel already draws one.
+    const QRectF face_ = m_fullBleed ? paintRect() : area;
+    QRadialGradient face(area.center(), std::max(face_.width(), face_.height()) / 2.0);
     face.setColorAt(0.0, QColor(Style::shiftL(QColor(Style::kInsetBg()), 4)));
     face.setColorAt(1.0, QColor(Style::kInsetBg()));
-    painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
     painter.setBrush(face);
+    if (m_fullBleed) {
+        painter.setPen(Qt::NoPen);
+        painter.drawRect(face_);
+        return;
+    }
+    painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
     painter.drawEllipse(area);
 }
 
@@ -824,8 +1134,13 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     // Quiet lines, no land fill, no country names: orientation, not a
     // school atlas. The radar dims them further.
     // Quieter still on the radar, where the scope is the point.
+    // Je weiter die Karte reicht, desto kleiner und blasser werden die
+    // Umrisse -- auf der Weltkarte blieben von den Küstenlinien bei
+    // Alpha 90 nur Andeutungen übrig. Im Nahbereich bleibt es bei der
+    // Zurückhaltung von 2026-09-12 ("Orientierung, kein Schulatlas").
     QColor line{Style::kTextInactive()};
-    line.setAlpha(90);
+    const double reach = std::clamp((m_visibleRangeKm - 1000.0) / (20000.0 - 1000.0), 0.0, 1.0);
+    line.setAlpha(static_cast<int>(std::lround(90.0 + reach * 70.0)));
     painter.setPen(QPen(line, 1.0));
     painter.setBrush(Qt::NoBrush);
     const QRectF keep = area.adjusted(-2000, -2000, 2000, 2000);
@@ -851,6 +1166,91 @@ void MapWidget::drawBordersLayer(QPainter& painter, const QRectF& area) const
     }
 }
 
+// Die Dämmerungszone als Band, nicht als ausgemalte Nachtseite: die
+// Karte ist dunkel, eine halb zugedeckte Scheibe würde mit den
+// anderen Schichten streiten. Dazu die Sonne als kleiner Ring, damit
+// zu sehen ist, welche Seite Tag ist.
+//
+// Gezeichnet wird der Kreis mit 10 008 km Abstand um den GEGENPUNKT
+// der Sonne -- in dieser Darstellung (Richtung und Entfernung vom
+// eigenen Standort) ist das kein Kreis mehr, sondern ein Vieleck aus
+// 360 gerechneten Punkten. Wo es den Gegenpunkt des eigenen Standorts
+// streift, läuft die Linie über den Rand der Scheibe; dort wird sie
+// abgesetzt statt quer durchs Bild gezogen.
+void MapWidget::drawGreylineLayer(QPainter& painter, const QRectF& area) const
+{
+    if (!isValidGridSquare(m_ownGrid)) {
+        return;
+    }
+    double homeLat = 0.0;
+    double homeLon = 0.0;
+    calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+
+    const SolarPoint sun = subsolarPoint(QDateTime::currentDateTimeUtc());
+    const double antiLat = -sun.latitudeDeg;
+    const double antiLon = sun.longitudeDeg > 0.0 ? sun.longitudeDeg - 180.0 : sun.longitudeDeg + 180.0;
+
+    const auto plot = [&](double lat, double lon, bool& nearRim) {
+        const double bearing = calculateBearingInDegreesBetween(homeLat, homeLon, lat, lon);
+        const double distance = calculateDistanceKmBetween(homeLat, homeLon, lat, lon);
+        nearRim = distance > 0.97 * m_visibleRangeKm;
+        return projectBearingDistance(bearing, distance, m_visibleRangeKm, area);
+    };
+
+    const auto ringPath = [&](double radiusKm) {
+        QPainterPath path;
+        bool started = false;
+        bool previousNearRim = false;
+        QPointF previous;
+        for (int azimuth = 0; azimuth <= 360; ++azimuth) {
+            double lat = 0.0;
+            double lon = 0.0;
+            destinationPoint(antiLat, antiLon, azimuth % 360, radiusKm, lat, lon);
+            bool nearRim = false;
+            const QPointF point = plot(lat, lon, nearRim);
+            const bool jump = started
+                && QLineF(previous, point).length() > area.width() / 4.0
+                && (nearRim || previousNearRim);
+            if (!started || jump) {
+                path.moveTo(point);
+                started = true;
+            } else {
+                path.lineTo(point);
+            }
+            previous = point;
+            previousNearRim = nearRim;
+        }
+        return path;
+    };
+
+    painter.setBrush(Qt::NoBrush);
+    // Das Band zuerst, breit und leise; die Linie selbst darüber.
+    const double radius = terminatorRadiusKm();
+    const double twilight = radius * kCivilTwilightDeg / 90.0;
+    QColor band{Style::kTextSecondary()};
+    band.setAlpha(45);
+    painter.setPen(QPen(band, 1.0, Qt::DotLine));
+    painter.drawPath(ringPath(radius - twilight));
+    painter.drawPath(ringPath(radius + twilight));
+    QColor line{Style::kTextPrimary()};
+    line.setAlpha(110);
+    painter.setPen(QPen(line, 1.6));
+    painter.drawPath(ringPath(radius));
+
+    // Die Sonne, wenn sie im Bild liegt: ein Ring in Bernstein, kein
+    // ausgefüllter Punkt -- ausgefüllte Punkte sind hier Stationen.
+    bool sunNearRim = false;
+    const double sunDistance = calculateDistanceKmBetween(homeLat, homeLon, sun.latitudeDeg, sun.longitudeDeg);
+    if (sunDistance <= m_visibleRangeKm) {
+        const QPointF point = plot(sun.latitudeDeg, sun.longitudeDeg, sunNearRim);
+        QColor sunColor{Style::kAmberText()};
+        sunColor.setAlpha(150);
+        painter.setPen(QPen(sunColor, 1.4));
+        painter.drawEllipse(point, 5.0, 5.0);
+        painter.drawEllipse(point, 9.0, 9.0);
+    }
+}
+
 void MapWidget::drawCitiesLayer(QPainter& painter, const QRectF& area) const
 {
     if (m_cities.isEmpty() || !isValidGridSquare(m_ownGrid)) {
@@ -865,7 +1265,7 @@ void MapWidget::drawCitiesLayer(QPainter& painter, const QRectF& area) const
     for (const CityPoint& city : m_cities) {
         const double bearing = calculateBearingInDegreesBetween(homeLat, homeLon, city.lat, city.lon);
         const double distance = calculateDistanceKmBetween(homeLat, homeLon, city.lat, city.lon);
-        if (distance < kCityMinDistanceKm || distance > m_visibleRangeKm) {
+        if (distance < kCityMinDistanceKm || distance > m_visibleRangeKm * visibleRangeFactor()) {
             continue;
         }
         const QPointF point = projectBearingDistance(bearing, distance, m_visibleRangeKm, area);
@@ -927,10 +1327,23 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
     const double halfHeight = area.height() / 2.0;
     painter.setBrush(Qt::NoBrush);
     painter.setFont(Style::monoFont(font(), Style::kFontCaption));
-    const double step = m_visibleRangeKm <= 300.0 ? 50.0 : 100.0;
-    for (double km = step; km < m_visibleRangeKm - 0.5; km += step) {
+    // Bis 3 200 km unverändert (50 km im Nahbereich, sonst 100). Darüber
+    // wären 100-km-Ringe bei 20 000 km zweihundert Kreise.
+    double step = 100.0;
+    if (m_visibleRangeKm <= 300.0) {
+        step = 50.0;
+    } else if (m_visibleRangeKm > 12000.0) {
+        step = 2500.0;
+    } else if (m_visibleRangeKm > 3200.0) {
+        step = 1000.0;
+    }
+    const double majorEvery = step <= 100.0 ? 200.0 : step * 5.0;
+    // In Vollfläche laufen die Ringe weiter in die Ecken, wo die Karte
+    // über den eingestellten Radius hinausreicht.
+    const double lastKm = m_visibleRangeKm * visibleRangeFactor();
+    for (double km = step; km < lastKm - 0.5; km += step) {
         const double frac = km / m_visibleRangeKm;
-        const bool major = std::fmod(km, 200.0) < 0.5;
+        const bool major = std::fmod(km, majorEvery) < 0.5;
         QColor color{Style::kBorder()};
         color.setAlpha(major ? 255 : 150);
         QPen pen(color, 1.0, major ? Qt::SolidLine : Qt::DotLine);
@@ -940,13 +1353,25 @@ void MapWidget::drawRingsLayer(QPainter& painter, const QRectF& area) const
         painter.drawText(polar(center, 135.0, frac * halfWidth, frac * halfHeight) + QPointF(3.0, 10.0),
                          QString::number(static_cast<int>(km)));
     }
+
+    // Der GEWAEHLTE Radius bekommt einen eigenen Ring, in unserer
+    // Farbe. Betreiber am 2026-10-26: „wenn ich 500 km auswaehle,
+    // moechte ich den runden ring (500 km) in gelb/braun -- unsere
+    // farben sehen. bei 750 km auswahl, dann den ring mit 750 km usw."
+    //
+    // In der Scheibenansicht ist das der Rand; in Vollflaeche liegt er
+    // mitten im Bild, und genau dort fehlte bisher jede Markierung --
+    // die Karte reicht dann ueber den eingestellten Radius hinaus, und
+    // man sah nicht mehr, wo er endet.
+    painter.setPen(QPen(QColor(Style::kAmberText()), 1.4));
+    painter.drawEllipse(center, halfWidth, halfHeight);
+    painter.setPen(QColor(Style::kAmberText()));
+    painter.drawText(polar(center, 135.0, halfWidth, halfHeight) + QPointF(3.0, 10.0),
+                     QStringLiteral("%1 km").arg(static_cast<int>(m_visibleRangeKm)));
 }
 
 void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
 {
-    const QPointF center = area.center();
-    const double rx = area.width() / 2.0;
-    const double ry = area.height() / 2.0;
     // Ticks on the rim every 10°, labels every 30°.
     for (int deg = 0; deg < 360; deg += 10) {
         const bool major = deg % 30 == 0;
@@ -954,11 +1379,13 @@ void MapWidget::drawSpokesLayer(QPainter& painter, const QRectF& area) const
         tick.setAlpha(major ? 200 : 110);
         painter.setPen(QPen(tick, major ? 1.2 : 0.8));
         const double inset = major ? 7.0 : 4.0;
-        painter.drawLine(polar(center, deg, rx - inset, ry - inset * ry / std::max(1.0, rx)), polar(center, deg, rx, ry));
+        painter.drawLine(rimPoint(area, deg, inset), rimPoint(area, deg, 0.0));
         if (major) {
             painter.setFont(Style::capsFont(font(), Style::kFontCaption));
             painter.setPen(QColor(Style::kTextScale()));
-            const QPointF p = polar(center, deg, rx + 11.0, ry + 11.0);
+            // Outside the disc's rim; inside the panel's frame, where
+            // there is no outside.
+            const QPointF p = rimPoint(area, deg, m_fullBleed ? 18.0 : -11.0);
             painter.drawText(QRectF(p.x() - 14, p.y() - 6, 28, 12), Qt::AlignCenter, compassLabel(deg));
         }
     }
@@ -969,13 +1396,10 @@ void MapWidget::drawHorizonRim(QPainter& painter, const QRectF& area) const
     if (!hasHorizon()) {
         return;
     }
-    const QPointF center = area.center();
-    const double rx = area.width() / 2.0;
-    const double ry = area.height() / 2.0;
     QPainterPath inner;
     for (int deg = 0; deg <= 360; ++deg) {
         const double frac = horizonAngleAt(deg) / kStripMaxElevationDeg;
-        const QPointF p = polar(center, deg, rx - frac * kRimMaxThicknessPx, ry - frac * kRimMaxThicknessPx * ry / std::max(1.0, rx));
+        const QPointF p = rimPoint(area, deg, frac * kRimMaxThicknessPx);
         if (deg == 0) {
             inner.moveTo(p);
         } else {
@@ -983,7 +1407,11 @@ void MapWidget::drawHorizonRim(QPainter& painter, const QRectF& area) const
         }
     }
     QPainterPath rim;
-    rim.addEllipse(area);
+    if (m_fullBleed) {
+        rim.addRect(paintRect());
+    } else {
+        rim.addEllipse(area);
+    }
     painter.setPen(Qt::NoPen);
     painter.setBrush(withAlpha(Style::kAmberDim(), 110));
     painter.drawPath(rim.subtracted(inner));
@@ -1006,6 +1434,12 @@ QVector<MapWidget::Beam> MapWidget::beams() const
         main.color = QColor(Style::kAmberText());
         main.label = degrees(m_rotor1AzimuthDeg);
         main.labelPx = Style::kFontSmall;
+        if (!m_rotor1Live) {
+            // Kein Draht zum Rotor: die Richtung ist das, was der
+            // Steckplatz verfolgt, keine gemessene Peilung.
+            main.color.setAlpha(110);
+            main.lineStyle = Qt::DashLine;
+        }
         out.append(main);
         if (m_rotor1SecondEnabled) {
             Beam second = main;
@@ -1017,12 +1451,29 @@ QVector<MapWidget::Beam> MapWidget::beams() const
             out.append(second);
         }
     }
+    // Die feste Antenne: durchgezogen wie eine gemessene Richtung --
+    // sie IST gemessen, nur eben ein fuer alle Mal -- in einem Gruen,
+    // das weder mit Rotor 1 (Bernstein) noch mit Rotor 2 (Grau)
+    // verwechselt werden kann.
+    if (m_fixedAntennaPresent) {
+        Beam fest;
+        fest.azimuthDeg = wrap360(m_fixedAntennaAzimuthDeg);
+        fest.halfWidthDeg = m_fixedBeamwidthDeg / 2.0;
+        fest.color = QColor(Style::kGreenText());
+        fest.label = (m_fixedAntennaLabel.isEmpty() ? QString() : m_fixedAntennaLabel + QLatin1Char(' '))
+                     + degrees(m_fixedAntennaAzimuthDeg);
+        fest.labelPx = Style::kFontCaption;
+        out.append(fest);
+    }
     if (m_showRotor2Heading && m_rotor2Connected) {
         Beam main;
         main.azimuthDeg = wrap360(m_rotor2AzimuthDeg);
         main.halfWidthDeg = m_beamwidth2Deg / 2.0;
         main.color = QColor(Style::kTextSecondary());
         main.lineStyle = Qt::DashLine;
+        if (!m_rotor2Live) {
+            main.color.setAlpha(110);
+        }
         main.label = (m_rotor2Label.isEmpty() ? QString() : m_rotor2Label + QLatin1Char(' ')) + degrees(m_rotor2AzimuthDeg);
         main.labelPx = Style::kFontCaption;
         out.append(main);
@@ -1034,6 +1485,45 @@ QVector<MapWidget::Beam> MapWidget::beams() const
             out.append(second);
         }
     }
+
+    // ── Und jede davon strahlt nach hinten ───────────────────────────
+    //
+    // Betreiber am 2026-10-28, mit Bild: „der beam strahlt auf der
+    // rueckseite auch. dies wollte ich auch farblich, aber im anderen
+    // design markieren."
+    //
+    // Eine Yagi hat ein Rueckwaertsverhaeltnis, keine Wand: was hinten
+    // ankommt, ist schwaecher, aber da -- und im Contest erklaert
+    // genau das die Station, die man hoert, obwohl man woanders hin
+    // steht. Darum dieselbe Farbe wie vorne (man sieht, WESSEN
+    // Rueckseite es ist), aber blasser und gepunktet, und ohne
+    // Gradzahl: die Karte traegt schon genug Zahlen, und die
+    // Rueckrichtung liest man an der Lage ab.
+    //
+    // Am selben Schalter wie die Scheiben („Rueckrichtung zeigen"):
+    // es ist dieselbe Frage, nur an zwei Orten beantwortet.
+    if (m_rotorDialsBackward) {
+        const int vorne = out.size();
+        for (int i = 0; i < vorne; ++i) {
+            Beam hinten = out[i];
+            hinten.azimuthDeg = wrap360(hinten.azimuthDeg + 180.0);
+            hinten.lineStyle = Qt::DotLine;
+            hinten.label.clear();
+            hinten.rear = true;
+            out.append(hinten);
+        }
+    }
+    return out;
+}
+
+QVector<QPair<double, bool>> MapWidget::beamAzimuthsForTest() const
+{
+    QVector<QPair<double, bool>> out;
+    const QVector<Beam> keulen = beams();
+    out.reserve(keulen.size());
+    for (const Beam& b : keulen) {
+        out.append({b.azimuthDeg, b.rear});
+    }
     return out;
 }
 
@@ -1044,24 +1534,33 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
     const double rx = area.width() / 2.0;
     const double ry = area.height() / 2.0;
     if (!labelsOnly) {
+        // Swept degree by degree out to the rim -- the disc's ellipse
+        // or, in Vollfläche, the panel's edge, so the cone reaches the
+        // corners too.
         QPainterPath wedge;
         wedge.moveTo(center);
-        wedge.arcTo(area, 90.0 - (beam.azimuthDeg - beam.halfWidthDeg), -2.0 * beam.halfWidthDeg);
+        for (double d = -beam.halfWidthDeg; d < beam.halfWidthDeg; d += 1.0) {
+            wedge.lineTo(rimPoint(area, beam.azimuthDeg + d, 0.0));
+        }
+        wedge.lineTo(rimPoint(area, beam.azimuthDeg + beam.halfWidthDeg, 0.0));
         wedge.closeSubpath();
+        // Die Rueckseite: dieselbe Farbe, ein Drittel der Deckung.
+        // Sie soll zu sehen sein, nie mit der Hauptrichtung
+        // verwechselt werden und nichts verdecken, was darunter liegt.
         QColor inner = beam.color;
-        inner.setAlpha(60);
+        inner.setAlpha(beam.rear ? 22 : 60);
         QColor outer = beam.color;
         outer.setAlpha(0);
-        QRadialGradient grad(center, std::max(rx, ry));
+        QRadialGradient grad(center, std::max(rx, ry) * visibleRangeFactor());
         grad.setColorAt(0.0, inner);
         grad.setColorAt(1.0, outer);
         painter.setPen(Qt::NoPen);
         painter.setBrush(grad);
         painter.drawPath(wedge);
         QColor line = beam.color;
-        line.setAlpha(200);
-        painter.setPen(QPen(line, 1.2, beam.lineStyle));
-        painter.drawLine(center, polar(center, beam.azimuthDeg, rx, ry));
+        line.setAlpha(beam.rear ? 105 : 200);
+        painter.setPen(QPen(line, beam.rear ? 1.0 : 1.2, beam.lineStyle));
+        painter.drawLine(center, rimPoint(area, beam.azimuthDeg, 0.0));
         return;
     }
     if (beam.label.isEmpty()) {
@@ -1078,9 +1577,18 @@ void MapWidget::drawBeam(QPainter& painter, const QRectF& area, const Beam& beam
     // First outside the rim; a second antenna on the same heading goes
     // just inside it, a third further in still.
     for (int step = 0; step < 4; ++step) {
-        const double out = step == 0 ? 26.0 : -(18.0 + (step - 1) * (h + 4.0));
-        const QPointF tip = polar(center, beam.azimuthDeg, rx + out, ry + out);
+        // Vollfläche has no outside -- every step walks further in.
+        const double inset = m_fullBleed ? 20.0 + step * (h + 4.0)
+                                         : (step == 0 ? -26.0 : 18.0 + (step - 1) * (h + 4.0));
+        const QPointF tip = rimPoint(area, beam.azimuthDeg, inset);
         box = QRectF(tip.x() - w / 2.0, tip.y() - h / 2.0, w, h);
+        if (m_fullBleed) {
+            // Am Fensterrand sitzt die Spitze auf der Kante -- die
+            // halbe Beschriftung laege sonst drauszen.
+            const QRectF frame = paintRect();
+            box.moveLeft(std::min(std::max(box.left(), frame.left() + 2.0), std::max(frame.left() + 2.0, frame.right() - w - 2.0)));
+            box.moveTop(std::min(std::max(box.top(), frame.top() + 2.0), std::max(frame.top() + 2.0, frame.bottom() - h - 2.0)));
+        }
         bool clash = false;
         if (takenLabels) {
             for (const QRectF& other : *takenLabels) {
@@ -1123,10 +1631,32 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if ((pass == 0) != station.worked) {
                 continue;
             }
-            if (p.distanceKm > m_visibleRangeKm) {
+            // Spots ganz aus: dann steht nur noch das eigene Log da.
+            // Betreiber am 2026-10-24, nach sechs QSOs in CQ WW: „also
+            // ich sehe nur grosse blaue icons aber keine einzig
+            // markiertes log von mir."
+            if (!station.worked && !m_showSpots) {
+                continue;
+            }
+            // Und dasselbe fuer die eigenen QSOs. Betreiber am
+            // 2026-10-26: „die gespotteten soll man als option ein und
+            // ausblenden koennen, genau so wie die bereits erreichten
+            // qso im contest."
+            if (station.worked && !m_showWorked) {
+                continue;
+            }
+            if (p.distanceKm > m_visibleRangeKm * visibleRangeFactor()) {
                 continue;
             }
             QColor color = markerColor(station.worked);
+            if (m_bandColors) {
+                // Nur wo das Band wirklich bekannt ist. Eine erfundene
+                // Farbe waere schlimmer als die gewoehnliche.
+                const QColor band = bandColorForFrequency(station.freqHz);
+                if (band.isValid()) {
+                    color = band;
+                }
+            }
             const qint64 ageSecs = station.workedAtUtc.isValid() ? station.workedAtUtc.secsTo(now) : -1;
             if (m_showAging && station.worked && ageSecs >= 0) {
                 color = agedMarkerColor(color, ageSecs);
@@ -1134,16 +1664,63 @@ void MapWidget::drawStations(QPainter& painter, const QRectF& area) const
             if (station.worked) {
                 painter.setPen(Qt::NoPen);
                 painter.setBrush(color);
-                painter.drawEllipse(p.point, 3.0, 3.0);
+                // Nicht mehr kleiner, bloss weil der Ort geschaetzt
+                // ist: auf Kurzwelle ist er IMMER geschaetzt, und das
+                // eigene Log war damit der kleinste Punkt der ganzen
+                // Karte. Was geschaetzt ist, sagt der Hof -- wenn man
+                // ihn einschaltet.
+                // Entwurf 3 „Helligkeit statt Groesse", vom Betreiber
+                // am 2026-10-25 aus vier Blaettern gewaehlt:
+                // „gearbeitete stationen zu unsichtbar."
+                //
+                // Ein weicher Hof traegt den Punkt, der helle Kern
+                // sitzt darin. Das gibt Gewicht, ohne die Flaeche zu
+                // vergroessern -- auf 10 000 km draengen sich sonst
+                // zwanzig Punkte zu einem Fleck.
+                QColor hof = color;
+                hof.setAlpha(90);
+                painter.setBrush(hof);
+                painter.drawEllipse(p.point, 5.0, 5.0);
+                painter.setBrush(color.lighter(145));
+                painter.drawEllipse(p.point, 3.5, 3.5);
                 const bool fresh = ageSecs >= 0 && ageSecs < kFreshLabelMinutes * 60;
                 if (fresh) {
                     labels.place(painter, p.point, station.callsign, QColor(Style::kTextTertiary()));
                 }
             } else {
-                painter.setPen(QPen(color, 1.5));
+                // Ein Spot ist eine Nachricht von jemand anderem --
+                // er darf nicht groesser sein als das eigene QSO.
+                // Noch kleiner und zurueckhaltender: „spots in der
+                // grafik noch zu gross" (2026-10-25). Ein Spot ist
+                // eine fremde Meldung -- er soll zu finden sein, nicht
+                // ins Auge springen.
+                // Derselbe Ring wie bisher, nur halb so kraeftig:
+                // „spots in der grafik noch zu gross" (2026-10-25).
+                // Ein Spot ist eine fremde Meldung -- er soll zu
+                // finden sein, nicht ins Auge springen.
+                QColor spotFarbe = color;
+                spotFarbe.setAlpha(110);
+                painter.setPen(QPen(spotFarbe, 1.0));
                 painter.setBrush(Qt::NoBrush);
-                painter.drawEllipse(p.point, 4.0, 4.0);
-                labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+                painter.drawEllipse(p.point, 2.5, 2.5);
+                // Ein neuer Multiplikator bekommt einen zweiten Ring --
+                // er ist der Grund, warum man ueberhaupt hinsieht.
+                if (station.neededMultiplier) {
+                    painter.drawEllipse(p.point, 5.0, 5.0);
+                }
+                if (!m_labelsOnlyNeeded || station.neededMultiplier) {
+                    labels.place(painter, p.point, station.callsign, QColor(Style::kTextPrimary()));
+                }
+            }
+            // Nur der Mittelpunkt eines Landes, kein getauschter
+            // Locator: ein gepunkteter Hof sagt, dass die Station
+            // irgendwo dort drin sitzt und nicht genau da.
+            if (station.approximate && m_approxHalo) {
+                QColor halo = color;
+                halo.setAlpha(120);
+                painter.setPen(QPen(halo, 1.0, Qt::DotLine));
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(p.point, 6.0, 6.0);
             }
         }
     }
@@ -1168,20 +1745,63 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
 {
     const double x = column.left();
     double y = column.top() + 10.0;
+    // Beschnitten statt abgeschnitten: drawText() an einem Punkt kennt
+    // keine Breite, und was nicht in die Spalte passt, lief bisher
+    // darüber hinaus und wurde am Rand des Widgets mitten im Wort
+    // gekappt -- "BEAM · ROTOR 1 · 2M · GETRE". Zu sehen war das genau
+    // dann, wenn die Rotoren noch NICHT hängen: dann hängt an der
+    // Bezeichnung noch "· getrennt". Mit den Auslassungspunkten sieht
+    // man wenigstens, dass da mehr steht.
+    const auto gekuerzt = [&painter, &column](const QString& text) {
+        return QFontMetricsF(painter.font()).elidedText(text, Qt::ElideRight, column.width());
+    };
+    // Passt die volle Beschriftung nicht, fällt zuerst die
+    // Bandbezeichnung weg -- NICHT das Wort "getrennt". Das steht hier,
+    // weil der Rotor gerade nicht antwortet, und ist das Wichtigste an
+    // der ganzen Zeile; die Bandbezeichnung steht ohnehin auch im
+    // Rotorpanel. Auslassungspunkte erst, wenn auch die kurze Fassung
+    // zu lang ist.
+    const auto passendeBeschriftung = [&column, this](const QStringList& fassungen) {
+        const QFontMetricsF fm(Style::capsFont(font(), Style::kFontCaption));
+        for (const QString& fassung : fassungen) {
+            if (fm.horizontalAdvance(fassung.toUpper()) <= column.width()) {
+                return fassung;
+            }
+        }
+        return fassungen.last();
+    };
     const auto caption = [&](const QString& text) {
         painter.setFont(Style::capsFont(font(), Style::kFontCaption));
         painter.setPen(QColor(Style::kTextScale()));
-        painter.drawText(QPointF(x, y), text.toUpper());
+        painter.drawText(QPointF(x, y), gekuerzt(text.toUpper()));
     };
     const auto value = [&](const QString& text, const QColor& color, int px) {
         painter.setFont(Style::monoFont(font(), px, QFont::DemiBold));
         painter.setPen(color);
-        painter.drawText(QPointF(x, y + px + 4), text);
+        painter.drawText(QPointF(x, y + px + 4), gekuerzt(text));
         y += px + 26;
     };
 
-    // Beam: rotor 1's heading, its second antenna's after a dot.
-    caption(m_rotor1Label.isEmpty() ? QStringLiteral("Beam · Rotor 1") : QStringLiteral("Beam · Rotor 1 · %1").arg(m_rotor1Label));
+    // Beam: rotor 1's heading, its second antenna's after a dot. Ohne
+    // Verbindung steht "getrennt" in der KLEINEN Beschriftungszeile,
+    // nicht im großen Wert -- dort trüge es sonst dasselbe Gewicht wie
+    // die Peilung selbst.
+    //
+    // Stehen die Scheiben weiter unten, faellt dieser Block weg:
+    // Betreiber am 2026-10-26, mit Bild: „ich sehe gerade, dass rotor
+    // 1 und rotor 2 im fenster ersichtlich ist! vielleicht gibt es
+    // eine andere anordnung." Derselbe Winkel zweimal untereinander
+    // ist einmal zu viel; die Scheibe sagt es genauer.
+    if (!m_rotorDials) {
+    {
+        const QString band = m_rotor1Label.isEmpty() ? QString()
+                                                     : QStringLiteral(" · %1").arg(m_rotor1Label);
+        const QString zustand = (m_rotor1Connected && !m_rotor1Live) ? QStringLiteral(" · getrennt")
+                                                                     : QString();
+        caption(passendeBeschriftung({QStringLiteral("Beam · Rotor 1%1%2").arg(band, zustand),
+                                      QStringLiteral("Beam · Rotor 1%1").arg(zustand),
+                                      QStringLiteral("Rotor 1%1").arg(zustand)}));
+    }
     QString beamText = Style::unknownDash();
     if (m_rotor1Connected) {
         beamText = QStringLiteral("%1°").arg(wrap360(m_rotor1AzimuthDeg), 0, 'f', 0);
@@ -1189,15 +1809,22 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             beamText += QStringLiteral(" · %1°").arg(wrap360(m_rotor1AzimuthDeg + m_rotor1SecondOffsetDeg), 0, 'f', 0);
         }
     }
-    value(beamText, QColor(Style::kAmberText()), Style::kFontReading);
+    value(beamText, m_rotor1Live ? QColor(Style::kAmberText()) : QColor(Style::kTextInactive()),
+          Style::kFontReading);
     if (m_rotor2Connected && m_showRotor2Heading) {
-        caption(m_rotor2Label.isEmpty() ? QStringLiteral("Rotor 2") : QStringLiteral("Rotor 2 · %1").arg(m_rotor2Label));
+        const QString band2 = m_rotor2Label.isEmpty() ? QString()
+                                                       : QStringLiteral(" · %1").arg(m_rotor2Label);
+        const QString zustand2 = m_rotor2Live ? QString() : QStringLiteral(" · getrennt");
+        caption(passendeBeschriftung({QStringLiteral("Rotor 2%1%2").arg(band2, zustand2),
+                                      QStringLiteral("Rotor 2%1").arg(zustand2)}));
         QString text = QStringLiteral("%1°").arg(wrap360(m_rotor2AzimuthDeg), 0, 'f', 0);
         if (m_rotor2SecondEnabled) {
             text += QStringLiteral(" · %1°").arg(wrap360(m_rotor2AzimuthDeg + m_rotor2SecondOffsetDeg), 0, 'f', 0);
         }
-        value(text, QColor(Style::kTextSecondary()), Style::kFontBody);
+        value(text, m_rotor2Live ? QColor(Style::kTextSecondary()) : QColor(Style::kTextInactive()),
+              Style::kFontBody);
     }
+    } // if (!m_rotorDials) -- siehe oben
 
     // Open stations inside any of rotor 1's cones -- blue, because a
     // click on it works them: each click hands the next one (farthest
@@ -1247,34 +1874,267 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
     caption(QStringLiteral("ODX"));
     value(odx.isEmpty() ? Style::unknownDash() : odx, QColor(Style::kTextPrimary()), Style::kFontBody);
 
-    drawLegend(painter, QPointF(x, column.bottom() - 4.0));
+    // Wer die Graulinie eingeschaltet hat, will auch wissen, wann sie
+    // über den eigenen Standort läuft -- sonst steht sie nur im Bild.
+    if (m_layers.greyline && isValidGridSquare(m_ownGrid)) {
+        double homeLat = 0.0;
+        double homeLon = 0.0;
+        calculateLatLonFromGridSquare(m_ownGrid, homeLat, homeLon);
+        const SunTimes sun = sunTimes(QDateTime::currentDateTimeUtc(), homeLat, homeLon);
+        QString sunText = Style::unknownDash();
+        switch (sun.kind) {
+        case SunTimes::Kind::AlwaysUp:
+            sunText = QStringLiteral("geht nicht unter");
+            break;
+        case SunTimes::Kind::AlwaysDown:
+            sunText = QStringLiteral("geht nicht auf");
+            break;
+        case SunTimes::Kind::RiseAndSet:
+            sunText = QStringLiteral("%1–%2Z")
+                          .arg(sun.riseUtc.toString(QStringLiteral("HH:mm")),
+                               sun.setUtc.toString(QStringLiteral("HH:mm")));
+            break;
+        }
+        caption(QStringLiteral("Sonne hier"));
+        value(sunText, QColor(Style::kTextSecondary()), Style::kFontBody);
+    }
+
+    // ── Die Rotorscheiben, unter „Sonne hier" ───────────────────────
+    //
+    // Betreiber am 2026-10-25: „man sollte als option die beiden
+    // rotoren unterhalb der sonne hier im fenster ein/ausblenden
+    // koennen, dann kann man auf wunsch ein fenster sparen. aber dort
+    // sollte man auch den rotor drehen koennen."
+    //
+    // Entwurf A: je eine kleine Scheibe, live, mit Keule wie im
+    // Rotorfenster, und auf Wunsch der Rueckrichtung. Ein Klick in
+    // die Scheibe dreht dorthin (mousePressEvent).
+    m_rotorDialRect[0] = QRectF();
+    m_rotorDialRect[1] = QRectF();
+    m_rotorBlockBottom = 0.0;
+    if (m_rotorDials) {
+        // Die Legende steht FEST am unteren Rand der Spalte
+        // (drawLegend, column.bottom()) und weicht keiner Scheibe aus.
+        // Die alte Schranke liess ihr pauschal 24 Punkte -- sie braucht
+        // aber zwei oder drei Zeilen zu je 16, je nachdem ob „Berge
+        // verdecken" dabei ist, und die Zeile „zurück N°" unter der
+        // Scheibe stand gar nicht in der Rechnung. Betreiber am
+        // 2026-10-28, mit Bild: „zurück 180°" und „GEARBEITET" standen
+        // uebereinander.
+        const double legendeHoehe =
+            ((hasHorizon() && m_showHorizon) ? 3.0 : 2.0) * 16.0 + 6.0;
+        // Was eine Scheibe ausser ihrem Kreis braucht: die Zeile
+        // „ROTOR n", der Abstand darunter, auf Wunsch „zurück N°", und
+        // die Luft zur naechsten.
+        const double drumherum = 16.0 + 4.0 + (m_rotorDialsBackward ? 16.0 : 0.0) + 8.0;
+
+        int wieviele = 0;
+        for (int i = 0; i < 2; ++i) {
+            const bool verbunden = (i == 0) ? m_rotor1Connected : m_rotor2Connected;
+            const bool gezeigt   = (i == 0) ? m_showRotor1Heading : m_showRotor2Heading;
+            if (verbunden && gezeigt) { ++wieviele; }
+        }
+
+        // Lieber zwei kleinere Scheiben als eine grosse und eine
+        // fehlende: der Durchmesser richtet sich nach dem Platz, der
+        // fuer ALLE anstehenden bleibt. Erst unterhalb von 72 Punkten
+        // -- da wird die Skala unleserlich -- faellt die zweite weg,
+        // und das besorgt dann die Schranke in der Schleife.
+        const double platz = column.bottom() - legendeHoehe - y;
+        double durchmesser = qMin(column.width() - 16.0, 150.0);
+        if (wieviele > 1) {
+            const double proScheibe = platz / double(wieviele) - drumherum;
+            if (proScheibe >= 72.0) {
+                durchmesser = qMin(durchmesser, proScheibe);
+            }
+        }
+        const double radius = durchmesser / 2.0;
+        for (int i = 0; i < 2; ++i) {
+            const bool verbunden = (i == 0) ? m_rotor1Connected : m_rotor2Connected;
+            const bool gezeigt   = (i == 0) ? m_showRotor1Heading : m_showRotor2Heading;
+            if (!verbunden || !gezeigt) { continue; }
+            if (y + durchmesser + drumherum > column.bottom() - legendeHoehe) { break; } // kein Platz mehr
+            const double az = wrap360((i == 0) ? m_rotor1AzimuthDeg : m_rotor2AzimuthDeg);
+            const bool live = (i == 0) ? m_rotor1Live : m_rotor2Live;
+            // Betreiber am 2026-10-28: „Die Farbe geht ab, leider nur
+            // grau." Der Zustand (gemessen oder nur verfolgt) bleibt
+            // ablesbar -- aber als HELLIGKEIT im selben Bernstein, nicht
+            // als Farbwechsel nach Grau. Ein Rotor ohne Draht ist kein
+            // anderes Instrument, er ist dasselbe, blasser.
+            const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kAmberDim());
+
+            painter.setFont(Style::capsFont(font(), Style::kFontCaption));
+            painter.setPen(QColor(Style::kTextTertiary()));
+            painter.drawText(QPointF(x, y + 9.0), QStringLiteral("ROTOR %1").arg(i + 1));
+            y += 16.0;
+
+            const QPointF mitte(x + radius + 4.0, y + radius);
+            m_rotorDialRect[i] = QRectF(mitte.x() - radius, mitte.y() - radius, durchmesser, durchmesser);
+
+            // ── Entwurf A ────────────────────────────────────────
+            //
+            // Betreiber am 2026-10-28, mit Bild: „rechts die rotoren
+            // sind noch zu verbessern, man sieht nur einen kreis." Er
+            // hatte recht: die Flaeche der Scheibe war dieselbe wie die
+            // der Spalte, und die Teilstriche standen in kBorderSubtle
+            // (#1f1f23) auf kPanelBg (#0c0c0e) -- rechnerisch ein
+            // Unterschied, auf dem Schirm keiner. Blieb der blosse Ring.
+            //
+            // Aus fuenf Blaettern hat er A gewaehlt: eigene, dunklere
+            // Flaeche, damit der Kreis ueberhaupt eine Scheibe ist;
+            // Striche alle 10 Grad, laenger und heller bei 30 und 90;
+            // N O S W innen am Rand; die Gradzahl unten statt in der
+            // Mitte, wo sie bisher ueber der Nadel lag.
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(Style::kInsetBg()));
+            painter.drawEllipse(mitte, radius, radius);
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(QColor(Style::kAmberBorder()), 1.0));
+            painter.drawEllipse(mitte, radius, radius);
+            for (int g = 0; g < 360; g += 10) {
+                const double a = qDegreesToRadians(double(g) - 90.0);
+                const bool viertel = (g % 90 == 0);
+                const bool drittel = (g % 30 == 0);
+                const double lang  = viertel ? 8.0 : (drittel ? 6.0 : 3.0);
+                // Die Skala traegt dieselbe Farbe wie alles andere am
+                // Instrument, gestuft nach Gewicht: 90 Grad am
+                // hellsten, 10 Grad nur angedeutet.
+                painter.setPen(QPen(QColor(viertel ? Style::kAmberWarn()
+                                           : (drittel ? Style::kAmberBorder() : Style::kBorderSubtle())),
+                                    viertel ? 1.5 : 1.0));
+                const double innen = radius - lang;
+                painter.drawLine(QPointF(mitte.x() + innen * std::cos(a), mitte.y() + innen * std::sin(a)),
+                                 QPointF(mitte.x() + radius * std::cos(a), mitte.y() + radius * std::sin(a)));
+            }
+            // Die Keule, in derselben Breite wie in der Karte.
+            const double halb = ((i == 0) ? m_beamwidth1Deg : m_beamwidth2Deg) / 2.0;
+            const double a0 = qDegreesToRadians(az - 90.0);
+            QPainterPath keule;
+            keule.moveTo(mitte);
+            keule.arcTo(QRectF(mitte.x() - radius + 3.0, mitte.y() - radius + 3.0,
+                               durchmesser - 6.0, durchmesser - 6.0),
+                        90.0 - az - halb, 2.0 * halb);
+            keule.closeSubpath();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(withAlpha(Style::kAmberDim(), live ? 110 : 55));
+            painter.drawPath(keule);
+
+            // N O S W, innen am Rand: ohne sie liest man die Richtung
+            // nur aus der Gradzahl, und die Scheibe waere Zierde.
+            painter.setFont(Style::capsFont(font(), Style::kFontSmall));
+            painter.setPen(QColor(Style::kAmberWarn()));
+            {
+                const double rText = radius - 17.0;
+                const QFontMetricsF fm(painter.font());
+                const struct { int grad; const char* zeichen; } rose[] = {
+                    {0, "N"}, {90, "O"}, {180, "S"}, {270, "W"}};
+                for (const auto& punkt : rose) {
+                    const double a = qDegreesToRadians(double(punkt.grad) - 90.0);
+                    const QPointF p(mitte.x() + rText * std::cos(a), mitte.y() + rText * std::sin(a));
+                    const QString t = QString::fromLatin1(punkt.zeichen);
+                    painter.drawText(QRectF(p.x() - 9.0, p.y() - fm.height() / 2.0, 18.0, fm.height()),
+                                     Qt::AlignCenter, t);
+                }
+            }
+
+            painter.setPen(QPen(nadel, 3.0));
+            painter.drawLine(mitte, QPointF(mitte.x() + (radius - 6.0) * std::cos(a0),
+                                            mitte.y() + (radius - 6.0) * std::sin(a0)));
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(nadel);
+            painter.drawEllipse(mitte, 3.0, 3.0);
+            if (m_rotorDialsBackward) {
+                painter.setPen(QPen(withAlpha(Style::kAmberDim(), 160), 1.0, Qt::DotLine));
+                const double ab = a0 + M_PI;
+                painter.drawLine(mitte, QPointF(mitte.x() + (radius - 5.0) * std::cos(ab),
+                                                mitte.y() + (radius - 5.0) * std::sin(ab)));
+            }
+            // Der Grad steht IN der Scheibe. Entwurf D, vom Betreiber
+            // am 2026-10-26 aus drei Blaettern gewaehlt: „vielleicht
+            // lassen sich auch die grad digital anzeigen. vielleicht
+            // im rotor innerhalb. sollte mit der groesse mitwachsen."
+            //
+            // Seit Entwurf A (2026-10-28) steht sie UNTEN in der
+            // Scheibe und kleiner (Radius mal 0,22 statt 0,46): in der
+            // Mitte nahm sie mit der Nabe denselben Platz ein, und was
+            // die Scheibe zeigen soll -- Richtung, Keule, Skala --
+            // beginnt genau dort. Die Schrift haengt weiter am Radius,
+            // waechst also mit der Spalte mit; das Feld darunter
+            // traegt die Farbe der Flaeche, damit die Skala nicht
+            // durch die Ziffern laeuft.
+            const QString gradText = QStringLiteral("%1°").arg(az, 0, 'f', 0);
+            QFont zahlFont = Style::monoFont(font(), Style::kFontReading);
+            zahlFont.setPointSizeF(qMax(10.0, radius * 0.22));
+            zahlFont.setBold(true);
+            painter.setFont(zahlFont);
+            // moveCenter, nicht translate: boundingRect() beginnt am
+            // Ursprung, ein translate(mitte) legt den Kasten also
+            // RECHTS neben die Mitte. Das fiel erst auf, als die Zahl
+            // nach unten wanderte und dort ueber den Rand ragte.
+            QRectF zahlKasten = QFontMetricsF(zahlFont)
+                                    .boundingRect(gradText)
+                                    .adjusted(-5.0, -1.0, 5.0, 1.0);
+            zahlKasten.moveCenter(QPointF(mitte.x(), mitte.y() + radius * 0.45));
+            painter.setPen(Qt::NoPen);
+            // kInsetBg, nicht kPanelBg: der Kasten liegt AUF der
+            // Scheibe, und die ist seit Entwurf A dunkler als die
+            // Spalte. In der Farbe der Spalte sass dort ein heller
+            // Block (so gesehen am 2026-10-28). Jetzt verschwindet er
+            // im Grund und laesst nur die Ziffern stehen.
+            painter.setBrush(QColor(Style::kInsetBg()));
+            painter.drawRoundedRect(zahlKasten, 3.0, 3.0);
+            painter.setPen(nadel);
+            painter.drawText(zahlKasten, Qt::AlignCenter, gradText);
+            y += durchmesser + 4.0;
+
+            if (m_rotorDialsBackward) {
+                painter.setFont(Style::monoFont(font(), Style::kFontCaption));
+                painter.setPen(QColor(Style::kTextTertiary()));
+                painter.drawText(QPointF(x, y + 11.0),
+                                 QStringLiteral("zurück %1°").arg(wrap360(az + 180.0), 0, 'f', 0));
+                y += 16.0;
+            }
+            y += 8.0;
+            m_rotorBlockBottom = y;
+        }
+    }
+
+    drawLegend(painter, QPointF(x, column.bottom() - 4.0), column.width());
 }
 
-void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft) const
+void MapWidget::drawLegend(QPainter& painter, const QPointF& bottomLeft, double width) const
 {
     painter.setFont(Style::capsFont(font(), Style::kFontCaption));
     const QColor text{Style::kTextTertiary()};
     double y = bottomLeft.y();
+    // Oberkante der obersten Zeile, die gleich gezeichnet wird --
+    // drawNumbersColumn muss darueber bleiben, siehe die Schranke dort.
+    m_legendTop = y - ((hasHorizon() && m_showHorizon) ? 3.0 : 2.0) * 16.0;
     const double x = bottomLeft.x();
+    // Die Zeile beginnt 14 Bildpunkte rechts vom Zeichen; so viel
+    // weniger Platz hat ihre Schrift. Siehe drawNumbersColumn().
+    const auto gekuerzt = [&painter, width](const QString& t) {
+        return QFontMetricsF(painter.font()).elidedText(t, Qt::ElideRight, qMax(0.0, width - 14.0));
+    };
     if (hasHorizon() && m_showHorizon) {
         painter.setPen(Qt::NoPen);
         painter.setBrush(withAlpha(Style::kAmberDim(), 160));
         painter.drawRect(QRectF(x, y - 9.0, 9.0, 8.0));
         painter.setPen(text);
-        painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("BERGE VERDECKEN"));
+        painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("BERGE VERDECKEN")));
         y -= 16.0;
     }
     painter.setPen(QPen(markerColor(false), 1.5));
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(QPointF(x + 4.0, y - 5.0), 4.0, 4.0);
     painter.setPen(text);
-    painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("GESPOTTET · OFFEN"));
+    painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("GESPOTTET · OFFEN")));
     y -= 16.0;
     painter.setPen(Qt::NoPen);
     painter.setBrush(markerColor(true));
     painter.drawEllipse(QPointF(x + 4.0, y - 5.0), 3.0, 3.0);
     painter.setPen(text);
-    painter.drawText(QPointF(x + 14.0, y - 1.0), QStringLiteral("GEARBEITET"));
+    painter.drawText(QPointF(x + 14.0, y - 1.0), gekuerzt(QStringLiteral("GEARBEITET")));
 }
 
 void MapWidget::paintEvent(QPaintEvent* /*event*/)
@@ -1294,14 +2154,22 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
         return;
     }
 
-    // The scope/map disc, everything geographic clipped to it.
+    // The scope/map disc, everything geographic clipped to it -- or,
+    // in Vollfläche, to the panel's own frame.
     drawScopeFace(painter, area);
     painter.save();
     QPainterPath clip;
-    clip.addEllipse(area);
+    if (m_fullBleed) {
+        clip.addRect(paintRect());
+    } else {
+        clip.addEllipse(area);
+    }
     painter.setClipPath(clip, Qt::IntersectClip);
     if (m_layers.borders) {
         drawBordersLayer(painter, area);
+    }
+    if (m_layers.greyline) {
+        drawGreylineLayer(painter, area);
     }
     if (m_layers.grid) {
         drawGridLayer(painter, area);
@@ -1321,7 +2189,7 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     painter.restore();
     if (m_showSpokes) {
         drawSpokesLayer(painter, area);
-    } else {
+    } else if (!m_fullBleed) {
         painter.setPen(QPen(QColor(Style::kBorder()), 1.0));
         painter.setBrush(Qt::NoBrush);
         painter.drawEllipse(area);
@@ -1329,7 +2197,7 @@ void MapWidget::paintEvent(QPaintEvent* /*event*/)
     // Beam labels: outside the rim (or just inside it when headings
     // coincide), on top of everything, clipped to the canvas only.
     painter.save();
-    painter.setClipRect(canvasRect(), Qt::IntersectClip);
+    painter.setClipRect(m_fullBleed ? paintRect() : canvasRect(), Qt::IntersectClip);
     QVector<QRectF> beamLabels;
     for (const Beam& beam : beams()) {
         drawBeam(painter, area, beam, true, &beamLabels);
@@ -1400,10 +2268,24 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         if (!open.isEmpty()) {
             const Station* next = open.at(m_openInBeamCursor % open.size());
             m_openInBeamCursor = (m_openInBeamCursor + 1) % open.size();
-            emit candidateActivated(next->callsign, next->grid, next->freqHz);
+            emit candidateActivated(next->callsign, next->grid, next->freqHz, next->approximate);
         }
         return;
     }
+    // Klick in eine der Rotorscheiben: dreh dorthin. Der Winkel ist
+    // der, auf den geklickt wurde -- wie im Rotorfenster, wo ein Klick
+    // auf den Scheibenrand dasselbe tut.
+    for (int i = 0; i < 2; ++i) {
+        if (m_rotorDialRect[i].isEmpty() || !m_rotorDialRect[i].contains(clickPos)) { continue; }
+        const QPointF mitte = m_rotorDialRect[i].center();
+        const double dx = clickPos.x() - mitte.x();
+        const double dy = clickPos.y() - mitte.y();
+        if (std::hypot(dx, dy) < 6.0) { return; } // die Mitte ist kein Ziel
+        const double grad = wrap360(qRadiansToDegrees(std::atan2(dy, dx)) + 90.0);
+        emit rotorRotateRequested(i + 1, grad);
+        return;
+    }
+
     const Station* hit = nullptr;
     double bestDistSq = kStationClickTolerancePx * kStationClickTolerancePx;
     const QRectF area = scopeRect();
@@ -1417,7 +2299,7 @@ void MapWidget::mousePressEvent(QMouseEvent* event)
         }
     }
     if (hit) {
-        emit candidateActivated(hit->callsign, hit->grid, hit->freqHz);
+        emit candidateActivated(hit->callsign, hit->grid, hit->freqHz, hit->approximate);
         return;
     }
     QWidget::mousePressEvent(event);

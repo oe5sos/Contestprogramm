@@ -16,15 +16,20 @@ namespace {
 // the rest of the dockable canvas.
 QString readoutSpan(const QString& label, const QString& value)
 {
+    // Die Familienliste aus StyleKit, nicht "Menlo": das gibt es nur auf
+    // dem Mac. Auf Windows und Linux fiel genau dieser eine Wert aus der
+    // Monoschrift heraus, waehrend alles andere laengst ueber
+    // Style::monoFont() mit Rueckfallkette laeuft.
     return QStringLiteral(
                "<span style='color:%1; font-size:%2px;'>%3</span>"
-               "&nbsp;<span style='font-family:Menlo; font-size:%4px; color:%5;'>%6</span>")
+               "&nbsp;<span style='font-family:%7; font-size:%4px; color:%5;'>%6</span>")
         .arg(Style::kTextScale())
         .arg(Style::kFontCaption)
         .arg(label.toUpper())
         .arg(Style::kFontSub)
         .arg(Style::kTextPrimary())
-        .arg(value);
+        .arg(value)
+        .arg(Style::monoFontFamilyCss());
 }
 } // namespace
 

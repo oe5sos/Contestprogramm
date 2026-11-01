@@ -111,6 +111,28 @@ signals:
 
 public:
     PanelContainerWidget* panel(const QString& id) const;
+    /// Die Kennungen aller angemeldeten Panels, in Anmeldereihenfolge
+    /// unerheblich (QMap: alphabetisch). Fuer Prueflaeufe, die gegen
+    /// die WIRKLICH vorhandenen Panels pruefen wollen statt gegen eine
+    /// von Hand gefuehrte Liste -- siehe
+    /// tests/test_jedes_panel_ausblendbar.cpp.
+    QStringList panelIds() const { return m_panels.keys(); }
+    /// Der Vorgabeplatz eines Panels im grossen Entwurf -- der Wert aus
+    /// registerPanel(), unberuehrt davon, wohin der Bediener das Panel
+    /// seither gezogen hat. Fuer tests/test_vorgabe_ueberlappt_nicht.cpp,
+    /// das den ENTWURF prueft und nicht den gerade sichtbaren Stand.
+    QRect defaultGeometryFor(const QString& id) const
+    {
+        const auto it = m_panels.constFind(id);
+        return it == m_panels.constEnd() ? QRect() : it.value().defaultGeometry;
+    }
+    /// Der Platz im kleinen Entwurf (1372x692). Ungueltig, wenn das
+    /// Panel dort gar nicht vorkommt -- dann wird es ausgeblendet.
+    QRect compactGeometryFor(const QString& id) const
+    {
+        const auto it = m_panels.constFind(id);
+        return it == m_panels.constEnd() ? QRect() : it.value().compactGeometry;
+    }
 
     // Call once, after every registerPanel() call for this session has
     // been made (MainWindow's constructor does this at the very end of
@@ -152,6 +174,25 @@ public:
     // a profile made on a bigger screen was applied.
     void clampPanelsToCanvas();
 
+    // Eine Lage NUR fuer die Anzeige setzen: das Panel geht dorthin,
+    // aber seine gewollte Lage (PanelEntry::desiredGeometry) bleibt
+    // unberuehrt, sodass eine spaeter wieder groessere Flaeche es
+    // zurueckholt. Genau das braucht MainWindow::
+    // reflowRotorRowForCanvasWidth(), das die Rotorzeile in einem
+    // schmalen Fenster mittig stellt (Martins Wunsch vom 2026-09-14):
+    // ueber ein blankes trySetGeometry() galt diese Mitte anschliessend
+    // als der Wunsch des Bedieners, und das breite Fenster holte das
+    // Panel nie an seinen Platz zurueck (Martin, 2026-09-28: "das
+    // layout ist auch wieder anders geworden").
+    bool applyTransientGeometry(PanelContainerWidget* container, const QRect& rect);
+
+    // Ein Panel als eigenes Fenster ablösen oder wieder andocken --
+    // siehe PanelContainerWidget::setFloating(). Der Zustand wird
+    // gemerkt: ein abgelöstes Panel ist beim nächsten Start wieder
+    // abgelöst, an derselben Stelle auf dem Schirm.
+    void setPanelFloating(const QString& id, bool floating);
+    bool isPanelFloating(const QString& id) const;
+
 protected:
     // Watches canvas() for QEvent::Resize -- see clampPanelsToCanvas()'s
     // own comment for why the clamp has to live here rather than in
@@ -163,11 +204,23 @@ private:
         PanelContainerWidget* container = nullptr;
         QRect defaultGeometry;
         QRect compactGeometry; // null: not part of the compact design
+        // Wo das Panel HIN SOLL -- vom Bediener gezogen, aus der
+        // Datenbank geholt oder von einem Entwurf gesetzt. Der Klemmer
+        // rechnet ab dieser Lage, nicht ab der gerade sichtbaren:
+        // sonst nimmt eine vorübergehend kleinere Fläche (beim Start
+        // geht das Fenster durch Zwischengrößen) das Panel dauerhaft
+        // mit nach links oben, und die volle Fläche holt es nie zurück.
+        // Martin, 2026-09-28: "das layout ist auch wieder anders
+        // geworden" -- das Rotor-Panel stand links statt rechts.
+        QRect desiredGeometry;
     };
 
     void loadLayoutForPanel(const QString& id, PanelContainerWidget* container, const QRect& defaultGeometry);
     void bumpZOrder(const QString& id);
     void clampPanelToCanvas(PanelContainerWidget* container);
+    // Die gewollte Lage eines Panels -- siehe
+    // PanelEntry::desiredGeometry.
+    QRect desiredGeometryFor(PanelContainerWidget* container) const;
     // False while the canvas still has Qt's pre-layout placeholder size.
     bool canvasHasRealSize() const;
     // clampPanelsToCanvas() re-clamps every registered, unlocked panel
@@ -197,6 +250,10 @@ private:
     bool m_initialDesignApplied = false;
     QTimer* m_designSettleTimer = nullptr;
     QMap<QString, PanelEntry> m_panels;
+    // Wahr, solange clampPanelToCanvas() gerade eine Lage setzt: dessen
+    // eigene Verschiebung darf die gewollte Lage nicht überschreiben,
+    // sonst wäre das Gedächtnis nach dem ersten Klemmen wertlos.
+    bool m_clampingNow = false;
     QStringList m_zOrder; // bottom to top; persisted as the id list itself, mirrors ContainerIdList.
 };
 

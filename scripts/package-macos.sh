@@ -13,8 +13,8 @@
 #   3. Die Icon-Quellen (resources/mac, resources/branding) haben im
 #      Bundle nichts verloren; ein .iconset-Ordner unter Contents/MacOS
 #      lässt codesign sogar scheitern.
-#   4. Ad-hoc-Signatur (ohne Developer ID): läuft auf Apple Silicon, beim
-#      ersten Start Rechtsklick › Öffnen.
+#   4. Ad-hoc-Signatur (ohne Developer ID): nötig auf Apple Silicon,
+#      harmlos auf Intel; beim ersten Start Rechtsklick › Öffnen.
 #   5. DMG mit Applications-Verknüpfung, SHA256 daneben.
 set -euo pipefail
 setopt null_glob   # ein Bundle aus aqt-Qt hat keine losen .dylib -- leere Globs sind dann kein Fehler
@@ -24,9 +24,34 @@ MACDEPLOYQT=${3:-/opt/homebrew/opt/qt/bin/macdeployqt}
 APP="$BUILD_DIR/Contestprogramm.app"
 [[ -d "$APP" ]] || { echo "kein $APP"; exit 1; }
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
-ARCH=$(uname -m); [[ "$ARCH" == "arm64" ]] && ARCH_LABEL=apple-silicon || ARCH_LABEL=intel
+# Das Label kommt aus der GEBAUTEN Datei, nicht aus `uname -m`: das
+# Intel-Paket entsteht als Cross-Compile auf einem arm64-Runner (GitHub
+# hat für macOS keine Intel-Maschinen mehr), dort sagt `uname -m` arm64
+# -- das DMG hieß dann "-apple-silicon", obwohl x86_64 darin steckt,
+# und auf Intel-Rechnern fand der Updater die von ihm gesuchte Datei
+# "-macOS-intel.dmg" nie (SelfUpdater.cpp:75).
+BIN_ARCHS=$(lipo -archs "$APP/Contents/MacOS/Contestprogramm")
+case " $BIN_ARCHS " in
+    *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ARCH_LABEL=universal ;;
+    *" arm64 "*)  ARCH_LABEL=apple-silicon ;;
+    *" x86_64 "*) ARCH_LABEL=intel ;;
+    *) echo "unerwartete Architektur: $BIN_ARCHS"; exit 1 ;;
+esac
 
 "$MACDEPLOYQT" "$APP" -verbose=0 2>/dev/null || true   # die rpath-Fehler betreffen genau die Teile, die gleich entfernt werden
+
+# Qts deutsche Knopfbeschriftungen ins Bundle (app/AppLanguage.h sucht
+# hier). macdeployqt bringt keine Übersetzungen mit; ohne die Datei
+# stünde im fertigen Programm "Save"/"Cancel". Homebrew legt sie unter
+# share/qt/translations ab, ein aqt-Qt direkt unter translations.
+QT_BIN_DIR=${MACDEPLOYQT:h}
+for qm in "$QT_BIN_DIR/../share/qt/translations/qtbase_de.qm" "$QT_BIN_DIR/../translations/qtbase_de.qm"; do
+    if [[ -f "$qm" ]]; then
+        mkdir -p "$APP/Contents/Resources/translations"
+        cp "$qm" "$APP/Contents/Resources/translations/"
+        break
+    fi
+done
 
 FW="$APP/Contents/Frameworks"; PL="$APP/Contents/PlugIns"
 for f in QtQml QtQmlMeta QtQmlModels QtQmlWorkerScript QtQuick QtOpenGL QtVirtualKeyboard QtVirtualKeyboardQml QtSvg QtPdf; do
@@ -70,6 +95,43 @@ for fwdir in "$FW"/*.framework; do
     install_name_tool -id "@executable_path/../Frameworks/$name.framework/Versions/A/$name" "$fwdir/Versions/A/$name" 2>/dev/null || true
 done
 
+# Jeden @rpath-Verweis INNERHALB des Bundles auf einen festen Pfad
+# umschreiben, und den Bau-rpath entfernen. Gefunden 2026-09-28: das
+# ausgelieferte Programm trug als einzigen rpath /opt/homebrew/opt/qt/lib
+# -- den Pfad der Bau-Maschine. libbrotlidec sucht ihre Partnerbibliothek
+# über @rpath, und die liegt zwar IM Bundle, wurde dort aber nie gesucht.
+# Auf dem Rechner des Entwicklers fällt das nicht auf (dort gibt es
+# Homebrew), auf dem eines Empfängers schon. Die Schleifen oben setzen
+# nur die IDs der Bibliotheken, nicht die Verweise untereinander.
+fix_rpath_refs() {
+    local bin="$1"
+    otool -L "$bin" 2>/dev/null | awk '/@rpath\//{print $1}' | while read -r ref; do
+        install_name_tool -change "$ref" "@executable_path/../Frameworks/${ref#@rpath/}" "$bin" 2>/dev/null || true
+    done
+}
+for lib in "$FW"/*.dylib; do
+    fix_rpath_refs "$lib"
+done
+for fwdir in "$FW"/*.framework; do
+    name=$(basename "$fwdir" .framework)
+    fix_rpath_refs "$fwdir/Versions/A/$name"
+done
+for plug in $(find "$APP/Contents/PlugIns" -name '*.dylib' 2>/dev/null); do
+    fix_rpath_refs "$plug"
+done
+fix_rpath_refs "$APP/Contents/MacOS/Contestprogramm"
+
+# Und die rpaths selbst: alles, was auf die Bau-Maschine zeigt, raus --
+# an seine Stelle der Ordner im Bundle, damit ein @rpath, den ein
+# künftiges Qt neu einführt, auch dort landet und nicht im Nichts.
+otool -l "$APP/Contents/MacOS/Contestprogramm" \
+    | awk '/LC_RPATH/{f=1} f&&/path /{print $2; f=0}' \
+    | while read -r rp; do
+        [ "$rp" = "@executable_path/../Frameworks" ] && continue
+        install_name_tool -delete_rpath "$rp" "$APP/Contents/MacOS/Contestprogramm" 2>/dev/null || true
+    done
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/Contestprogramm" 2>/dev/null || true
+
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
@@ -79,7 +141,23 @@ cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 DMG="$OUT_DIR/Contestprogramm-$VERSION-macOS-$ARCH_LABEL.dmg"
 rm -f "$DMG"
-hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
+# Mehrere Anläufe: "hdiutil: create failed - Resource busy" ist auf den
+# macOS-Läufern der CI ein bekannter Aussetzer -- irgendein anderer
+# Prozess (Spotlight, ein voriger diskimages-helper) hält den Ordner
+# gerade fest. Erlebt am 2026-09-28, Lauf 36402539443: Bau und alle
+# Prüfstände grün, nur das Abbild scheiterte. Ohne Wiederholung fällt
+# damit irgendwann ein Release-Lauf aus, an dem sonst nichts falsch ist.
+dmg_versuch=1
+until hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null 2>&1; do
+    if [ "$dmg_versuch" -ge 3 ]; then
+        echo "hdiutil hat dreimal nicht gewollt -- hier die letzte Meldung:" >&2
+        hdiutil create -volname "Contestprogramm $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >&2
+        exit 1
+    fi
+    echo "hdiutil war belegt, Versuch $dmg_versuch -- in 5 s noch einmal" >&2
+    dmg_versuch=$((dmg_versuch + 1))
+    sleep 5
+done
 rm -rf "$STAGE"
 (cd "$OUT_DIR" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
 echo "fertig: $DMG ($(du -h "$DMG" | cut -f1))"

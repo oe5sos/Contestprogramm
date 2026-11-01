@@ -121,6 +121,13 @@ public:
     void connectToRig();
     void disconnectFromRig();
     void setFrequency(qint64 hz);
+    // Die Betriebsart am Gerät setzen ("USB"/"LSB"/"CW"/"FM"/"RTTY" --
+    // Hamlibs eigene Namen, siehe parseMode()). Ohne sie könnte der
+    // Bediener die Betriebsart nur am Gerät wechseln: eine Wahl im
+    // Fenster wäre beim nächsten Abfragetakt wieder überschrieben.
+    // Durchlass 0 heißt "nimm die Vorgabe des Geräts" -- die Bandbreite
+    // gehört ans Gerät, nicht in ein Contestlog.
+    void setMode(const QString& mode);
     void setPtt(bool active);
 
     // CW keying, per the plan's "CW-TX via Hamlib rigctld + F-key
@@ -164,6 +171,7 @@ public:
     static QString describeReport(int code);
 
     static QByteArray setFrequencyCommand(qint64 hz);
+    static QByteArray setModeCommand(const QString& mode);
     static QByteArray setPttCommand(bool active);
 
     // "b <text>\n" -- see the header comment for the verification of

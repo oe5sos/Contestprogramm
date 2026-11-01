@@ -1,6 +1,7 @@
 #include "data/DupeChecker.h"
 
 #include "data/ContestDatabase.h"
+#include "core/CallsignPrefix.h"
 
 #include <QSqlError>
 #include <QSqlQuery>
@@ -29,6 +30,17 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
 {
     m_lastError.clear();
 
+    // An empty scope would leave the WHERE clause as contest_id alone,
+    // i.e. "has anything at all been logged in this contest" -- every
+    // QSO after the first would come back a dupe. A definition can no
+    // longer carry one (ContestDefinition::fromJson rejects it), and a
+    // caller that passes one anyway gets "not a dupe", which is the
+    // safe answer: a real double QSO costs points, a QSO wrongly
+    // scored 0 costs the whole contact.
+    if (dupeScope.isEmpty()) {
+        return std::nullopt;
+    }
+
     // Trim + case-fold the same way AdifLog::isSameQso does, so a
     // callsign typed in lower case or with stray whitespace still
     // matches an existing log entry.
@@ -41,8 +53,14 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
     // rule choice.
     conditions << QStringLiteral("is_invalid = 0");
 
-    if (dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive)) {
-        conditions << QStringLiteral("UPPER(TRIM(callsign)) = UPPER(TRIM(:callsign))");
+    // Rufzeichen: nach dem GRUNDRUFZEICHEN (IARU R1 GC 2023, 1.2 --
+    // S50AAA/P und DL/S50AAA sind dieselbe Station wie S50AAA). SQL
+    // filtert nur grob vor (enthaelt das Grundrufzeichen), entschieden
+    // wird unten mit baseCallsign() auf beiden Seiten.
+    const bool byCall = dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive);
+    const QString base = baseCallsign(callsign);
+    if (byCall) {
+        conditions << QStringLiteral("UPPER(callsign) LIKE :callpat");
     }
     if (dupeScope.contains(QStringLiteral("band"), Qt::CaseInsensitive)) {
         conditions << QStringLiteral("UPPER(TRIM(band)) = UPPER(TRIM(:band))");
@@ -51,14 +69,15 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
         conditions << QStringLiteral("UPPER(TRIM(mode)) = UPPER(TRIM(:mode))");
     }
 
-    const QString sql = QStringLiteral("SELECT id FROM qsos WHERE %1 ORDER BY id ASC LIMIT 1")
+    const QString sql = QStringLiteral("SELECT id, callsign FROM qsos WHERE %1 ORDER BY id ASC")
                             .arg(conditions.join(QStringLiteral(" AND ")));
 
     QSqlQuery query(m_database.db());
     query.prepare(sql);
     query.bindValue(QStringLiteral(":contest_id"), contestId);
-    if (dupeScope.contains(QStringLiteral("callsign"), Qt::CaseInsensitive)) {
-        query.bindValue(QStringLiteral(":callsign"), callsign);
+    if (byCall) {
+        query.bindValue(QStringLiteral(":callpat"),
+                        QStringLiteral("%") + base + QStringLiteral("%"));
     }
     if (dupeScope.contains(QStringLiteral("band"), Qt::CaseInsensitive)) {
         query.bindValue(QStringLiteral(":band"), band);
@@ -77,10 +96,53 @@ std::optional<int> DupeChecker::firstMatchId(const QString& callsign,
         m_lastError = query.lastError().text();
         return std::nullopt;
     }
-    if (!query.next()) {
-        return std::nullopt;
+    while (query.next()) {
+        if (!byCall || baseCallsign(query.value(1).toString()) == base) {
+            return query.value(0).toInt();
+        }
     }
-    return query.value(0).toInt();
+    return std::nullopt;
+}
+
+bool DupeChecker::WorkedStations::workedOnBand(const QString& callsign, const QString& band) const
+{
+    return byCallAndBand.contains(baseCallsign(callsign) + QLatin1Char('|')
+                                  + band.trimmed().toUpper());
+}
+
+bool DupeChecker::WorkedStations::workedAtAll(const QString& callsign) const
+{
+    return byCall.contains(baseCallsign(callsign));
+}
+
+DupeChecker::WorkedStations DupeChecker::workedStations(const QString& contestId) const
+{
+    m_lastError.clear();
+    WorkedStations result;
+
+    QSqlQuery query(m_database.db());
+    query.prepare(QStringLiteral(
+        "SELECT DISTINCT callsign, band FROM qsos WHERE contest_id = :contest_id AND is_invalid = 0"));
+    query.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        return result;
+    }
+    QSet<QString> bands;
+    while (query.next()) {
+        const QString base = baseCallsign(query.value(0).toString());
+        if (base.isEmpty()) {
+            continue;
+        }
+        const QString band = query.value(1).toString().trimmed().toUpper();
+        result.byCall.insert(base);
+        result.byCallAndBand.insert(base + QLatin1Char('|') + band);
+        if (!band.isEmpty()) {
+            bands.insert(band);
+        }
+    }
+    result.bands = QStringList(bands.constBegin(), bands.constEnd());
+    return result;
 }
 
 } // namespace Contestprogramm

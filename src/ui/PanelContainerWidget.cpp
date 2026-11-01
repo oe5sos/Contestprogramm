@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -16,6 +17,7 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
                                             bool contentHasOwnChrome, QWidget* parent)
     : QWidget(parent)
     , m_id(id)
+    , m_title(title)
     , m_contentHasOwnChrome(contentHasOwnChrome)
     , m_content(content)
 {
@@ -132,7 +134,71 @@ bool PanelContainerWidget::trySetGeometry(const QRect& rect)
     clamped.setWidth(std::max({kMinWidth, contentMinWidth, clamped.width()}));
     clamped.setHeight(std::max(kMinHeight, clamped.height()));
     setGeometry(clamped);
+    emit geometryApplied(clamped);
     return true;
+}
+
+void PanelContainerWidget::setFloating(bool floating)
+{
+    if (m_floating == floating) {
+        return;
+    }
+    if (floating) {
+        // Die Lage in der Fläche merken, damit der Rückweg dort landet,
+        // wo das Panel herkam.
+        m_dockedGeometry = geometry();
+        if (!m_dockTarget) {
+            m_dockTarget = parentWidget();
+        }
+        const QPoint aufDemSchirm = mapToGlobal(QPoint(0, 0));
+        // Ein schwebendes Panel bleibt ein KIND des Hauptfensters.
+        //
+        // Betreiber am 2026-10-25: „fenster nur im eigenen
+        // contestprogramm schwebend sein, wenn ich diese in die
+        // taskleiste lege oder verkleinere muss das auch alle
+        // betreffen" -- und vorher: „wenn ich dieses zu mache muessen
+        // alle mit."
+        //
+        // Mit setParent(nullptr) wurde jedes abgedockte Panel ein
+        // eigenstaendiges Fenster: beim Minimieren blieb es stehen,
+        // beim Vollbild lag es irgendwo, und im Dock tauchte es
+        // einzeln auf. Qt::Tool mit dem Hauptfenster als Elternteil
+        // haengt es daran -- es folgt beim Minimieren, beim Wechsel
+        // des Schirms und beim Schliessen.
+        QWidget* hauptfenster = m_dockTarget ? m_dockTarget->window() : window();
+        setParent(hauptfenster, Qt::Tool);
+        setWindowTitle(m_title.isEmpty() ? m_id : m_title);
+        // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
+        move(aufDemSchirm);
+        resize(m_dockedGeometry.size());
+        show();
+        raise();
+        activateWindow();
+    } else {
+        setWindowFlag(Qt::Tool, false);
+        setWindowFlag(Qt::Window, false);
+        setParent(m_dockTarget);
+        if (m_dockedGeometry.isValid()) {
+            setGeometry(m_dockedGeometry);
+        }
+        show();
+        raise();
+    }
+    m_floating = floating;
+    emit floatingChanged(m_floating);
+}
+
+void PanelContainerWidget::closeEvent(QCloseEvent* event)
+{
+    if (m_floating) {
+        // Nicht schließen, sondern andocken. Ein Panel, das man
+        // wegklicken kann und das dann nirgends mehr steht, wäre eine
+        // Falle -- der Bediener sucht es im Fenster und findet es nicht.
+        event->ignore();
+        setFloating(false);
+        return;
+    }
+    QWidget::closeEvent(event);
 }
 
 void PanelContainerWidget::resizeEvent(QResizeEvent* event)
@@ -158,11 +224,20 @@ void PanelContainerWidget::beginDrag(const QPoint& globalPos)
     m_dragging = true;
     raise();
     m_dragStartOffset = globalPos - pos();
+    m_lastDragGlobal = globalPos;
 }
 
 void PanelContainerWidget::updateDrag(const QPoint& globalPos)
 {
     if (!m_dragging) {
+        return;
+    }
+    m_lastDragGlobal = globalPos;
+    // Liegt das Panel im Seitenbereich, sitzt es in einem
+    // QStackedWidget und füllt es ganz aus. Dort etwas zu verschieben
+    // ergibt nur Gezitter -- der Zug zählt trotzdem, sein Ende
+    // entscheidet über das Herausziehen (siehe dragFinished).
+    if (qobject_cast<QStackedWidget*>(parentWidget()) != nullptr) {
         return;
     }
     QPoint newPos = globalPos - m_dragStartOffset;
@@ -185,6 +260,17 @@ void PanelContainerWidget::endDrag()
         return;
     }
     m_dragging = false;
+    // Wo der Zeiger losgelassen wurde -- daran hängt, ob das Panel in
+    // den Seitenbereich fällt. Martin, 2026-09-28: "karte verbindungen
+    // kann ich aber nicht reinziehen." Über das Menü ging es schon; mit
+    // der Maus hineinziehen ist der Weg, den er erwartet, und den
+    // Longpath auch anbietet.
+    // Die zuletzt GEMELDETE Zeigerposition, nicht QCursor::pos(): bei
+    // einem von außen eingespeisten Zug (Bedienungshilfen, meine eigene
+    // Live-Prüfung) steht der Zeiger beim Loslassen schon wieder am
+    // Ausgangspunkt -- das Panel wäre dann nie im Seitenbereich
+    // gelandet, obwohl es dort losgelassen wurde.
+    emit dragFinished(m_lastDragGlobal);
     emit geometryEdited();
 }
 

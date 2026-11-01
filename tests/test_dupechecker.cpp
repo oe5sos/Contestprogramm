@@ -39,6 +39,7 @@ private slots:
     void lastErrorEmptyAfterGenuineResult();
     void lastErrorSetOnQueryFailure();
     void firstMatchIdIsTheEarliestValidQso();
+    void emptyScopeNeverCallsAnythingADupe();
 };
 
 void TestDupeChecker::exactMatchIsDupe()
@@ -240,6 +241,29 @@ void TestDupeChecker::firstMatchIdIsTheEarliestValidQso()
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication
 // instance (thread-affinity bookkeeping in the SQLite driver), which
 // APPLESS_MAIN deliberately does not create.
+// An empty dupe scope must not mean "everything already worked": the
+// WHERE clause would be contest_id alone, so every QSO after the first
+// would be flagged a dupe and scored 0. ContestDefinition::fromJson
+// refuses such a rules file outright; this is the second line of
+// defence, in the checker itself.
+void TestDupeChecker::emptyScopeNeverCallsAnythingADupe()
+{
+    QTemporaryDir dir;
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("dupe.sqlite")), QStringLiteral("dupe_empty_scope")));
+    QsoRecord first = makeRecord(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
+                              QStringLiteral("IARU_R1_VHF"));
+    QVERIFY(db.insertQso(first));
+
+    DupeChecker checker(db);
+    QVERIFY(!checker.isDupe(QStringLiteral("DL1ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
+                            QStringLiteral("IARU_R1_VHF"), QStringList()));
+    QVERIFY(checker.lastError().isEmpty());
+    QVERIFY(!checker.firstMatchId(QStringLiteral("OE3XYZ"), QStringLiteral("144"), QStringLiteral("SSB"),
+                                  QStringLiteral("IARU_R1_VHF"), QStringList()).has_value());
+    db.close();
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);

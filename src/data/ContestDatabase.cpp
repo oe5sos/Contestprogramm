@@ -1,8 +1,13 @@
 #include "data/ContestDatabase.h"
+#include "core/Maidenhead.h"
 
 #include <QSet>
+#include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSqlRecord>
+
+#include <optional>
 #include <QVariant>
 
 namespace Contestprogramm {
@@ -36,6 +41,10 @@ bool ContestDatabase::open(const QString& path, const QString& connectionName)
         m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
     }
     m_db.setDatabaseName(path);
+    // Explicitly cleared: a connection name reused after an
+    // openReadOnly() would otherwise still carry QSQLITE_OPEN_READONLY
+    // and every write would fail on a perfectly writable database.
+    m_db.setConnectOptions();
 
     if (!m_db.open()) {
         m_lastError = m_db.lastError().text();
@@ -48,6 +57,73 @@ bool ContestDatabase::open(const QString& path, const QString& connectionName)
         return false;
     }
     return true;
+}
+
+bool ContestDatabase::openReadOnly(const QString& path, const QString& connectionName)
+{
+    close();
+
+    // SQLite happily CREATES a database at a path that has none, so a
+    // missing or mistyped file would otherwise open as an empty log
+    // rather than failing -- checked here, before the driver sees it.
+    if (!QFileInfo::exists(path)) {
+        m_lastError = QStringLiteral("file does not exist: %1").arg(path);
+        return false;
+    }
+
+    m_connectionName = connectionName;
+    if (QSqlDatabase::contains(m_connectionName)) {
+        m_db = QSqlDatabase::database(m_connectionName);
+    } else {
+        m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
+    }
+    m_db.setDatabaseName(path);
+    m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+
+    if (!m_db.open()) {
+        m_lastError = m_db.lastError().text();
+        return false;
+    }
+
+    // Deliberately no ensureSchema(): that is what would write to the
+    // file (see the header). A database this program wrote already has
+    // the schema; one it did not is not ours to migrate.
+    //
+    // Dafür EINE lesende Abfrage, die den Dateikopf anfasst. SQLite
+    // öffnet eine Datei, ohne hineinzusehen, und meldet "file is not a
+    // database" erst beim ersten Zugriff -- mit ensureSchema() war das
+    // der erste PRAGMA, ohne es gab es keinen, und eine Textdatei galt
+    // als offene, leere Datenbank (gefunden 2026-10-16: der
+    // Wiederherstellungs-Dialog schrieb "keine QSOs" neben eine
+    // Notiz). sqlite_master ist in jeder echten Datenbank da, auch in
+    // einer leeren, und nur-lesend.
+    {
+        QSqlQuery probe(m_db);
+        if (!probe.exec(QStringLiteral("SELECT count(*) FROM sqlite_master")) || !probe.next()) {
+            m_lastError = probe.lastError().text().isEmpty()
+                              ? QStringLiteral("keine lesbare Datenbank: %1").arg(path)
+                              : probe.lastError().text();
+            m_db.close();
+            m_db = QSqlDatabase();
+            QSqlDatabase::removeDatabase(m_connectionName);
+            return false;
+        }
+    }
+
+    m_open = true;
+    return true;
+}
+
+bool ContestDatabase::hasQsoTable() const
+{
+    if (!m_open) {
+        return false;
+    }
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name='qsos'"))) {
+        return false;
+    }
+    return query.next();
 }
 
 QString ContestDatabase::filePath() const
@@ -76,38 +152,54 @@ QString ContestDatabase::lastError() const
     return m_lastError;
 }
 
+bool ContestDatabase::pragmaValueForTest(const QString& name, QVariant& wertAus)
+{
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("PRAGMA %1").arg(name)) || !query.next()) {
+        return false;
+    }
+    wertAus = query.value(0);
+    return true;
+}
+
 bool ContestDatabase::ensureSchema()
 {
     QSqlQuery query(m_db);
 
-    // WAL, und dazu die beiden Schalter, die ein eingetragenes QSO einen
-    // STROMAUSFALL ueberleben lassen -- nicht nur einen Programmabsturz.
+    // WAL + FULL synchronous.
     //
-    // Hier stand `synchronous = NORMAL`, begruendet mit "avoids the
-    // fsync-per-write cost ... while still being crash-safe for the common
-    // case". Das stimmt fuer den Absturz des Programms: im WAL-Modus bleibt
-    // die Datenbank stimmig, und das Betriebssystem haelt die Schreibvorgaenge
-    // auch ohne fsync. Es stimmt NICHT fuer den Stromausfall, und der ist am
-    // Contest-Standort (Bergstation, Aggregat oder Batterie) der realistische
-    // Fall: NORMAL sammelt die WAL-Schreibvorgaenge bis zum naechsten
-    // Checkpoint, die letzten QSOs koennen also fehlen.
+    // Bis 2026-09-29 stand hier NORMAL, mit der Begründung, das spare
+    // den fsync je Schreibvorgang und sei "crash-safe for the common
+    // case". Das stimmt für einen Programmabsturz -- WAL fängt den ab.
+    // Es stimmt NICHT für Stromausfall oder einen stehenden Rechner:
+    // dann kann die zuletzt bestätigte Transaktion fehlen, also genau
+    // das QSO, das man gerade geloggt hat.
     //
-    // `fullfsync` kommt dazu, weil es auf macOS sonst nichts nuetzt: ein
-    // gewoehnliches fsync() zwingt dort die Platte NICHT, ihren eigenen
-    // Puffer zu leeren. Erst F_FULLFSYNC tut das, und genau den waehlt
-    // dieses PRAGMA.
+    // Martin, 2026-09-29: "primäres ziel und das muss zu 100 % passen
+    // sind meine logs, die ich eingebe. die dürfen nicht weg sein."
+    // Damit ist die Abwägung entschieden: FULL. Der Preis ist ein
+    // fsync je Commit -- bei einem QSO alle paar Sekunden ist das
+    // nicht spürbar (gemessen im Prüfstand test_log_haltbarkeit), und
+    // ein verlorenes QSO ist im Contest teurer als jede Millisekunde.
     //
-    // Die Kosten, am 2026-11-01 auf diesem Rechner gemessen (200 QSOs, je
-    // eine Transaktion, wie im Betrieb):
+    // ── fullfsync kommt dazu (2026-11-01) ───────────────────────────
+    //
+    // `FULL` allein nuetzt auf macOS nicht, was es verspricht: ein
+    // gewoehnliches fsync() zwingt die Platte dort NICHT, ihren eigenen
+    // Puffer zu leeren. SQLite benutzt F_FULLFSYNC erst, wenn man es
+    // ausdruecklich verlangt -- und genau das tut dieses PRAGMA. Ohne
+    // es bleibt der Stromausfall, gegen den FULL oben gewaehlt wurde,
+    // teilweise offen.
+    //
+    // Die Kosten dazu, am 2026-11-01 gemessen (200 QSOs, je eine
+    // Transaktion, wie im Betrieb):
     //
     //     NORMAL              0,02 ms je QSO
     //     FULL                0,04 ms je QSO
     //     FULL + fullfsync    0,38 ms je QSO
     //
-    // Bei zehn QSOs in der Minute sind das vier Millisekunden je Minute. Die
-    // Begruendung "fsync-per-write cost" traegt bei dieser Schreibrate nicht;
-    // sie traegt bei tausenden Schreibvorgaengen je Sekunde, und so arbeitet
-    // ein Logbuch nicht.
+    // Bei zehn QSOs in der Minute sind das vier Millisekunden je Minute
+    // -- dieselbe Abwaegung wie oben, nur eine Stufe weiter.
     if (!execOrRecord(query, QStringLiteral("PRAGMA journal_mode = WAL"), m_lastError)) {
         return false;
     }
@@ -254,10 +346,25 @@ bool ContestDatabase::insertQso(QsoRecord& record)
         " :serial_sent, :serial_rcvd, :rst_sent, :rst_rcvd, :exchange_sent, :exchange_rcvd, :contest_id, :is_dupe, "
         " :is_invalid, :source, :notes)"));
 
-    query.bindValue(QStringLiteral(":callsign"), record.callsign);
-    query.bindValue(QStringLiteral(":band"), record.band);
-    query.bindValue(QStringLiteral(":mode"), record.mode);
-    query.bindValue(QStringLiteral(":timestamp_utc"), record.timestampUtc);
+    // Die vier Spalten callsign/band/mode/timestamp_utc sind NOT NULL,
+    // und eine leere QString ist in Qt eine NULL -- gebunden hätte sie
+    // die ganze Zeile zum Absturz der Einfügung gebracht. Bei der
+    // Betriebsart ist "unbekannt" aber ein rechtmäßiger Zustand:
+    // REG1TEST sagt zur Modusspalte ausdrücklich "If the mode is not
+    // important it can be left blank", der Code 0 heißt dort "non of
+    // below", und data/LogFileReader.cpp macht daraus eine leere
+    // Betriebsart. So ein QSO wurde beim Journal-Import abgewiesen und
+    // verschwand ohne ein Wort (es zählte dort weder als ergänzt noch
+    // als übersprungen) -- auf genau dem Weg, der nach einem Absturz
+    // das Log zurückholen soll. Lieber ein QSO mit leerer Betriebsart
+    // im Log, das der Bediener sehen und berichtigen kann.
+    const auto nichtNull = [](const QString& text) {
+        return text.isNull() ? QString::fromLatin1("") : text;
+    };
+    query.bindValue(QStringLiteral(":callsign"), nichtNull(record.callsign));
+    query.bindValue(QStringLiteral(":band"), nichtNull(record.band));
+    query.bindValue(QStringLiteral(":mode"), nichtNull(record.mode));
+    query.bindValue(QStringLiteral(":timestamp_utc"), nichtNull(record.timestampUtc));
     query.bindValue(QStringLiteral(":freq_hz"),
                      record.freqHz ? QVariant(static_cast<qlonglong>(*record.freqHz)) : QVariant(QMetaType(QMetaType::LongLong)));
     query.bindValue(QStringLiteral(":grid_square"), record.gridSquare);
@@ -290,44 +397,90 @@ bool ContestDatabase::insertQso(QsoRecord& record)
 
 namespace {
 
-QsoRecord recordFromQuery(const QSqlQuery& query)
+// Die Spaltennummern einer Abfrage, EINMAL aufgelöst.
+//
+// QSqlQuery::value(QString) sucht den Namen bei JEDEM Aufruf neu im
+// QSqlRecord -- zwanzig Felder je Zeile, zwanzig Namen je Suche. Bei
+// 1 200 QSOs (ein gutes 24-Stunden-Ergebnis) waren das gemessen 25 ms
+// je Lesevorgang, und das Log wird im Betrieb oft gelesen: Rate-Panel,
+// Karte, Dupe-Nachwertung, Check Partial, Statistik. Mit den Nummern
+// statt der Namen bleiben davon wenige Millisekunden.
+struct QsoSpalten {
+    explicit QsoSpalten(const QSqlQuery& query)
+    {
+        const QSqlRecord r = query.record();
+        id = r.indexOf(QStringLiteral("id"));
+        callsign = r.indexOf(QStringLiteral("callsign"));
+        band = r.indexOf(QStringLiteral("band"));
+        mode = r.indexOf(QStringLiteral("mode"));
+        timestampUtc = r.indexOf(QStringLiteral("timestamp_utc"));
+        freqHz = r.indexOf(QStringLiteral("freq_hz"));
+        gridSquare = r.indexOf(QStringLiteral("grid_square"));
+        distanceKm = r.indexOf(QStringLiteral("distance_km"));
+        bearingDeg = r.indexOf(QStringLiteral("bearing_deg"));
+        serialSent = r.indexOf(QStringLiteral("serial_sent"));
+        serialRcvd = r.indexOf(QStringLiteral("serial_rcvd"));
+        rstSent = r.indexOf(QStringLiteral("rst_sent"));
+        rstRcvd = r.indexOf(QStringLiteral("rst_rcvd"));
+        exchangeSent = r.indexOf(QStringLiteral("exchange_sent"));
+        exchangeRcvd = r.indexOf(QStringLiteral("exchange_rcvd"));
+        contestId = r.indexOf(QStringLiteral("contest_id"));
+        isDupe = r.indexOf(QStringLiteral("is_dupe"));
+        isInvalid = r.indexOf(QStringLiteral("is_invalid"));
+        source = r.indexOf(QStringLiteral("source"));
+        notes = r.indexOf(QStringLiteral("notes"));
+    }
+    int id = -1, callsign = -1, band = -1, mode = -1, timestampUtc = -1, freqHz = -1;
+    int gridSquare = -1, distanceKm = -1, bearingDeg = -1, serialSent = -1, serialRcvd = -1;
+    int rstSent = -1, rstRcvd = -1, exchangeSent = -1, exchangeRcvd = -1, contestId = -1;
+    int isDupe = -1, isInvalid = -1, source = -1, notes = -1;
+};
+
+// Ein fehlendes Feld (-1) gibt eine leere QVariant -- eine Abfrage,
+// die nicht alle Spalten holt, bekommt dort schlicht nichts.
+QVariant feld(const QSqlQuery& query, int spalte)
+{
+    return spalte >= 0 ? query.value(spalte) : QVariant();
+}
+
+QsoRecord recordFromQuery(const QSqlQuery& query, const QsoSpalten& s)
 {
     QsoRecord record;
-    record.id = query.value(QStringLiteral("id")).toInt();
-    record.callsign = query.value(QStringLiteral("callsign")).toString();
-    record.band = query.value(QStringLiteral("band")).toString();
-    record.mode = query.value(QStringLiteral("mode")).toString();
-    record.timestampUtc = query.value(QStringLiteral("timestamp_utc")).toString();
-    const QVariant freq = query.value(QStringLiteral("freq_hz"));
+    record.id = feld(query, s.id).toInt();
+    record.callsign = feld(query, s.callsign).toString();
+    record.band = feld(query, s.band).toString();
+    record.mode = feld(query, s.mode).toString();
+    record.timestampUtc = feld(query, s.timestampUtc).toString();
+    const QVariant freq = feld(query, s.freqHz);
     if (!freq.isNull()) {
         record.freqHz = freq.toLongLong();
     }
-    record.gridSquare = query.value(QStringLiteral("grid_square")).toString();
-    const QVariant distance = query.value(QStringLiteral("distance_km"));
+    record.gridSquare = feld(query, s.gridSquare).toString();
+    const QVariant distance = feld(query, s.distanceKm);
     if (!distance.isNull()) {
         record.distanceKm = distance.toDouble();
     }
-    const QVariant bearing = query.value(QStringLiteral("bearing_deg"));
+    const QVariant bearing = feld(query, s.bearingDeg);
     if (!bearing.isNull()) {
         record.bearingDeg = bearing.toDouble();
     }
-    const QVariant serialSent = query.value(QStringLiteral("serial_sent"));
+    const QVariant serialSent = feld(query, s.serialSent);
     if (!serialSent.isNull()) {
         record.serialSent = serialSent.toInt();
     }
-    const QVariant serialRcvd = query.value(QStringLiteral("serial_rcvd"));
+    const QVariant serialRcvd = feld(query, s.serialRcvd);
     if (!serialRcvd.isNull()) {
         record.serialRcvd = serialRcvd.toInt();
     }
-    record.rstSent = query.value(QStringLiteral("rst_sent")).toString();
-    record.rstRcvd = query.value(QStringLiteral("rst_rcvd")).toString();
-    record.exchangeSent = query.value(QStringLiteral("exchange_sent")).toString();
-    record.exchangeRcvd = query.value(QStringLiteral("exchange_rcvd")).toString();
-    record.contestId = query.value(QStringLiteral("contest_id")).toString();
-    record.isDupe = query.value(QStringLiteral("is_dupe")).toInt() != 0;
-    record.isInvalid = query.value(QStringLiteral("is_invalid")).toInt() != 0;
-    record.source = query.value(QStringLiteral("source")).toString();
-    record.notes = query.value(QStringLiteral("notes")).toString();
+    record.rstSent = feld(query, s.rstSent).toString();
+    record.rstRcvd = feld(query, s.rstRcvd).toString();
+    record.exchangeSent = feld(query, s.exchangeSent).toString();
+    record.exchangeRcvd = feld(query, s.exchangeRcvd).toString();
+    record.contestId = feld(query, s.contestId).toString();
+    record.isDupe = feld(query, s.isDupe).toInt() != 0;
+    record.isInvalid = feld(query, s.isInvalid).toInt() != 0;
+    record.source = feld(query, s.source).toString();
+    record.notes = feld(query, s.notes).toString();
     return record;
 }
 
@@ -342,8 +495,12 @@ QVector<QsoRecord> ContestDatabase::qsosForContest(const QString& contestId) con
     if (!query.exec()) {
         return records;
     }
+    std::optional<QsoSpalten> spalten;
     while (query.next()) {
-        records.append(recordFromQuery(query));
+        if (!spalten) {
+            spalten.emplace(query);
+        }
+        records.append(recordFromQuery(query, *spalten));
     }
     return records;
 }
@@ -359,8 +516,12 @@ QVector<QsoRecord> ContestDatabase::qsosWithGrid(const QString& contestId) const
     if (!query.exec()) {
         return records;
     }
+    std::optional<QsoSpalten> spalten;
     while (query.next()) {
-        records.append(recordFromQuery(query));
+        if (!spalten) {
+            spalten.emplace(query);
+        }
+        records.append(recordFromQuery(query, *spalten));
     }
     return records;
 }
@@ -440,7 +601,7 @@ std::optional<QsoRecord> ContestDatabase::qsoById(int id) const
     if (!query.exec() || !query.next()) {
         return std::nullopt;
     }
-    return recordFromQuery(query);
+    return recordFromQuery(query, QsoSpalten(query));
 }
 
 bool ContestDatabase::updateQsoCallsign(int id, const QString& callsign, QString* errorOut)
@@ -486,6 +647,60 @@ bool ContestDatabase::updateQsoExchangeRcvd(int id, const QString& exchangeRcvd,
     }
     ++m_qsoWriteCounter;
     return true;
+}
+
+int ContestDatabase::recomputeDistances(const QString& contestId, const QString& ownGrid,
+                                        QString* errorOut)
+{
+    if (!isValidGridSquare(ownGrid)) {
+        return 0;
+    }
+    QSqlQuery select(m_db);
+    select.prepare(QStringLiteral("SELECT id, grid_square FROM qsos WHERE contest_id = :contest_id"));
+    select.bindValue(QStringLiteral(":contest_id"), contestId);
+    if (!select.exec()) {
+        m_lastError = select.lastError().text();
+        if (errorOut) { *errorOut = m_lastError; }
+        return -1;
+    }
+    struct Row { int id; QString grid; };
+    QVector<Row> rows;
+    while (select.next()) {
+        rows.append({select.value(0).toInt(), select.value(1).toString()});
+    }
+    m_db.transaction();
+    int changed = 0;
+    for (const Row& row : rows) {
+        QVariant distance{QMetaType(QMetaType::Double)};
+        QVariant bearing{QMetaType(QMetaType::Double)};
+        if (isValidGridSquare(row.grid)) {
+            const double km = iaruQrbKm(ownGrid, row.grid);
+            distance = km;
+            // Im selben Feld gibt es keine Richtung (vgl. bearingIfApart
+            // in MainWindow.cpp) -- unbekannt statt erfundener 180 Grad.
+            if (km >= 0.5) {
+                bearing = calculateBearingInDegrees(ownGrid, row.grid);
+            }
+        }
+        QSqlQuery update(m_db);
+        update.prepare(QStringLiteral(
+            "UPDATE qsos SET distance_km = :distance_km, bearing_deg = :bearing_deg WHERE id = :id"));
+        update.bindValue(QStringLiteral(":distance_km"), distance);
+        update.bindValue(QStringLiteral(":bearing_deg"), bearing);
+        update.bindValue(QStringLiteral(":id"), row.id);
+        if (!update.exec()) {
+            m_db.rollback();
+            m_lastError = update.lastError().text();
+            if (errorOut) { *errorOut = m_lastError; }
+            return -1;
+        }
+        ++changed;
+    }
+    m_db.commit();
+    if (changed > 0) {
+        ++m_qsoWriteCounter;
+    }
+    return changed;
 }
 
 bool ContestDatabase::setQsoInvalid(int id, bool invalid, QString* errorOut)
@@ -560,6 +775,101 @@ int ContestDatabase::archiveContest(const QString& contestId, const QString& arc
     }
     ++m_qsoWriteCounter;
     return query.numRowsAffected();
+}
+
+namespace {
+
+// "IARU_R1_VHF_UHF" <-> "IARU_R1_VHF_UHF@geloescht"
+QString binIdFor(const QString& contestId)
+{
+    return contestId + ContestDatabase::deletedBinSuffix();
+}
+
+QString contestIdFromBin(const QString& binId)
+{
+    const QString suffix = ContestDatabase::deletedBinSuffix();
+    return binId.endsWith(suffix) ? binId.left(binId.size() - suffix.size()) : QString();
+}
+
+} // namespace
+
+bool ContestDatabase::deleteQso(int id, QString* errorOut)
+{
+    const auto record = qsoById(id);
+    if (!record) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("QSO %1 gibt es nicht").arg(id);
+        }
+        return false;
+    }
+    if (!contestIdFromBin(record->contestId).isEmpty()) {
+        return true; // liegt schon im Papierkorb
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET contest_id = :bin WHERE id = :id"));
+    query.bindValue(QStringLiteral(":bin"), binIdFor(record->contestId));
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
+bool ContestDatabase::undeleteQso(int id, QString* errorOut)
+{
+    const auto record = qsoById(id);
+    if (!record) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("QSO %1 gibt es nicht").arg(id);
+        }
+        return false;
+    }
+    const QString original = contestIdFromBin(record->contestId);
+    if (original.isEmpty()) {
+        return true; // liegt gar nicht im Papierkorb
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("UPDATE qsos SET contest_id = :contest WHERE id = :id"));
+    query.bindValue(QStringLiteral(":contest"), original);
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) {
+        m_lastError = query.lastError().text();
+        if (errorOut) {
+            *errorOut = m_lastError;
+        }
+        return false;
+    }
+    ++m_qsoWriteCounter;
+    return true;
+}
+
+QStringList ContestDatabase::bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const
+{
+    QStringList result;
+    const QString call = callsign.trimmed().toUpper();
+    if (call.isEmpty()) {
+        return result;
+    }
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("SELECT DISTINCT band FROM qsos WHERE UPPER(callsign) = ? AND contest_id = ? "
+                                  "AND is_invalid = 0"));
+    query.addBindValue(call);
+    query.addBindValue(contestId);
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        const QString band = query.value(0).toString().trimmed();
+        if (!band.isEmpty()) {
+            result << band;
+        }
+    }
+    return result;
 }
 
 QStringList ContestDatabase::contestIdsInLog() const
@@ -695,16 +1005,56 @@ bool ContestDatabase::backupTo(const QString& path, QString* errorOut)
 std::optional<QString> ContestDatabase::lastKnownGridForCallsign(const QString& callsign) const
 {
     QSqlQuery query(m_db);
+    // Der Papierkorb zählt nicht: ein gelöschtes QSO ist gelöscht, weil
+    // es ein Fehler war -- oft genau deshalb, weil der Locator nicht
+    // stimmte. Würde es hier weiter zählen, schlüge das Programm den
+    // falschen Locator weiter vor und warnte obendrein gegen den
+    // richtigen (siehe MainWindow::refreshLocatorCrossCheck).
+    // allWorkedCallsigns() lässt ihn aus demselben Grund aus.
     query.prepare(QStringLiteral(
         "SELECT grid_square FROM qsos "
         "WHERE UPPER(TRIM(callsign)) = UPPER(TRIM(:callsign)) AND is_invalid = 0 "
+        "AND contest_id NOT LIKE :bin "
         "AND grid_square IS NOT NULL AND TRIM(grid_square) != '' "
         "ORDER BY timestamp_utc DESC LIMIT 1"));
     query.bindValue(QStringLiteral(":callsign"), callsign);
+    query.bindValue(QStringLiteral(":bin"), QStringLiteral("%") + deletedBinSuffix());
     if (!query.exec() || !query.next()) {
         return std::nullopt;
     }
     return query.value(0).toString().trimmed().toUpper();
+}
+
+QHash<QString, QString> ContestDatabase::allWorkedCallsigns() const
+{
+    QHash<QString, QString> result;
+    QSqlQuery query(m_db);
+    // Nach der Zeit sortiert, damit der zuletzt gehörte Locator
+    // gewinnt: eine Station, die umgezogen ist, steht mit dem neuen
+    // Quadrat da, nicht mit dem von vorletztem Jahr.
+    query.prepare(QStringLiteral("SELECT callsign, grid_square FROM qsos WHERE is_invalid = 0 "
+                                  "AND contest_id NOT LIKE :bin ORDER BY timestamp_utc"));
+    // Das Muster aus der Konstanten, nicht abgeschrieben -- sonst
+    // driften die beiden auseinander.
+    query.bindValue(QStringLiteral(":bin"), QStringLiteral("%") + deletedBinSuffix());
+    if (!query.exec()) {
+        return result;
+    }
+    while (query.next()) {
+        const QString call = query.value(0).toString().trimmed().toUpper();
+        if (call.isEmpty()) {
+            continue;
+        }
+        const QString grid = query.value(1).toString().trimmed().toUpper();
+        // Ein leerer Locator darf einen bekannten nicht überschreiben --
+        // auf Kurzwelle tauscht niemand einen, und das Rufzeichen soll
+        // trotzdem in die Liste.
+        if (grid.isEmpty() && result.contains(call)) {
+            continue;
+        }
+        result.insert(call, grid);
+    }
+    return result;
 }
 
 QHash<QString, QString> ContestDatabase::allImportedLocators() const

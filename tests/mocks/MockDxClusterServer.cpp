@@ -56,4 +56,13 @@ void MockDxClusterServer::onReadyRead()
     emit spotsSent();
 }
 
+bool MockDxClusterServer::sendRaw(const QByteArray& bytes)
+{
+    if (!m_client) {
+        return false;
+    }
+    m_client->write(bytes);
+    return m_client->flush();
+}
+
 } // namespace Contestprogramm

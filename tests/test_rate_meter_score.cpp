@@ -6,6 +6,7 @@
 
 #include "data/ContestDatabase.h"
 #include "data/QsoRecord.h"
+#include "core/CountryPrefixIndex.h"
 #include "ui/RateMeterWidget.h"
 
 using namespace Contestprogramm;
@@ -21,6 +22,9 @@ QsoRecord makeQso(const QString& call, const QString& band, const QString& grid,
     r.timestampUtc = QStringLiteral("2026-10-03T14:01:00Z");
     r.gridSquare = grid;
     r.distanceKm = km;
+    // Eine empfangene Nummer gehoert zu jedem vollstaendigen QSO; ohne sie
+    // zaehlt es 0 Punkte (IARU R1 GC 2023, 1.9.1, seit 2026-09-25).
+    r.serialRcvd = 1;
     r.contestId = QStringLiteral("IARU_R1_VHF_UHF");
     return r;
 }
@@ -69,6 +73,9 @@ private slots:
     void withoutASourceEveryReadingIsADash();
     void layoutFollowsTheSize();
     void paintsInBothLayouts();
+    void prefixBasisCountsPrefixesAndNoneHidesTheTile();
+    void dxccTileSaysWhenTheCountryListIsMissing();
+    void paintsWithoutAMultiplierTile();
 };
 
 void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
@@ -101,7 +108,7 @@ void TestRateMeterScore::showsDashWithoutOwnLocatorAndKmWithIt()
                       QStringLiteral("distance_km"));
     text = visibleText(widget);
     QVERIFY2(text.contains(QStringLiteral("Punkte 4 815 (144: 4 814 · 432: 1)")), qPrintable(text)); // 4613 + 201 (truncated + 1 each), grouped; same-square QSO floor of 1
-    QVERIFY2(text.contains(QStringLiteral("ODX 4 613 km (DL1ABC · JN58SD)")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("ODX 4 612 km (DL1ABC · JN58SD)")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("Felder 3 (144: 2 · 432: 1)")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("(beste 3 (14z))")), qPrintable(text));
 
@@ -161,6 +168,130 @@ void TestRateMeterScore::paintsInBothLayouts()
                               QSize(900, 130), QSize(900, 200)}) {
         QVERIFY2(distinctColours(widget, size) > 12, qPrintable(QStringLiteral("%1x%2").arg(size.width()).arg(size.height())));
     }
+}
+
+// Auf Kurzwelle zählt die letzte Kachel Präfixe statt Locator-Felder
+// (ContestDefinition::multiplierField), und ohne Multiplikator gibt es
+// sie gar nicht -- eine Null wäre dort keine Aussage, sondern eine
+// falsche.
+void TestRateMeterScore::prefixBasisCountsPrefixesAndNoneHidesTheTile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("prefix.sqlite")), QStringLiteral("rate_meter_prefix")));
+
+    // Kurzwelle: kein Locator im Spiel, also auch keine Entfernung.
+    const auto hfQso = [](const QString& call, const QString& band) {
+        QsoRecord r;
+        r.callsign = call;
+        r.band = band;
+        r.mode = QStringLiteral("CW");
+        r.timestampUtc = QStringLiteral("2026-11-28T09:01:00Z");
+        r.contestId = QStringLiteral("KW_UEBUNG");
+        return r;
+    };
+    for (const auto& pair : {qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DL1XYZ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("G3QQQ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("21"))}) {
+        QsoRecord r = hfQso(pair.first, pair.second);
+        QVERIFY(db.insertQso(r));
+    }
+
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("KW_UEBUNG"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("prefix"));
+    QString text = visibleText(widget);
+    // DL1 und G3 auf 14, DL1 auf 21 -- zwei verschiedene insgesamt.
+    QVERIFY2(text.contains(QStringLiteral("Präfixe 2 (14: 2 · 21: 1)")), qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("Felder")), qPrintable(text));
+
+    // Ohne Multiplikator: keine Kachel.
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("none"));
+    text = visibleText(widget);
+    QVERIFY2(!text.contains(QStringLiteral("Präfixe")), qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("Felder")), qPrintable(text));
+}
+
+// Mit der Grundlage "dxcc" und ohne geladene Länderliste zeigt die
+// Kachel einen Strich mit dem Grund dahinter -- eine Null wäre dort
+// eine Behauptung.
+// Ohne Multiplikator liefert readings() fünf Kacheln statt sechs --
+// die Kachel entfällt ganz, weil eine Null dort keine Aussage wäre.
+// Gezeichnet wurden aber bis zu sechs, und damit griff das Zeichnen
+// daneben: das Programm brach beim Start ab (2026-09-27 live gesehen).
+// Der Prüfstand darüber hat das nicht gefunden, weil er nur den Text
+// las und nie in dieser Einstellung gezeichnet hat.
+void TestRateMeterScore::paintsWithoutAMultiplierTile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("nomult.sqlite")), QStringLiteral("rate_meter_nomult")));
+    for (int i = 0; i < 6; ++i) {
+        QsoRecord r = makeQso(QStringLiteral("DL%1ABC").arg(i), QStringLiteral("144"), QStringLiteral("JN58SD"), 300.0);
+        r.timestampUtc = QDateTime::currentDateTimeUtc().addSecs(-i * 900).toString(Qt::ISODate);
+        QVERIFY(db.insertQso(r));
+    }
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("IARU_R1_VHF_UHF"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("144"), QStringLiteral("432")},
+                      QStringLiteral("distance_km"), QStringLiteral("none"));
+
+    // Dieselben Größen wie oben -- die großen tragen sechs Kacheln,
+    // und genau dort schlug es fehl.
+    for (const QSize& size : {QSize(90, 40), QSize(270, 130), QSize(270, 260), QSize(400, 300), QSize(700, 130),
+                              QSize(900, 130), QSize(900, 200), QSize(620, 420)}) {
+        QVERIFY2(distinctColours(widget, size) > 12,
+                  qPrintable(QStringLiteral("%1x%2").arg(size.width()).arg(size.height())));
+    }
+}
+
+void TestRateMeterScore::dxccTileSaysWhenTheCountryListIsMissing()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("dxcc.sqlite")), QStringLiteral("rate_meter_dxcc")));
+
+    const auto hfQso = [](const QString& call, const QString& band) {
+        QsoRecord r;
+        r.callsign = call;
+        r.band = band;
+        r.mode = QStringLiteral("CW");
+        r.timestampUtc = QStringLiteral("2026-11-28T09:01:00Z");
+        r.contestId = QStringLiteral("DXCC_TEST");
+        return r;
+    };
+    for (const auto& pair : {qMakePair(QStringLiteral("DL1ABC"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("DK5XYZ"), QStringLiteral("14")),
+                             qMakePair(QStringLiteral("JA1QQQ"), QStringLiteral("14"))}) {
+        QsoRecord r = hfQso(pair.first, pair.second);
+        QVERIFY(db.insertQso(r));
+    }
+
+    RateMeterWidget widget;
+    widget.setSource(&db, QStringLiteral("DXCC_TEST"));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("dxcc"), nullptr);
+    QString text = visibleText(widget);
+    QVERIFY2(text.contains(QStringLiteral("Länder ——")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("Länderliste fehlt")), qPrintable(text));
+
+    CountryPrefixIndex index;
+    QVERIFY(index.loadFromCty(QByteArrayLiteral(
+        "Fed. Rep. of Germany: 14: 28: EU: 51.00: -10.00: -1.0: DL:\n"
+        "    DA,DB,DC,DD,DK,DL,DM;\n"
+        "Japan: 25: 45: AS: 36.40: -138.38: -9.0: JA:\n"
+        "    JA,JE,JF,JG,JH;\n")));
+    widget.setScoring(QStringLiteral("JN67UT"), {QStringLiteral("14"), QStringLiteral("21")},
+                      QStringLiteral("qso_count"), QStringLiteral("dxcc"), &index);
+    text = visibleText(widget);
+    // DL1ABC und DK5XYZ sind dasselbe Land.
+    QVERIFY2(text.contains(QStringLiteral("Länder 2 (14: 2 · 21: 0)")), qPrintable(text));
 }
 
 int main(int argc, char* argv[])

@@ -33,6 +33,16 @@ double firstFresnelRadiusM(double d1Km, double d2Km, double totalKm, double freq
     return 17.3 * std::sqrt((d1Km * d2Km) / (frequencyGhz * totalKm));
 }
 
+// Der Funkhorizont für zwei Antennenhöhen, 4/3-Erde:
+// d[km] = 4.12 * (sqrt(h1[m]) + sqrt(h2[m])). Die Standardformel,
+// dieselbe Erdkrümmung wie oben, nur nach der Entfernung aufgelöst.
+double radioHorizonKm(double heightOneM, double heightTwoM)
+{
+    const double h1 = std::max(0.0, heightOneM);
+    const double h2 = std::max(0.0, heightTwoM);
+    return 4.12 * (std::sqrt(h1) + std::sqrt(h2));
+}
+
 } // namespace
 
 LineOfSightClass classifyLineOfSight(const QVector<ElevationSample>& profile, double ownElevationM,
@@ -46,6 +56,26 @@ LineOfSightClass classifyLineOfSight(const QVector<ElevationSample>& profile, do
     const double totalKm = profile.last().distanceKm;
     const double startHeightM = ownElevationM + ownAntennaHeightM;
     const double endHeightM = otherElevationM + otherAntennaHeightM;
+
+    // Jenseits des Funkhorizonts sagt dieses Modell nichts mehr.
+    //
+    // Es vergleicht eine GERADE mit dem Gelände plus Erdbauch. Ist der
+    // Weg länger als der Funkhorizont der beiden Höhen, liegt die
+    // Gerade überall unter dem Erdbauch -- und zwar unabhängig davon,
+    // ob dort ein Berg steht oder nur flaches Land. "Verdeckt" hieße
+    // dann nur "weiter als der Horizont", und genau diese
+    // Verbindungen bringen im UKW-Contest die Punkte: vom Feuerkogel
+    // (1 592 m) liegt der Horizont bei rund 240 km, der ODX in Martins
+    // Prüfdaten bei 521 km. Gemeldet als Blocked verschwand so eine
+    // Station aus dem Chat (GeoFilter::classify() schließt Blocked
+    // hart aus).
+    //
+    // Was dort wirklich geht, entscheidet die Troposphäre, nicht die
+    // Geometrie. Die ehrliche Antwort ist deshalb "unbekannt" -- und
+    // Unknown versteckt nichts (siehe GeoFilter.h).
+    if (totalKm > radioHorizonKm(startHeightM, endHeightM)) {
+        return LineOfSightClass::Unknown;
+    }
 
     bool anyUnknown = false;
     bool anyMarginal = false;

@@ -29,6 +29,9 @@
 
 #include <QApplication>
 #include <QImage>
+#include <QtMath>
+
+#include <cmath>
 
 #include "core/ColorTheme.h"
 #include "ui/MapWidget.h"
@@ -49,8 +52,18 @@ struct StationSeed {
 // combined sheet. Resets the active theme back to Bernstein before
 // returning so later scenarios in the same run always start from a
 // known state regardless of what a given scenario itself picked.
+// Wahlweise abweichender Zuschnitt und Rand: `fullBleed` schaltet die
+// Scheibe ab (die Panelkanten sind dann der Rand), `size` setzt ein
+// breites Panelformat statt des quadratnahen Standardblatts.
+struct SheetOptions {
+    bool fullBleed = false;
+    QSize size;
+    bool withHorizonAndRotor = false;
+    bool withBordersAndCities = false;
+};
+
 void renderScenario(const QString& path, ColorTheme theme, double visibleRangeKm,
-                     const QVector<StationSeed>& seeds)
+                     const QVector<StationSeed>& seeds, const SheetOptions& options = SheetOptions())
 {
     Style::setActiveTheme(theme);
 
@@ -69,11 +82,33 @@ void renderScenario(const QString& path, ColorTheme theme, double visibleRangeKm
         stations.append(s);
     }
     widget.setStations(stations);
+    widget.setFullBleedEnabled(options.fullBleed);
+    if (options.withBordersAndCities) {
+        // Martin, 2026-10-18: "man wuerde dann die karte mit grenzen,
+        // spots, staedte rechteckig groesser und formatfuellend sehen"
+        // -- also gehoeren genau die auf das Blatt.
+        widget.setBordersLayerVisible(true);
+        widget.setCitiesLayerVisible(true);
+    }
+    if (options.withHorizonAndRotor) {
+        // Ein erfundener, aber gebirgsaehnlicher Horizont (Feuerkogel
+        // schaut nach Nordosten frei, nach Sueden steht der Berg) und
+        // ein gedrehter Rotor -- die beiden Dinge, die am Rand kleben
+        // und deshalb beim Randwechsel als Erstes brechen wuerden.
+        QVector<double> horizon(360, 0.0);
+        for (int deg = 0; deg < 360; ++deg) {
+            const double south = std::cos(qDegreesToRadians(static_cast<double>(deg) - 200.0));
+            horizon[deg] = std::max(0.0, 5.5 * south);
+        }
+        widget.setHorizonProfile(horizon);
+        widget.setRotor1Heading(true, 35.0, QStringLiteral("2m"));
+        widget.setRotor2Heading(true, 300.0, QStringLiteral("70cm"));
+    }
 
     // Wirkliche Groesse -- wie das Panel im echten Fenster typisch
     // aussieht (sizeHint(), auf eine vorzeigbare Mindestgroesse
     // angehoben), nicht kuenstlich vergroessert oder verkleinert.
-    const QSize size = widget.sizeHint().expandedTo(QSize(760, 640));
+    const QSize size = options.size.isValid() ? options.size : widget.sizeHint().expandedTo(QSize(760, 640));
     widget.resize(size);
 
     QImage sheet(size * 2, QImage::Format_ARGB32);
@@ -110,6 +145,13 @@ private slots:
     // Vergleich zur Bernstein-Fassung, gleiche Daten, nur die Farbe
     // wechselt.
     void drawGruenScenario();
+    // Die Zusatzoption vom 2026-10-18 ("optional flaechenfuellend ...
+    // die linien des fensters als begrenzer"), im breiten Panelformat,
+    // in dem sie ueberhaupt erst etwas bringt -- und derselbe Fall als
+    // Scheibe, damit der Unterschied an zwei Blaettern entschieden
+    // wird und nicht an einer Beschreibung.
+    void drawWidePanelAsDisc();
+    void drawWidePanelFullBleed();
 };
 
 void TestMapMockup::drawStandardScenario()
@@ -175,6 +217,53 @@ void TestMapMockup::drawGruenScenario()
     };
     renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-mockup-gruen.png")), ColorTheme::Gruen, 500.0,
                     seeds);
+}
+
+namespace {
+// Breites Panel wie in Martins Fenster (Karte links, Zahlenspalte
+// rechts) -- im quadratnahen Standardblatt faellt kaum auf, wie viel
+// Flaeche die Scheibe liegen laesst.
+const QVector<StationSeed>& widePanelSeeds()
+{
+    static const QVector<StationSeed> seeds = {
+        {"DL2ABC", "JO62QC", true},     // Berlin
+        {"OK1HIJ", "JO70QK", false},    // Bruenn
+        {"OM3BCD", "JN88WV", true},     // Bratislava
+        {"HA5STU", "JN86EF", true},     // Budapest
+        {"9A3EFG", "JN75RS", true},     // Zagreb
+        {"S57DEF", "JN65WM", false},    // Ljubljana
+        {"I2PQR", "JN45UV", true},      // Mailand
+        {"HB9MNO", "JN47GH", false},    // Zuerich
+        {"DL4JKL", "JN58QD", true},     // Frankfurt
+        {"F5TEST", "JN18AU", false},    // Paris
+        {"PA3YZA", "JO22WA", false},    // Amsterdam
+        {"SP3DEF", "JO92BR", false},    // Warschau
+    };
+    return seeds;
+}
+constexpr int kWidePanelWidth = 1240;
+constexpr int kWidePanelHeight = 700;
+} // namespace
+
+void TestMapMockup::drawWidePanelAsDisc()
+{
+    SheetOptions options;
+    options.size = QSize(kWidePanelWidth, kWidePanelHeight);
+    options.withHorizonAndRotor = true;
+    options.withBordersAndCities = true;
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-breit-scheibe.png")), ColorTheme::Bernstein,
+                    800.0, widePanelSeeds(), options);
+}
+
+void TestMapMockup::drawWidePanelFullBleed()
+{
+    SheetOptions options;
+    options.size = QSize(kWidePanelWidth, kWidePanelHeight);
+    options.withHorizonAndRotor = true;
+    options.withBordersAndCities = true;
+    options.fullBleed = true;
+    renderScenario(QDir::temp().filePath(QStringLiteral("contestprogramm-map-breit-vollflaeche.png")), ColorTheme::Bernstein,
+                    800.0, widePanelSeeds(), options);
 }
 
 int main(int argc, char* argv[])

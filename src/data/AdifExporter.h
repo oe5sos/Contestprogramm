@@ -2,9 +2,12 @@
 
 #include <QString>
 
+#include "data/QsoRecord.h"
+
 namespace Contestprogramm {
 
 class ContestDatabase;
+struct ContestSettings;
 
 // General-format export alongside CabrilloExporter, per the plan's
 // Cabrillo-Export section: "Cabrillo... aber qsos.freq_hz... wird im
@@ -21,11 +24,21 @@ class ContestDatabase;
 // <ADIF_VER>/<PROGRAMID>/<EOH> header) -- the pattern only, not the
 // code, since this exports QsoRecord (a different schema entirely, no
 // NAME/QTH/POTA/etc.), not LogEntry.
+// Eine einzelne ADIF-Zeile aus einem QSO. Öffentlich, weil sie nicht
+// nur der Export braucht: das Journal (QsoJournal) schreibt damit
+// jedes geloggte QSO sofort auf die Platte -- dieselbe Zeile, dasselbe
+// Format, keine zweite Rechnung daneben.
+QString toAdifRecord(const QsoRecord& record, const ContestSettings& settings);
+
 class AdifExporter {
 public:
     explicit AdifExporter(ContestDatabase& database);
 
-    QString exportContest(const QString& contestId) const;
+    // `settings` liefert die Felder, die kein QSO beantworten kann:
+    // eigenes Rufzeichen und eigener Locator (STATION_CALLSIGN /
+    // OPERATOR / MY_GRIDSQUARE). Dieselbe Aufteilung wie beim
+    // Cabrillo-Export.
+    QString exportContest(const QString& contestId, const ContestSettings& settings) const;
 
 private:
     ContestDatabase* m_database;

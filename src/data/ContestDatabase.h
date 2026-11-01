@@ -41,6 +41,20 @@ public:
     // that open several independent databases in one process need
     // distinct names. Returns false and sets lastError() on failure.
     bool open(const QString& path, const QString& connectionName = QStringLiteral("qt_sql_default_connection"));
+    // Opens an EXISTING database file for reading only: no schema
+    // creation, no migrations, no journal/synchronous pragmas -- SQLite
+    // is told QSQLITE_OPEN_READONLY, so the file cannot be written and
+    // is not created when it is missing (open() would silently make an
+    // empty one). For looking INTO a backup copy without touching it;
+    // see data/BackupRestore.h::summarizeBackup, which is the whole
+    // reason this exists. Every read accessor below works as usual;
+    // every write one fails with a "readonly database" lastError().
+    bool openReadOnly(const QString& path, const QString& connectionName);
+    // Trägt diese Datei überhaupt ein Log dieses Programms? Eine
+    // gültige SQLite-Datei ist noch keine Sicherung -- geprüft, bevor
+    // data/BackupRestore.h::restoreDatabaseFile das laufende Log durch
+    // sie ersetzt.
+    bool hasQsoTable() const;
     void close();
     bool isOpen() const;
     // The file behind the open connection (empty when closed).
@@ -50,6 +64,11 @@ public:
     // Inserts `record`; on success sets record.id to the new row id and
     // returns true.
     bool insertQso(QsoRecord& record);
+
+    // Eine PRAGMA-Einstellung auslesen -- für Prüfstände, die belegen
+    // wollen, dass die Haltbarkeitsstufe wirklich gesetzt ist und nicht
+    // nur im Quelltext steht (siehe test_log_haltbarkeit).
+    bool pragmaValueForTest(const QString& name, QVariant& wertAus);
     QVector<QsoRecord> qsosForContest(const QString& contestId) const;
     // Single QSO by id -- used to refresh just the affected row after a
     // history-row hand-correction or invalid-toggle (see LogTableModel::
@@ -122,6 +141,37 @@ public:
     // MultiplierTracker/CabrilloExporter/AdifExporter for where
     // is_invalid is then excluded.
     bool setQsoInvalid(int id, bool invalid, QString* errorOut = nullptr);
+
+    // Das Suffix, das ein gelöschtes QSO an seiner Contest-Kennung
+    // trägt. Ein Log "IARU_R1_VHF_UHF" hat seinen Papierkorb also unter
+    // "IARU_R1_VHF_UHF@geloescht".
+    static QString deletedBinSuffix() { return QStringLiteral("@geloescht"); }
+
+    // Ein QSO aus dem Log nehmen: es verschwindet aus der Liste, aus
+    // der Wertung, aus der Dupe-Prüfung und aus jedem Export. Gelöscht
+    // wird es dabei NICHT -- es wandert unter die Papierkorb-Kennung
+    // (siehe deletedBinSuffix()), genau wie N1MM ein gelöschtes QSO in
+    // eine eigene Datei legt statt es wegzuwerfen. Damit bleibt es für
+    // das Locator-Gedächtnis, die Sicherungen und ein Rückgängig
+    // erhalten.
+    //
+    // Martin, 2026-09-27: "fehler sollen einfach und schnell geändert
+    // und gelöscht werden". Das Markieren als ungültig
+    // (setQsoInvalid) bleibt daneben bestehen: es lässt das QSO im Log
+    // sichtbar stehen, was bei einem strittigen QSO das Richtige ist.
+    bool deleteQso(int id, QString* errorOut = nullptr);
+
+    // Die Umkehrung, für das Rückgängig gleich nach dem Löschen.
+    bool undeleteQso(int id, QString* errorOut = nullptr);
+
+    // Entfernung und Richtung aller QSOs eines Logs neu aus `ownGrid`
+    // (2026-09-25): wer mit dem Heim-Locator loggt und dann auf den
+    // Portabelstandort umstellt, bekam sonst die alten Entfernungen in
+    // die Wertung und ins EDI, obwohl PWWLo schon den neuen Locator
+    // zeigte. Entfernung nach iaruQrbKm (IARU R1 GC 2023, 1.10.1).
+    // Gibt die Zahl der geaenderten QSOs zurueck, -1 bei einem Fehler.
+    int recomputeDistances(const QString& contestId, const QString& ownGrid,
+                           QString* errorOut = nullptr);
     // The dupe flag as data/DupeRescore.h recomputes it after a
     // correction; the flag set at logging time is DupeChecker's.
     bool setQsoDupe(int id, bool dupe, QString* errorOut = nullptr);
@@ -142,6 +192,25 @@ public:
 
     // Every contest_id present in the qsos table, active or archived.
     QStringList contestIdsInLog() const;
+
+    // Auf welchen Bändern diese Station in diesem Contest schon im Log
+    // steht -- ungeordnet, ungültige QSOs zählen nicht. Die Frage beim
+    // Tippen auf Kurzwelle: "den hab ich doch schon, aber auf welchem
+    // Band?" Die Dupe-Pille beantwortet nur das laufende Band.
+    QStringList bandsWorkedForCallsign(const QString& callsign, const QString& contestId) const;
+
+    // Jedes Rufzeichen, das in DIESER Datenbank schon einmal gearbeitet
+    // wurde, samt zuletzt gehörtem Locator -- über alle Contests
+    // hinweg, also auch die archivierten. Ungültige QSOs und der
+    // Papierkorb zählen nicht.
+    //
+    // Martin, 2026-09-27: "bekannte rufzeichen aus ukw contest logs und
+    // auch qrz, aber insbesondere ehemalige logs bei ukw sind primär".
+    // Genau die standen der Vorschlagsliste bis dahin nicht zur
+    // Verfügung: sie kannte nur den laufenden Contest, die importierte
+    // Locator-Liste und die SCP-Datei. Wer jedes Jahr vom selben Berg
+    // fährt, trifft aber jedes Jahr dieselben Stationen.
+    QHash<QString, QString> allWorkedCallsigns() const;
 
     // Skeds (core/SkedList.h), one table for every contest, keyed by
     // contest_id like the QSOs. A restart mid-contest keeps them.

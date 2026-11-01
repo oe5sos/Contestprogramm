@@ -1,5 +1,7 @@
 #include "ui/RateMeterWidget.h"
 
+#include "core/CallsignPrefix.h"
+#include "core/CountryPrefixIndex.h"
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
 #include "data/ContestScoring.h"
@@ -267,11 +269,14 @@ void RateMeterWidget::setSource(ContestDatabase* database, const QString& contes
     refresh();
 }
 
-void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring)
+void RateMeterWidget::setScoring(const QString& ownGrid, const QStringList& bandOrder, const QString& scoring,
+                                 const QString& multiplierBasis, const CountryPrefixIndex* countryIndex)
 {
+    m_countryIndex = countryIndex;
     m_ownGrid = ownGrid.trimmed().toUpper();
     m_bandOrder = bandOrder;
     m_scoring = scoring;
+    m_multiplierBasis = multiplierBasis;
     refresh();
 }
 
@@ -297,7 +302,10 @@ void RateMeterWidget::refresh()
         m_score = ContestScore();
         m_largeSquares = 0;
         update();
-        emit last10MinRateChanged(0);
+        if (m_letzteGemeldeteRate != 0) {
+            m_letzteGemeldeteRate = 0;
+            emit last10MinRateChanged(0);
+        }
         return;
     }
 
@@ -323,20 +331,51 @@ void RateMeterWidget::refresh()
     m_scoreKnown = isValidGridSquare(m_ownGrid) || m_scoring != QStringLiteral("distance_km");
     m_score = m_scoreKnown ? computeContestScore(records, m_ownGrid, m_bandOrder, m_scoring) : ContestScore();
 
-    // Large squares worked over all bands -- one square worked on two
-    // bands is still one square here (the per-band figures live in
-    // BandScore::largeSquares).
-    QSet<QString> squares;
+    // Multiplikatoren über alle Bänder -- einer auf zwei Bändern bleibt
+    // einer (die Zahlen je Band stehen in BandScore::largeSquares).
+    // Grundlage ist dieselbe wie bei MultiplierTracker: Locator-Großfeld
+    // oder WPX-Präfix; auf Kurzwelle gibt es keinen Locator, ein
+    // Großfeld-Zähler stünde dort für immer auf 0.
+    QSet<QString> keys;
+    QHash<QString, QSet<QString>> keysByBand;
     for (const QsoRecord& record : records) {
-        if (record.isInvalid || record.gridSquare.size() < 4) {
+        if (record.isInvalid) {
             continue;
         }
-        squares.insert(record.gridSquare.left(4).toUpper());
+        QString key;
+        if (m_multiplierBasis == QStringLiteral("prefix")) {
+            key = wpxPrefix(record.callsign);
+        } else if (m_multiplierBasis == QStringLiteral("dxcc")) {
+            key = m_countryIndex ? m_countryIndex->lookup(record.callsign).primaryPrefix : QString();
+        } else if (record.gridSquare.size() >= 4) {
+            key = record.gridSquare.left(4).toUpper();
+        }
+        if (key.isEmpty()) {
+            continue;
+        }
+        keys.insert(key);
+        keysByBand[record.band].insert(key);
     }
-    m_largeSquares = squares.size();
+    m_largeSquares = keys.size();
+    m_multipliersByBand.clear();
+    for (auto it = keysByBand.constBegin(); it != keysByBand.constEnd(); ++it) {
+        m_multipliersByBand.insert(it.key(), it.value().size());
+    }
 
     update();
-    emit last10MinRateChanged(m_breakdown.last10Min);
+    // Nur melden, wenn sich die Zahl wirklich geändert hat. An diesem
+    // Signal hängt die Tempo-Regel der beiden Chatlisten
+    // (ChatFeedModel::setCurrentRatePerTenMinutes), und die baut ihre
+    // Sichtliste neu auf. Seit das Rate-Panel nach JEDEM geloggten QSO
+    // aufgefrischt wird (2026-10-08, damit es nicht 15 Sekunden lang
+    // den alten Punktestand zeigt), hieß das: zwei vollständige
+    // Neuaufbauten je QSO, auch wenn die Rate dieselbe geblieben ist.
+    // Gemessen bei 1 200 QSOs und vollen Listen: 70 ms von den
+    // insgesamt 100 ms dieser Auffrischung.
+    if (m_breakdown.last10Min != m_letzteGemeldeteRate) {
+        m_letzteGemeldeteRate = m_breakdown.last10Min;
+        emit last10MinRateChanged(m_breakdown.last10Min);
+    }
 }
 
 // "144: 31 · 432: 16" (or "31 · 16" without names) -- per-band QSO
@@ -418,24 +457,48 @@ QVector<RateMeterWidget::Reading> RateMeterWidget::readings() const
     out.append({QStringLiteral("Stunde"), QString::number(m_breakdown.lastHour), QString(), bestHour, bestHourShort,
                 primary});
 
-    if (m_scoreKnown && m_score.odxKm > 0) {
+    // An odxCall, nicht an odxKm: ein Band, auf dem nur Stationen im
+    // eigenen Großfeld gearbeitet wurden, HAT einen weitesten -- bei
+    // 0 km. Die Wertung setzt ihn ausdrücklich (ContestScoring.cpp) und
+    // der EDI-Kopf trägt ihn als CODXC; "> 0" ließ ihn hier
+    // verschwinden, und dann sagte der Schirm etwas anderes als die
+    // Datei, die eingereicht wird.
+    if (m_scoreKnown && !m_score.odxCall.isEmpty()) {
         out.append({QStringLiteral("ODX"), groupedNumber(m_score.odxKm), QStringLiteral("km"),
                     QStringLiteral("%1 · %2").arg(m_score.odxCall, m_score.odxGrid), m_score.odxCall, primary});
     } else {
         out.append({QStringLiteral("ODX"), dash, QString(), QString(), QString(), inactive});
     }
 
+    // Je Band aus derselben Quelle wie die Gesamtzahl oben -- nicht aus
+    // BandScore::largeSquares, das immer Locator-Großfelder zählt und
+    // unter einer Präfix-Gesamtzahl lauter Nullen ergeben hätte.
     QStringList squaresPerBand;
     QStringList squaresPerBandShort;
     if (m_scoreKnown && multiBand) {
         for (const BandScore& band : m_score.bands) {
-            squaresPerBand << QStringLiteral("%1: %2").arg(band.band).arg(band.largeSquares);
-            squaresPerBandShort << QString::number(band.largeSquares);
+            const int count = m_multipliersByBand.value(band.band);
+            squaresPerBand << QStringLiteral("%1: %2").arg(band.band).arg(count);
+            squaresPerBandShort << QString::number(count);
         }
     }
-    out.append({QStringLiteral("Felder"), QString::number(m_largeSquares), QString(),
-                squaresPerBand.join(QStringLiteral(" · ")), squaresPerBandShort.join(QStringLiteral(" · ")),
-                primary});
+    // Ohne Multiplikator entfällt die Kachel ganz -- eine Null wäre
+    // dort keine Aussage, sondern eine falsche.
+    if (m_multiplierBasis == QStringLiteral("dxcc")) {
+        // Ohne geladene Länderliste lässt sich kein Land zählen -- ein
+        // Strich mit dem Grund dahinter, keine Null.
+        const bool haveList = m_countryIndex != nullptr && !m_countryIndex->isEmpty();
+        out.append({QStringLiteral("Länder"), haveList ? QString::number(m_largeSquares) : dash, QString(),
+                    haveList ? squaresPerBand.join(QStringLiteral(" · ")) : QStringLiteral("Länderliste fehlt"),
+                    haveList ? squaresPerBandShort.join(QStringLiteral(" · ")) : QStringLiteral("keine Liste"),
+                    haveList ? primary : inactive});
+    } else if (m_multiplierBasis == QStringLiteral("grid") || m_multiplierBasis == QStringLiteral("prefix")) {
+        const QString label = m_multiplierBasis == QStringLiteral("prefix") ? QStringLiteral("Präfixe")
+                                                                            : QStringLiteral("Felder");
+        out.append({label, QString::number(m_largeSquares), QString(),
+                    squaresPerBand.join(QStringLiteral(" · ")), squaresPerBandShort.join(QStringLiteral(" · ")),
+                    primary});
+    }
     return out;
 }
 
@@ -485,7 +548,14 @@ void RateMeterWidget::paintTiles(QPainter& g, const QRect& area) const
     const QVector<Reading> all = readings();
     const int columns = std::clamp((area.width() - kTileGap) / (kTileMinWidth + kTileGap), 1, 3);
     const int rowsAfforded = std::max(1, (area.height() - kTileGap) / (kTileMinHeight + kTileGap));
-    const int count = std::min(kMaxTiles, columns * rowsAfforded);
+    // An der Liste geklemmt, nicht nur an kMaxTiles: readings() liefert
+    // fünf Kacheln statt sechs, wenn der Contest keinen Multiplikator
+    // führt -- die Kachel entfällt dann ganz, weil eine Null dort keine
+    // Aussage wäre. Ohne diese Klemme griff das Zeichnen daneben und
+    // das Programm brach ab (2026-09-27 beim Start mit einem solchen
+    // Contest gesehen). Eine Kachelzahl darf nie aus einer anderen
+    // Quelle stammen als die Kacheln selbst.
+    const int count = std::min({kMaxTiles, columns * rowsAfforded, static_cast<int>(all.size())});
     const int rows = (count + columns - 1) / columns;
     const double w = (area.width() - (columns + 1) * kTileGap) / double(columns);
     const double h = (area.height() - (rows + 1) * kTileGap) / double(rows);
@@ -550,6 +620,12 @@ void RateMeterWidget::paintStrip(QPainter& g, const QRect& full) const
 {
     const Ink ink{font()};
     const QVector<Reading> all = readings();
+    // Die ersten fünf schreibt readings() bedingungslos; die sechste
+    // (der Multiplikator) kann fehlen. Sollte sich das je ändern, hört
+    // der Streifen hier auf, statt daneben zu greifen.
+    if (all.size() < 5) {
+        return;
+    }
     const Reading& qsos = all.at(0);
     const Reading& points = all.at(1);
     const Reading& tenMin = all.at(2);

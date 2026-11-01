@@ -41,6 +41,23 @@ struct ContestSettings {
     // default port 4532 is a sibling to rotctld's 4533.
     QString rigctldHost = QStringLiteral("127.0.0.1");
     int rigctldPort = 4532;
+    // Hamlib model/device/baud for rigctld ITSELF -- consulted only
+    // when this program starts rigctld (core/RigctldProcess.h), which
+    // it does for a loopback host with a device named here and only
+    // after the client's own dial was refused. An operator who already
+    // runs rigctld their own way is unaffected: they leave the device
+    // empty, and host/port above are all that is used. Exactly the
+    // posture rotor1HamlibModel/-Device/-Baud have for the rotor.
+    //
+    // Which radio drives the transverter is still open (Martin,
+    // 2026-10-16) -- so this default is only what the picker lands on
+    // before anything is chosen, not a decision. 2029 = Elecraft K3,
+    // the usual IF driver on VHF/UHF. The numbers are Hamlib's own and
+    // move between releases, so the picker reads the installed list
+    // (core/RigModels.h) rather than trusting this constant.
+    int rigctldHamlibModel = 2029;
+    QString rigctldDevice;   // empty = do not start one, see above
+    int rigctldBaud = 38400;
     QString on4kstUsername;
     QString on4kstPassword;
     // Classic telnet DX cluster -- a second, independent spot source
@@ -134,6 +151,11 @@ struct ContestSettings {
     RotorSlot band144RotorSlot = RotorSlot::Slot1;
     RotorSlot band432RotorSlot = RotorSlot::Slot2;
     RotorSlot band1296RotorSlot = RotorSlot::Slot1;
+    // Jedes andere Band -- Kurzwelle, 6 m, 4 m, die Mikrowellenbänder.
+    // Ohne diese Zuordnung dreht auf Kurzwelle überhaupt kein Rotor mit,
+    // weil die drei Felder darüber die einzigen waren. None ist die
+    // Vorgabe: solange sie steht, verhält sich alles wie bisher.
+    RotorSlot bandOtherRotorSlot = RotorSlot::None;
 
     // Which of RotorWidget's four paint styles both rotor compasses
     // use (core/RotorDialStyle.h) -- one operator-wide setting, not
@@ -146,6 +168,17 @@ struct ContestSettings {
     // request for additional selectable styles ("vielleicht mehrere
     // Möglichkeiten, dann kann individuell ausgewählt werden").
     RotorDialStyle rotorDialStyle = RotorDialStyle::FullCompass;
+
+    // Eine dritte Antenne ohne Rotor: feste Richtung, sonst dasselbe
+    // Instrument wie die beiden drehbaren (Martin, 2026-10-08: "diese
+    // antenne wird aber als fixantenne gesehen, hat also keinen rotor.
+    // sollte nur das gleiche design haben. benenne sie als Antenne
+    // Fix"). Ausgeschaltet, solange niemand sie einschaltet -- ein
+    // bestehender Aufbau soll nicht ploetzlich ein drittes Panel
+    // bekommen.
+    bool fixedAntennaEnabled = false;
+    QString fixedAntennaLabel = QStringLiteral("Antenne Fix");
+    double fixedAntennaBearingDeg = 0.0;
 
     // Which of the five selectable colour palettes the whole app uses
     // (core/ColorTheme.h) -- operator, 2026-09-12: "gelber Hintergrund,
@@ -204,6 +237,30 @@ struct ContestSettings {
     // row) does. Top is still selectable via the Log panel's own ⚙ for
     // an operator who prefers it, just no longer the initial value.
     LogEntryRowPosition logEntryRowPosition = LogEntryRowPosition::Bottom;
+
+    // Die laufende Nummer ganz links im Log ("das wievielte QSO war
+    // das?"). Standardmäßig an -- Martin, 2026-09-28: "es ist keine
+    // chronologische nmer vorhanden."
+    //
+    // Abschaltbar, weil DXLog.net das genau so löst und die Begründung
+    // auf Martins Conteste passt: "Hides the QSO numbers on the left,
+    // useful for serial number contests so wrong serials don't get
+    // sent" (dxlog.net/docs, Main Window). Auf UKW fängt die GESENDETE
+    // Nummer je Band wieder bei 001 an, die laufende nicht -- wer die
+    // falsche Spalte abliest, sendet die falsche Nummer.
+    bool logShowRunningNumber = true;
+
+    // Die Bänder, die in DIESEM Contest wirklich gefahren werden --
+    // leer heißt „alle, die der Contest kennt". Martin, 2026-09-28:
+    // "beim start des contest soll ich dies ggf. zusätzlich anführen,
+    // sprich ich muss gefragt werden. standard nicht."
+    //
+    // Der IARU-R1-Contest kennt sieben Bänder, gefahren wird meist
+    // eines. Daran hängt, ob die Bandspalte im Log überhaupt einen
+    // Unterschied zeigt. Gefragt wird beim Beginn eines neuen Logs
+    // (MainWindow::archiveActiveContest()), vorbelegt mit dem Band, auf
+    // dem gerade gearbeitet wird -- also standardmäßig genau eines.
+    QStringList activeBands;
 
     // CW F-key macro templates (Kern-Welle 2), sent via
     // RigctldClient::sendMorse() after CwMacroPanel substitutes
@@ -294,6 +351,25 @@ struct ContestSettings {
     bool broadcastEnabled = false;
     QString broadcastHost = QStringLiteral("127.0.0.1");
     int broadcastPort = 12060;
+
+    // ── Stundenlanger QSO-Mitschnitt (core/QsoAudioRecorder.h) ──────
+    //
+    // Betreiber am 2026-10-22: „ziel wäre, dass das logprogramm das
+    // alles kann, unabhängig von longpath. sprich ich würde gerne
+    // stundenlang alles automatisch mitschneiden wollen."
+    //
+    // Aus, bis ein Ordner steht -- derselbe Grundsatz wie beim
+    // Broadcast darueber: nichts schaltet sich selbst ein, was Platz
+    // auf der Platte verbraucht oder ein Mikrofon aufmacht.
+    //
+    // `audioDevice` leer = Standardeingang des Systems. Wer Empfang UND
+    // eigene Stimme will, waehlt ein Aggregat-Geraet -- die Begruendung
+    // steht im Kopf von QsoAudioRecorder.h.
+    bool audioRecordEnabled = false;
+    QString audioRecordDevice;          // leer = Standardgeraet
+    QString audioRecordFolder;          // leer = nicht aufnehmen
+    int audioRecordRollMinutes = 60;    // neue Datei nach dieser Zeit
+    int audioRecordMinFreePercent = 5;  // darunter hoert er auf
 
     // Reads every key from `database`'s settings table, falling back to
     // this struct's current field values for any key that is not

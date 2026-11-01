@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "core/Maidenhead.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -56,6 +57,9 @@ AppController::AppController(QObject* parent)
     , m_on4kstFeedModel(m_geoFilter, m_dupeChecker)
     , m_clusterFeedModel(m_geoFilter, m_dupeChecker)
 {
+    // Der Zähler holt sich das Land aus derselben Liste, die auch die
+    // Karte benutzt -- eine Liste, ein Stand.
+    m_multiplierTracker.setCountryIndex(&m_countryIndex);
     // Terrain line-of-sight (Phase 2) -- fixed at 144 MHz for now: this
     // codebase has one shared GeoFilter across both spot feeds/bands
     // (see GeoFilter.h's own setTerrainDataManager() comment on what a
@@ -94,6 +98,19 @@ AppController::AppController(QObject* parent)
             [this] { superviseRotctld(1, m_rotor1.state() == RotctldClient::State::Disconnected); });
     connect(&m_rotor2, &RotctldClient::stateChanged, this,
             [this] { superviseRotctld(2, m_rotor2.state() == RotctldClient::State::Disconnected); });
+    // rigctld on demand, same arrangement as the rotors above: the CAT
+    // client dials first, so an operator's own rigctld is always
+    // preferred; only a refused dial starts ours.
+    connect(&m_rigctldClient, &RigctldClient::stateChanged, this,
+            [this] { superviseRigctld(m_rigctldClient.state() == RigctldClient::State::Disconnected); });
+    connect(&m_rigctld, &RigctldProcess::exited, this, [this](int code, const QString& stderrText) {
+        if (m_rigctldStopping) {
+            return; // our own stopRigctld()
+        }
+        m_rigctldLaunch = RigctldLaunch();
+        m_rigctldFailedAt = QDateTime::currentDateTimeUtc();
+        emit rigctldFailed(stderrText.isEmpty() ? QStringLiteral("rigctld beendet (Code %1)").arg(code) : stderrText);
+    });
     connect(&m_rotctld1, &RotctldProcess::exited, this, [this](int code, const QString& stderrText) {
         if (m_rotctldStoppingSlot == 1) {
             return; // our own stopRotctld()
@@ -147,6 +164,80 @@ void AppController::stopRotctld(int slot)
     (slot == 1 ? m_rotctldLaunch1 : m_rotctldLaunch2) = RotctldLaunch();
 }
 
+std::optional<AppController::RigctldLaunch> AppController::rigctldLaunchFor(const ContestSettings& settings)
+{
+    const QString host = settings.rigctldHost.trimmed();
+    const QString device = settings.rigctldDevice.trimmed();
+    const bool loopback = host == QStringLiteral("127.0.0.1") || host == QStringLiteral("::1")
+                          || host.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0;
+    // No device named means "the operator runs rigctld their own way"
+    // -- the one deliberate way to switch this off, same as the rotor.
+    if (device.isEmpty() || !loopback) {
+        return std::nullopt;
+    }
+    RigctldLaunch launch;
+    launch.hamlibModel = settings.rigctldHamlibModel;
+    launch.device = device;
+    launch.baud = settings.rigctldBaud;
+    launch.port = static_cast<quint16>(settings.rigctldPort);
+    return launch;
+}
+
+bool AppController::rigctldRunning() const
+{
+    return m_rigctld.isRunning();
+}
+
+void AppController::stopRigctld()
+{
+    // stop() waits for the exit, so exited() fires from inside it --
+    // flagged, so it is not taken for a failure (no cool-down, no
+    // message).
+    m_rigctldStopping = true;
+    m_rigctld.stop();
+    m_rigctldStopping = false;
+    m_rigctldLaunch = RigctldLaunch();
+}
+
+void AppController::superviseRigctld(bool mayStart)
+{
+    const std::optional<RigctldLaunch> wanted = rigctldLaunchFor(m_settings);
+
+    if (!wanted) {
+        if (m_rigctld.isRunning()) {
+            stopRigctld();
+        }
+        m_rigctldLaunch = RigctldLaunch();
+        return;
+    }
+    if (m_rigctld.isRunning()) {
+        if (m_rigctldLaunch == *wanted) {
+            return;
+        }
+        // Started with other settings: gone, and the client's next
+        // failed dial brings a fresh one.
+        stopRigctld();
+    }
+    if (!mayStart) {
+        return;
+    }
+    // A rigctld that just died (a serial port that is not there, a
+    // baud rate the radio disagrees with) is not restarted every three
+    // seconds with the client's retries.
+    constexpr qint64 kRestartCoolDownSecs = 30;
+    if (m_rigctldFailedAt.isValid()
+        && m_rigctldFailedAt.secsTo(QDateTime::currentDateTimeUtc()) < kRestartCoolDownSecs) {
+        return;
+    }
+    QString error;
+    if (!m_rigctld.start(wanted->hamlibModel, wanted->device, wanted->baud, wanted->port, &error)) {
+        m_rigctldFailedAt = QDateTime::currentDateTimeUtc();
+        emit rigctldFailed(error);
+        return;
+    }
+    m_rigctldLaunch = *wanted;
+}
+
 void AppController::superviseRotctld(int slot, bool mayStart)
 {
     RotctldProcess& process = slot == 1 ? m_rotctld1 : m_rotctld2;
@@ -192,10 +283,11 @@ AppController::~AppController()
     if (m_logBackup && m_database.isOpen()) {
         m_logBackup->backupNow(false);
     }
-    // Our rotctld processes go with us -- stopped here, while the
-    // members their exited() handlers touch still exist.
+    // Our rotctld/rigctld processes go with us -- stopped here, while
+    // the members their exited() handlers touch still exist.
     stopRotctld(1);
     stopRotctld(2);
+    stopRigctld();
 }
 
 bool AppController::openDatabase(const QString& path, QString* errorOut)
@@ -211,6 +303,11 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     m_transverter = TransverterSetup::load(m_database);
     // Backups live beside the database itself ("backups/" next to the
     // .sqlite), where a rescue after a crash looks first.
+    // Das Journal liegt neben der Datenbank und trägt denselben Namen
+    // mit der Endung .adi -- wer nach einem Unglück sucht, findet es
+    // dort, ohne ein Verzeichnis tiefer zu gehen.
+    m_qsoJournal = std::make_unique<QsoJournal>(
+        QFileInfo(path).dir().filePath(QFileInfo(path).completeBaseName() + QStringLiteral("-journal.adi")));
     if (m_logBackup == nullptr) {
         m_logBackup = new LogBackup(m_database, QFileInfo(path).dir().filePath(QStringLiteral("backups")), this);
         // The second copy's folder (a stick, a cloud folder) is a
@@ -221,12 +318,33 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
     }
     loadAvailableContestDefinitions();
     if (m_settings.activeContestId.isEmpty() && !m_availableContestDefinitions.isEmpty()) {
-        // A fresh database starts in the first all-mode contest of the
-        // list (file-name order), not in a single-mode one like the
-        // Marconi Memorial -- that would put a new install into CW.
+        // ── Womit eine frische Datenbank anfaengt ────────────────────
+        //
+        // Zwei Bedingungen, und die Reihenfolge ist die Aussage:
+        //
+        //   1. ein UKW-Contest (144 oder 432). Dieses Programm ist
+        //      dafuer gebaut; die Kurzwellenconteste kamen am
+        //      2026-10-23 dazu und sollen den ersten Start nicht
+        //      uebernehmen, bloss weil „arrl_dx_cw.json" im Ordner
+        //      vorne steht.
+        //   2. alle Betriebsarten, nicht eine einzelne -- sonst
+        //      landet ein neuer Betrieb im Marconi Memorial und damit
+        //      in CW.
+        //   3. ein CONTEST, kein Alltagslog. Das Alltagslog hat alle
+        //      Baender und alle Betriebsarten und passt damit auf die
+        //      ersten beiden Bedingungen besser als jeder Contest --
+        //      ohne diese dritte startet ein neuer Betrieb in einem
+        //      Buch statt in einem Contest.
+        //
+        // Vorher stand hier nur die zweite. Sie reichte, solange alle
+        // Regeln UKW waren.
         m_settings.activeContestId = m_availableContestDefinitions.first().id();
+        const auto istUkw = [](const ContestDefinition& def) {
+            return def.bands().contains(QStringLiteral("144"))
+                || def.bands().contains(QStringLiteral("432"));
+        };
         for (const ContestDefinition& def : m_availableContestDefinitions) {
-            if (def.modes().isEmpty()) {
+            if (istUkw(def) && def.modes().isEmpty() && !def.isEverydayLog()) {
                 m_settings.activeContestId = def.id();
                 break;
             }
@@ -239,6 +357,14 @@ bool AppController::openDatabase(const QString& path, QString* errorOut)
 
 void AppController::setSettings(const ContestSettings& settings)
 {
+    // Neuer eigener Locator: das LAUFENDE Log neu vermessen (nur dieses --
+    // aeltere Logs wurden an anderen Standorten gefuehrt und behalten ihre
+    // Entfernungen). Siehe ContestDatabase::recomputeDistances.
+    const QString oldGrid = m_settings.ownGrid.trimmed().toUpper();
+    const QString newGrid = settings.ownGrid.trimmed().toUpper();
+    if (newGrid != oldGrid && isValidGridSquare(newGrid) && !settings.activeContestId.isEmpty()) {
+        m_database.recomputeDistances(settings.activeContestId, newGrid);
+    }
     m_settings = settings;
     m_settings.saveTo(m_database);
     applyNetworkSettings();
@@ -247,11 +373,14 @@ void AppController::setSettings(const ContestSettings& settings)
 void AppController::loadAvailableContestDefinitions()
 {
     m_availableContestDefinitions.clear();
+    QSet<QString> seenIds;
+    // Leer, wenn das Verzeichnis nicht gefunden wurde -- dann bleiben
+    // nur die selbst angelegten Contests weiter unten (ein leerer Pfad
+    // an QDir wäre das Arbeitsverzeichnis, also irgendwelche JSON).
     const QString dir = findContestDefinitionsDir();
-    if (dir.isEmpty()) {
-        return;
-    }
-    const QStringList files = QDir(dir).entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    const QStringList files = dir.isEmpty()
+        ? QStringList()
+        : QDir(dir).entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
     for (const QString& fileName : files) {
         QString error;
         ContestDefinition def = ContestDefinition::loadFromFile(dir + QLatin1Char('/') + fileName, &error);
@@ -273,6 +402,26 @@ void AppController::loadAvailableContestDefinitions()
             }
         }
         m_availableContestDefinitions.append(def);
+        seenIds.insert(def.id());
+    }
+
+    // Contests the operator invented themselves (ContestRulesEditor's
+    // "Neuer Contest") have no shipped file at all -- they exist only
+    // as an override. They come after the shipped ones, so the
+    // "first all-mode contest" a fresh database starts in stays one of
+    // ours.
+    const QStringList overrideFiles =
+        QDir(ContestDefinition::overrideDirectory())
+            .entryList(QStringList{QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    for (const QString& fileName : overrideFiles) {
+        QString error;
+        const ContestDefinition def = ContestDefinition::loadFromFile(
+            ContestDefinition::overrideDirectory() + QLatin1Char('/') + fileName, &error);
+        if (!def.isValid() || seenIds.contains(def.id())) {
+            continue;
+        }
+        m_availableContestDefinitions.append(def);
+        seenIds.insert(def.id());
     }
 }
 
@@ -309,7 +458,10 @@ RotctldClient* AppController::activeRotorForBand(const QString& band)
         // ContestSettings::band1296RotorSlot.
         return rotorForSlot(m_settings.band1296RotorSlot);
     }
-    return nullptr;
+    // Alles andere -- Kurzwelle, 6 m, 4 m, die Mikrowellenbänder. Bis
+    // 2026-09-23 gab es hier nur nullptr: auf Kurzwelle drehte kein
+    // Rotor mit, egal was angeschlossen war. Vorgabe bleibt None.
+    return rotorForSlot(m_settings.bandOtherRotorSlot);
 }
 
 const ContestDefinition* AppController::findContestDefinition(const QString& contestId) const
@@ -345,6 +497,10 @@ void AppController::applyNetworkSettings()
     }
 
     m_rigctldClient.setTarget(m_settings.rigctldHost, static_cast<quint16>(m_settings.rigctldPort));
+    // A rigctld of ours that the new settings no longer want (or want
+    // with other arguments) goes first; starting one is left to the
+    // client's own failed dial -- see the constructor.
+    superviseRigctld(false);
     if (!m_settings.rigctldHost.isEmpty() && !m_rigctldClient.isConnected()) {
         m_rigctldClient.connectToRig();
     }
@@ -398,6 +554,57 @@ void AppController::applyNetworkSettings()
     m_broadcastPublisher.setEnabled(m_settings.broadcastEnabled);
     m_broadcastPublisher.setTarget(m_settings.broadcastHost, static_cast<quint16>(m_settings.broadcastPort));
 
+    // ── Mitschnitt nach den Einstellungen ────────────────────────────
+    //
+    // Start und Stopp hier, nicht in der Oberflaeche: wird der Haken
+    // mitten im Contest gesetzt, soll ab dann mitgeschnitten werden,
+    // ohne Neustart. Umgekehrt beendet ein Wegnehmen die laufende
+    // Aufnahme ordentlich -- die Groessenfelder der WAV-Datei stimmen
+    // erst nach dem Schliessen.
+    {
+        QsoAudioRecorder::Settings as;
+        as.folder         = m_settings.audioRecordFolder;
+        as.rollMinutes    = m_settings.audioRecordRollMinutes;
+        as.minFreePercent = m_settings.audioRecordMinFreePercent;
+        m_audioRecorder.setSettings(as);
+        m_audioCapture.setRecorder(&m_audioRecorder);
+
+        const bool soll = m_settings.audioRecordEnabled
+                          && !m_settings.audioRecordFolder.trimmed().isEmpty();
+        const bool laeuft = m_audioCapture.isRunning();
+
+        if (!soll && laeuft) {
+            m_audioCapture.stop();
+            m_audioRecorder.stop();
+        } else if (soll && !laeuft) {
+            QString fehler;
+            // Reihenfolge: erst das Geraet (es nennt Rate und Kanaele,
+            // die der Mitschneider VOR dem Oeffnen der Datei braucht),
+            // dann die Aufnahme. Andersherum stuende im WAV-Kopf eine
+            // geratene Rate.
+            if (!m_audioCapture.start(m_settings.audioRecordDevice, &fehler)) {
+                emit audioRecordingProblem(fehler);
+            } else if (!m_audioRecorder.start(&fehler)) {
+                m_audioCapture.stop();
+                emit audioRecordingProblem(fehler);
+            }
+        } else if (soll && laeuft && m_audioCapture.deviceName() != m_settings.audioRecordDevice
+                   && !m_settings.audioRecordDevice.trimmed().isEmpty()) {
+            // Geraetewechsel bei laufender Aufnahme: die alte Datei
+            // ordentlich abschliessen, dann neu aufmachen. Ein Wechsel
+            // in derselben Datei waere ein Formatwechsel mitten im
+            // WAV-Kopf.
+            m_audioCapture.stop();
+            m_audioRecorder.stop();
+            QString fehler;
+            if (!m_audioCapture.start(m_settings.audioRecordDevice, &fehler)
+                || !m_audioRecorder.start(&fehler)) {
+                m_audioCapture.stop();
+                emit audioRecordingProblem(fehler);
+            }
+        }
+    }
+
     // Tier 3 of callsign->grid autofill (core/CallsignLocatorLookup.h) --
     // kept in sync here rather than only at startup, so a mid-session
     // Settings save (e.g. the operator entering QRZ credentials for the
@@ -411,6 +618,15 @@ void AppController::publishQso(const QsoRecord& record)
     const ContestDefinition* def = findContestDefinition(record.contestId);
     const QString contestName = def ? def->id() : record.contestId;
     m_broadcastPublisher.publishContact(record, m_settings.ownCallsign, contestName);
+
+    // Dieselbe Stelle, derselbe Augenblick: der Mitschnitt bekommt
+    // eine Indexzeile mit der Sekunde IM Mitschnitt. Ein Mitschnitt
+    // von acht Stunden, in dem man eine Verbindung suchen muss, ist
+    // wertlos. Ohne laufende Aufnahme ist der Ruf ein Leerlauf -- das
+    // Logprogramm soll nicht wissen muessen, ob mitgeschnitten wird.
+    // timestampUtc ist in QsoRecord ein ISO-8601-TEXT, kein QDateTime.
+    m_audioRecorder.markQso(record.callsign, record.band, record.mode,
+                            QDateTime::fromString(record.timestampUtc, Qt::ISODate));
 }
 
 void AppController::publishRadioInfoNow()

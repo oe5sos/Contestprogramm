@@ -65,7 +65,32 @@ public:
     void setAzimuthDeg(double azimuthDeg);
     double azimuthDeg() const { return m_azimuthDeg; }
 
+    // Eine feste Antenne: dasselbe Instrument, aber nichts dreht sich.
+    // Martin, 2026-10-08: "diese antenne wird aber als fixantenne
+    // gesehen, hat also keinen rotor. sollte nur das gleiche design
+    // haben. benenne sie als Antenne Fix".
+    //
+    // Praktisch heisst das: die Nadel steht auf der eingestellten
+    // Richtung, es gibt kein Ziel und kein Drehen (Doppelklick und
+    // Zielfeld tun nichts), und statt "verbunden/getrennt" -- eine
+    // Aussage ueber eine Steuerleitung, die es hier gar nicht gibt --
+    // steht in der Fusszeile die feste Richtung.
+    void setFixedAntenna(bool fixed);
+    bool isFixedAntenna() const { return m_fixedAntenna; }
+
     void setConnected(bool connected);
+
+    // Dieselbe Drehung, die ein Klick ins eigene Zifferblatt ausloest --
+    // fuer die Scheiben in der Zahlenspalte der Karte
+    // (MapWidget::rotorRotateRequested). Betreiber am 2026-10-28, mit
+    // Bild: "die rotorsteuerung sollte auch in KARTE/Verbindungen
+    // funktionieren!" Sie ging vorher einen EIGENEN Weg, der am
+    // Bedienfeld vorbei direkt den rotctld-Client ansprach und bei
+    // getrenntem Rotor still aufgab: kein ZIEL, keine Nadel, nichts --
+    // waehrend derselbe Klick im Rotorfenster ohne Draht sehr wohl
+    // etwas tut (commitManualTarget()). Jetzt gibt es wieder nur EINEN
+    // Weg zu einem Drehbefehl.
+    void aimAt(double bearingDeg);
 
     // The currently selected/clicked candidate's bearing, per the plan's
     // "Turn Antenna" direction -- only ever set from an actual chat-feed
@@ -73,6 +98,12 @@ public:
     // invented default target.
     void setTargetBearing(double bearingDeg, double distanceKm, const QString& callsign = QString(),
                            const QString& grid = QString());
+
+    // Die Zeile unter der Scheibe, als Text -- "SP9XYZ · JO90AA ·
+    // 471 km", bei weiten Zielen mit dem langen Weg dahinter. Der
+    // Prüfhaken für etwas, das gemalt und nicht in einem QLabel
+    // gehalten wird (dieselbe Rolle wie RateMeterWidget::readingsText).
+    QString captionText() const;
     void clearTargetBearing();
     bool hasTargetBearing() const { return m_hasTarget; }
     // Accessors added alongside the readout pass that draws these values
@@ -178,6 +209,16 @@ signals:
     // MainWindow::applyRotorSlot() connects this the same way it already
     // wires RotctldClient's signals into a freshly created widget.
     void dialStyleRequested(RotorDialStyle style);
+
+    // Aus dem ⚙ dieses Rotors: zweite Antenne an/aus und ihr Versatz.
+    // Martin, 2026-09-27: "ich möchte bei den rotoren eine option
+    // haben, ob und in welche richtung die zweite antenne versetzt
+    // steht ... dies soll in der taskleiste einzustellen sein." Die
+    // Einstellung gab es schon, aber nur im Einstellungsfenster --
+    // mitten im Contest ist das zu weit weg. MainWindow schreibt sie
+    // in ContestSettings und schiebt sie an Karte und Rotorscheibe
+    // zurück, dieselbe Runde wie beim Anzeigestil darüber.
+    void secondAntennaRequested(bool enabled, double offsetDeg);
 
     // A click (single OR double) inside the dial ring, at the bearing
     // under the cursor -- operator, 2026-09-14, first asking for
@@ -408,6 +449,7 @@ private:
 
     double m_azimuthDeg = 0.0;
     bool m_connected = false;
+    bool m_fixedAntenna = false;
     // True once a simulated turn has ever run (see startSimulatedTurn())
     // and cleared the moment a real connection lands (setConnected(true))
     // -- marks m_azimuthDeg as a software demo value, not a real rotor

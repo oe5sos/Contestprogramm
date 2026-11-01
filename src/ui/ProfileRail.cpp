@@ -77,9 +77,15 @@ QPushButton* ProfileRail::makeBadge(const QString& name, bool active)
     badge->setStyleSheet(active
         ? QStringLiteral(
               "QPushButton { background: %1; border: 2px solid %2; border-radius: %3px; color: %4; }")
-              .arg(Style::kBlueBg(), Style::kBlueBorder())
+              // Bernstein, nicht Blau: das Abzeichen war das einzige
+              // kräftige Blau im ganzen Fenster und sitzt direkt neben
+              // dem bernsteinfarbenen Akzentbalken der Panelköpfe.
+              // Jetzt ein dunkler Kreis mit Ring statt einer vollen
+              // Farbfläche -- dieselbe Sprache wie alles andere
+              // (Martins Entscheidung am Blätterpaar, 2026-09-23).
+              .arg(Style::kAmberBg(), Style::kAmberBorder())
               .arg(kBadgeSize / 2)
-              .arg(Style::kBlueText())
+              .arg(Style::kAmberText())
         : QStringLiteral(
               "QPushButton { background: %1; border: 1px solid %2; border-radius: %3px; color: %4; }"
               "QPushButton:hover { border-color: %5; }")

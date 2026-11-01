@@ -1,10 +1,13 @@
 #include <QtTest>
 
+#include <QCryptographicHash>
+
 #include <QApplication>
 #include <QDir>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 
 #include "app/AppController.h"
@@ -45,7 +48,9 @@ class TestBackupRestore : public QObject
 private slots:
     void listsBackupsNewestFirstWithTheirTime();
     void summaryReadsTheCopyWithoutTouchingTheLiveConnection();
+    void summaryLeavesTheBackupFileExactlyAsItWas();
     void restoreReplacesTheLiveFileAndItsCompanions();
+    void somethingThatIsNotADatabaseIsNeitherSummarisedNorRestored();
     void dialogShowsTheListAndTheSelectionsSummary();
     void mainWindowRestoreBacksUpClosesReplacesAndAsksForARestart();
 };
@@ -89,7 +94,129 @@ void TestBackupRestore::summaryReadsTheCopyWithoutTouchingTheLiveConnection()
     QVERIFY2(summary.contains(QStringLiteral("1 QSOs · OE_VHF_UHF")), qPrintable(summary));
     QVERIFY(live.isOpen()); // untouched
     QCOMPARE(live.filePath(), dir.filePath(QStringLiteral("live.sqlite")));
-    QCOMPARE(summarizeBackup(dir.filePath(QStringLiteral("nothing.sqlite"))), QStringLiteral("keine QSOs"));
+    // A path with no backup at it reads as "nicht lesbar", not as an
+    // empty log: summarizeBackup no longer lets SQLite create a
+    // database there just to report it has no QSOs.
+    QCOMPARE(summarizeBackup(dir.filePath(QStringLiteral("nothing.sqlite"))), QStringLiteral("nicht lesbar"));
+}
+
+// Reading a backup must not WRITE to it. Opening it the ordinary way
+// runs ensureSchema() against it -- "PRAGMA journal_mode = WAL", the
+// CREATE TABLE IF NOT EXISTS set, the ALTER TABLE migrations -- so
+// merely selecting a copy in the restore dialog rewrote the very file
+// the operator is about to trust their contest log to, and left a
+// -wal/-shm pair beside it. A backup is evidence: it is read, never
+// touched.
+void TestBackupRestore::summaryLeavesTheBackupFileExactlyAsItWas()
+{
+    QTemporaryDir dir;
+    ContestDatabase live;
+    QVERIFY(live.open(dir.filePath(QStringLiteral("live.sqlite")), QStringLiteral("untouched_live")));
+    QsoRecord a = qso(QStringLiteral("DL1ABC"), QStringLiteral("IARU_R1_UHF"));
+    QVERIFY(live.insertQso(a));
+    const QString copy = dir.filePath(QStringLiteral("copy.sqlite"));
+    QVERIFY(live.backupTo(copy));
+    live.close();
+
+    const auto digest = [](const QString& path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) { return QByteArray(); }
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&file);
+        return hash.result();
+    };
+    const QByteArray before = digest(copy);
+    QVERIFY(!before.isEmpty());
+
+    const QString summary = summarizeBackup(copy);
+    QVERIFY2(summary.contains(QStringLiteral("1 QSOs · IARU_R1_UHF")), qPrintable(summary));
+
+    QCOMPARE(digest(copy), before);
+    QVERIFY(!QFile::exists(copy + QStringLiteral("-wal")));
+    QVERIFY(!QFile::exists(copy + QStringLiteral("-shm")));
+
+    // And a path that is not a backup at all must say so rather than
+    // quietly creating an empty database there and reporting it.
+    const QString missing = dir.filePath(QStringLiteral("nicht-da.sqlite"));
+    QCOMPARE(summarizeBackup(missing), QStringLiteral("nicht lesbar"));
+    QVERIFY(!QFile::exists(missing));
+}
+
+// Eine Datei, die keine Datenbank ist, darf nicht wie eine leere
+// aussehen -- und erst recht nicht an die Stelle des laufenden Logs
+// kopiert werden.
+//
+// Gefunden am 2026-10-16 beim Durchspielen widriger Umstände, und es
+// war eine Regression aus der Umstellung auf openReadOnly: SQLite
+// öffnet eine Datei, ohne sie anzusehen, und meldet den Fehler erst
+// beim ersten Zugriff. Ohne ensureSchema() gab es keinen ersten
+// Zugriff mehr -- also galt die Datei als offen, die Abfrage lieferte
+// nichts, und der Wiederherstellungs-Dialog schrieb "keine QSOs"
+// neben eine Textdatei. Wer die dann auswählt, bekommt sein Log durch
+// Unsinn ersetzt (umkehrbar, weil der Stand davor gesichert wird --
+// aber das weiß man im Contest nicht).
+void TestBackupRestore::somethingThatIsNotADatabaseIsNeitherSummarisedNorRestored()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    // Ein echtes Log, das nicht verloren gehen darf.
+    const QString live = dir.filePath(QStringLiteral("live.sqlite"));
+    {
+        ContestDatabase db;
+        QVERIFY(db.open(live, QStringLiteral("restore_guard_live")));
+        QsoRecord a = qso(QStringLiteral("DL1ABC"), QStringLiteral("IARU_R1_UHF"));
+        QVERIFY(db.insertQso(a));
+        db.close();
+    }
+
+    // Und drei Dateien, die keine Datenbank sind.
+    const QString text = dir.filePath(QStringLiteral("notiz.sqlite"));
+    {
+        QFile f(text);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("Das ist Text, keine Datenbank.\n");
+    }
+    const QString leer = dir.filePath(QStringLiteral("leer.sqlite"));
+    {
+        QFile f(leer);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+    }
+    const QString muell = dir.filePath(QStringLiteral("muell.sqlite"));
+    {
+        QFile f(muell);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QByteArray(4096, '\xAB'));
+    }
+
+    for (const QString& pfad : {text, leer, muell}) {
+        const QString name = QFileInfo(pfad).fileName();
+        QCOMPARE(summarizeBackup(pfad), QStringLiteral("nicht lesbar"));
+
+        QString fehler;
+        QVERIFY2(!restoreDatabaseFile(pfad, live, &fehler),
+                 qPrintable(QStringLiteral("%1 wurde wiederhergestellt").arg(name)));
+        QVERIFY2(!fehler.isEmpty(), qPrintable(name));
+
+        // Und das laufende Log steht noch, mit seinem QSO.
+        ContestDatabase db;
+        QVERIFY2(db.open(live, QStringLiteral("restore_guard_check")),
+                 qPrintable(QStringLiteral("das Log ist nach %1 nicht mehr zu oeffnen").arg(name)));
+        QCOMPARE(db.qsoCountForContest(QStringLiteral("IARU_R1_UHF")), 1);
+        db.close();
+    }
+
+    // Eine echte Sicherung geht weiterhin durch.
+    const QString echt = dir.filePath(QStringLiteral("echt.sqlite"));
+    {
+        ContestDatabase db;
+        QVERIFY(db.open(live, QStringLiteral("restore_guard_src")));
+        QVERIFY(db.backupTo(echt));
+        db.close();
+    }
+    QVERIFY2(summarizeBackup(echt).contains(QStringLiteral("1 QSOs")), qPrintable(summarizeBackup(echt)));
+    QString fehler;
+    QVERIFY2(restoreDatabaseFile(echt, live, &fehler), qPrintable(fehler));
 }
 
 void TestBackupRestore::restoreReplacesTheLiveFileAndItsCompanions()

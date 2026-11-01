@@ -2,19 +2,24 @@
 
 #include "app/ContestSettings.h"
 #include "core/BroadcastPublisher.h"
+#include "core/QsoAudioCapture.h"
+#include "core/QsoAudioRecorder.h"
 #include "core/CallsignLocatorLookup.h"
+#include "core/CountryPrefixIndex.h"
 #include "core/DxClusterClient.h"
 #include "core/GeoFilter.h"
 #include "core/On4kstClient.h"
 #include "core/RecentPropagationTracker.h"
 #include "core/RigctldClient.h"
 #include "core/RotctldClient.h"
+#include "core/RigctldProcess.h"
 #include "core/RotctldProcess.h"
 #include "core/Transverter.h"
 #include "core/WeatherClient.h"
 #include "core/terrain/TerrainDataManager.h"
 #include "data/ContestDatabase.h"
 #include "data/LogBackup.h"
+#include "data/QsoJournal.h"
 #include "data/ContestDefinition.h"
 #include "data/DupeChecker.h"
 #include "data/MultiplierTracker.h"
@@ -23,6 +28,8 @@
 
 #include <QDateTime>
 #include <QObject>
+
+#include <memory>
 #include <QString>
 #include <QVector>
 
@@ -72,6 +79,10 @@ public:
     // Periodic copies of the database (data/LogBackup.h); created in
     // openDatabase() beside the database file, null before that.
     LogBackup* logBackup() { return m_logBackup; }
+
+    // Die zweite Spur für jedes QSO -- siehe QsoJournal. Nullptr,
+    // solange keine Datenbank offen ist.
+    QsoJournal* qsoJournal() { return m_qsoJournal.get(); }
     const ContestDatabase& database() const { return m_database; }
     DupeChecker& dupeChecker() { return m_dupeChecker; }
     RigctldClient& rigctldClient() { return m_rigctldClient; }
@@ -118,6 +129,8 @@ public:
     // read it (see the constructor) for their own importance scoring.
     RecentPropagationTracker& recentPropagationTracker() { return m_propagationTracker; }
     MultiplierTracker& multiplierTracker() { return m_multiplierTracker; }
+    CountryPrefixIndex& countryIndex() { return m_countryIndex; }
+    const CountryPrefixIndex& countryIndex() const { return m_countryIndex; }
     // UDP-Contact-Broadcast-Standard (plan section of the same name) --
     // MainWindow calls publishQso() right after a successful
     // ContestDatabase::insertQso(), the one QSO-insert path that
@@ -126,6 +139,8 @@ public:
     // entirely inside this class, from m_rigctldClient's own signals --
     // see the constructor.
     BroadcastPublisher& broadcastPublisher() { return m_broadcastPublisher; }
+    QsoAudioRecorder& audioRecorder() { return m_audioRecorder; }
+    QsoAudioCapture&  audioCapture()  { return m_audioCapture; }
     void publishQso(const QsoRecord& record);
     // ON4KST and classic-DX-cluster candidates deliberately do not
     // share one ChatFeedModel -- see ChatFeedModel.h's class comment
@@ -169,6 +184,22 @@ public:
     static std::optional<RotctldLaunch> rotctldLaunchFor(const ContestSettings& settings, int slot);
     bool rotctldRunning(int slot) const;
 
+    // rigctld, the same arrangement for the CAT radio
+    // (core/RigctldProcess.h): started only for a loopback host with a
+    // device named in the settings, and only after the client's own
+    // dial was refused, so an operator already running their own
+    // rigctld is never interfered with. Nothing means exactly that --
+    // leave the device empty and host/port are all that is used.
+    struct RigctldLaunch {
+        int hamlibModel = 0;
+        QString device;
+        int baud = 0;
+        quint16 port = 0;
+        bool operator==(const RigctldLaunch&) const = default;
+    };
+    static std::optional<RigctldLaunch> rigctldLaunchFor(const ContestSettings& settings);
+    bool rigctldRunning() const;
+
     // The transverter between rig and antenna (core/Transverter.h),
     // loaded with the database and kept current by MainWindow (its
     // dialog and switch): the <RadioInfo> broadcast carries the
@@ -177,10 +208,22 @@ public:
     void setTransverter(const TransverterSetup& setup) { m_transverter = setup; }
 
 signals:
+    // Der Mitschnitt kam nicht zustande oder musste aufhoeren --
+    // Tongeraet weg, Ordner nicht schreibbar, Platte fast voll. Ein
+    // Mitschnitt, der stumm ausfaellt, ist schlimmer als keiner: man
+    // verlaesst sich auf ihn.
+    void audioRecordingProblem(const QString& message);
+
     // A rotctld this program started for `slot` (1 or 2) could not be
     // started or has exited -- `message` is Hamlib's own stderr (a
     // wrong model number, a serial port that is not there).
     void rotctldFailed(int slot, const QString& message);
+
+    // The same for a rigctld this program started -- `message` is
+    // Hamlib's own stderr, which is the only place a wrong model
+    // number, a missing serial port or a baud rate the radio's menu
+    // disagrees with ever says so.
+    void rigctldFailed(const QString& message);
 
     // MainWindow::applyActiveContestDefinition is connected to this so
     // UnifiedLogWidget's dynamic exchange fields (and mode list)
@@ -216,11 +259,20 @@ private:
     void superviseRotctld(int slot, bool mayStart);
     // Stops the slot's rotctld without its exit counting as a failure.
     void stopRotctld(int slot);
+    // The same pair for the CAT radio's rigctld. See rigctldLaunchFor().
+    void superviseRigctld(bool mayStart);
+    void stopRigctld();
 
     ContestSettings m_settings;
     ContestDatabase m_database;
     LogBackup* m_logBackup = nullptr; // owned via QObject parent
+    std::unique_ptr<QsoJournal> m_qsoJournal;
     DupeChecker m_dupeChecker; // holds ContestDatabase& -- declared after m_database
+    // Rufzeichen -> Land, aus einer cty.dat, die der Bediener selbst
+    // lädt (MainWindow: Datei > Länderliste laden). Liegt hier und
+    // nicht im Fenster, weil auch der Multiplikator-Zähler sie braucht:
+    // mit multiplier_field "dxcc" zählt er Länder.
+    CountryPrefixIndex m_countryIndex;
     MultiplierTracker m_multiplierTracker; // holds ContestDatabase& -- declared after m_database
     RigctldClient m_rigctldClient;
     On4kstClient m_on4kstClient;
@@ -229,11 +281,15 @@ private:
     RotctldClient m_rotor2;
     RotctldProcess m_rotctld1;
     RotctldProcess m_rotctld2;
+    RigctldProcess m_rigctld;
     RotctldLaunch m_rotctldLaunch1; // what m_rotctld1 runs with; empty when not ours/not running
     RotctldLaunch m_rotctldLaunch2;
     QDateTime m_rotctldFailedAt1; // last failure, for the restart cool-down
     QDateTime m_rotctldFailedAt2;
     int m_rotctldStoppingSlot = 0; // the slot whose rotctld stopRotctld() is ending right now
+    RigctldLaunch m_rigctldLaunch;  // what m_rigctld runs with; empty when not ours/not running
+    QDateTime m_rigctldFailedAt;    // last failure, for the restart cool-down
+    bool m_rigctldStopping = false; // true while our own stopRigctld() is ending it
     TransverterSetup m_transverter;
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address
@@ -241,6 +297,18 @@ private:
     WeatherClient m_weatherClient;
     RecentPropagationTracker m_propagationTracker;
     BroadcastPublisher m_broadcastPublisher;
+
+    // ── Stundenlanger QSO-Mitschnitt (2026-10-22) ────────────────────
+    //
+    // Hier und nicht in der Oberflaeche: eine Flaeche darf
+    // verschwinden, eine laufende Aufnahme nicht. Dieselbe Begruendung
+    // wie bei allem anderen, was weiterlaufen muss, wenn ein Fenster
+    // zugeht.
+    //
+    // Der Mitschneider weiss von keinem Tongeraet (pruefbar ohne
+    // eines), der Aufnehmer kennt das Geraet und sonst nichts.
+    QsoAudioRecorder m_audioRecorder;
+    QsoAudioCapture  m_audioCapture;
     QTimer* m_radioInfoTimer;
     // Both hold GeoFilter&/DupeChecker& -- declared after those.
     ChatFeedModel m_on4kstFeedModel;

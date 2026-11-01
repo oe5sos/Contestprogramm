@@ -15,9 +15,16 @@ const char* const kGroupData = "Daten";
 
 QString stamp(const QDateTime& utc)
 {
-    static const char* const kDays[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
-    return QStringLiteral("%1 %2 UTC")
-        .arg(QLatin1String(kDays[utc.date().dayOfWeek() - 1]), utc.toString(QStringLiteral("dd.MM. HH:mm")));
+    // Index 0 carries the empty name on purpose: QDate::dayOfWeek()
+    // answers 0 for an INVALID date, and the old "dayOfWeek() - 1"
+    // read kDays[-1] off the front of the array for it. Every caller
+    // here checks isValid() first, so this never fired -- but a day
+    // name is not worth a read out of bounds standing in the code.
+    // Same shape as UtcClockWidget's own table.
+    static const char* const kDays[] = {"", "Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+    const int day = utc.date().dayOfWeek();
+    const char* const name = (day >= 1 && day <= 7) ? kDays[day] : "";
+    return QStringLiteral("%1 %2 UTC").arg(QLatin1String(name), utc.toString(QStringLiteral("dd.MM. HH:mm")));
 }
 
 QString linkText(LinkState state)
@@ -94,6 +101,13 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
             grid.isEmpty() ? QStringLiteral("Kein eigener Locator — ohne ihn keine Entfernungen, keine Punkte.")
                            : QStringLiteral("„%1“ ist kein gültiger Locator.").arg(grid),
             QStringLiteral("own_grid"));
+    } else if (!isFullLocator(grid)) {
+        // IARU R1 GC 2023, 1.9.1: der vollstaendige, sechsstellige
+        // Locator gehoert in den Austausch; mit "JN67" gibt es weder
+        // brauchbare Entfernungen noch ein gueltiges PWWLo.
+        add(Level::Error, kGroupStation, QStringLiteral("Locator"),
+            QStringLiteral("„%1“ ist nur vierstellig — der Contest verlangt den sechsstelligen Locator.").arg(grid),
+            QStringLiteral("own_grid"));
     } else if (ctx.useExactOwnLocation) {
         if (ctx.ownExactLatitude == 0.0 && ctx.ownExactLongitude == 0.0) {
             add(Level::Warning, kGroupStation, QStringLiteral("Locator"),
@@ -158,6 +172,31 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
         }
     }
 
+    // Der Radius blendet aus, was weiter weg ist -- im Chat UND in der
+    // Vorschlagsliste (core/GeoFilter.h: `inRange`). Im UKW-Contest
+    // zählen die Kilometer, und von einem Berg aus sind 500 bis 800 km
+    // nichts Besonderes; wer hier 300 stehen lässt, sieht genau diese
+    // Stationen nicht. Keine Fehlermeldung, nur ein Hinweis: es ist
+    // eine Entscheidung, keine Panne.
+    if (ctx.radiusKm <= 0.0) {
+        add(Level::Ok, kGroupStation, QStringLiteral("Reichweite"),
+            QStringLiteral("Keine Grenze -- jede Chat- und Clusterzeile erscheint."),
+            QStringLiteral("radius"));
+    } else {
+        const QString wert = QStringLiteral("%1 km").arg(ctx.radiusKm, 0, 'f', 0);
+        if (ctx.radiusKm < 500.0) {
+            add(Level::Hint, kGroupStation, QStringLiteral("Reichweite"),
+                QStringLiteral("%1 -- weiter entfernte Stationen erscheinen nicht im Chat und nicht in "
+                               "der Vorschlagsliste. Vom Berg aus sind 500-800 km üblich.")
+                    .arg(wert),
+                QStringLiteral("radius"));
+        } else {
+            add(Level::Ok, kGroupStation, QStringLiteral("Reichweite"),
+                QStringLiteral("%1 -- so weit reicht der Chatfilter.").arg(wert),
+                QStringLiteral("radius"));
+        }
+    }
+
     // ---- Contest -------------------------------------------------------
     if (!ctx.contestFound) {
         add(Level::Error, kGroupContest, QStringLiteral("Contest"),
@@ -198,7 +237,7 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
                                                      : serials.join(QStringLiteral(" · "));
         if (ctx.qsoCount > 0 && beforeStart) {
             add(Level::Warning, kGroupContest, QStringLiteral("Log"),
-                QStringLiteral("%1 QSOs im Log vor dem Start — Testeinträge? Datei › Neues Log beginnen (altes archivieren), dann beginnt die Nummer bei 001.")
+                QStringLiteral("%1 QSOs im Log vor dem Start — Testeinträge? Datei › Neues Log beginnen (altes bleibt im Archiv), dann beginnt die Nummer bei 001.")
                     .arg(ctx.qsoCount),
                 QStringLiteral("log"));
         } else if (ctx.qsoCount == 0) {
@@ -339,6 +378,22 @@ ReadinessResult checkReadiness(const ReadinessContext& ctx)
         add(Level::Hint, kGroupData, QStringLiteral("Locator-Liste"),
             QStringLiteral("Keine alten Logs übernommen — Locator-Vorschläge nur aus diesem Log (Datei › Locator aus alten Logs übernehmen)."),
             QStringLiteral("locators"));
+    }
+
+    // Die Länderliste nur dort, wo sie zählt: bei einem Contest ohne
+    // getauschten Locator oder mit Länder-Multiplikator. Bei einem
+    // UKW-Contest hat sie nichts zu sagen und steht deshalb auch nicht
+    // in der Liste.
+    if (ctx.countryListNeeded) {
+        if (ctx.countryEntries > 0) {
+            add(Level::Ok, kGroupData, QStringLiteral("Länderliste"),
+                QStringLiteral("%1 Gebiete").arg(ctx.countryEntries), QStringLiteral("countries"));
+        } else {
+            add(Level::Warning, kGroupData, QStringLiteral("Länderliste"),
+                QStringLiteral("Keine geladen — ohne sie bleibt eine Station ohne Land, ohne Punkt auf der "
+                               "Karte und ohne Richtung für den Rotor (Datei › Länderliste laden)."),
+                QStringLiteral("countries"));
+        }
     }
 
     return result;

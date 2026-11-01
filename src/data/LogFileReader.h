@@ -19,6 +19,26 @@ struct ImportedQso {
     QString band;         // "144"/"432"/... or empty when unknown
     QString mode;         // "SSB"/"CW"/"FM"/... or empty
     QString timestampUtc; // ISO-8601, empty when the line had no usable date
+
+    // Seit 2026-09-29 auch die Felder, die ein CONTEST-QSO ausmachen.
+    // Bis dahin las dieser Leser nur, was für die Rufzeichen-/
+    // Locator-Kartei nötig war -- für ein Zurückspielen ins Log war
+    // das zu wenig: ohne Nummern keine Punkte. Eine Sicherung, die
+    // sich nicht vollständig wieder einlesen lässt, ist keine
+    // (Martin: "die dürfen nicht weg sein").
+    QString rstSent;      // RST_SENT
+    QString rstRcvd;      // RST_RCVD
+    int serialSent = 0;   // STX, 0 = nicht dabei
+    int serialRcvd = 0;   // SRX, 0 = nicht dabei
+    QString contestId;    // CONTEST_ID
+
+    // Der getauschte Text, wie er im Log steht ("59 003 JN58SD").
+    // Steht in der Journalzeile als STX_STRING/SRX_STRING (siehe
+    // data/AdifExporter.cpp) -- ohne ihn blieben nach einem
+    // Wiederherstellen die Austauschspalten im Log leer, obwohl alles
+    // dagewesen wäre.
+    QString exchangeSent; // STX_STRING
+    QString exchangeRcvd; // SRX_STRING
 };
 
 class LogFileReader {

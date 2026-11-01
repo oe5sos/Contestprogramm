@@ -28,6 +28,12 @@ bool SpotParser::parseDxSpotLine(const QString& line, SpotCandidate& candidateOu
     candidate.callsign = dxCall.toUpper();
     candidate.grid = fields.at(8).trimmed().toUpper();
     candidate.rawLine = line;
+    // Ein Spot: Frequenz, Rufzeichen, Locator -- kurz und lesbar,
+    // statt der ganzen DL|-Zeile.
+    candidate.message = QStringLiteral("%1 kHz %2 %3")
+                            .arg(fields.at(4).trimmed(), dxCall.toUpper(),
+                                 fields.at(8).trimmed().toUpper())
+                            .trimmed();
     candidate.timestampUtc = (timeOk && unixTime > 0)
         ? QDateTime::fromSecsSinceEpoch(unixTime, QTimeZone(QTimeZone::UTC))
         : QDateTime::currentDateTimeUtc();
@@ -63,6 +69,8 @@ bool SpotParser::parseChatLine(const QString& line, SpotCandidate& candidateOut)
     candidate.source = QStringLiteral("on4kst");
 
     const QString msg = fields.at(6);
+    // Das, was die Station geschrieben hat -- ohne Protokollrahmen.
+    candidate.message = msg.trimmed();
     static const QRegularExpression rxGrid(
         QStringLiteral("\\b([A-Ra-r]{2}[0-9]{2}(?:[A-Xa-x]{2})?)\\b"));
     const QRegularExpressionMatch match = rxGrid.match(msg);

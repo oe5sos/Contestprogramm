@@ -18,6 +18,27 @@ on:
         required: false
         default: ''
 
+# Ein Lauf je Zweig, und ein neuer Push bricht den vorigen ab. Martin,
+# 2026-09-28: "ich möchte nicht immer emails erhalten, wenn du änderungen
+# machst." GitHub schickt bei jedem FEHLGESCHLAGENEN Lauf eine Mail --
+# und an einem Arbeitstag wie diesem sind das schnell acht, weil jeder
+# Push auf den Zweig drei Plattformen startet und ein Zwischenstand
+# eben auch mal rot ist.
+#
+# Ein abgebrochener Lauf schickt keine. Damit bleibt vom Stapel
+# Zwischenstände nur der letzte übrig -- der, der zählt. Für main und
+# für Tags wird NICHT abgebrochen: dort läuft nichts "zwischendurch",
+# und ein abgebrochener Release-Lauf wäre ein fehlendes Paket.
+#
+# Dieser Block gehört NEBEN "on:", nicht hinein -- beim ersten Versuch
+# stand er mittendrin, und workflow_dispatch rutschte darunter. GitHub
+# lehnte die Datei ab ("This run likely failed because of a workflow
+# file issue"); ein YAML-Prüfer merkt das nicht, weil die Datei
+# syntaktisch gültig bleibt.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   QT_VERSION: 6.8.3
 
@@ -74,6 +95,11 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: Konfigurieren und bauen
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -126,6 +152,11 @@ jobs:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: zlib (vcpkg, statisch, dynamische CRT)
         shell: pwsh
         run: |
@@ -173,8 +204,26 @@ jobs:
           name: windows-x64
           path: dist/*
 
+  # Zwei macOS-Pakete, beide vom arm64-Runner: Apple Silicon nativ, Intel
+  # als Cross-Compile. GitHub hat keine Intel-Maschinen mehr im Angebot
+  # (macos-13 ist abgekündigt), das offizielle Qt-Paket "clang_64" ist
+  # dafür universal -- es trägt beide Architekturen, deshalb genügt
+  # CMAKE_OSX_ARCHITECTURES. Die Prüfreihe läuft im Intel-Lauf über
+  # Rosetta auf demselben Rechner.
+  #
+  # Angelass: Auf dem Mac mini 2018 (Intel) gab es nie ein Paket --
+  # veröffentlicht wurde nur Apple Silicon, während der Updater auf
+  # Intel-Rechnern nach "-macOS-intel.dmg" sucht (SelfUpdater.cpp:75).
   macos:
     needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            paket: macos-apple-silicon
+          - arch: x86_64
+            paket: macos-intel
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -184,17 +233,45 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           cache: true
+          # Seit 2026-10-22: der QSO-Mitschnitt oeffnet ein Tongeraet
+          # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
+          # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
+          # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
+          modules: qtmultimedia
       - name: Konfigurieren und bauen
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
           cmake --build build --parallel
+      - name: Architektur und Mindestsystem belegen
+        # Ohne diesen Schritt könnte ein Lauf stillschweigend die falsche
+        # Architektur bauen (etwa wenn das Qt-Paket eines Tages nicht mehr
+        # universal ist) und das DMG trüge trotzdem den Intel-Namen.
+        run: |
+          set -euxo pipefail
+          BIN=build/Contestprogramm.app/Contents/MacOS/Contestprogramm
+          lipo -archs "$BIN" | tr ' ' '\n' | grep -qx "${{ matrix.arch }}"
+          # minos muss die Vorgabe aus CMakeLists.txt sein (12.0), nicht die
+          # Version des Runners -- sonst startet die App auf älteren Macs nicht.
+          vtool -show-build "$BIN" | grep -E 'minos|platform'
+          vtool -show-build "$BIN" | grep -q 'minos 12'
       - name: Prüfen
+        # Der Intel-Lauf fährt die Prüfreihe über Rosetta; ist sie nicht da,
+        # schlägt das hier auf statt stumm zu überspringen.
         run: ctest --test-dir build --output-on-failure --timeout 300
       - name: DMG
         run: scripts/package-macos.sh build dist "$QT_ROOT_DIR/bin/macdeployqt"
+      - name: Mindestsystem des FERTIGEN Pakets belegen
+        # Erst hier, nach macdeployqt: die App ist nur so alt wie die
+        # neueste Datei in ihrem Paket. Ein mit minos 12 gebautes
+        # Programm startet nicht auf Monterey, wenn ein mitgeliefertes
+        # Qt-Framework ein neueres System verlangt -- und genau das wäre
+        # von außen nicht zu sehen, weil das Programm selbst stimmt.
+        # Betrifft Martins Rechner von 2015, der auf macOS 12 endet.
+        run: tests/pruefe_mindestsystem.sh build/Contestprogramm.app 12.0
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-apple-silicon
+          name: ${{ matrix.paket }}
           path: dist/*
 
   publish:

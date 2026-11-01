@@ -70,6 +70,30 @@ QString kBlueBorder();
 QString kBlueText();
 
 QString kAmberText();
+
+// Magenta für "das betrifft mich": eine Chatzeile, in der das eigene
+// Rufzeichen steht. Martin, 2026-09-28: "was im chat mich betrifft
+// soll in magenta gekennzeichnet werden."
+//
+// Ein fester Farbton (310°), aber Sättigung und Helligkeit vom
+// normalen Text des jeweiligen Themas -- so sticht er in jeder
+// Palette heraus, ohne auf dunklem wie hellem Grund zu blenden. Rot
+// wäre hier falsch, das bleibt der Warnung (Martins Regel vom
+// 2026-08-28).
+QString kMentionMagenta();
+
+// Der Farbton für ein Band in der Bandzelle des Logs -- leer für ein
+// Band ohne eigenen Ton, dann bleibt der normale Text.
+//
+// Die Töne sind NICHT fest verdrahtet, sondern hängen am Akzentton des
+// gewählten Farbthemas: in Bernstein läuft die Reihe von Bernstein
+// aus, in Grün von Grün aus, und ein späteres Thema bringt seine eigene
+// Reihe mit, ohne dass hier etwas nachgezogen werden muss (Martin,
+// 2026-09-23: "man sollte auch die farbe und das design einfach
+// umschalten können"). Sättigung und Helligkeit kommen ebenfalls aus
+// dem Thema, damit die Zelle nicht im einen Thema leuchtet und im
+// anderen murmelt.
+QString bandTint(const QString& band);
 QString kAmberDim();
 QString kAmberWarn();
 QString kAmberBg();
@@ -145,6 +169,12 @@ QFont capsFont(const QFont& base, int px = kFontCaption);
 // A value that changes and gets compared -- HAUSSTIL rule 4. Time,
 // frequency, distance, bearing, rate, callsign.
 QFont monoFont(const QFont& base, int px, QFont::Weight weight = QFont::Normal);
+
+// Dieselbe Familienliste als CSS-Wert, fuer die wenigen Stellen, die
+// eine Schrift in Rich Text setzen muessen und deshalb kein QFont
+// setzen koennen. Nie eine einzelne Familie dort hinschreiben: "Menlo"
+// allein gibt es auf Windows und Linux nicht.
+QString monoFontFamilyCss();
 
 // "Unbekannt ist ein Strich, keine Null" -- HAUSSTIL rule 7. Two
 // em dashes, matching the design mockups this pass follows.

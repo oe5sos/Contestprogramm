@@ -4,7 +4,16 @@
 #include <QPushButton>
 #include <QSignalSpy>
 
+#include <QLabel>
+
+#include <QDialogButtonBox>
+
+#include "app/AppLanguage.h"
 #include "ui/PanelHeaderBar.h"
+#include "ui/StyleKit.h"
+#include "ui/SuggestionPanel.h"
+
+#include <optional>
 
 using namespace Contestprogramm;
 
@@ -29,6 +38,8 @@ private slots:
     void disablingHidesButtonAgain();
     void clickingOptionsButtonEmitsOptionsRequested();
     void constructionDoesNotEmitOptionsRequested();
+    void monoFamilyCssCarriesEveryPlatformsFallback();
+    void qtsOwnButtonsSpeakGerman();
 };
 
 namespace {
@@ -100,6 +111,48 @@ void TestPanelHeaderBar::constructionDoesNotEmitOptionsRequested()
     bar.setOptionsAffordanceEnabled(false);
 
     QCOMPARE(spy.count(), 0);
+}
+
+// Wer eine Monoschrift in Rich Text setzen muss, nimmt Style::
+// monoFontFamilyCss() -- eine einzelne Familie ("Menlo") gibt es nur auf
+// dem Mac, und genau so ist die Schrift im Vorschlagspanel auf Windows
+// und Linux zur Proportionalschrift geworden.
+void TestPanelHeaderBar::monoFamilyCssCarriesEveryPlatformsFallback()
+{
+    const QString css = Style::monoFontFamilyCss();
+    QVERIFY(css.contains(QStringLiteral("\"SF Mono\"")));            // macOS
+    QVERIFY(css.contains(QStringLiteral("\"Consolas\"")));           // Windows
+    QVERIFY(css.contains(QStringLiteral("\"DejaVu Sans Mono\"")));   // Linux
+    QVERIFY(css.endsWith(QStringLiteral("monospace")));
+
+    // Und die Stelle, die ihn braucht, benutzt ihn auch.
+    SuggestionPanel panel;
+    panel.setSuggestion(std::nullopt, std::nullopt, std::nullopt, QString());
+    bool found = false;
+    for (const QLabel* label : panel.findChildren<QLabel*>()) {
+        if (!label->text().contains(QStringLiteral("font-family:"))) {
+            continue;
+        }
+        found = true;
+        QVERIFY2(!label->text().contains(QStringLiteral("font-family:Menlo")), qPrintable(label->text()));
+        QVERIFY2(label->text().contains(QStringLiteral("SF Mono")), qPrintable(label->text()));
+    }
+    QVERIFY(found);
+}
+
+// Qt malt die Knöpfe in QDialogButtonBox und QMessageBox selbst und
+// beschriftet sie englisch, solange kein Übersetzer installiert ist --
+// "Save"/"Cancel" mitten in einem deutschen Fenster. main.cpp
+// installiert ihn (app/AppLanguage.h); hier steht, dass das auch
+// ankommt. Ohne .qm-Datei im Qt dieser Maschine ist nichts zu prüfen.
+void TestPanelHeaderBar::qtsOwnButtonsSpeakGerman()
+{
+    if (!installGermanQtTranslations(*QCoreApplication::instance())) {
+        QSKIP("qtbase_de.qm ist in diesem Qt nicht da -- dann bleibt es bei Qts englischen Knöpfen");
+    }
+    QDialogButtonBox box(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    QCOMPARE(box.button(QDialogButtonBox::Save)->text(), QStringLiteral("Speichern"));
+    QCOMPARE(box.button(QDialogButtonBox::Cancel)->text(), QStringLiteral("Abbrechen"));
 }
 
 int main(int argc, char* argv[])

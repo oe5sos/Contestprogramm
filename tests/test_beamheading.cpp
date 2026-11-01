@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <cmath>
+
 #include "core/BeamHeading.h"
 
 using namespace Contestprogramm;
@@ -11,6 +13,7 @@ class TestBeamHeading : public QObject
 private slots:
     void wrap360NormalizesAnyAngle();
     void longPathAddsHalfTurn();
+    void longPathDistanceIsTheRestOfTheWayAround();
     void planWithNoStopTakesShorterDirection();
     void planWithNoStopHandlesWrapAcrossZero();
     void planWithNorthStopCannotCrossZero();
@@ -33,6 +36,20 @@ void TestBeamHeading::longPathAddsHalfTurn()
     QCOMPARE(BeamHeading::longPath(0.0), 180.0);
     QCOMPARE(BeamHeading::longPath(90.0), 270.0);
     QCOMPARE(BeamHeading::longPath(270.0), 90.0);
+}
+
+// Einmal um die Erde, minus dem kurzen Weg -- auf Kurzwelle die zweite
+// Hälfte der Frage "wohin drehe ich?".
+void TestBeamHeading::longPathDistanceIsTheRestOfTheWayAround()
+{
+    // 40 030 km Umfang (Erdradius 6371, wie überall im Programm).
+    QVERIFY(std::abs(BeamHeading::longPathDistanceKm(0.0) - 40030.17) < 0.5);
+    QVERIFY(std::abs(BeamHeading::longPathDistanceKm(16280.0) - 23750.17) < 0.5);
+    // Der Gegenpunkt liegt in der Mitte: beide Wege gleich lang.
+    const double half = BeamHeading::longPathDistanceKm(0.0) / 2.0;
+    QVERIFY(std::abs(BeamHeading::longPathDistanceKm(half) - half) < 0.5);
+    // Nie negativ, auch wenn die Zahl nicht passt.
+    QCOMPARE(BeamHeading::longPathDistanceKm(50000.0), 0.0);
 }
 
 void TestBeamHeading::planWithNoStopTakesShorterDirection()

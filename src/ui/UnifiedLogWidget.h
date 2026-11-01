@@ -181,6 +181,15 @@ public:
     static constexpr const char* kEntryRowScrollObjectName = "unifiedLogEntryRowScroll";
     static constexpr const char* kFeedTableObjectName = "unifiedLogFeedTable";
     static constexpr const char* kStatusPillObjectName = "unifiedLogStatusPill";
+    // Das Rufzeichenfeld der Eingabezeile. Mit Namen, weil
+    // findChildren<QLineEdit*>().first() unbestimmt ist: ein
+    // Ansichtswechsel tauscht den Exchange-Teil der Zeile per
+    // replaceWidget() + deleteLater() aus, und bis die Löschung
+    // abgearbeitet ist, hängen die ALTEN Felder weiter als Kinder
+    // darunter (gemessen 2026-10-16: 7 statt 4). Welches first()
+    // dann liefert, entscheidet die Kindreihenfolge -- auf dem
+    // CI-Rechner ein verwaistes, hier das richtige.
+    static constexpr const char* kCallsignEditObjectName = "unifiedLogCallsignEdit";
     // The DXLog-style status strip (see setOperatingMode()'s doc
     // comment below) sitting between the entry row and the feed table,
     // and its own two labels -- same "objectName test hook" convention
@@ -189,6 +198,10 @@ public:
     static constexpr const char* kStatusLineObjectName = "unifiedLogStatusLine";
     static constexpr const char* kLastQsoLabelObjectName = "unifiedLogLastQsoLabel";
     static constexpr const char* kOperatingModeLabelObjectName = "unifiedLogOperatingModeLabel";
+    // Der Hinweis, dass ein Grid-Filter Zeilen aus der Liste nimmt --
+    // siehe setGridFilter(). Ohne ihn sieht ein gefiltertes Log aus wie
+    // ein verlorenes.
+    static constexpr const char* kFilterNoticeObjectName = "unifiedLogFilterNotice";
     // The chat quick-send row (see chatMessageSendRequested's own doc
     // comment below) -- same objectName-as-test-hook convention as the
     // rest of this list.
@@ -198,6 +211,21 @@ public:
     static constexpr const char* kAwayToggleButtonObjectName = "unifiedLogAwayToggleButton";
 
     explicit UnifiedLogWidget(QWidget* parent = nullptr);
+    // Nicht leer: steht beim Beenden noch ein Zelleneditor offen (eine
+    // begonnene Korrektur), dann committet Qt ihn beim Fokusverlust --
+    // und dieses Signal erreicht MainWindow, dessen Destruktor laengst
+    // gelaufen ist. Qt bricht das mit einem QFATAL ab ("Called object is
+    // not of the correct type (class destructor may have already run)").
+    // Gefunden 2026-09-28 am Prueftstand test_durchgang_tastatur, als der
+    // Tabulator zum ersten Mal eine naechste Zelle offen stehen liess.
+    ~UnifiedLogWidget() override;
+
+    // Bricht eine begonnene Zellenkorrektur ab, ohne sie abzuschicken.
+    // MainWindow ruft das als Erstes in seinem Destruktor: sonst
+    // committet ein offener Editor beim Verstecken des Fensters noch
+    // einmal, und das Signal läuft in einen MainWindow, dessen
+    // Destruktor schon durch ist -- Qt bricht das mit einem QFATAL ab.
+    void closeCellEditors();
 
     // Non-owning; the caller (MainWindow, via AppController) keeps these
     // alive for as long as this widget exists -- same ownership pattern
@@ -206,7 +234,6 @@ public:
     // both are available; a null chat model simply omits the "Spots &
     // Chat" section below the log history.
     void setLogModel(LogTableModel* model);
-    void setChatModels(ChatFeedModel* onKst, ChatFeedModel* cluster);
 
     // Tears down and rebuilds the entry row's per-contest exchange
     // sub-fields, one labelled value cell per entry in `fields` (same
@@ -220,6 +247,19 @@ public:
     // field.
     void setExchangeFields(const QVector<ContestDefinition::ExchangeField>& fields);
 
+    // Wie viele Bänder der laufende Contest führt. Zwei Schwellen
+    // hängen daran: ab zwei Bändern steht die Bandspalte auch in der
+    // kompakten Ansicht (sonst sagt sie nichts und nimmt Platz weg), ab
+    // vier bekommt die Bandzelle ihre Bandfarbe. Die zweite Schwelle
+    // ist Martins Entscheidung am Blätterpaar vom 2026-09-23: auf
+    // Kurzwelle findet der Blick die Farbe schneller als die Zahl, auf
+    // einem Contest mit zwei Bändern bringt sie nichts.
+    void setContestBandCount(int bandCount);
+
+    // Die Bandzelle der Eingabezeile -- benannt, damit die Prüfstände
+    // nachmessen können, ob sie mit der Spalte darunter mitwächst.
+    static constexpr const char* kEntryBandLabelObjectName = "entryBandCell";
+
     QString callsign() const;
 
     // key -> current text, one entry per field passed to the last
@@ -231,6 +271,25 @@ public:
     // shows instead of "Letzter QSO" -- which earlier QSO this duplicates
     // (number, UTC time, band), composed by MainWindow.
     void setDupeIndicator(bool isDupe, const QString& detail = QString());
+    // Steht die DUPE-Pille gerade? Die Prüfstände fragen hier, statt
+    // den Text der Pille zu lesen.
+    bool dupeIndicatorActive() const { return m_dupe; }
+
+    // Zurück in die Eingabezeile -- Tucnaks Regel: "ESC: Always brings
+    // you back to the QSO input line". Nötig geworden mit dem Löschen
+    // (2026-09-27): wer zum Löschen in die Liste fährt, musste sonst
+    // zurückklicken. Läuft gerade eine Korrektur in einer Zelle, bleibt
+    // die Taste bei ihr -- dort heißt Escape "verwerfen", und das ist
+    // die nähere Bedeutung. Gibt zurück, ob der Fokus gesetzt wurde.
+    bool returnToEntryRow();
+
+    // Eine Warnung über dem zuletzt geloggten QSO -- heute: der
+    // getippte Locator passt nicht zu dem, unter dem diese Station
+    // bekannt ist (Tucnaks "cross control couple callsign - locator").
+    // Sie steht über der Info-Zeile, aber unter der DUPE-Meldung: ein
+    // Dupe ist die härtere Aussage. Leer blendet sie aus.
+    void setEntryWarning(const QString& text);
+    QString entryWarning() const { return m_entryWarning; }
 
     // The exchange this program would send right now (own grid + next
     // serial) -- shown read-only in the "Ges." field on the right of
@@ -250,6 +309,8 @@ public:
     // logging. MainWindow's receivedGridChanged -> handleReceivedGridChanged
     // wiring already computed and discarded these values even when this
     // was a no-op -- see that method's own doc comment.
+    void setDxInfoLine(const QString& text);
+
     void setEntryDistanceBearing(const std::optional<double>& distanceKm, const std::optional<double>& bearingDeg);
 
     // Mode is CAT-driven internal state with no visible control any
@@ -259,6 +320,11 @@ public:
     // and this widget uses it purely to keep the RST exchange
     // sub-field's "59"/"599" default current (see applyRstDefaults()).
     void setCurrentMode(const QString& mode);
+
+    // Das Band, auf dem das nächste QSO landet -- die Bandzelle der
+    // Eingabezeile. Anders als die QSO-Nummer ist es bekannt, bevor
+    // geloggt wird, also steht dort kein Strich.
+    void setCurrentBand(const QString& band);
     // From a clicked candidate row (callsign; grid goes through
     // setExchangeFieldValue below, same as EntryBarWidget's own
     // click-to-fill wiring did).
@@ -276,6 +342,13 @@ public:
     // currently empty -- an explicit click-to-fill or the operator's
     // own typing always takes priority.
     void applyKnownExchange(const QString& gridSquare, const std::optional<int>& serialRcvd);
+
+    // Die CQ-Zone aus der Länderliste in ein Zonenfeld schreiben, wenn
+    // dort noch nichts steht -- so macht es N1MM auch: die Zone steht
+    // da, bevor die Gegenstation sie nennt, und wer eine andere hört,
+    // tippt sie drüber. Feld erkannt am Typ "cqzone" oder am Schlüssel
+    // "cqzone"/"zone".
+    void applyKnownCqZone(int zone);
 
     // Is there an in-progress entry the operator has not yet logged?
     // Used by MainWindow's Run-mode CAT-autofill guard.
@@ -359,6 +432,12 @@ public:
     // see UnifiedFeedModel::rebuild()) or the entry row's own fields/
     // styling.
     void setEntryRowPosition(ContestSettings::LogEntryRowPosition position);
+
+    // Die laufende Nummer links ein- oder ausblenden -- siehe
+    // ContestSettings::logShowRunningNumber für das Warum (DXLog.net
+    // löst es genauso).
+    void setRunningNumberVisible(bool visible);
+    bool runningNumberVisible() const { return m_runningNumberVisible; }
     ContestSettings::LogEntryRowPosition entryRowPosition() const { return m_entryRowPosition; }
 
     // Places `text` into the chat quick-send field, focused and fully
@@ -392,11 +471,11 @@ signals:
     // (see that method's own doc comment). Empty when the field is
     // empty or the active contest has no grid6-typed field at all.
     void receivedGridChanged(const QString& grid);
+    // Bei jedem Tastendruck im Rufzeichenfeld (anders als
+    // callsignLookupRequested, das erst nach einer Pause feuert): die
+    // Info-Zeile soll mitlaufen, während getippt wird.
+    void callsignTyped(const QString& callsign);
 
-    // A not-yet-worked spot/chat candidate row was clicked -- same
-    // signal shape (and the same MainWindow::handleCandidateActivated
-    // consumer) ChatFeedView::candidateActivated used.
-    void candidateActivated(const QString& callsign, const QString& grid, qint64 freqHz);
 
     // A logged history row's Call cell / Exch Emp. cell was hand-edited
     // in place (double-click or Enter/F2 on the cell, DXLog.net-style --
@@ -425,6 +504,13 @@ signals:
     // logging... you don't") -- marking invalid is the real equivalent
     // (Ctrl+X in DXLog.net's own UI).
     void historyInvalidToggleRequested(int qsoId);
+
+    // Eine geloggte Zeile soll aus dem Log verschwinden -- Entf-Taste
+    // oder Rechtsklick > Löschen. Was "löschen" heißt, entscheidet
+    // MainWindow (ContestDatabase::deleteQso legt das QSO in den
+    // Papierkorb, nicht in den Müll); dieses Widget meldet nur den
+    // Wunsch, wie bei jeder anderen Korrektur auch.
+    void historyDeleteRequested(int qsoId);
 
     // Chat quick-send row (operator, 2026-09-12: during a quiet spell
     // "wenig qso beim rufen" wants to leave a chat message "mit wenig
@@ -493,6 +579,14 @@ private:
     // Recomputes m_columnWidths for the current viewport width and
     // visible column set; returns true when any width changed.
     bool fitColumnsToViewport();
+    // Ob km/Grad überhaupt gezeigt werden sollen -- siehe
+    // applyDistanceColumnsVisibility(). true, solange nichts anderes
+    // bekannt ist (jeder UKW-Contest tauscht einen Locator).
+    bool m_distanceColumnsWanted = true;
+    // Ob der laufende Contest mehr als ein Band hat -- siehe
+    // setContestBandCount(). false: die Bandspalte bleibt der
+    // Vollspaltenansicht vorbehalten, wie bisher.
+    bool m_bandColumnWanted = false;
     // The view mode's own column set (setViewMode()), before any
     // give-way hiding by fitColumnsToViewport().
     bool columnWantedByViewMode(int col) const;
@@ -505,8 +599,8 @@ private:
     void setFieldAutoFilled(QLineEdit* field, bool autoFilled);
     static bool isFieldAutoFilled(const QLineEdit* field);
     void rebuildExchangeCell(const QMap<QString, QString>& previousValues);
+    void applyDistanceColumnsVisibility();
     void configureFeedColumns();
-    void applyDividerSpan();
     // Caps m_feedTable's own maximum height to exactly its current row
     // content when the entry row sits at the Bottom (so the entry row
     // touches the table's own last row directly, no trailing blank
@@ -588,6 +682,20 @@ private:
     // setLogModel(), and called directly by setOperatingMode()/
     // setLogModel() itself.
     void updateStatusLine();
+    // Sagt an, dass ein Grid-Filter gesetzt ist und wie viele QSOs er
+    // übrig lässt -- siehe kFilterNoticeObjectName.
+    void updateFilterNotice(const QString& text);
+    // Nach einem Tabulator im Zelleneditor weiter zur naechsten
+    // KORRIGIERBAREN Zelle -- Zeit, Call und Nr./Grid sind es, alles
+    // dazwischen nicht (siehe UnifiedFeedModel::flags()). Qt springt von
+    // sich aus nur eine Spalte weiter und macht dort nichts auf, wenn
+    // die nicht bearbeitbar ist; dann hoert das Korrigieren nach einer
+    // Zelle auf. Martin, 2026-09-28: "reicht dort der tabulator" -- er
+    // reicht zum Speichern, und ab jetzt traegt er auch weiter, "quasi
+    // wie bei excel" (sein Wort zur Eingabezeile, dieselbe Erwartung).
+    // `direction` ist +1 fuer Tab, -1 fuer Shift+Tab; am Zeilenende geht
+    // es in die naechste bzw. vorige Zeile.
+    void editNextCorrectableCell(const QModelIndex& from, int direction);
 
     // The entry row -- a plain widget (an EntryRowFrame, see the .cpp),
     // NOT a QTableView/QAbstractItemModel of any kind (see the class
@@ -627,8 +735,12 @@ private:
     QWidget* m_statusLine = nullptr;
     QLabel* m_lastQsoLabel = nullptr;
     QLabel* m_operatingModeLabel = nullptr;
+    QLabel* m_filterNoticeLabel = nullptr;
     ContestSettings::OperatingMode m_operatingMode = ContestSettings::OperatingMode::SearchAndPounce;
     ContestSettings::LogViewMode m_viewMode = ContestSettings::LogViewMode::Compact;
+    // Siehe setRunningNumberVisible() / ContestSettings::
+    // logShowRunningNumber.
+    bool m_runningNumberVisible = true;
     // Bottom by default -- matches ContestSettings::logEntryRowPosition's
     // own default (see its doc comment for why Top stopped making sense
     // once the feed table's row order became chronologically ascending).
@@ -637,6 +749,14 @@ private:
     // setViewMode() -- see that method's own comment on why this must
     // NOT rebuild on every call (MainWindow calls it on every CAT tick).
     bool m_entryRowLayoutBuilt = false;
+    /// Siehe applyEntryRowWidths(): ein Nachschlag im naechsten
+    /// Layout-Durchlauf, und nur einer.
+    bool m_entryRowResyncQueued = false;
+    int m_entryRowResyncRunde = 0;
+    /// Zwei Runden reichen gemessen; die dritte ist der Sicherheitsgurt.
+    /// Eine Spalte EIN bringt die Bildlaufleiste zurueck und verkleinert
+    /// den Viewport wieder -- das sind zwei Schritte, nicht einer.
+    static constexpr int kMaxEntryRowResyncRunden = 3;
     QVector<int> m_columnWidths;
     // Columns fitColumnsToViewport() hid on top of the view mode's own
     // set because even the floors did not fit (kGiveWayOrder).
@@ -670,6 +790,12 @@ private:
     QLabel* m_statusPillLabel;
     bool m_dupe = false;
     QString m_dupeDetail;
+    // Land, Richtung, Entfernung, Ortszeit, Sonne -- was MainWindow aus
+    // core/DxInfo.h über die gerade getippte Station weiß. Steht in
+    // derselben Zeile wie "Letzter QSO", hinter dem Dupe-Hinweis: die
+    // Nummer eines Doppels ist dringender als die Sonne am anderen Ende.
+    QString m_dxInfoLine;
+    QString m_entryWarning;
 
     // The entry row's Time cell -- a live-ticking clock (HH:mm UTC,
     // matching LogTableModel::ColumnTime's own format exactly) rather
@@ -705,6 +831,10 @@ private:
     // copy (m_currentMode) as the actual source of truth for
     // everything else (dupe scope, export, CW-macro context).
     QString m_currentMode;
+    QString m_currentBand;
+    // Die Bandzelle der Eingabezeile; nur vorhanden, solange die
+    // Bandspalte sichtbar ist (siehe rebuildEntryRowLayout()).
+    QLabel* m_entryBandLabel = nullptr;
 
     QVector<ContestDefinition::ExchangeField> m_exchangeFields;
     QVector<QLineEdit*> m_exchangeEdits;

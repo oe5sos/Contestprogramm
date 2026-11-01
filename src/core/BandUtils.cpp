@@ -12,8 +12,24 @@ struct BandRange {
 };
 
 // Base = the band as it is named; the range tolerates a rig sweeping a
-// little past the allocation.
+// little past the allocation. The HF entries carry the widest
+// allocation any ITU region grants (e.g. 40 m up to 7.300, which is
+// Region 2/3), so a rig parked on a frequency that is legal somewhere
+// still names its band here rather than falling through to "unknown" --
+// this table answers "which band is this?", not "am I allowed to
+// transmit here?".
+//
+// 60 m is deliberately absent: a 15 kHz sliver no contest works, and
+// ContestDefinition::bands() is what actually gates logging anyway.
 constexpr BandRange kBands[] = {
+    {"1.8", 1800000LL, 1800000LL, 2000000LL},
+    {"3.5", 3500000LL, 3500000LL, 4000000LL},
+    {"7", 7000000LL, 7000000LL, 7300000LL},
+    {"10", 10100000LL, 10100000LL, 10150000LL},
+    {"14", 14000000LL, 14000000LL, 14350000LL},
+    {"18", 18068000LL, 18068000LL, 18168000LL},
+    {"21", 21000000LL, 21000000LL, 21450000LL},
+    {"24", 24890000LL, 24890000LL, 24990000LL},
     {"28", 28000000LL, 28000000LL, 29700000LL},
     {"50", 50000000LL, 50000000LL, 54000000LL},
     {"70", 70000000LL, 70000000LL, 70500000LL},
@@ -26,7 +42,39 @@ constexpr BandRange kBands[] = {
     {"10368", 10368000000LL, 10000000000LL, 10500000000LL},
 };
 
+// Die Telefoniegrenze je Kurzwellenband nach IARU Region 1: darunter
+// CW (und die Digimodes), darüber SSB. 10, 18 und 24 MHz stehen nicht
+// drin -- auf den WARC-Bändern wird nicht contestet, und Telefonie ist
+// dort ohnehin nur ein schmaler Streifen.
+struct PhoneEdge {
+    const char* band;
+    qint64 phoneFromHz;
+};
+
+constexpr PhoneEdge kPhoneEdges[] = {
+    {"1.8", 1838000LL},
+    {"3.5", 3600000LL},
+    {"7", 7040000LL},
+    {"14", 14101000LL},
+    {"21", 21151000LL},
+    {"28", 28320000LL},
+};
+
 } // namespace
+
+QString usualModeForFrequencyHz(qint64 hz)
+{
+    const QString band = bandLabelForFrequencyHz(hz);
+    if (band.isEmpty()) {
+        return QString();
+    }
+    for (const PhoneEdge& edge : kPhoneEdges) {
+        if (band == QLatin1String(edge.band)) {
+            return hz < edge.phoneFromHz ? QStringLiteral("CW") : QStringLiteral("SSB");
+        }
+    }
+    return QString();
+}
 
 QString bandLabelForFrequencyHz(qint64 hz)
 {
@@ -69,4 +117,25 @@ qint64 bandBaseHz(const QString& band)
     return 0;
 }
 
+QString contestModeName(const QString& rawMode)
+{
+    const QString m = rawMode.trimmed().toUpper();
+    if (m == QStringLiteral("USB") || m == QStringLiteral("LSB") || m == QStringLiteral("PH")
+        || m == QStringLiteral("PHONE") || m == QStringLiteral("SSB")) {
+        return QStringLiteral("SSB");
+    }
+    if (m == QStringLiteral("CW") || m == QStringLiteral("CWR")) {
+        return QStringLiteral("CW");
+    }
+    if (m == QStringLiteral("FM") || m == QStringLiteral("WFM") || m == QStringLiteral("NFM")
+        || m == QStringLiteral("FMN")) {
+        return QStringLiteral("FM");
+    }
+    if (m == QStringLiteral("RTTY") || m == QStringLiteral("RTTYR") || m == QStringLiteral("RY")) {
+        return QStringLiteral("RTTY");
+    }
+    return m;
+}
+
 } // namespace Contestprogramm
+

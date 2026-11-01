@@ -37,7 +37,23 @@ struct ContestStatistics {
     int bestHourQsos = 0;
     QDateTime bestHourStartUtc;
     double averageKm = 0.0;     // over valid QSOs with a known distance
+
+    // Wie lange wirklich gearbeitet wurde, und wie lange nicht -- was
+    // N1MM "on time"/"off time" nennt. Eine Pause zählt ab 30 Minuten
+    // ohne QSO (dieselbe Schwelle, mit der die meisten Ausschreibungen
+    // rechnen, die überhaupt Pausen vorschreiben); alles darunter ist
+    // Betrieb, auch wenn zehn Minuten nichts kam. Gerechnet von der
+    // ersten bis zur letzten Verbindung -- vorher und nachher saß
+    // niemand am Gerät.
+    qint64 onAirSecs = 0;
+    qint64 offAirSecs = 0;
+    int breaks = 0;             // Pausen ab 30 Minuten
+    QDateTime longestBreakStartUtc;
+    qint64 longestBreakSecs = 0;
 };
+
+// Ab wann eine Lücke eine Pause ist.
+constexpr qint64 kOffAirThresholdSecs = 30 * 60;
 
 ContestStatistics computeContestStatistics(const QVector<QsoRecord>& records,
                                            const QString& ownGrid,

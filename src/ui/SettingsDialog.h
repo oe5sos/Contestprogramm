@@ -162,6 +162,13 @@ private:
     QSpinBox* m_tciPortSpin;
     QLineEdit* m_rigctldHostEdit;
     QSpinBox* m_rigctldPortSpin;
+    // Hamlib-Modell, Anschluss und Baudrate für ein rigctld, das DIESES
+    // Programm startet (core/RigctldProcess.h) -- genau die drei Felder,
+    // die der Rotor seit 2026-09-11 hat. Anschluss leer = rigctld läuft
+    // schon, dann zählen nur Host und Port.
+    QComboBox* m_rigModelCombo;
+    QLineEdit* m_rigDeviceEdit;
+    QComboBox* m_rigBaudCombo;
     QLineEdit* m_on4kstUserEdit;
     QLineEdit* m_on4kstPassEdit;
     QLineEdit* m_clusterHostEdit;
@@ -194,6 +201,11 @@ private:
     // Rotor slot 2 -- see ContestSettings::rotor2Enabled etc.
     QCheckBox* m_rotor2EnabledCheck;
     QLineEdit* m_rotor2LabelEdit;
+    // Die feste Antenne: kein Host, kein Port, kein Modell -- nur
+    // Bezeichnung und Richtung.
+    QCheckBox* m_fixedAntennaCheck;
+    QLineEdit* m_fixedAntennaLabelEdit;
+    QDoubleSpinBox* m_fixedAntennaBearingSpin;
     QLineEdit* m_rotor2HostEdit;
     QSpinBox* m_rotor2PortSpin;
     QCheckBox* m_rotor2SecondAntennaCheck;
@@ -208,6 +220,7 @@ private:
     QComboBox* m_band144RotorCombo;
     QComboBox* m_band432RotorCombo;
     QComboBox* m_band1296RotorCombo;
+    QComboBox* m_bandOtherRotorCombo;
 
     // Which RotorWidget paint style both compasses use (core/
     // RotorDialStyle.h) -- one operator-wide combo, not per-slot, see
@@ -230,6 +243,18 @@ private:
     QCheckBox* m_broadcastEnabledCheck;
     QLineEdit* m_broadcastHostEdit;
     QSpinBox* m_broadcastPortSpin;
+
+    // Stundenlanger QSO-Mitschnitt (core/QsoAudioRecorder.h,
+    // ContestSettings::audioRecordEnabled). Aus, bis ein Ordner steht.
+    /// Der Mitschnitt hat hier KEINEN Haken mehr: ein und aus macht
+    /// der Knopf in der Statuszeile (Betreiber, 2026-10-22). Der
+    /// Zustand geht trotzdem durch diesen Dialog hindurch -- sonst
+    /// beendete ein Druck auf OK eine laufende Aufnahme.
+    bool m_audioRecordEnabledDurchgereicht = false;
+    QComboBox* m_audioRecordDeviceCombo;
+    QLineEdit* m_audioRecordFolderEdit;
+    QSpinBox*  m_audioRecordRollSpin;
+    QSpinBox*  m_audioRecordFreeSpin;
 };
 
 } // namespace Contestprogramm

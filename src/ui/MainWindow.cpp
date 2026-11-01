@@ -1,13 +1,17 @@
 #include "ui/MainWindow.h"
 
+#include "BuildInfo.h"
+
 #include "app/AppController.h"
 #include "core/BandUtils.h"
+#include "core/CallsignPrefix.h"
 #include "core/BandmapModel.h"
 #include "core/BeamHeading.h"
 #include "core/ColorTheme.h"
 #include "core/Transverter.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/CheckPartialIndex.h"
+#include "core/DxInfo.h"
 #include "core/DxClusterClient.h"
 #include "core/EsmPlanner.h"
 #include "core/OnlineScoreboard.h"
@@ -23,6 +27,7 @@
 #include "data/AdifExporter.h"
 #include "data/BackupRestore.h"
 #include "data/CabrilloExporter.h"
+#include "data/FileWrite.h"
 #include "data/ContestScoring.h"
 #include "data/ContestDatabase.h"
 #include "data/DupeChecker.h"
@@ -36,6 +41,8 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
+#include "ui/ChatPanelWidget.h"
+#include "ui/CabrilloExportDialog.h"
 #include "ui/CheckPartialWidget.h"
 #include "ui/ContestPickerDialog.h"
 #include "ui/ContestRulesEditor.h"
@@ -54,6 +61,7 @@
 #include "ui/PanelContainerWidget.h"
 #include "ui/PanelHeaderBar.h"
 #include "ui/PanelLayoutManager.h"
+#include "ui/SideAreaWidget.h"
 #include "ui/ProfileRail.h"
 #include "ui/RateMeterWidget.h"
 #include "ui/RotorWidget.h"
@@ -79,6 +87,7 @@
 #include <QHash>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -87,12 +96,16 @@
 #include <QMoveEvent>
 #include <QPair>
 #include <QPushButton>
+#include <QRegularExpression>
+
+#include <cmath>
 #include <QRect>
 #include <QResizeEvent>
 #include <QSet>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QDir>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVector>
@@ -178,7 +191,8 @@ QString defaultRstForMode(const QString& mode)
 // field is rst-typed. Shared by currentSentExchangeText() and
 // handleLogRequested() so both compose the sent line the same way.
 QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, const ContestSettings& settings,
-                                                int serialSent, const QString& mode)
+                                                int serialSent, const QString& mode,
+                                                int eigeneCqZone)
 {
     QMap<QString, QString> values;
     if (const ContestDefinition::ExchangeField* serialField = findAutoIncrementField(def)) {
@@ -189,6 +203,26 @@ QMap<QString, QString> buildSentExchangeValues(const ContestDefinition& def, con
     }
     if (const ContestDefinition::ExchangeField* rstField = findFieldByType(def, QStringLiteral("rst"))) {
         values.insert(rstField->key, defaultRstForMode(mode));
+    }
+    // ── Die eigene CQ-Zone ───────────────────────────────────────────
+    //
+    // Dazugekommen 2026-10-23, einen Tag vor CQ WW SSB. Bis dahin
+    // fuellte diese Stelle Nummer, Locator und RST -- ein Zonenfeld
+    // kannte sie nicht. Bei CQ WW haette der Betreiber also „59"
+    // gesendet und geloggt, ohne die 15, und das waere jedes QSO im
+    // Log falsch gewesen, ohne dass irgendwo etwas rot wird.
+    //
+    // Die Zone kommt NICHT aus einer eigenen Einstellung, sondern aus
+    // derselben Laenderliste, aus der das Programm die Zone der
+    // Gegenstation holt (CountryPrefixIndex, siehe
+    // handleCallsignLookupRequested). Eine Einstellung mehr waere eine
+    // Einstellung mehr, die jemand vergisst -- und sie stuende bei
+    // einem Rufzeichen aus einem anderen Land sofort falsch da.
+    if (eigeneCqZone > 0) {
+        if (const ContestDefinition::ExchangeField* zoneField =
+                findFieldByType(def, QStringLiteral("cqzone"))) {
+            values.insert(zoneField->key, QString::number(eigeneCqZone));
+        }
     }
     return values;
 }
@@ -299,6 +333,72 @@ QLabel* makeStatusBadge(QWidget* parent)
     return label;
 }
 
+// Eine Zahl im Rufzeichenfeld ist keine Station, sondern eine Frequenz
+// -- das macht N1MM so (Callsign-Feld: "Entering a frequency in kHz and
+// pressing Enter moves the radio there") und DXLog ebenso. Bis
+// 2026-09-23 gab es in diesem Programm überhaupt keinen anderen Weg,
+// das Band zu wechseln, als am Funkgerät zu drehen: ohne CAT blieb das
+// Log auf dem ersten Band des Contests stehen. Auf Kurzwelle, wo man
+// zwischen acht Bändern springt, ist das keine Einschränkung, sondern
+// ein Riegel.
+//
+// Zurück kommen Hertz auf der Antenne, oder 0, wenn das kein
+// Frequenzeintrag ist.
+//
+// Mit Punkt oder Komma sind es Megahertz ("14.045", "1,8"). Ohne
+// Trennzeichen erst Kilohertz ("14045" -> 20 m), und nur wenn das kein
+// Band ergibt, Megahertz ("144" -> 2 m, "50" -> 6 m). Die
+// Zweideutigkeit löst sich damit von selbst auf, weil die beiden
+// Lesarten nie gleichzeitig auf einem Amateurband landen. Was auf gar
+// keinem Band liegt -- ein verirrtes "59" -- ist keine Frequenz und
+// geht den gewohnten Weg weiter.
+qint64 frequencyFromEntry(const QString& text)
+{
+    const QString t = text.trimmed();
+    if (t.isEmpty()) {
+        return 0;
+    }
+    static const QRegularExpression number(QStringLiteral("^(\\d+)(?:[.,](\\d+))?$"));
+    const QRegularExpressionMatch match = number.match(t);
+    if (!match.hasMatch()) {
+        return 0;
+    }
+    const bool hasFraction = !match.captured(2).isEmpty();
+    if (hasFraction) {
+        const double mhz = QStringLiteral("%1.%2").arg(match.captured(1), match.captured(2)).toDouble();
+        const qint64 hz = static_cast<qint64>(std::llround(mhz * 1000000.0));
+        return bandLabelForFrequencyHz(hz).isEmpty() ? 0 : hz;
+    }
+    bool ok = false;
+    const qint64 whole = match.captured(1).toLongLong(&ok);
+    // Oberhalb von 100 GHz gibt es hier nichts mehr, und die
+    // Multiplikation unten soll nicht überlaufen -- eine lange
+    // Ziffernfolge ist ohnehin keine Frequenz.
+    if (!ok || whole <= 0 || whole > 100000000LL) {
+        return 0;
+    }
+    const qint64 asKhz = whole * 1000LL;
+    if (!bandLabelForFrequencyHz(asKhz).isEmpty()) {
+        return asKhz;
+    }
+    const qint64 asMhz = whole * 1000000LL;
+    return bandLabelForFrequencyHz(asMhz).isEmpty() ? 0 : asMhz;
+}
+
+// Die Rückrichtung zu contestModeForRigctldMode(): SSB heißt am Gerät
+// USB oder LSB, und welches davon, sagt das Band -- unter 10 MHz LSB,
+// darüber USB, wie es auf allen Bändern üblich ist. Auf UKW ist es
+// immer USB.
+QString rigctldModeForContestMode(const QString& contestMode, const QString& band)
+{
+    const QString mode = contestMode.trimmed().toUpper();
+    if (mode == QStringLiteral("SSB")) {
+        const qint64 baseHz = bandBaseHz(band);
+        return (baseHz > 0 && baseHz < 10000000LL) ? QStringLiteral("LSB") : QStringLiteral("USB");
+    }
+    return mode;
+}
+
 void setStatusBadge(QLabel* label, bool ok, const QString& text)
 {
     label->setText(text);
@@ -320,71 +420,111 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(10);
 
-    // Top bar: UTC clock + contest-end countdown, right-aligned, per the
-    // plan's "UTC-Uhr + Countdown oben in der Titelzeile" UI direction
-    // and the design mockup's clock treatment (Main.dc.html). The
-    // countdown half's visibility is a live toggle further down (see
-    // the filter row below); contestEndUtc/countdownVisible themselves
-    // come from ContestSettings via applyClockSettings().
+    // Die oberste Zeile: links der Grid-Filter, rechts das Zahnrad und
+    // die UTC-Uhr mit dem Countdown ("UTC-Uhr + Countdown oben in der
+    // Titelzeile" aus dem Plan, Uhrbehandlung wie im Entwurf
+    // Main.dc.html).
+    //
+    // Bis 2026-09-23 stand darunter eine zweite Zeile mit vier
+    // Kästchen -- Rohdaten, CW-Makros, Countdown, ESM -- und dem
+    // Transverter. Die sind jetzt Einträge im Zahnrad. Martins Regel
+    // dazu steht seit dem 20.09. fest: Optionen gehören rechts oben
+    // unter das ⚙, nicht als Kästchenreihe quer über das Fenster. Was
+    // sie schalten, ist unverändert; nur eine Zeile Höhe gewinnt die
+    // Arbeitsfläche dazu.
     auto* topBarRow = new QWidget(central);
     auto* topBarLayout = new QHBoxLayout(topBarRow);
     topBarLayout->setContentsMargins(0, 0, 0, 0);
-    topBarLayout->addStretch();
-    // Same affordance PanelHeaderBar::setOptionsAffordanceEnabled() gives
-    // individual panels (⚙, Style::iconButtonStyle()) -- "Einstellungen"
-    // used to live only in Datei > Einstellungen..., buried behind the
-    // menu bar. Martin's explicit ask: it must also sit directly on the
-    // window itself. This is the one always-visible strip every layout
-    // (including the map-dominant one) keeps fixed, so it is the natural
-    // permanent home for it, right beside the clock it already anchors.
-    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
-    settingsButton->setFixedSize(24, 22);
-    settingsButton->setCursor(Qt::PointingHandCursor);
-    settingsButton->setToolTip(QStringLiteral("Einstellungen"));
-    settingsButton->setStyleSheet(Style::iconButtonStyle());
-    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettingsDialog);
-    topBarLayout->addWidget(settingsButton);
-    m_utcClockWidget = new UtcClockWidget(topBarRow);
-    topBarLayout->addWidget(m_utcClockWidget);
-    layout->addWidget(topBarRow);
 
-    auto* filterRow = new QWidget(central);
-    auto* filterLayout = new QHBoxLayout(filterRow);
-    filterLayout->setContentsMargins(0, 0, 0, 0);
-    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), filterRow);
+    // Band und Betriebsart, sichtbar und anklickbar. Sie hatten seit
+    // dem Umbau auf CAT keine eigene Bedienung mehr -- die Frequenz des
+    // Funkgeräts bestimmte beides. Martin, 2026-09-27: "alles muss auch
+    // ohne verbindung zum funkgerät passieren", und die UKW-Conteste
+    // sind der Hauptfall. Ohne Gerät stand das Log sonst für immer auf
+    // dem ersten Band des Contests.
+    //
+    // Tucnak, der UKW-Logger in Europa, macht es genauso: ein Bandmenü
+    // auf Alt+B und je Band eine Taste. Hier Alt+B und Alt+M für die
+    // beiden Menüs, dazu Strg+1…9 für die Bänder des Contests in ihrer
+    // Reihenfolge.
+    m_bandButton = new QPushButton(topBarRow);
+    m_bandButton->setObjectName(QStringLiteral("bandButton"));
+    m_bandButton->setCursor(Qt::PointingHandCursor);
+    m_bandButton->setToolTip(QStringLiteral("Band wählen (Alt+B, oder Strg+1…9)"));
+    m_bandButton->setStyleSheet(Style::iconButtonStyle());
+    m_bandButton->setFont(Style::monoFont(m_bandButton->font(), Style::kFontBody));
+    m_bandMenu = new QMenu(this);
+    m_bandMenu->setObjectName(QStringLiteral("bandMenu"));
+    m_bandButton->setMenu(m_bandMenu);
+    topBarLayout->addWidget(m_bandButton);
+
+    m_modeButton = new QPushButton(topBarRow);
+    m_modeButton->setObjectName(QStringLiteral("modeButton"));
+    m_modeButton->setCursor(Qt::PointingHandCursor);
+    m_modeButton->setToolTip(QStringLiteral("Betriebsart wählen (Alt+M)"));
+    m_modeButton->setStyleSheet(Style::iconButtonStyle());
+    m_modeButton->setFont(Style::monoFont(m_modeButton->font(), Style::kFontBody));
+    m_modeMenu = new QMenu(this);
+    m_modeMenu->setObjectName(QStringLiteral("modeMenu"));
+    m_modeButton->setMenu(m_modeMenu);
+    topBarLayout->addWidget(m_modeButton);
+    topBarLayout->addSpacing(12);
+
+    auto* filterLabel = new QLabel(QStringLiteral("Grid-Filter:"), topBarRow);
     filterLabel->setFont(Style::capsFont(filterLabel->font()));
     filterLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextScale()));
-    filterLayout->addWidget(filterLabel);
-    m_gridFilterEdit = new QLineEdit(filterRow);
+    topBarLayout->addWidget(filterLabel);
+    m_gridFilterEdit = new QLineEdit(topBarRow);
+    m_gridFilterEdit->setObjectName(QStringLiteral("gridFilter"));
     m_gridFilterEdit->setMaximumWidth(120);
     m_gridFilterEdit->setFont(Style::monoFont(m_gridFilterEdit->font(), Style::kFontBody));
-    filterLayout->addWidget(m_gridFilterEdit);
-    auto* rawFeedCheck = new QCheckBox(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"), filterRow);
-    filterLayout->addWidget(rawFeedCheck);
-    // Same visual family as rawFeedCheck above -- two more independent
-    // display toggles, not buried in SettingsDialog since (unlike most
-    // settings there) the operator wants to flip these live, mid-session.
-    auto* cwMacroVisibleCheck = new QCheckBox(QStringLiteral("CW-Makros anzeigen"), filterRow);
+    topBarLayout->addWidget(m_gridFilterEdit);
+    topBarLayout->addStretch();
+
+    // Dasselbe Zahnrad, das PanelHeaderBar::setOptionsAffordanceEnabled()
+    // jedem einzelnen Panel gibt (Style::iconButtonStyle()) -- hier für
+    // das Fenster selbst. "Einstellungen" lag einmal nur unter Datei ›
+    // Einstellungen…, hinter der Menüleiste vergraben; Martin wollte es
+    // ausdrücklich auch auf dem Fenster haben. Diese Zeile ist der eine
+    // immer sichtbare Streifen, den jede Anordnung behält, also gehört
+    // es hierher, neben die Uhr, an der es ohnehin schon hängt.
+    m_windowOptionsMenu = new QMenu(this);
+    m_windowOptionsMenu->setObjectName(QStringLiteral("windowOptionsMenu"));
+
+    auto* rawFeedCheck = m_windowOptionsMenu->addAction(QStringLiteral("Chat/Cluster: Rohdaten (ungefiltert)"));
+    rawFeedCheck->setObjectName(QStringLiteral("optionRawFeed"));
+    rawFeedCheck->setCheckable(true);
+    // Dieselbe Familie wie darüber -- Anzeigeschalter, die der Bediener
+    // mitten im Contest umlegen will und die darum nicht im
+    // Einstellungsfenster liegen.
+    auto* cwMacroVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("CW-Makros anzeigen"));
+    cwMacroVisibleCheck->setObjectName(QStringLiteral("optionCwMacros"));
+    cwMacroVisibleCheck->setCheckable(true);
     cwMacroVisibleCheck->setChecked(m_appController.settings().cwMacroPanelVisible);
-    filterLayout->addWidget(cwMacroVisibleCheck);
-    auto* countdownVisibleCheck = new QCheckBox(QStringLiteral("Contest-Countdown anzeigen"), filterRow);
+    auto* countdownVisibleCheck = m_windowOptionsMenu->addAction(QStringLiteral("Contest-Countdown anzeigen"));
+    countdownVisibleCheck->setObjectName(QStringLiteral("optionCountdown"));
+    countdownVisibleCheck->setCheckable(true);
     countdownVisibleCheck->setChecked(m_appController.settings().countdownVisible);
-    filterLayout->addWidget(countdownVisibleCheck);
-    // Enter Sends Message (core/EsmPlanner.h) -- flipped live like the
-    // two toggles above; the texts live under Datei > ESM-Texte.
-    auto* esmCheck = new QCheckBox(QStringLiteral("ESM (Enter sendet, CW)"), filterRow);
+    // Enter Sends Message (core/EsmPlanner.h) -- live umschaltbar wie
+    // die beiden darüber; die Texte stehen unter Datei › ESM-Texte.
+    auto* esmCheck = m_windowOptionsMenu->addAction(QStringLiteral("ESM (Enter sendet, CW)"));
+    esmCheck->setObjectName(QStringLiteral("optionEsm"));
+    esmCheck->setCheckable(true);
     esmCheck->setChecked(m_appController.settings().esmEnabled);
-    filterLayout->addWidget(esmCheck);
-    // The transverter switch (core/Transverter.h): shown once a
-    // transverter is set up (Datei > Transverter...), on = the rig's
-    // IF is the band on the antenna.
+
+    // Der Transverterschalter (core/Transverter.h): sichtbar, sobald
+    // einer eingerichtet ist (Datei › Transverter…), an = die
+    // Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne.
+    // Weil er aus der Zeile ins Menü gewandert ist, sagt es zusätzlich
+    // die CAT-Plakette in der Fußzeile, wenn er an ist -- ein
+    // Schalter, der jede Frequenz umdeutet, darf nicht unsichtbar sein.
     m_transverter = TransverterSetup::load(m_appController.database());
     m_appController.setTransverter(m_transverter);
-    m_transverterCheck = new QCheckBox(filterRow);
-    m_transverterCheck->setObjectName(QStringLiteral("transverterCheck"));
-    filterLayout->addWidget(m_transverterCheck);
+    m_transverterAction = m_windowOptionsMenu->addAction(QString());
+    m_transverterAction->setObjectName(QStringLiteral("transverterCheck"));
+    m_transverterAction->setCheckable(true);
     syncTransverterCheck();
-    connect(m_transverterCheck, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_transverterAction, &QAction::toggled, this, [this](bool on) {
         if (m_transverter.enabled == on) {
             return;
         }
@@ -398,8 +538,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         refreshBandmap();
         updateStatusBar();
     });
-    filterLayout->addStretch();
-    layout->addWidget(filterRow);
+
+    m_windowOptionsMenu->addSeparator();
+    auto* windowSettingsAction = m_windowOptionsMenu->addAction(QStringLiteral("Einstellungen…"));
+    windowSettingsAction->setObjectName(QStringLiteral("optionSettings"));
+    connect(windowSettingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    auto* settingsButton = new QPushButton(QString::fromUtf8("⚙"), topBarRow);
+    settingsButton->setFixedSize(24, 22);
+    settingsButton->setCursor(Qt::PointingHandCursor);
+    settingsButton->setToolTip(QStringLiteral("Optionen und Einstellungen"));
+    settingsButton->setStyleSheet(Style::iconButtonStyle());
+    connect(settingsButton, &QPushButton::clicked, this, [this, settingsButton]() {
+        m_windowOptionsMenu->popup(settingsButton->mapToGlobal(QPoint(0, settingsButton->height())));
+    });
+    topBarLayout->addWidget(settingsButton);
+    m_utcClockWidget = new UtcClockWidget(topBarRow);
+    topBarLayout->addWidget(m_utcClockWidget);
+    layout->addWidget(topBarRow);
 
     // Kern-Welle "movable/resizable/dockable panels": everything below
     // used to be a fixed QVBoxLayout/QSplitter arrangement (entry bar in
@@ -509,14 +665,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_logModel = new LogTableModel(this);
     m_unifiedLog = new UnifiedLogWidget(this);
     m_unifiedLog->setLogModel(m_logModel);
-    m_unifiedLog->setChatModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
     PanelContainerWidget* logContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("unifiedlog"), QStringLiteral("Log"), m_unifiedLog,
-        /*contentHasOwnChrome=*/false, QRect(0, 585, 1440, 95),
-        // Compact design (PanelLayoutManager::kCompactDesignCanvas,
-        // 1372×692): rotors and map on top, the log across the bottom
-        // with room for a few history rows, the bandmap beside it.
-        QRect(0, 450, 1010, 242));
+        // Entwurf 3 „Karte als Buehne", vom Betreiber am 2026-10-24
+        // aus vier Blaettern gewaehlt: die Arbeitsspalte steht links
+        // und bleibt schmal, die Karte nimmt den Rest. Das Log stand
+        // vorher quer unten und war 95 Bildpunkte hoch -- vier Zeilen.
+        /*contentHasOwnChrome=*/false, QRect(0, 0, 700, 330),
+        // Derselbe Entwurf noch einmal fuer das kleine Feld (1372x692).
+        // Das ist der Entwurf, den man WIRKLICH zu sehen bekommt: der
+        // grosse greift erst ab einem Feld von 1440x982, und das Feld
+        // ist immer kleiner als das Fenster (Menueleiste, Kopfzeile,
+        // Statusleiste gehen ab). Auf einem 1440er Schirm wird der
+        // grosse Entwurf nie erreicht -- deshalb steht Entwurf 3 hier
+        // genauso wie oben, nur enger.
+        QRect(0, 0, 700, 250));
     // A live clock fixed to the Log panel's own header -- operator,
     // 2026-09-11: "uhrzeit fehlt, muss fix beim logfenster sein",
     // matching DXLog.net's own "Contest recorder" window, which shows
@@ -613,7 +776,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // panel's own comment below for why they run taller.
     m_rotorRowContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("rotorrow"), QStringLiteral("Rotoren"), m_rotorRow,
-        /*contentHasOwnChrome=*/false, QRect(0, 78, 620, 365), QRect(0, 0, 620, 250));
+        /*contentHasOwnChrome=*/false, QRect(706, 566, 734, 160), QRect(706, 256, 666, 120));
+    // Martin, 2026-10-09: "es sollte auch in jeder leiste die optionen
+    // geben die bestimmen, was im fenster darunter passiert! ... als
+    // 1,2 oder 3 antenne zB". Also hier, im Kopf des Panels, nicht im
+    // Einstellungsdialog: welche Instrumente darunter stehen.
+    if (m_rotorRowContainer && m_rotorRowContainer->headerBar()) {
+        m_rotorRowContainer->headerBar()->setOptionsAffordanceEnabled(true);
+        connect(m_rotorRowContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showRotorPanelOptionsPopup);
+    }
 
     // MapWidget ("Karte / Verbindungen") is its own panel now -- it used
     // to share m_rotorRow with the rotor compasses, but this wave's own
@@ -628,6 +800,17 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // 2026-09-20) -- each view's own layer defaults are the widget's.
     m_mapWidget->applyPreferencesText(m_appController.database().settingValue(
         QStringLiteral("map_preferences"), QStringLiteral("view=radar")));
+    // Die runde Scheibe ist seit 2026-09-23 die Vorgabe (siehe
+    // MapWidget::m_fitToWindow). Eine Datenbank, die schon läuft, trägt
+    // aber das alte "fit=1" und sähe von der Entscheidung nichts --
+    // darum genau einmal nachgezogen. Wer danach im ⚙ der Karte wieder
+    // "Fläche füllen" einschaltet, behält das: der Schlüssel unten ist
+    // dann längst gesetzt.
+    if (m_appController.database().settingValue(QStringLiteral("map_round_default_applied")).isEmpty()) {
+        m_mapWidget->setFitToWindowEnabled(false);
+        m_appController.database().setSettingValue(QStringLiteral("map_round_default_applied"), QStringLiteral("1"));
+        m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
+    }
     connect(m_mapWidget, &MapWidget::preferencesChanged, this, [this] {
         m_appController.database().setSettingValue(QStringLiteral("map_preferences"), m_mapWidget->preferencesText());
         // The beamwidth set in the map's ⚙ menu is also the cone the
@@ -688,7 +871,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // (operator, 2026-09-20) -- which opens the map's own layer menu.
     PanelContainerWidget* mapContainer = m_panelLayoutManager->registerPanel(
         QStringLiteral("map"), QStringLiteral("Karte / Verbindungen"), m_mapWidget,
-        /*contentHasOwnChrome=*/false, QRect(910, 78, 530, 501), QRect(630, 0, 742, 442));
+        // Zwei Drittel der Flaeche: das ist der Entwurf.
+        /*contentHasOwnChrome=*/false, QRect(706, 0, 734, 560), QRect(706, 0, 666, 250));
     if (mapContainer && mapContainer->headerBar()) {
         mapContainer->headerBar()->setOptionsAffordanceEnabled(true);
         connect(mapContainer->headerBar(), &PanelHeaderBar::optionsRequested, this, [this, mapContainer] {
@@ -732,9 +916,14 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // this class's original comment above), just less of it, freeing 30px
     // for the map's settings row instead.
     m_panelLayoutManager->registerPanel(QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel"),
-                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(630, 78, 270, 365),
-                                         QRect(0, 258, 310, 184));
-    connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, &MainWindow::handleCandidateActivated);
+                                         m_suggestionPanel, /*contentHasOwnChrome=*/false, QRect(1158, 732, 282, 250),
+                                         QRect(1042, 382, 330, 130));
+    connect(m_suggestionPanel, &SuggestionPanel::targetAccepted, this, [this](const QString& ruf, const QString& grid, qint64 hz) {
+        // Diese Quellen tragen einen ECHTEN Locator (aus dem Spot
+        // oder aus dem Log), keinen Landesmittelpunkt -- nur die
+        // Karte muss das unterscheiden.
+        handleCandidateActivated(ruf, grid, hz, false);
+    });
     connect(m_suggestionPanel, &SuggestionPanel::sendRequested, this, &MainWindow::handleSuggestionSendRequested);
 
     // Rate meter now gets a real header -- it used to be a bare,
@@ -762,8 +951,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // Width 270, matching suggestion's own column above (see that
     // registerPanel() call's own comment for why 270, not 300).
     m_panelLayoutManager->registerPanel(QStringLiteral("ratemeter"), QStringLiteral("Rate"), m_rateMeterWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 449, 270, 130),
-                                         QRect(318, 258, 302, 184));
+                                         /*contentHasOwnChrome=*/false, QRect(982, 732, 170, 250),
+                                         QRect(706, 382, 330, 130));
     // Check Partial, under the rate panel in the same 270px column --
     // hidden in every already-saved profile (LayoutProfileManager's
     // "a panel the profile never saved starts hidden"), switched on
@@ -773,7 +962,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             [this](const QString& callsign, const QString& grid) { handleCandidateActivated(callsign, grid, 0); });
     connect(m_checkPartialWidget, &CheckPartialWidget::scpLoadRequested, this, &MainWindow::loadScpFile);
     m_panelLayoutManager->registerPanel(QStringLiteral("checkpartial"), QStringLiteral("Check"), m_checkPartialWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(630, 585, 270, 150));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 336, 700, 180), QRect(0, 256, 700, 130));
     // Bandmap -- same "starts hidden in a saved profile" rule as Check.
     m_bandmapWidget = new BandmapWidget(this);
     connect(m_bandmapWidget, &BandmapWidget::spotActivated, this,
@@ -787,9 +976,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         }
         handleCandidateActivated(callsign, grid, freqHz);
     });
+    // Im kleinen Entwurf neben Skeds, das die linken zwei Drittel der
+    // unteren Reihe braucht (gemessen 764 Bildpunkte, auf Linux mehr
+    // als auf macOS -- deshalb stehen dort 800).
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
-                                         /*contentHasOwnChrome=*/false, QRect(910, 520, 250, 260),
-                                         QRect(1018, 450, 354, 242));
+                                         /*contentHasOwnChrome=*/false, QRect(806, 732, 170, 250),
+                                         QRect(806, 518, 566, 174));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -804,9 +996,103 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         reloadSkeds();
     });
     m_panelLayoutManager->registerPanel(QStringLiteral("skeds"), QStringLiteral("Skeds"), m_skedPanel,
-                                         /*contentHasOwnChrome=*/false, QRect(0, 720, 620, 262));
+                                         /*contentHasOwnChrome=*/false, QRect(0, 732, 800, 250), QRect(0, 518, 800, 174));
+
+    // Der Chat: was auf ON4KST geschrieben wird und was der Cluster
+    // meldet. Bis 2026-09-28 standen diese Zeilen in der Log-Liste --
+    // sie sind dort heraus (siehe UnifiedFeedModel::rebuild()), und
+    // damit war der Chatverlauf nirgends mehr zu sehen: man konnte
+    // senden und bekam die Antwort nicht. Das ist dieser Ort, ein
+    // eigenes Panel wie in N1MM und DXLog.net.
+    m_chatPanel = new ChatPanelWidget(this);
+    m_chatPanel->setFeedModels(&m_appController.on4kstFeedModel(), &m_appController.clusterFeedModel());
+    connect(m_chatPanel, &ChatPanelWidget::candidateActivated, this, [this](const QString& ruf, const QString& grid, qint64 hz) {
+        // Diese Quellen tragen einen ECHTEN Locator (aus dem Spot
+        // oder aus dem Log), keinen Landesmittelpunkt -- nur die
+        // Karte muss das unterscheiden.
+        handleCandidateActivated(ruf, grid, hz, false);
+    });
+    connect(m_chatPanel, &ChatPanelWidget::messageSubmitted, this, &MainWindow::handleSuggestionSendRequested);
+    PanelContainerWidget* chatContainer =
+        // Im großen Entwurf unten rechts, neben den Skeds. Im KOMPAKTEN
+    // (dem 13"-Layout, das Martin fährt) bewusst OHNE Vorgabe, also
+    // zunächst versteckt: dort ist die Fläche vollständig belegt --
+    // Rotoren, Karte, Nächstes Ziel, Rate, Log, Bandmap teilen sich
+    // 1372x793 ohne Lücke. Jede Vorgabe läge unter einem anderen Panel,
+    // und ein Panel, das man erst hervorziehen muss, ist schlechter als
+    // eines, das man über Fenster > Panels bewusst einschaltet und
+    // hinlegt, wo man es haben will. Das Profil merkt sich die Lage
+    // dann.
+    m_panelLayoutManager->registerPanel(QStringLiteral("chat"), QStringLiteral("Chat"), m_chatPanel,
+                                             /*contentHasOwnChrome=*/false, QRect(0, 522, 700, 204), QRect(0, 392, 700, 120));
+    // Optionen rechts oben im Panelkopf -- Martins Regel vom 2026-09-20.
+    if (chatContainer && chatContainer->headerBar()) {
+        // Ohne diese Zeile gibt es das Menü zwar, aber keinen Knopf, der
+        // es öffnet. Genau so war es: Martin, 2026-09-28, "im chat gibt
+        // es keine optionen - diese sollten dafür dienen, dass ich zb
+        // die gruppe wechseln kann". Der Kopf zeigt den ⚙ erst, wenn er
+        // ausdrücklich eingeschaltet wird (setOptionsAffordanceEnabled),
+        // das Verbinden des Signals allein genügt nicht.
+        chatContainer->headerBar()->setOptionsAffordanceEnabled(true);
+        connect(chatContainer->headerBar(), &PanelHeaderBar::optionsRequested, this,
+                &MainWindow::showChatOptionsPopup);
+    }
+
+    // Der Seitenbereich: eine schmale Leiste, dahinter teilen sich
+    // mehrere Panels ein Fenster. Martin, 2026-09-28: "ich möchte wie
+    // bei longpath eine leiste haben, wo mehrere fenster untergebracht
+    // sind, welches ich mit klicken öffne" -- dort ist das
+    // SideAreaWindow (Zweig feature/seitenbereich), und die Bedienung
+    // ist hier dieselbe: Klick auf ein inaktives Symbol zeigt dessen
+    // Panel, Klick auf das aktive klappt zu.
+    //
+    // Ohne Vorgabe im kompakten Entwurf, wie der Chat: die Fläche ist
+    // dort voll. Eingeschaltet wird er über Fenster > Panels.
+    m_sideArea = new SideAreaWidget(this);
+    connect(m_sideArea, &SideAreaWidget::removeRequested, this, [this](const QString& id) {
+        takePanelOutOfSideArea(id);
+    });
+    connect(m_sideArea, &SideAreaWidget::pageDraggedOut, this, &MainWindow::dragPanelOutOfSideArea);
+    // Welche Seite oben liegt und ob der Bereich zugeklappt ist, gehört
+    // zur Lage dazu -- sonst steht nach dem Neustart eine andere Seite
+    // vorne als beim Beenden.
+    connect(m_sideArea, &SideAreaWidget::activeChanged, this, [this](const QString&) { saveSideAreaState(); });
+    connect(m_sideArea, &SideAreaWidget::collapsedChanged, this, [this](bool) { saveSideAreaState(); });
+    m_panelLayoutManager->registerPanel(QStringLiteral("sidearea"), QStringLiteral("Seitenbereich"),
+                                         m_sideArea, /*contentHasOwnChrome=*/false,
+                                         QRect(1100, 78, 340, 600));
+
+    // Ein Panel, das über dem Seitenbereich losgelassen wird, fällt
+    // hinein. Martin, 2026-09-28: "karte verbindungen kann ich aber
+    // nicht reinziehen" -- über das Menü ging es schon, aber ziehen ist
+    // der Weg, den man erwartet (und den Longpath anbietet).
+    for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
+                               QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
+                               QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
+                               QStringLiteral("skeds"), QStringLiteral("chat")}) {
+        if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+            connect(panel, &PanelContainerWidget::dragFinished, this, [this, id](const QPoint& globalPos) {
+                // Beide Richtungen am selben Griff: liegt das Panel
+                // schon im Seitenbereich, holt der Zug es heraus, sonst
+                // legt er es hinein. Martin, 2026-09-28: "ich kann
+                // nichts herausziehen" -- der Leistenknopf ging, aber
+                // gezogen wird am Panelkopf, spiegelbildlich zum
+                // Hineinziehen.
+                if (m_sideArea && m_sideArea->hasPage(id)) {
+                    dragPanelOutOfSideArea(id, globalPos);
+                } else {
+                    dropPanelIfOverSideArea(id, globalPos);
+                }
+            });
+        }
+    }
 
     m_panelLayoutManager->finalizeInitialLayout();
+
+    // Erst jetzt, wo jedes Panel seine gespeicherte Lage hat: die
+    // gemerkte Lage merkt sich beim Hineinlegen genau diese Geometrie
+    // als Zuhause für den Rückweg.
+    restoreSideAreaState();
 
     // Left-side profile rail, "wie bei longpath" (operator, 2026-09-14)
     // -- Longpath's own ProfileRail sits at the very left, full window
@@ -821,9 +1107,26 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // otherwise report.
     m_layoutProfileManager = new LayoutProfileManager(
         m_appController.database(), *m_panelLayoutManager,
+        // Jedes Panel, dessen Sichtbarkeit und Lage im Profil wohnen.
+        //
+        // Betreiber am 2026-10-28, mit Bild: „der chatraum ist ueberall
+        // automatisch, ich kann ihn nicht ausblenden." Der Schalter in
+        // Fenster > Panels wirkte, er hielt nur nicht: „chat" stand
+        // nicht in dieser Liste, also schrieb serializeCurrentState()
+        // keine Zeile dafuer und applyState() ruehrte das Panel nie an
+        // -- in allen drei Profilen blieb es sichtbar, so wie
+        // registerPanel() es beim Anmelden zeigt.
+        //
+        // Nicht dabei und mit Absicht: „cwMacroRow" (haengt an der
+        // eigenen Einstellung cw_macro_panel_visible) und „sidearea"
+        // (steht nur da, wenn etwas drin ist, siehe
+        // syncSideAreaVisibility). Alles andere gehoert herein --
+        // tests/test_jedes_panel_ausblendbar.cpp haelt das fest, indem
+        // es jedes Panel mit Schalter ausblendet und das Fenster neu
+        // baut.
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
-         QStringLiteral("bandmap"), QStringLiteral("skeds")},
+         QStringLiteral("bandmap"), QStringLiteral("skeds"), QStringLiteral("chat")},
         this);
     // A fresh database only: the panels get the design that fits the
     // canvas once it has its real size, and profile "1" is snapshotted
@@ -859,6 +1162,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_rigctldStatusLabel = makeStatusBadge(this);
     m_on4kstStatusLabel = makeStatusBadge(this);
     m_clusterStatusLabel = makeStatusBadge(this);
+    m_backupStatusLabel = makeStatusBadge(this);
+    m_backupStatusLabel->setObjectName(QStringLiteral("backupStatus"));
+    setStatusBadge(m_backupStatusLabel, false, QStringLiteral("Gesichert: %1").arg(Style::unknownDash()));
+    m_backupStatusLabel->setToolTip(
+        QStringLiteral("Jedes QSO steht sofort in der Datenbank. Zusätzlich wird jede Minute eine vollständige "
+                        "Kopie abgelegt (Datei › Sicherungen)."));
     m_gridRadiusLabel = new QLabel(this);
     m_gridRadiusLabel->setFont(Style::monoFont(m_gridRadiusLabel->font(), Style::kFontSmall));
     m_gridRadiusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
@@ -866,13 +1175,128 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_weatherStatusLabel->setFont(Style::monoFont(m_weatherStatusLabel->font(), Style::kFontSmall));
     m_weatherStatusLabel->setStyleSheet(QStringLiteral("color: %1;").arg(Style::kTextTertiary()));
     m_weatherStatusLabel->setText(QStringLiteral("Wetter: %1").arg(Style::unknownDash()));
+    // Welche Fassung gerade läuft -- Martin, 2026-09-30: "bitte version
+    // immer in die taskleiste legen, automatisch". Automatisch heißt:
+    // aus BuildInfo.h, das cmake/BuildInfo.cmake bei JEDEM Bau neu
+    // schreibt. Nichts von Hand zu pflegen, und keine Fassung kann
+    // behaupten, eine andere zu sein. Commit und Baudatum stehen im
+    // Tooltip: auf der Leiste würden sie nur Platz kosten, beim Melden
+    // eines Fehlers sind sie aber genau das, was zählt.
+    m_versionLabel = new QLabel(this);
+    m_versionLabel->setObjectName(QStringLiteral("versionStatus"));
+    m_versionLabel->setFont(Style::monoFont(m_versionLabel->font(), Style::kFontSmall));
+    // Polster links: die Statusnachricht (Rufzeichen, Contestname) endet
+    // unmittelbar davor, und ohne Abstand klebte die Fassung daran --
+    // "...Subregional März/Maiv0.1.1". Live gesehen, 2026-09-30.
+    m_versionLabel->setStyleSheet(
+        QStringLiteral("color: %1; padding-left: 10px; padding-right: 4px;").arg(Style::kTextTertiary()));
+    m_versionLabel->setText(QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
+    m_versionLabel->setToolTip(QStringLiteral("Fassung %1 · Stand %2 · %3")
+                                   .arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION),
+                                         QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE),
+                                         QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)));
+
     m_modeToggleButton = new QPushButton(this);
+
+    // ── Der Mitschnitt gehoert in die Statuszeile ────────────────────
+    //
+    // Betreiber am 2026-10-22: „wo starte und beende ich die aufnahme.
+    // sollte zu sehen sein." Der Haken in den Einstellungen war bis
+    // dahin beides -- Schalter und einziger Hinweis -- und er steht
+    // hinter zwei Klicks und acht Gruppen. Ein Mitschnitt, von dem man
+    // nicht sieht, ob er laeuft, ist keiner: man verlaesst sich auf
+    // ihn und merkt es erst, wenn man die Aufnahme sucht.
+    //
+    // Derselbe Platz und dieselbe Kapsel wie die anderen Zustaende,
+    // und ein Druck schaltet um. Was der Druck tut, ist genau das,
+    // was der Haken tut -- ContestSettings::audioRecordEnabled --, es
+    // gibt also keinen zweiten Schalter, der mit dem ersten uneins
+    // werden koennte.
+    m_audioRecordButton = new QPushButton(this);
+    m_audioRecordButton->setObjectName(QStringLiteral("audioRecordButton"));
+    m_audioRecordButton->setFlat(true);
+    m_audioRecordButton->setCursor(Qt::PointingHandCursor);
+    connect(m_audioRecordButton, &QPushButton::clicked, this, [this]() {
+        ContestSettings s = m_appController.settings();
+        if (!s.audioRecordEnabled && s.audioRecordFolder.trimmed().isEmpty()) {
+            statusBar()->showMessage(
+                QStringLiteral("Mitschnitt: erst einen Ordner waehlen "
+                               "(Einstellungen \u203a QSO-Mitschnitt)."), 8000);
+            return;
+        }
+        s.audioRecordEnabled = !s.audioRecordEnabled;
+        m_appController.setSettings(s);
+        aktualisiereMitschnittAnzeige();
+
+        // Und nachsehen, ob wirklich Ton ankommt.
+        //
+        // Betreiber am 2026-10-25: „ich gehe auf start, dann steht die
+        // zeit 00:00 aber er nimmt nicht auf." Genau so sieht es aus,
+        // wenn die Datei zwar offen ist, das Geraet aber keine einzige
+        // Probe liefert -- der Zaehler rechnet aus den geschriebenen
+        // Proben, nicht aus der Uhr. Bis heute stand das Programm dann
+        // stumm da und zeigte 00:00 wie einen gueltigen Zustand.
+        //
+        // An seinem Mac mini steht als Quelle das Aggregat „Funk +
+        // Mikrofon" (vier Kanaele, 24 kHz -- jedes andere Geraet dort
+        // laeuft mit 48). Woran es genau liegt, ist noch offen; diese
+        // Meldung macht wenigstens den Fall sichtbar und nennt das
+        // Geraet, um das es geht.
+        if (s.audioRecordEnabled) {
+            QTimer::singleShot(6000, this, [this]() {
+                if (!m_appController.audioRecorder().isRecording()) { return; }
+                if (m_appController.audioRecorder().recordedSeconds() > 0.0) { return; }
+                const QString geraet = m_appController.settings().audioRecordDevice.trimmed();
+                const QString format = m_appController.audioCapture().formatText();
+                statusBar()->showMessage(
+                    QStringLiteral("Mitschnitt: seit sechs Sekunden kommt kein Ton an%1%2 "
+                                   "-- die Datei bleibt leer.")
+                        .arg(geraet.isEmpty() ? QString()
+                                              : QStringLiteral(" von \u201e%1\u201c").arg(geraet),
+                             format.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(format)),
+                    30000);
+                qWarning().noquote()
+                    << QStringLiteral("QSO-Mitschnitt: keine Proben von \"%1\"").arg(geraet);
+            });
+        }
+    });
+
+    // Einmal je Sekunde, damit die verstrichene Zeit mitlaeuft. Ein
+    // Signal gibt es nur beim Anfangen und Aufhoeren; die Dauer
+    // dazwischen hat keines, und ein Zaehler, der steht, sieht aus
+    // wie eine Aufnahme, die haengt.
+    m_audioRecordTicker = new QTimer(this);
+    m_audioRecordTicker->setInterval(1000);
+    connect(m_audioRecordTicker, &QTimer::timeout, this,
+            &MainWindow::aktualisiereMitschnittAnzeige);
+    m_audioRecordTicker->start();
+
+    connect(&m_appController.audioRecorder(), &QsoAudioRecorder::recordingChanged,
+            this, [this](bool) { aktualisiereMitschnittAnzeige(); });
+
+    statusBar()->addPermanentWidget(m_versionLabel);
     statusBar()->addPermanentWidget(m_rigctldStatusLabel);
     statusBar()->addPermanentWidget(m_on4kstStatusLabel);
     statusBar()->addPermanentWidget(m_clusterStatusLabel);
+    statusBar()->addPermanentWidget(m_backupStatusLabel);
     statusBar()->addPermanentWidget(m_gridRadiusLabel);
     statusBar()->addPermanentWidget(m_weatherStatusLabel);
+    // Betreiber am 2026-10-25: „es sollte dort immer ein start, stop
+    // sein, ich will immer dort den ein und ausschalter haben und die
+    // zeit sehen, welche ich bereits aufgenommen habe."
+    //
+    // Bis dahin war es EIN Knopf, der je nach Zustand seinen Text
+    // wechselte: mal die Zeit, mal „aus", mal „kein Ordner". Wer die
+    // Zeit sehen wollte, musste also erst aufnehmen, und wer den
+    // Schalter suchte, fand eine Uhr. Jetzt stehen beide nebeneinander
+    // und bleiben, was sie sind.
+    m_audioRecordTimeLabel = new QLabel(this);
+    m_audioRecordTimeLabel->setObjectName(QStringLiteral("audioRecordTimeLabel"));
+    m_audioRecordTimeLabel->setFont(Style::monoFont(font(), Style::kFontCaption));
+    statusBar()->addPermanentWidget(m_audioRecordButton);
+    statusBar()->addPermanentWidget(m_audioRecordTimeLabel);
     statusBar()->addPermanentWidget(m_modeToggleButton);
+    aktualisiereMitschnittAnzeige();
 
     // Rough tropo-ducting indicator (plan's "Wetter-/Tropo-Daten"
     // section) -- readingChanged fires on every successful Open-Meteo
@@ -906,19 +1330,26 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.dxClusterClient(), &DxClusterClient::spotReceived, this, noteSeenCall);
     connect(m_unifiedLog, &UnifiedLogWidget::callsignLookupRequested, this, &MainWindow::handleCallsignLookupRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::receivedGridChanged, this, &MainWindow::handleReceivedGridChanged);
-    connect(m_unifiedLog, &UnifiedLogWidget::candidateActivated, this, &MainWindow::handleCandidateActivated);
+    connect(m_unifiedLog, &UnifiedLogWidget::callsignTyped, this, &MainWindow::refreshDxInfoLine);
     connect(m_unifiedLog, &UnifiedLogWidget::historyCallsignEditRequested, this, &MainWindow::handleHistoryCallsignEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyExchangeRcvdEditRequested, this, &MainWindow::handleHistoryExchangeRcvdEditRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyInvalidToggleRequested, this, &MainWindow::handleHistoryInvalidToggleRequested);
+    connect(m_unifiedLog, &UnifiedLogWidget::historyDeleteRequested, this, &MainWindow::handleHistoryDeleteRequested);
     connect(m_unifiedLog, &UnifiedLogWidget::historyTimeEditRequested, this, &MainWindow::handleHistoryTimeEditRequested);
     // The five-minute log backup (AppController's LogBackup) reports
     // into the status bar: a written copy briefly, a failure for longer
     // -- a modal box every five minutes would be worse than the fault.
     if (LogBackup* backup = m_appController.logBackup()) {
-        connect(backup, &LogBackup::backupWritten, this, [this](const QString& path) {
-            statusBar()->showMessage(QStringLiteral("Log gesichert: %1").arg(QFileInfo(path).fileName()), 5000);
+        connect(backup, &LogBackup::backupWritten, this, [this](const QString& /*path*/) {
+            // Fest in der Fußzeile statt als Meldung: eine Meldung ist
+            // nach fünf Sekunden weg und streitet sich obendrein mit
+            // der Dupe-Meldung um dieselbe Zeile.
+            setStatusBadge(m_backupStatusLabel, true,
+                            QStringLiteral("Gesichert: %1")
+                                .arg(QDateTime::currentDateTimeUtc().time().toString(QStringLiteral("HH:mm"))));
         });
         connect(backup, &LogBackup::backupFailed, this, [this](const QString& error) {
+            setStatusBadge(m_backupStatusLabel, false, QStringLiteral("Sicherung: Fehler"));
             statusBar()->showMessage(QStringLiteral("Log-Sicherung fehlgeschlagen: %1").arg(error), 20000);
         });
     }
@@ -931,21 +1362,21 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(&m_appController.callsignLocatorLookup(), &CallsignLocatorLookup::externalLookupFinished,
             this, &MainWindow::handleExternalCallsignLookupFinished);
     connect(m_gridFilterEdit, &QLineEdit::textChanged, m_unifiedLog, &UnifiedLogWidget::setGridFilter);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(rawFeedCheck, &QCheckBox::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
-    connect(cwMacroVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.on4kstFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(rawFeedCheck, &QAction::toggled, &m_appController.clusterFeedModel(), &ChatFeedModel::setShowRawFeed);
+    connect(cwMacroVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_cwMacroPanelContainer->setVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.cwMacroPanelVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(countdownVisibleCheck, &QCheckBox::toggled, this, [this](bool visible) {
+    connect(countdownVisibleCheck, &QAction::toggled, this, [this](bool visible) {
         m_utcClockWidget->setCountdownVisible(visible);
         ContestSettings settings = m_appController.settings();
         settings.countdownVisible = visible;
         m_appController.setSettings(settings);
     });
-    connect(esmCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+    connect(esmCheck, &QAction::toggled, this, [this](bool enabled) {
         ContestSettings settings = m_appController.settings();
         settings.esmEnabled = enabled;
         m_appController.setSettings(settings);
@@ -971,6 +1402,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             && m_unifiedLog->hasUnsentContent()) {
             return;
         }
+        // Das Funkgerät meldet sich selbst -- seine Frequenz gilt ab
+        // jetzt, nicht die zuletzt eingetippte.
+        m_typedFrequencyHz = 0;
         applyRigFrequency(hz);
     });
     connect(&m_appController.rigctldClient(), &RigctldClient::modeChanged, this,
@@ -988,6 +1422,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             // above.
             m_currentMode = contestMode;
             m_unifiedLog->setCurrentMode(contestMode);
+            syncBandModeControls();
             updateStatusBar();
         }
     });
@@ -1007,6 +1442,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         updateStatusBar();
     });
     connect(&m_appController.on4kstClient(), &On4kstClient::loginFailed, this, &MainWindow::updateStatusBar);
+    // Was der Server wirklich schickt. Martin, 2026-09-28: "bitte
+    // kontrolliere ob dieser chat auch wirklich den raum ändert" -- das
+    // lässt sich nur am Datenstrom ablesen, nicht am eigenen Wunsch.
+    connect(&m_appController.on4kstClient(), &On4kstClient::roomObserved, this, [this](int chatId) {
+        m_observedOn4kstRoom = chatId;
+        updateStatusBar();
+        if (m_chatPanel) {
+            m_chatPanel->setConnectionStatus(on4kstRoomStatusText());
+        }
+    });
 
     connect(&m_appController.dxClusterClient(), &DxClusterClient::connected, this, &MainWindow::updateStatusBar);
     connect(&m_appController.dxClusterClient(), &DxClusterClient::disconnected, this, &MainWindow::updateStatusBar);
@@ -1082,6 +1527,28 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // A rotctld this program started for a rotor slot (see
     // AppController::rotctldLaunchFor) failed or died: Hamlib's own
     // reason, first line, where the operator looks first.
+    // ── Der Mitschnitt sagt, wenn er nicht laeuft ────────────────────
+    //
+    // Ein Mitschnitt, der stumm ausfaellt, ist schlimmer als keiner:
+    // man verlaesst sich auf ihn und merkt es erst, wenn man die
+    // Aufnahme sucht. Darum in die Statuszeile UND ins Protokoll,
+    // dieselbe Behandlung wie bei einem rotctld, das nicht startet.
+    connect(&m_appController, &AppController::audioRecordingProblem, this,
+            [this](const QString& message) {
+        qWarning().noquote() << QStringLiteral("QSO-Mitschnitt: %1").arg(message);
+        statusBar()->showMessage(QStringLiteral("QSO-Mitschnitt: %1").arg(message), 20000);
+    });
+    connect(&m_appController.audioRecorder(), &QsoAudioRecorder::stoppedWithReason, this,
+            [this](const QString& reason) {
+        qWarning().noquote() << QStringLiteral("QSO-Mitschnitt beendet: %1").arg(reason);
+        statusBar()->showMessage(QStringLiteral("QSO-Mitschnitt beendet: %1").arg(reason), 20000);
+    });
+    connect(&m_appController.audioCapture(), &QsoAudioCapture::stoppedWithReason, this,
+            [this](const QString& reason) {
+        qWarning().noquote() << QStringLiteral("Tongeraet: %1").arg(reason);
+        statusBar()->showMessage(QStringLiteral("Tongeraet: %1").arg(reason), 20000);
+    });
+
     connect(&m_appController, &AppController::rotctldFailed, this, [this](int slot, const QString& message) {
         // Hamlib's stderr is several lines; the one naming the port
         // ("Unable to open /dev/tty... - No such file or directory")
@@ -1100,6 +1567,27 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         (slot == 1 ? m_rotctldError1 : m_rotctldError2) = reason;
         qWarning().noquote() << QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(message);
         statusBar()->showMessage(QStringLiteral("rotctld (Rotor %1): %2").arg(slot).arg(reason), 15000);
+    });
+
+    // The same for a rigctld this program started for the CAT radio
+    // (AppController::rigctldLaunchFor). Hamlib's stderr is where a
+    // wrong model number, a serial port that is not there, or a baud
+    // rate the radio's own menu disagrees with says so -- and nowhere
+    // else, so it must not be swallowed.
+    connect(&m_appController, &AppController::rigctldFailed, this, [this](const QString& message) {
+        QString reason;
+        for (const QString& line : message.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+            if (line.contains(QStringLiteral("Unable to open")) || line.contains(QStringLiteral("Permission denied"))
+                || line.contains(QStringLiteral("not found"))) {
+                reason = line.trimmed();
+                break;
+            }
+        }
+        if (reason.isEmpty()) {
+            reason = message.section(QLatin1Char('\n'), 0, 0).trimmed();
+        }
+        qWarning().noquote() << QStringLiteral("rigctld (CAT): %1").arg(message);
+        statusBar()->showMessage(QStringLiteral("rigctld (CAT): %1").arg(reason), 15000);
     });
 
     // Rotor widgets themselves (and their azimuthChanged/stateChanged
@@ -1146,6 +1634,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* stopShortcut = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     stopShortcut->setContext(Qt::WindowShortcut);
     connect(stopShortcut, &QShortcut::activated, m_cwMacroPanel, &CwMacroPanel::stopRequested);
+    // Und zurück in die Eingabezeile -- Tucnaks Regel für dieselbe
+    // Taste. Seit es das Löschen in der Liste gibt (2026-09-27), führt
+    // ein Weg aus der Eingabe heraus, und es braucht einen zurück.
+    // Zusammen heißt Escape damit: "sei still und lass mich
+    // weitertippen".
+    connect(stopShortcut, &QShortcut::activated, this, [this]() {
+        if (m_unifiedLog) {
+            m_unifiedLog->returnToEntryRow();
+        }
+    });
     // Alt+W wipes the entry row (N1MM+'s "Wipe"): a busted call or a
     // station that went away, gone with one chord instead of field by
     // field.
@@ -1163,6 +1661,25 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             m_appController.rigctldClient().setKeyerSpeed(m_appController.settings().cwSpeedWpm);
         }
     });
+    // Alt+B / Alt+M öffnen die beiden Menüs der obersten Zeile -- wie
+    // Tucnaks Alt+B, damit die Hand die Eingabezeile nicht verlassen
+    // muss.
+    auto* bandMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_B), this);
+    connect(bandMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_bandButton && m_bandButton->isEnabled()) {
+            m_bandButton->showMenu();
+        }
+    });
+    auto* modeMenuShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_M), this);
+    connect(modeMenuShortcut, &QShortcut::activated, this, [this]() {
+        if (m_modeButton && m_modeButton->isEnabled()) {
+            m_modeButton->showMenu();
+        }
+    });
+
+    auto* undoShortcut = new QShortcut(QKeySequence::Undo, this);
+    connect(undoShortcut, &QShortcut::activated, this, &MainWindow::undoLastDelete);
+
     auto* wipeShortcut = new QShortcut(QKeySequence(Qt::ALT | Qt::Key_W), this);
     wipeShortcut->setContext(Qt::WindowShortcut);
     connect(wipeShortcut, &QShortcut::activated, this, [this]() {
@@ -1178,7 +1695,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // itself is a database that writes every QSO at once and copies
     // itself every minute). Same handlers the entries further down had;
     // they moved up here.
-    QAction* newLogAction = fileMenu->addAction(QStringLiteral("&Neues Log beginnen (altes archivieren)..."));
+    QAction* newLogAction = fileMenu->addAction(QStringLiteral("&Neues Log beginnen (altes bleibt im Archiv)..."));
     newLogAction->setObjectName(QStringLiteral("newLogAction"));
     connect(newLogAction, &QAction::triggered, this, &MainWindow::archiveActiveContest);
     QAction* backupNowAction = fileMenu->addAction(QStringLiteral("Log jetzt &sichern (Kopie)"));
@@ -1187,6 +1704,13 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(backupNowAction, &QAction::triggered, this, &MainWindow::backupLogNow);
     fileMenu->addSeparator();
     QAction* settingsAction = fileMenu->addAction(QStringLiteral("&Einstellungen..."));
+    // settingsAction, NOT windowSettingsAction (the gear menu's own
+    // entry, created at the top of this constructor and already
+    // connected there). Wiring that one again here did two things at
+    // once: this file-menu entry did nothing when clicked, and the
+    // gear menu's entry opened the modal dialog twice in a row --
+    // close it, and it came straight back. See
+    // tests/test_menu_actions.cpp.
     connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettingsDialog);
     // A proper contest-selection window, per the operator's explicit
     // request, distinct from the combo box buried in SettingsDialog --
@@ -1195,45 +1719,69 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(contestPickerAction, &QAction::triggered, this, &MainWindow::openContestPicker);
     QAction* contestRulesAction = fileMenu->addAction(QStringLiteral("Contest-&Regeln..."));
     connect(contestRulesAction, &QAction::triggered, this, &MainWindow::openContestRulesEditor);
-    QAction* exportCabrilloAction = fileMenu->addAction(QStringLiteral("&Cabrillo exportieren..."));
-    connect(exportCabrilloAction, &QAction::triggered, this, &MainWindow::exportCabrillo);
-    QAction* exportAdifAction = fileMenu->addAction(QStringLiteral("&ADIF exportieren..."));
-    connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
-    // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
-    // Cabrillo alone is not enough for a VHF/UHF contest entry.
-    // What the robot would find, found first -- see data/LogCheck.h.
-    QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
-    connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
+    fileMenu->addSeparator();
+
+    // Vor dem ersten CQ und vor der Abgabe -- die beiden Prüfungen
+    // stehen für sich, weil man sie genau zweimal braucht und dann
+    // sofort finden will.
     // Before the first CQ: station, contest, links, data -- see
     // data/ReadinessCheck.h.
     QAction* readinessAction = fileMenu->addAction(QStringLiteral("Start&check (bereit?)..."));
     connect(readinessAction, &QAction::triggered, this, &MainWindow::openReadinessWindow);
-    QAction* exportEdiAction = fileMenu->addAction(QStringLiteral("&EDI exportieren (REG1TEST)..."));
-    connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
-    QAction* loadScpAction = fileMenu->addAction(QStringLiteral("SCP-&Liste laden..."));
-    connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
-    QAction* importOldLogsAction = fileMenu->addAction(QStringLiteral("Locator aus alten Logs übernehmen (EDI/ADIF)..."));
-    connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
-    QAction* transverterAction = fileMenu->addAction(QStringLiteral("Trans&verter..."));
-    connect(transverterAction, &QAction::triggered, this, &MainWindow::openTransverterDialog);
-    QAction* esmTemplatesAction = fileMenu->addAction(QStringLiteral("ESM-&Texte..."));
-    connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
-    QAction* scoreboardAction = fileMenu->addAction(QStringLiteral("&Online-Scoreboard..."));
-    connect(scoreboardAction, &QAction::triggered, this, &MainWindow::openScoreboardDialog);
-    QAction* postScoreAction = fileMenu->addAction(QStringLiteral("Score &jetzt senden"));
-    connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
+    // What the robot would find, found first -- see data/LogCheck.h.
+    QAction* checkLogAction = fileMenu->addAction(QStringLiteral("Log &prüfen..."));
+    connect(checkLogAction, &QAction::triggered, this, &MainWindow::openLogCheckWindow);
     fileMenu->addSeparator();
-    QAction* restoreAction = fileMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
+
+    // Ab hier Untermenüs. Das Datei-Menü war auf einundzwanzig Einträge
+    // gewachsen -- eine Schublade, kein Menü; gesucht wurde darin
+    // zeilenweise. Alles bleibt erreichbar, nur eine Ebene tiefer, und
+    // nichts wandert weiter als in die Gruppe, in der man es sucht.
+    QMenu* exportMenu = fileMenu->addMenu(QStringLiteral("E&xportieren"));
+    // The IARU-R1/ÖVSV submission format -- see EdiExporter.h for why
+    // Cabrillo alone is not enough for a VHF/UHF contest entry.
+    QAction* exportEdiAction = exportMenu->addAction(QStringLiteral("&EDI (REG1TEST)..."));
+    connect(exportEdiAction, &QAction::triggered, this, &MainWindow::exportEdi);
+    QAction* exportCabrilloAction = exportMenu->addAction(QStringLiteral("&Cabrillo..."));
+    connect(exportCabrilloAction, &QAction::triggered, this, &MainWindow::exportCabrillo);
+    QAction* exportAdifAction = exportMenu->addAction(QStringLiteral("&ADIF..."));
+    connect(exportAdifAction, &QAction::triggered, this, &MainWindow::exportAdif);
+
+    QMenu* listsMenu = fileMenu->addMenu(QStringLiteral("&Listen laden"));
+    QAction* loadScpAction = listsMenu->addAction(QStringLiteral("SCP-&Liste (Rufzeichen)..."));
+    connect(loadScpAction, &QAction::triggered, this, &MainWindow::loadScpFile);
+    QAction* loadCountryAction = listsMenu->addAction(QStringLiteral("Länder&liste (cty.dat)..."));
+    connect(loadCountryAction, &QAction::triggered, this, &MainWindow::loadCountryFile);
+    QAction* importOldLogsAction = listsMenu->addAction(QStringLiteral("Locator aus alten Logs (EDI/ADIF)..."));
+    connect(importOldLogsAction, &QAction::triggered, this, &MainWindow::importOldLogs);
+    // Die veröffentlichten Ergebnislisten der Contestauswertung. Martin,
+    // 2026-09-27: "wichtig jedoch die einreichung der ergebnsise, diese
+    // sind treffsicherer" -- der Locator einer Einreichung ist der
+    // Standort, VON DEM gefahren wurde, während QRZ den Heimatstandort
+    // kennt. Auf UKW ist das oft nicht derselbe Berg.
+    QAction* importResultsAction = listsMenu->addAction(QStringLiteral("Ergebnisliste eines Contests (CSV)..."));
+    importResultsAction->setObjectName(QStringLiteral("importResultsAction"));
+    connect(importResultsAction, &QAction::triggered, this, &MainWindow::importResultsCsv);
+
+    QMenu* backupMenu = fileMenu->addMenu(QStringLiteral("Sicherun&g"));
+    QAction* restoreAction = backupMenu->addAction(QStringLiteral("Sicherung &wiederherstellen..."));
     connect(restoreAction, &QAction::triggered, this, &MainWindow::restoreBackup);
     // A second copy of every backup on a stick or in a cloud folder --
     // the log survives the laptop (see LogBackup::setMirrorDirectory).
-    QAction* mirrorAction = fileMenu->addAction(QStringLiteral("Zweiter Sicherungsordner..."));
+    // Die letzte Rettungsleine: das Journal, in das jedes QSO geschrieben
+    // wird, bevor es die Datenbank sieht (QsoJournal). Wenn die
+    // Datenbank hin ist, steht hier trotzdem alles.
+    QAction* journalAction = backupMenu->addAction(QStringLiteral("Aus dem &Journal wiederherstellen..."));
+    journalAction->setObjectName(QStringLiteral("restoreJournalAction"));
+    connect(journalAction, &QAction::triggered, this, &MainWindow::restoreFromJournal);
+
+    QAction* mirrorAction = backupMenu->addAction(QStringLiteral("&Zweiter Sicherungsordner..."));
     mirrorAction->setObjectName(QStringLiteral("backupMirrorAction"));
     connect(mirrorAction, &QAction::triggered, this, &MainWindow::chooseBackupMirror);
-    QAction* clearMirrorAction = fileMenu->addAction(QStringLiteral("Zweiten Sicherungsordner entfernen"));
+    QAction* clearMirrorAction = backupMenu->addAction(QStringLiteral("Zweiten Sicherungsordner &entfernen"));
     clearMirrorAction->setObjectName(QStringLiteral("backupMirrorClearAction"));
     connect(clearMirrorAction, &QAction::triggered, this, &MainWindow::clearBackupMirror);
-    connect(fileMenu, &QMenu::aboutToShow, this, [this, clearMirrorAction] {
+    connect(backupMenu, &QMenu::aboutToShow, this, [this, clearMirrorAction] {
         const LogBackup* backup = m_appController.logBackup();
         clearMirrorAction->setEnabled(backup && !backup->mirrorDirectory().isEmpty());
     });
@@ -1243,6 +1791,19 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
             statusBar()->showMessage(error, 15000);
         });
     }
+
+    QMenu* scoreMenu = fileMenu->addMenu(QStringLiteral("&Online-Score"));
+    QAction* scoreboardAction = scoreMenu->addAction(QStringLiteral("&Scoreboard einrichten..."));
+    connect(scoreboardAction, &QAction::triggered, this, &MainWindow::openScoreboardDialog);
+    QAction* postScoreAction = scoreMenu->addAction(QStringLiteral("Score &jetzt senden"));
+    connect(postScoreAction, &QAction::triggered, this, &MainWindow::postScoreNow);
+
+    QMenu* toolsMenu = fileMenu->addMenu(QStringLiteral("Werk&zeuge"));
+    QAction* transverterAction = toolsMenu->addAction(QStringLiteral("Trans&verter..."));
+    connect(transverterAction, &QAction::triggered, this, &MainWindow::openTransverterDialog);
+    QAction* esmTemplatesAction = toolsMenu->addAction(QStringLiteral("ESM-&Texte..."));
+    connect(esmTemplatesAction, &QAction::triggered, this, &MainWindow::openEsmTemplatesDialog);
+
     fileMenu->addSeparator();
     QAction* quitAction = fileMenu->addAction(QStringLiteral("&Beenden"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
@@ -1282,10 +1843,91 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("checkpartial"), QStringLiteral("Check")},
         {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
         {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
     };
-    auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
+    // Panels als eigene Fenster ablösen -- Martin, 2026-09-28: "schön
+    // wäre es, ein windows zu haben, wo ich alle windows auch aber auch
+    // rausziehen kann um platz zu sparen. das haben wir bei longpath
+    // auch erledigt." Dort heißt das Menü "Containers"; die Bedienung
+    // ist dieselbe, samt "Zurück über das ✕ am Fenster".
+    auto* ablösenMenu = windowMenu->addMenu(QStringLiteral("Als eigenes &Fenster"));
+    ablösenMenu->setObjectName(QStringLiteral("floatPanelsMenu"));
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = ablösenMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("float_%1").arg(entry.id));
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id](bool floating) {
+            m_panelLayoutManager->setPanelFloating(id, floating);
+        });
+        // Beim Aufklappen den Stand nachziehen -- ein Panel kann auch
+        // über das ✕ seines Fensters zurückgedockt sein.
+        connect(ablösenMenu, &QMenu::aboutToShow, this, [this, action, id = entry.id]() {
+            if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
+                QSignalBlocker blocker(action);
+                action->setChecked(panel->isFloating());
+            }
+        });
+    }
+    ablösenMenu->addSeparator();
+    QAction* alleAblösen = ablösenMenu->addAction(QStringLiteral("Alle ablösen"));
+    alleAblösen->setObjectName(QStringLiteral("floatAllPanels"));
+    connect(alleAblösen, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, true);
+        }
+    });
+    QAction* alleAndocken = ablösenMenu->addAction(QStringLiteral("Alle wieder andocken"));
+    alleAndocken->setObjectName(QStringLiteral("dockAllPanels"));
+    connect(alleAndocken, &QAction::triggered, this, [this]() {
+        for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+            m_panelLayoutManager->setPanelFloating(entry.id, false);
+        }
+    });
+
+    // Panels in den Seitenbereich legen -- dort teilen sie sich ein
+    // Fenster, und man klickt zwischen ihnen um, statt sie nebeneinander
+    // zu quetschen. Genau dafür ist er da (siehe SideAreaWidget).
+    auto* seitenbereichMenu = windowMenu->addMenu(QStringLiteral("In den &Seitenbereich"));
+    seitenbereichMenu->setObjectName(QStringLiteral("sideAreaMenu"));
+    for (const PanelMenuEntry& entry : kPanelMenuEntries) {
+        QAction* action = seitenbereichMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("side_%1").arg(entry.id));
+        action->setCheckable(true);
+        connect(action, &QAction::toggled, this, [this, id = entry.id, label = entry.label](bool hinein) {
+            if (hinein) {
+                putPanelIntoSideArea(id, label);
+            } else {
+                takePanelOutOfSideArea(id);
+            }
+        });
+        connect(seitenbereichMenu, &QMenu::aboutToShow, this, [this, action, id = entry.id]() {
+            QSignalBlocker blocker(action);
+            action->setChecked(m_sideArea && m_sideArea->hasPage(id));
+        });
+    }
+
+    // ── Auch der Seitenbereich laesst sich ausblenden ────────────────
+    //
+    // Betreiber am 2026-10-23: „weiters moechte ich jedes fenster auch
+    // loeschen, sprich anzeigen oder nicht anzeigen koennen.
+    // ausblenden meine ich!"
+    //
+    // Er war das einzige Panel ohne Schalter. Ausgerechnet er: er
+    // nimmt die linke Spalte ein und ist das erste, was im Weg steht,
+    // wenn man Platz braucht.
+    //
+    // Nur in DIESER Liste, nicht in `kPanelMenuEntries`: die treibt
+    // auch „Als eigenes Fenster" und „In den Seitenbereich", und
+    // beides ergibt fuer den Seitenbereich selbst keinen Sinn --
+    // er ist der Behaelter, in den die anderen hineinfallen
+    // (dropPanelIfOverSideArea ueberspringt ihn aus demselben Grund).
+    QVector<PanelMenuEntry> versteckbar = kPanelMenuEntries;
+    versteckbar.append({QStringLiteral("sidearea"), QStringLiteral("Seitenbereich")});
+
+    auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
+    for (const PanelMenuEntry& entry : versteckbar) {
         QAction* action = panelsMenu->addAction(entry.label);
+        action->setObjectName(QStringLiteral("panelAction_%1").arg(entry.id));
         action->setCheckable(true);
         connect(action, &QAction::toggled, this, [this, id = entry.id](bool visible) {
             if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
@@ -1321,7 +1963,38 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // hides two panels after this constructor has run.
     connect(windowMenu, &QMenu::aboutToShow, this, syncPanelMenuChecks);
     connect(resetLayoutAction, &QAction::triggered, this, [this, syncPanelMenuChecks]() {
+        // Erst alles zurueckholen, dann die Plaetze setzen.
+        //
+        // Betreiber am 2026-10-25, mit Bild: er drueckt „Fenster
+        // zuruecksetzen", und es passiert fast nichts -- die Flaeche
+        // bleibt leer. Der Grund: seine Panels lagen gar nicht auf der
+        // Flaeche. Sechs steckten als Reiter im Seitenbereich, Log und
+        // Karte schwebten als eigene Fenster. resetToDefaultLayout()
+        // setzt aber nur GEOMETRIEN -- ein Panel, das anderswo
+        // wohnt, bekommt davon nichts mit.
+        //
+        // „Zuruecksetzen" muss heissen: alles kommt heim.
+        if (m_sideArea != nullptr) {
+            const QStringList imBereich = m_sideArea->pageIds();
+            for (const QString& id : imBereich) {
+                takePanelOutOfSideArea(id);
+            }
+        }
+        for (const QString& id : m_panelLayoutManager->panelIds()) {
+            PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+            if (panel == nullptr) { continue; }
+            if (panel->isFloating()) {
+                panel->setFloating(false);
+            }
+            // Die CW-Makrozeile haengt an ihrer eigenen Einstellung,
+            // und der Seitenbereich steht nur da, wenn etwas drin ist
+            // -- beide nicht von Hand einschalten.
+            if (id != QStringLiteral("cwMacroRow") && id != QStringLiteral("sidearea")) {
+                panel->setVisible(true);
+            }
+        }
         m_panelLayoutManager->resetToDefaultLayout();
+        syncSideAreaVisibility();
         syncPanelMenuChecks();
     });
 
@@ -1420,6 +2093,81 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     connect(m_geometrySaveTimer, &QTimer::timeout, this, &MainWindow::persistWindowGeometryDebounced);
 }
 
+// ── Der Mitschnitt in der Statuszeile ────────────────────────────────
+//
+// Drei Zustaende, und jeder sagt etwas anderes:
+//
+//   laeuft    Bernstein, mit der verstrichenen Zeit. Dass der Zaehler
+//             weiterlaeuft, ist die eigentliche Aussage -- ein
+//             stehender waere eine Aufnahme, die haengt.
+//   aus       grau. Ein Druck schaltet ein.
+//   kein Ordner  ebenfalls grau, aber der Druck schickt in die
+//             Einstellungen statt ins Leere zu schalten.
+//
+// Bernstein und nicht Rot: Rot bleibt in diesem Haus der Warnung
+// vorbehalten, und eine laufende Aufnahme ist keine.
+void MainWindow::aktualisiereMitschnittAnzeige()
+{
+    if (m_audioRecordButton == nullptr) { return; }
+
+    const bool laeuft = m_appController.audioRecorder().isRecording();
+    const ContestSettings s = m_appController.settings();
+    const bool ordnerFehlt = s.audioRecordFolder.trimmed().isEmpty();
+
+    // Der Knopf sagt, was der Druck TUT -- nicht, wie es gerade steht.
+    QString text;
+    if (laeuft) {
+        text = QStringLiteral("\u25a0 Mitschnitt stoppen");
+    } else if (ordnerFehlt) {
+        text = QStringLiteral("\u25cb Mitschnitt: erst Ordner waehlen");
+    } else {
+        text = QStringLiteral("\u25b6 Mitschnitt starten");
+    }
+    m_audioRecordButton->setText(text);
+
+    // Und die Zeit steht immer da, auch bei 00:00:00 -- dass sie
+    // weiterlaeuft, ist die eigentliche Aussage: ein stehender
+    // Zaehler ist eine Aufnahme, bei der nichts ankommt.
+    if (m_audioRecordTimeLabel != nullptr) {
+        const qint64 sek = laeuft
+            ? static_cast<qint64>(m_appController.audioRecorder().recordedSeconds())
+            : 0;
+        m_audioRecordTimeLabel->setText(
+            QStringLiteral("%1:%2:%3")
+                .arg(sek / 3600, 2, 10, QLatin1Char('0'))
+                .arg((sek / 60) % 60, 2, 10, QLatin1Char('0'))
+                .arg(sek % 60, 2, 10, QLatin1Char('0')));
+        m_audioRecordTimeLabel->setStyleSheet(
+            QStringLiteral("color: %1; padding: 0 6px;")
+                .arg(laeuft ? Style::kAmberText() : Style::kTextInactive()));
+    }
+
+    m_audioRecordButton->setStyleSheet(
+        QStringLiteral("QPushButton { background: %1; color: %2;"
+                       " border: none; border-radius: %3px;"
+                       " padding: 2px 8px; }")
+            .arg(laeuft ? Style::kAmberBg() : Style::kBadgeOffBg(),
+                 laeuft ? Style::kAmberText() : Style::kTextInactive())
+            .arg(Style::kRadius - 1));
+
+    if (laeuft) {
+        m_audioRecordButton->setToolTip(
+            QStringLiteral("Laeuft in %1.\nDruecken beendet die Aufnahme \u2014 "
+                           "die Groessenfelder der WAV-Datei stimmen erst "
+                           "nach dem Schliessen.")
+                .arg(QDir::toNativeSeparators(
+                    m_appController.audioRecorder().currentFile())));
+    } else if (ordnerFehlt) {
+        m_audioRecordButton->setToolTip(QStringLiteral(
+            "Es ist kein Ordner eingestellt. Einstellungen \u203a "
+            "QSO-Mitschnitt \u203a Ordner..."));
+    } else {
+        m_audioRecordButton->setToolTip(
+            QStringLiteral("Druecken beginnt den Mitschnitt nach %1.")
+                .arg(QDir::toNativeSeparators(s.audioRecordFolder.trimmed())));
+    }
+}
+
 void MainWindow::closeEvent(QCloseEvent* event) {
     saveWindowGeometry();
     QMainWindow::closeEvent(event);
@@ -1487,7 +2235,11 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     QRect r = m_rotorRowContainer->geometry();
     r.setWidth(targetWidth);
     r.moveLeft(std::max(kMargin, (canvasWidth - targetWidth) / 2));
-    m_rotorRowContainer->trySetGeometry(r);
+    // Bewusst ueber applyTransientGeometry(): das Mittigstellen in einem
+    // schmalen Fenster ist eine Anzeigeanpassung, nicht der Wunsch des
+    // Bedieners -- siehe dort. Sonst bleibt das Panel nach dem
+    // Wiedervergroessern in der Mitte stehen.
+    m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, r);
 
     // Below the two-dial floor, trySetGeometry() just clamped the width
     // back up past what x above was centered for -- re-center once more
@@ -1497,7 +2249,7 @@ void MainWindow::reflowRotorRowForCanvasWidth() {
     if (m_rotorRowContainer->width() != targetWidth) {
         QRect corrected = m_rotorRowContainer->geometry();
         corrected.moveLeft(std::max(kMargin, (canvasWidth - corrected.width()) / 2));
-        m_rotorRowContainer->trySetGeometry(corrected);
+        m_panelLayoutManager->applyTransientGeometry(m_rotorRowContainer, corrected);
     }
 }
 
@@ -1526,7 +2278,24 @@ void MainWindow::saveWindowGeometry() {
     m_appController.database().setSettingValue(QStringLiteral("MainWindowGeometry"), QString::fromUtf8(geometry.toBase64()));
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Nicht mehr = default: steht beim Beenden noch eine Zellenkorrektur
+    // offen, dann verliert ihr Editor beim Verstecken des Fensters den
+    // Fokus und committet ein letztes Mal -- mitten in der Zerstörung.
+    // Das Signal landet dann in handleHistoryCallsignEditRequested() &
+    // Co., deren Objekt es nicht mehr gibt, und Qt bricht mit einem
+    // QFATAL ab ("Called object is not of the correct type (class
+    // destructor may have already run)"). Gefunden 2026-09-28 am
+    // Prüfstand test_durchgang_tastatur, mit dem Rückverfolger bis in
+    // QAbstractItemView::commitData hinein. Also zuerst die Leitungen
+    // kappen, dann den Editor wegräumen -- beides, damit auch ein
+    // anderer, hier noch nicht bedachter Weg nicht mehr ankommt.
+    if (m_unifiedLog != nullptr) {
+        disconnect(m_unifiedLog, nullptr, this, nullptr);
+        m_unifiedLog->closeCellEditors();
+    }
+}
 
 const ContestDefinition* MainWindow::findContestDefinition(const QString& contestId) const
 {
@@ -1539,20 +2308,15 @@ QString MainWindow::contestModeForRigctldMode(const QString& rigMode)
     // (RIG_MODE_* -> "USB"/"LSB"/"CW"/"CWR"/"FM"/"RTTY"/... per
     // hamlib/rig.h); UnifiedLogWidget's mode combo only offers the four
     // contest-relevant buckets set up in applyActiveContestDefinition().
-    const QString upper = rigMode.trimmed().toUpper();
-    if (upper == QStringLiteral("USB") || upper == QStringLiteral("LSB")) {
-        return QStringLiteral("SSB");
-    }
-    if (upper == QStringLiteral("CW") || upper == QStringLiteral("CWR")) {
-        return QStringLiteral("CW");
-    }
-    if (upper == QStringLiteral("FM") || upper == QStringLiteral("WFM")) {
-        return QStringLiteral("FM");
-    }
-    if (upper == QStringLiteral("RTTY") || upper == QStringLiteral("RTTYR")) {
-        return QStringLiteral("RTTY");
-    }
-    return QString();
+    // Die Tabelle steht in core/BandUtils.h (contestModeName), weil
+    // der Import fremder Logdateien dieselbe braucht. Hier gilt
+    // zusätzlich: was keine der vier Contest-Betriebsarten ist, setzt
+    // nichts -- das Gerät kann in AM, PSK oder PKTFM stehen, und dann
+    // soll die Auswahl im Eingabefeld bleiben, wo sie ist.
+    const QString mode = contestModeName(rigMode);
+    static const QStringList kContestModes = {QStringLiteral("SSB"), QStringLiteral("CW"),
+                                              QStringLiteral("FM"), QStringLiteral("RTTY")};
+    return kContestModes.contains(mode) ? mode : QString();
 }
 
 void MainWindow::applyActiveContestDefinition()
@@ -1602,10 +2366,24 @@ void MainWindow::applyActiveContestDefinition()
         // SettingsDialog contest switch, and on every ContestRulesEditor
         // save (see the contestDefinitionsChanged connection above).
         m_unifiedLog->setExchangeFields(def->exchangeFields());
+        // Nicht alle Bänder, die der Contest KENNT, sondern die, auf
+        // denen wirklich gefahren wird (ContestSettings::activeBands --
+        // leer heißt alle). Daran hängt die Bandspalte im Log: eine
+        // Spalte, in der überall dasselbe steht, sagt nichts.
+        const QStringList gefahren = m_appController.settings().activeBands;
+        const int bandZahl = gefahren.isEmpty() ? def->bands().size() : gefahren.size();
+        m_unifiedLog->setContestBandCount(bandZahl);
+        m_unifiedLog->setCurrentBand(m_currentBand);
+        rebuildBandModeControls();
         // The score rows (km per band, ODX) need the own locator and the
         // contest's band order/scoring rule -- both can change with the
         // same settings/contest switch that lands here.
-        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring());
+        // Auf UKW ohne Multiplikator-Kachel (def->hasMultipliers()):
+        // dort zaehlen Kilometer, nicht Faktoren.
+        m_rateMeterWidget->setScoring(m_appController.settings().ownGrid, def->bands(), def->scoring(),
+                                      def->hasMultipliers() ? def->multiplierField()
+                                                            : QStringLiteral("none"),
+                                      &m_appController.countryIndex());
     }
     reloadCheckPartialSources();
     refreshScoreboard();
@@ -1659,6 +2437,8 @@ void MainWindow::applyRotorWidgetSettings()
             settings.band1296RotorSlot == ContestSettings::RotorSlot::Slot2 ? QStringLiteral("+23cm") : QString());
         m_rotor2Widget->setDialStyle(settings.rotorDialStyle);
     }
+    applyFixedAntennaSettings();
+    pushFixedAntennaToMap();
     applyRotorBeamwidths();
 
     m_cwMacroPanel->setMacroTemplates(settings.cwMacros);
@@ -1671,6 +2451,155 @@ void MainWindow::applyRotorWidgetSettings()
     }
 
     refreshTerrainSectors();
+}
+
+// Die feste Antenne -- dasselbe Instrument wie die beiden drehbaren,
+// nur ohne Rotor dahinter (Martin, 2026-10-08: "diese antenne wird
+// aber als fixantenne gesehen, hat also keinen rotor. sollte nur das
+// gleiche design haben. benenne sie als Antenne Fix"). Kein
+// RotctldClient, also auch nichts zu verbinden oder zu ueberwachen:
+// die Richtung kommt aus den Einstellungen und steht, bis sie dort
+// geaendert wird. Sie sitzt rechts neben den Rotoren, in derselben
+// Reihe.
+// Was im Rotoren-Panel steht: ein Haken je Instrument. Drei moegliche
+// (Rotor 1, Rotor 2, Antenne Fix), angezeigt werden die angehakten --
+// einer, zwei oder drei. Dazu die Richtung der festen Antenne, denn sie
+// gehoert zu dem, was dieses Panel zeigt, und niemand sucht sie im
+// Einstellungsdialog.
+void MainWindow::showRotorPanelOptionsPopup()
+{
+    // Jedes Mal frisch gebaut, nicht als Mitglied gehalten: ein
+    // dauerhaftes QMenu, das mit seinem Panel in einen anderen
+    // Container umgehaengt wird, stuerzte beim popup() ab -- derselbe
+    // Fund wie beim Kartenpanel am 2026-09-21 (cbf5b8f).
+    QMenu menu(this);
+    const ContestSettings settings = m_appController.settings();
+
+    auto* ueberschrift = menu.addAction(QStringLiteral("Angezeigte Antennen"));
+    ueberschrift->setEnabled(false);
+
+    const auto haken = [&menu](const QString& text, bool an) {
+        QAction* a = menu.addAction(text);
+        a->setCheckable(true);
+        a->setChecked(an);
+        return a;
+    };
+
+    QAction* r1 = haken(QStringLiteral("Rotor 1 — %1").arg(settings.rotor1Label), settings.rotor1Enabled);
+    QAction* r2 = haken(QStringLiteral("Rotor 2 — %1").arg(settings.rotor2Label), settings.rotor2Enabled);
+    QAction* fix = haken(settings.fixedAntennaLabel.trimmed().isEmpty()
+                             ? QStringLiteral("Antenne Fix (ohne Rotor)")
+                             : QStringLiteral("%1 (ohne Rotor)").arg(settings.fixedAntennaLabel.trimmed()),
+                         settings.fixedAntennaEnabled);
+
+    connect(r1, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.rotor1Enabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+    connect(r2, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.rotor2Enabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+    connect(fix, &QAction::toggled, this, [this](bool an) {
+        ContestSettings s = m_appController.settings();
+        s.fixedAntennaEnabled = an;
+        m_appController.setSettings(s);
+        applyRotorWidgetSettings();
+    });
+
+    if (settings.fixedAntennaEnabled) {
+        menu.addSeparator();
+        auto* richtung = menu.addAction(QStringLiteral("Feste Richtung: %1°")
+                                            .arg(QString::number(qRound(settings.fixedAntennaBearingDeg))
+                                                     .rightJustified(3, QLatin1Char('0'))));
+        connect(richtung, &QAction::triggered, this, [this]() {
+            ContestSettings s = m_appController.settings();
+            bool ok = false;
+            const int grad = QInputDialog::getInt(this, QStringLiteral("Antenne Fix"),
+                                                  QStringLiteral("Feste Richtung in Grad:"),
+                                                  qRound(s.fixedAntennaBearingDeg), 0, 359, 1, &ok);
+            if (!ok) {
+                return;
+            }
+            s.fixedAntennaBearingDeg = grad;
+            m_appController.setSettings(s);
+            applyRotorWidgetSettings();
+        });
+    }
+
+    menu.addSeparator();
+    auto* mehr = menu.addAction(QStringLiteral("Rotoren einrichten…"));
+    connect(mehr, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    if (PanelHeaderBar* bar = m_rotorRowContainer ? m_rotorRowContainer->headerBar() : nullptr) {
+        const QSize groesse = menu.sizeHint();
+        menu.exec(bar->mapToGlobal(QPoint(bar->width() - groesse.width() - 6, bar->height())));
+    } else {
+        menu.exec(QCursor::pos());
+    }
+}
+
+void MainWindow::applyFixedAntennaSettings()
+{
+    const ContestSettings settings = m_appController.settings();
+    if (!settings.fixedAntennaEnabled) {
+        if (m_fixedAntennaWidget) {
+            m_rotorLayout->removeWidget(m_fixedAntennaWidget);
+            delete m_fixedAntennaWidget;
+            m_fixedAntennaWidget = nullptr;
+        }
+        return;
+    }
+    const QString label = settings.fixedAntennaLabel.trimmed().isEmpty()
+                              ? QStringLiteral("Antenne Fix")
+                              : settings.fixedAntennaLabel.trimmed();
+    if (!m_fixedAntennaWidget) {
+        m_fixedAntennaWidget = new RotorWidget(label, m_rotorRow);
+        m_fixedAntennaWidget->setFixedAntenna(true);
+        // Hinter den vorhandenen Kompassen, vor dem Stretch am Ende.
+        int index = 0;
+        if (m_rotor1Widget) {
+            ++index;
+        }
+        if (m_rotor2Widget) {
+            ++index;
+        }
+        m_rotorLayout->insertWidget(index, m_fixedAntennaWidget);
+        // Der Anzeigestil gilt fuer alle Instrumente gemeinsam, also
+        // auch hier -- dieselbe Runde wie bei den drehbaren.
+        connect(m_fixedAntennaWidget, &RotorWidget::dialStyleRequested, m_fixedAntennaWidget,
+                [this](RotorDialStyle style) {
+                    ContestSettings s = m_appController.settings();
+                    if (s.rotorDialStyle == style) {
+                        return;
+                    }
+                    s.rotorDialStyle = style;
+                    m_appController.setSettings(s);
+                    applyRotorWidgetSettings();
+                });
+    }
+    m_fixedAntennaWidget->setBandLabel(label);
+    m_fixedAntennaWidget->setAzimuthDeg(settings.fixedAntennaBearingDeg);
+    m_fixedAntennaWidget->setDialStyle(settings.rotorDialStyle);
+}
+
+// Die Keule der festen Antenne auf der Karte -- Martin, 2026-10-08:
+// "bitte auch die keule". Sie steht, also gibt es hier nichts
+// nachzufuehren: einmal gesetzt, wenn sich die Einstellungen aendern.
+void MainWindow::pushFixedAntennaToMap()
+{
+    if (!m_mapWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    m_mapWidget->setFixedAntennaHeading(settings.fixedAntennaEnabled, settings.fixedAntennaBearingDeg,
+                                        settings.fixedAntennaLabel.trimmed().isEmpty()
+                                            ? QStringLiteral("Antenne Fix")
+                                            : settings.fixedAntennaLabel.trimmed());
 }
 
 void MainWindow::applyRotorBeamwidths()
@@ -1686,6 +2615,9 @@ void MainWindow::applyRotorBeamwidths()
     }
     if (m_rotor2Widget) {
         m_rotor2Widget->setBeamwidthDeg(m_mapWidget->rotor2BeamwidthDeg());
+    }
+    if (m_fixedAntennaWidget) {
+        m_fixedAntennaWidget->setBeamwidthDeg(m_mapWidget->fixedAntennaBeamwidthDeg());
     }
 }
 
@@ -1795,8 +2727,21 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             connect(&client, &RotctldClient::azimuthChanged, widget, [this, &client, label](double az) {
                 pushRotorHeadingToMap(client, true, az, label);
             });
-            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, label]() {
-                pushRotorHeadingToMap(client, true, client.azimuthDeg(), label);
+            // Die Richtung kommt vom BEDIENFELD, nicht vom Client.
+            // Martin, 2026-09-28: "ich habe den rotor-zeiger geändert,
+            // aber in der karte war dieser auf null grad." Genau hier
+            // ging sie verloren: ohne Draht zum Rotor meldet
+            // RotctldClient::azimuthDeg() 0, und jeder Takt der
+            // Verbindungsprüfung (stateChanged feuert auch bei jedem
+            // erfolglosen Anlauf) schob diese 0 in die Karte -- über
+            // die Richtung hinweg, die man gerade von Hand gestellt
+            // hatte. Der Zeiger blieb auf 31, der Lichtkegel sprang auf
+            // 0. Das Bedienfeld ist die Quelle: es zeigt, was der
+            // Steckplatz verfolgt, ob echt gemessen oder von Hand
+            // gestellt -- dieselbe Regel, nach der die Nadel gezeichnet
+            // wird.
+            connect(&client, &RotctldClient::stateChanged, widget, [this, &client, widget, label]() {
+                pushRotorHeadingToMap(client, true, widget->azimuthDeg(), label);
             });
             // Mirrors the dial's OWN heading onto the map -- not just a
             // duplicate of the two connections above. This one also
@@ -1819,6 +2764,29 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // setTargetBearing() is NOT called here -- an aimed-but-
             // uncommitted-to-a-callsign heading has no "SP9XYZ · 471 km"
             // caption to show, unlike the candidate-click path).
+            // Dasselbe aus der Karte: die Scheiben in der Zahlenspalte
+            // (Betreiber am 2026-10-25, Entwurf A) drehen ueber genau
+            // diesen Weg, damit es nur EINE Stelle gibt, an der ein
+            // Drehbefehl entsteht.
+            //
+            // Betreiber am 2026-10-28, mit Bild: „die rotorsteuerung
+            // sollte auch in KARTE/Verbindungen funktionieren!" Sie
+            // ging hier am Bedienfeld VORBEI -- der Klick in die
+            // Kartenscheibe sprach direkt den Client an und gab bei
+            // getrenntem Rotor still auf. Damit tat derselbe Klick je
+            // nach Fenster zweierlei: im Rotorfenster setzte er auch
+            // ohne Draht ein ZIEL und liess die Nadel laufen, in der
+            // Karte nichts. Jetzt geht er durch RotorWidget::aimAt(),
+            // also durch dieselbe Tuer wie ein Klick ins Zifferblatt;
+            // das Kommando an die Steuerung entsteht eine Zeile
+            // weiter unten aus rotateRequested().
+            if (m_mapWidget != nullptr) {
+                connect(m_mapWidget, &MapWidget::rotorRotateRequested, widget,
+                        [widget, nummer = insertIndex + 1](int rotor, double bearingDeg) {
+                            if (rotor != nummer) { return; }
+                            widget->aimAt(bearingDeg);
+                        });
+            }
             connect(widget, &RotorWidget::rotateRequested, widget, [&client](double bearingDeg) {
                 if (!client.isConnected()) {
                     return;
@@ -1838,6 +2806,27 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             // one too -- via applyRotorWidgetSettings(), the exact same
             // round trip SettingsDialog's "Rotor-Anzeige" combo already
             // goes through in openSettingsDialog().
+            // Die zweite Antenne dieses Rotors, aus seinem eigenen ⚙.
+            // Welcher Slot das ist, sagt der Zeiger: die beiden
+            // RotorWidget-Instanzen gehören MainWindow, das Widget
+            // selbst kennt seine Slotnummer nicht.
+            connect(widget, &RotorWidget::secondAntennaRequested, widget,
+                    [this, widget](bool enabled, double offsetDeg) {
+                ContestSettings settings = m_appController.settings();
+                if (widget == m_rotor1Widget) {
+                    settings.rotor1SecondAntennaEnabled = enabled;
+                    settings.rotor1SecondAntennaOffsetDeg = offsetDeg;
+                } else if (widget == m_rotor2Widget) {
+                    settings.rotor2SecondAntennaEnabled = enabled;
+                    settings.rotor2SecondAntennaOffsetDeg = offsetDeg;
+                } else {
+                    return;
+                }
+                m_appController.setSettings(settings);
+                // Dieselbe Runde wie beim Anzeigestil darunter: die
+                // Karte zeichnet ihre Kegel aus denselben Werten.
+                applyRotorWidgetSettings();
+            });
             connect(widget, &RotorWidget::dialStyleRequested, widget, [this](RotorDialStyle style) {
                 ContestSettings settings = m_appController.settings();
                 if (settings.rotorDialStyle == style) {
@@ -1879,11 +2868,17 @@ void MainWindow::pushRotorHeadingToMap(RotctldClient& client, bool connected, do
     if (!m_mapWidget) {
         return;
     }
-    if (&client == &m_appController.rotor1Client()) {
+    // `connected` heißt hier "dieser Steckplatz hat ein Bedienfeld"
+    // (siehe die Aufrufstellen) -- ob der Draht zum Rotor wirklich
+    // steht, ist eine zweite Frage, und die Karte soll sie ehrlich
+    // beantworten statt eine Peilung vorzutäuschen.
+    const bool isRotor1 = &client == &m_appController.rotor1Client();
+    if (isRotor1) {
         m_mapWidget->setRotor1Heading(connected, azimuthDeg, label);
     } else {
         m_mapWidget->setRotor2Heading(connected, azimuthDeg, label);
     }
+    m_mapWidget->setRotorLinkLive(isRotor1 ? 1 : 2, connected && client.isConnected());
 }
 
 RotorWidget* MainWindow::rotorWidgetForClient(RotctldClient* client) const
@@ -1932,6 +2927,44 @@ void MainWindow::commandRotorForCandidate(const QString& callsign, const QString
     }
 }
 
+// ── Die eigene CQ-Zone, aus dem eigenen Rufzeichen ───────────────────
+//
+// Dieselbe Laenderliste, aus der die Zone der Gegenstation kommt
+// (handleCallsignLookupRequested). OE5SOS -> OE -> Zone 15.
+//
+// Null heisst „unbekannt", und dann wird das Feld NICHT vorbelegt:
+// eine geratene Zone im Log ist schlimmer als ein leeres Feld, das
+// auffaellt.
+QStringList MainWindow::panelIdsForTest() const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->panelIds() : QStringList();
+}
+
+QRect MainWindow::defaultGeometryForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->defaultGeometryFor(id) : QRect();
+}
+
+QRect MainWindow::compactGeometryForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->compactGeometryFor(id) : QRect();
+}
+
+PanelContainerWidget* MainWindow::panelForTest(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->panel(id) : nullptr;
+}
+
+int MainWindow::eigeneCqZone() const
+{
+    const QString ruf = m_appController.settings().ownCallsign.trimmed();
+    if (ruf.isEmpty()) {
+        return 0;
+    }
+    const CountryEntry land = m_appController.countryIndex().lookup(ruf);
+    return land.isValid() ? land.cqZone : 0;
+}
+
 QString MainWindow::currentSentExchangeText() const
 {
     const ContestSettings settings = m_appController.settings();
@@ -1941,7 +2974,8 @@ QString MainWindow::currentSentExchangeText() const
     }
     const int serialSent = m_appController.database().nextSerialForContest(
         settings.activeContestId, def->serialScope() == QStringLiteral("band") ? m_currentBand : QString());
-    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode));
+    return composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, m_currentMode,
+                                                        eigeneCqZone()));
 }
 
 void MainWindow::refreshLogTable()
@@ -1992,21 +3026,37 @@ void MainWindow::refreshMapWidget()
     const ContestSettings settings = m_appController.settings();
     m_mapWidget->setOwnGrid(settings.ownGrid);
     m_mapWidget->setOwnLabel(settings.ownCallsign);
+    // Dasselbe Rufzeichen färbt im Chat die Zeilen, die mich angehen
+    // (Martin, 2026-09-28: "was im chat mich betrifft soll in magenta
+    // gekennzeichnet werden"). Hier mitgezogen, weil diese Stelle nach
+    // jeder Einstellungsänderung läuft -- wer sein Rufzeichen ändert,
+    // hat sofort die richtige Hervorhebung.
+    if (m_chatPanel) {
+        m_chatPanel->setOwnCallsign(settings.ownCallsign);
+    }
 
     QVector<MapWidget::Station> stations;
     QSet<QString> workedCallsigns;
 
-    // Worked stations: every logged QSO in the active contest that has
-    // a grid to plot (ContestDatabase::qsosWithGrid already does the
-    // "has a grid" filtering in SQL).
-    const QVector<QsoRecord> worked = m_appController.database().qsosWithGrid(settings.activeContestId);
+    // Gearbeitete Stationen: jedes geloggte QSO des aktiven Contests,
+    // für das ein Ort bekannt ist. Bis 2026-09-22 waren das nur die
+    // mit getauschtem Locator (qsosWithGrid filterte das in SQL) -- auf
+    // Kurzwelle hat keines einen, und dort ist der Mittelpunkt des
+    // Landes die einzige Angabe, die es gibt.
+    const QVector<QsoRecord> worked = m_appController.database().qsosForContest(settings.activeContestId);
     for (const QsoRecord& record : worked) {
         if (record.isInvalid) {
             continue; // struck from the log, not a worked station
         }
+        bool approximate = false;
+        const QString grid = mapGridForCallsign(record.callsign, record.gridSquare, &approximate);
+        if (grid.isEmpty()) {
+            continue; // kein Ort bekannt -- dann auch kein Punkt
+        }
         MapWidget::Station station;
         station.callsign = record.callsign;
-        station.grid = record.gridSquare;
+        station.grid = grid;
+        station.approximate = approximate;
         station.worked = true;
         station.freqHz = record.freqHz.value_or(0);
         // Same QDateTime::fromString(..., Qt::ISODate) round-trip
@@ -2037,19 +3087,27 @@ void MainWindow::refreshMapWidget()
                 continue;
             }
             const SpotCandidate& candidate = model.candidateAt(row);
-            if (candidate.grid.isEmpty()) {
-                continue;
-            }
             const QString key = candidate.callsign.trimmed().toUpper();
             if (key.isEmpty() || workedCallsigns.contains(key) || spottedCallsigns.contains(key)) {
+                continue;
+            }
+            bool approximate = false;
+            const QString grid = mapGridForCallsign(candidate.callsign, candidate.grid, &approximate);
+            if (grid.isEmpty()) {
                 continue;
             }
             spottedCallsigns.insert(key);
             MapWidget::Station station;
             station.callsign = candidate.callsign;
-            station.grid = candidate.grid;
+            station.grid = grid;
+            station.approximate = approximate;
             station.worked = false;
             station.freqHz = candidate.freqHz;
+            // Waere das ein neuer Multiplikator? Bei CQ WW also ein
+            // neues Land. Die Karte beschriftet damit nur noch das,
+            // wofuer man hinsieht (MapWidget::setLabelsOnlyNeeded).
+            station.neededMultiplier = m_appController.multiplierTracker().isNeededMultiplier(
+                bandLabelForFrequencyHz(candidate.freqHz), grid, candidate.callsign);
             stations.append(station);
         }
     };
@@ -2063,7 +3121,7 @@ void MainWindow::refreshMapWidget()
                                                   settings.ownGrid, def ? def->bands() : QStringList(),
                                                   def ? def->scoring() : QStringLiteral("distance_km"));
     m_mapWidget->setScoreSummary(score.validQsos, score.points,
-                                 score.odxKm > 0 ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
+                                 !score.odxCall.isEmpty() ? QStringLiteral("%1 %2 km").arg(score.odxCall).arg(score.odxKm) : QString());
 }
 
 void MainWindow::refreshSuggestionPanel()
@@ -2097,6 +3155,13 @@ void MainWindow::refreshSuggestionPanel()
             const bool inRange =
                 model.data(model.index(row, ChatFeedModel::ColumnCallsign), ChatFeedModel::InRangeRole).toBool();
             if (alreadyWorked || !inRange) {
+                continue;
+            }
+            // Eine Bake steht im Feed und in der Bandmap -- sie zeigt,
+            // wohin das Band offen ist -- aber sie antwortet nicht.
+            // Ohne diese Zeile schlug der Assistent "OE5XBM/B" als
+            // nächstes Ziel vor und entwarf einen Anruf an sie.
+            if (isBeaconCallsign(model.candidateAt(row).callsign)) {
                 continue;
             }
             NextTargetSuggester::Candidate entry;
@@ -2150,15 +3215,367 @@ void MainWindow::handleAwayToggled(bool away)
     }
 }
 
-QString MainWindow::on4kstRoomValueForBand(const QString& band)
+// Alles, was sich am Chat einstellen lässt, an einer Stelle -- Martin,
+// 2026-09-28: "der chat sollte auch optionen haben. wie zb wechsel des
+// bandes usw.! alle möglichkeiten sollten dort änderbar sein."
+//
+// Was ON4KST hergibt, steht im Klassenkommentar von On4kstClient: die
+// Räume ("/CHAT 50|144|GHZ|EME|HF"), Abwesend/Zurück ("/AWAY", "/BACK")
+// und der CQ-Ruf. Dazu kommt, was dieses Panel selbst kann: das
+// Filtern, das sonst nur in der Kopfzeile sichtbar ist.
+void MainWindow::showChatOptionsPopup()
 {
-    if (band == QStringLiteral("1296")) {
-        return QStringLiteral("GHZ");
+    if (!m_chatPanel) {
+        return;
+    }
+    auto* menu = new QMenu(this);
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    On4kstClient& client = m_appController.on4kstClient();
+    const bool angemeldet = client.isLoggedIn();
+
+    // --- Raum ---------------------------------------------------------
+    // Der Raum folgt sonst dem Band (syncOn4kstRoomForCurrentBand()).
+    // Hier lässt er sich von Hand setzen: wer auf 144 arbeitet, aber im
+    // Mikrowellenraum mitlesen will, kann das.
+    auto* raumMenu = menu->addMenu(QStringLiteral("Chatraum"));
+    // BEWUSST auch im getrennten Zustand anklickbar: der gewählte Raum
+    // gilt dann für den nächsten Anlauf, und der wird sofort genommen.
+    // Martin, 2026-09-29: "kann nicht anklicken" -- das Menü war an
+    // "angemeldet" gekoppelt, und angemeldet war er gerade nicht.
+    struct Raum {
+        int id;
+        const char* name;
+    };
+    // Die Nummern stehen in derselben Tabelle, aus der auch
+    // On4kstClient::kChatIdVhfUhf stammt: 1 = 50/70 MHz, 2 = 144/432,
+    // 3 = Mikrowelle, 4 = EME/JT65, 5 = Kurzwelle. Nachgeprüft ist
+    // davon nur die 2 -- unser Raum, live bestätigt. Ob eine andere
+    // Nummer den erwarteten Raum trifft, zeigt nach dem Wechsel der
+    // Chatkopf: dort steht, aus welchem Raum die Zeilen wirklich
+    // kommen.
+    static const Raum raeume[] = {
+        {1, "50 / 70 MHz"}, {2, "144 / 432 MHz"}, {3, "Mikrowelle (ab 1296)"},
+        {4, "EME / JT65"},  {5, "Kurzwelle"},
+    };
+    for (const Raum& raum : raeume) {
+        QAction* eintrag = raumMenu->addAction(QString::fromUtf8(raum.name));
+        eintrag->setObjectName(QStringLiteral("chatRoom_%1").arg(raum.id));
+        eintrag->setCheckable(true);
+        eintrag->setChecked(client.currentChatId() == raum.id);
+        connect(eintrag, &QAction::triggered, this, [this, raum]() {
+            // Der Wechsel ist ein neues Login -- die Verbindung geht
+            // dabei kurz weg und kommt mit der neuen Raumnummer wieder.
+            m_appController.on4kstClient().switchRoom(raum.id);
+            m_currentOn4kstRoom = QString::number(raum.id);
+            statusBar()->showMessage(QStringLiteral("ON4KST: melde mich in Raum %1 neu an").arg(raum.id),
+                                      4000);
+        });
+    }
+    // Und zurück auf "folgt dem Band" -- das ist der Normalfall.
+    QAction* demBandFolgen = raumMenu->addAction(QStringLiteral("dem Band folgen"));
+    demBandFolgen->setObjectName(QStringLiteral("chatRoomFollowBand"));
+    connect(demBandFolgen, &QAction::triggered, this, [this]() {
+        m_currentOn4kstRoom.clear(); // erzwingt den Wechsel beim nächsten Abgleich
+        syncOn4kstRoomForCurrentBand();
+    });
+
+    QAction* neuVerbinden = menu->addAction(QStringLiteral("Jetzt neu verbinden"));
+    neuVerbinden->setObjectName(QStringLiteral("chatReconnectAction"));
+    connect(neuVerbinden, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().reconnectNow();
+        statusBar()->showMessage(QStringLiteral("ON4KST: neuer Anmeldeversuch läuft"), 4000);
+    });
+
+    menu->addSeparator();
+
+    // --- Anwesenheit --------------------------------------------------
+    QAction* abwesend = menu->addAction(QStringLiteral("Als abwesend melden"));
+    abwesend->setObjectName(QStringLiteral("chatAwayAction"));
+    abwesend->setEnabled(angemeldet);
+    connect(abwesend, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendAway();
+        statusBar()->showMessage(QStringLiteral("ON4KST: als abwesend gemeldet"), 4000);
+    });
+    QAction* zurueck = menu->addAction(QStringLiteral("Wieder da"));
+    zurueck->setObjectName(QStringLiteral("chatBackAction"));
+    zurueck->setEnabled(angemeldet);
+    connect(zurueck, &QAction::triggered, this, [this]() {
+        m_appController.on4kstClient().sendBack();
+        statusBar()->showMessage(QStringLiteral("ON4KST: wieder da"), 4000);
+    });
+
+    menu->addSeparator();
+
+    // --- CQ -----------------------------------------------------------
+    QAction* cq = menu->addAction(QStringLiteral("CQ rufen"));
+    cq->setObjectName(QStringLiteral("chatCqAction"));
+    cq->setEnabled(angemeldet);
+    connect(cq, &QAction::triggered, this, &MainWindow::handleCqDraftRequested);
+
+    menu->addSeparator();
+
+    // --- Was das Panel selbst kann -------------------------------------
+    QAction* alle = menu->addAction(QStringLiteral("Alle Zeilen zeigen (auch unerreichbare)"));
+    alle->setObjectName(QStringLiteral("chatShowAllAction"));
+    alle->setCheckable(true);
+    alle->setChecked(m_chatPanel->showsAll());
+    // Das Filtern ist gewollt (Martin, 2026-09-28: "alles was mich nicht
+    // erreicht ... möchte ich gefiltert haben um nicht 1000 unnötige
+    // chat zu sehen"). Dieser Schalter ist für den Fall, dass man doch
+    // einmal nachsehen will, was weggefiltert wurde.
+    connect(alle, &QAction::triggered, this, [this](bool checked) { m_chatPanel->setShowAll(checked); });
+
+    QAction* reichweite = menu->addAction(QStringLiteral("Reichweite ändern…"));
+    reichweite->setObjectName(QStringLiteral("chatRadiusAction"));
+    // Die Reichweite ist DAS Kriterium des Filters -- sie gehört
+    // erreichbar, wo gefiltert wird, nicht nur in den Einstellungen.
+    connect(reichweite, &QAction::triggered, this, &MainWindow::openSettingsDialog);
+
+    menu->exec(QCursor::pos());
+}
+
+// Wurde das Panel über dem Seitenbereich losgelassen? Dann fällt es
+// hinein. Der Titel kommt aus dem Menü-Eintrag desselben Panels, damit
+// in der Leiste dasselbe Kürzel steht wie überall sonst.
+void MainWindow::dropPanelIfOverSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || id == QStringLiteral("sidearea")) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (!bereichPanel || bereichPanel->isHidden()) {
+        return; // ein versteckter Bereich fängt nichts auf
+    }
+    const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+    if (!bereichAufDemSchirm.contains(globalPos)) {
+        return;
+    }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel || m_sideArea->hasPage(id)) {
+        return;
+    }
+    putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
+}
+
+// Der Seitenbereich überlebt den Neustart. Ohne das lag nach jedem
+// Start wieder alles auf der Fläche, und man müsste Chat, Skeds und
+// Karte jedes Mal von Hand hineinlegen -- genau die Handgriffe, die
+// der Bereich einem abnehmen soll.
+void MainWindow::saveSideAreaState()
+{
+    if (!m_sideArea || m_restoringSideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    db.setSettingValue(QStringLiteral("panel.sidearea.pages"), m_sideArea->pageIds().join(QLatin1Char(',')));
+    db.setSettingValue(QStringLiteral("panel.sidearea.active"), m_sideArea->activeId());
+    db.setSettingValue(QStringLiteral("panel.sidearea.collapsed"),
+                       m_sideArea->isCollapsed() ? QStringLiteral("1") : QStringLiteral("0"));
+}
+
+void MainWindow::restoreSideAreaState()
+{
+    if (!m_sideArea) {
+        return;
+    }
+    auto& db = m_appController.database();
+    const QString raw = db.settingValue(QStringLiteral("panel.sidearea.pages"));
+    if (raw.isEmpty()) {
+        syncSideAreaVisibility();
+        return;
+    }
+    // Während des Wiederherstellens nicht zurückschreiben: addPage()
+    // setzt jede Seite kurz aktiv, das würde die gespeicherte aktive
+    // Seite unterwegs überschreiben.
+    m_restoringSideArea = true;
+    for (const QString& id : raw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+        if (!panel) {
+            continue; // eine Kennung, die es nicht mehr gibt, wird still übergangen
+        }
+        putPanelIntoSideArea(id, panel->title().isEmpty() ? id : panel->title());
+    }
+    const QString active = db.settingValue(QStringLiteral("panel.sidearea.active"));
+    if (!active.isEmpty() && m_sideArea->hasPage(active)) {
+        m_sideArea->setActive(active);
+    }
+    if (db.settingValue(QStringLiteral("panel.sidearea.collapsed")) == QStringLiteral("1")) {
+        m_sideArea->setCollapsed(true);
+    }
+    m_restoringSideArea = false;
+    syncSideAreaVisibility();
+}
+
+// Der Seitenbereich erscheint, wenn etwas drin ist -- und nur dann.
+//
+// Bis 2026-10-24 stand er immer da, auch leer, und deckte an seinem
+// Vorgabeplatz 340 x 501 Bildpunkte der Karte zu. Ein leerer Behaelter,
+// der das groesste Fenster verdeckt: genau der Fall, bei dem man
+// hinsieht und die eigenen QSOs nicht findet.
+//
+// Ueber das Menue (Fenster > Panels > Seitenbereich) laesst er sich
+// weiterhin von Hand einschalten; dieser Abgleich laeuft nur dort, wo
+// sich sein INHALT aendert.
+void MainWindow::syncSideAreaVisibility()
+{
+    PanelContainerWidget* behaelter = m_panelLayoutManager
+        ? m_panelLayoutManager->panel(QStringLiteral("sidearea"))
+        : nullptr;
+    if (!behaelter || !m_sideArea) {
+        return;
+    }
+    const bool hatSeiten = !m_sideArea->pageIds().isEmpty();
+    if (behaelter->isHidden() != hatSeiten) {
+        return; // steht schon richtig
+    }
+    behaelter->setVisible(hatSeiten);
+}
+
+// Ein Panel in den Seitenbereich legen: es verlässt die Fläche und
+// wird eine Seite im Bereich. Der Behälter wandert mit -- samt Kopfzeile,
+// Schloss und ⚙, damit dort dieselben Handgriffe gelten wie draußen.
+void MainWindow::putPanelIntoSideArea(const QString& id, const QString& title)
+{
+    if (!m_sideArea || id == QStringLiteral("sidearea")) {
+        return; // der Bereich kann nicht in sich selbst
+    }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel || m_sideArea->hasPage(id)) {
+        return;
+    }
+    // Ein abgelöstes Panel erst wieder andocken -- sonst zöge man ein
+    // Fenster in eine Seite, und der Rückweg wäre unklar.
+    if (panel->isFloating()) {
+        m_panelLayoutManager->setPanelFloating(id, false);
+    }
+    m_sideAreaHomeGeometry.insert(id, panel->geometry());
+    m_sideArea->addPage(id, title, panel);
+    syncSideAreaVisibility();
+    // Der Bereich selbst soll sichtbar sein, sonst legt man etwas in
+    // ein verstecktes Panel.
+    m_panelLayoutManager->revealPanel(QStringLiteral("sidearea"));
+    saveSideAreaState();
+    statusBar()->showMessage(QStringLiteral("%1 liegt jetzt im Seitenbereich").arg(title), 4000);
+}
+
+// Herausziehen: das Panel verlässt den Bereich und legt sich dorthin,
+// wo der Zeiger losgelassen wurde. Martin, 2026-09-28: "die widgets
+// sollte man aber auch wieder per drag and drop rausziehen können, in
+// dem fall nach rechts." Innerhalb des Bereichs losgelassen heißt
+// "doch nicht" -- sonst risse ein Rutscher beim Umschalten das Panel
+// heraus.
+void MainWindow::dragPanelOutOfSideArea(const QString& id, const QPoint& globalPos)
+{
+    if (!m_sideArea || !m_sideArea->hasPage(id)) {
+        return;
+    }
+    PanelContainerWidget* bereichPanel = m_panelLayoutManager->panel(QStringLiteral("sidearea"));
+    if (bereichPanel) {
+        const QRect bereichAufDemSchirm(bereichPanel->mapToGlobal(QPoint(0, 0)), bereichPanel->size());
+        if (bereichAufDemSchirm.contains(globalPos)) {
+            return;
+        }
+    }
+    const QSize vorherigeGroesse = m_sideAreaHomeGeometry.value(id).size();
+    takePanelOutOfSideArea(id);
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel) {
+        return;
+    }
+    // Der Griff sitzt links oben am Panelkopf, dort wo man es auch
+    // wieder anfassen würde -- ein paar Pixel neben dem Zeiger, nicht
+    // mittig darunter, sonst verdeckt der Mauszeiger die Kopfzeile.
+    QWidget* flaeche = m_panelLayoutManager->canvas();
+    if (!flaeche) {
+        return;
+    }
+    const QPoint aufDerFlaeche = flaeche->mapFromGlobal(globalPos) - QPoint(20, 10);
+    const QSize groesse = vorherigeGroesse.isValid() && !vorherigeGroesse.isEmpty() ? vorherigeGroesse
+                                                                                     : panel->size();
+    // Ein GESPERRTES Panel weist trySetGeometry() ab -- und Martins
+    // Panels sind gesperrt. Live gefunden: Skeds kam aus der Leiste,
+    // legte sich aber an seinen alten Platz links oben statt dorthin,
+    // wo losgelassen wurde. Wer ein Panel eigenhändig herauszieht,
+    // verschiebt es absichtlich; das Schloss schützt vor Versehen, und
+    // ein Zug quer über den Schirm ist keines. Es bleibt gesperrt --
+    // nur dieser eine Handgriff geht durch.
+    const bool warGesperrt = panel->isLocked();
+    if (warGesperrt) {
+        panel->setLocked(false);
+    }
+    // Auf der Fläche halten. Sonst hinge ein breites Panel, ganz rechts
+    // abgelegt, zur Hälfte draußen -- die Klemme, die der
+    // Layout-Manager sonst besorgt, greift bei einem gesperrten Panel
+    // nicht.
+    const QPoint gehalten(std::clamp(aufDerFlaeche.x(), 0, std::max(0, flaeche->width() - groesse.width())),
+                          std::clamp(aufDerFlaeche.y(), 0, std::max(0, flaeche->height() - groesse.height())));
+    panel->trySetGeometry(QRect(gehalten, groesse));
+    if (warGesperrt) {
+        panel->setLocked(true);
+    }
+    m_panelLayoutManager->revealPanel(id);
+    statusBar()->showMessage(QStringLiteral("%1 liegt wieder auf der Fläche")
+                                 .arg(panel->title().isEmpty() ? id : panel->title()),
+                             4000);
+}
+
+// Und zurück auf die Fläche, an die Stelle, von der es kam.
+void MainWindow::takePanelOutOfSideArea(const QString& id)
+{
+    if (!m_sideArea || !m_sideArea->hasPage(id)) {
+        return;
+    }
+    QWidget* content = m_sideArea->takePage(id);
+    auto* panel = qobject_cast<PanelContainerWidget*>(content);
+    if (!panel) {
+        return;
+    }
+    panel->setParent(m_panelLayoutManager->canvas());
+    const QRect zuhause = m_sideAreaHomeGeometry.value(id);
+    if (zuhause.isValid()) {
+        panel->trySetGeometry(zuhause);
+    }
+    panel->show();
+    panel->raise();
+    m_sideAreaHomeGeometry.remove(id);
+    saveSideAreaState();
+    syncSideAreaVisibility();
+}
+
+// Was im Chatkopf über dem Raum steht: der angeforderte Raum und --
+// wenn er davon abweicht oder noch nichts angekommen ist -- der, den
+// der Server tatsächlich liefert. Zwei Angaben, weil genau die
+// Differenz die Frage beantwortet, ob ein Wechsel gewirkt hat.
+QString MainWindow::on4kstRoomStatusText() const
+{
+    if (!m_appController.on4kstClient().isLoggedIn()) {
+        return QStringLiteral("ON4KST: getrennt");
+    }
+    const QString gewuenscht = m_currentOn4kstRoom.isEmpty() ? QStringLiteral("(dem Band folgend)")
+                                                              : m_currentOn4kstRoom;
+    if (m_observedOn4kstRoom < 0) {
+        return QStringLiteral("ON4KST: Raum %1 angefordert, noch keine Zeile empfangen").arg(gewuenscht);
+    }
+    return QStringLiteral("ON4KST: Raum %1 angefordert, Zeilen kommen aus Raum %2")
+        .arg(gewuenscht, QString::number(m_observedOn4kstRoom));
+}
+
+// Welcher ON4KST-Raum zu einem Band gehört -- als chat_id, denn nur
+// die setzt einen Raum wirklich (siehe On4kstClient::switchRoom).
+// 0 heißt "kein Raum bekannt", dann bleibt alles beim Alten.
+int MainWindow::on4kstRoomValueForBand(const QString& band)
+{
+    if (band == QStringLiteral("1296") || band == QStringLiteral("2320")
+        || band == QStringLiteral("5760") || band == QStringLiteral("10368")) {
+        return 3; // Mikrowelle
     }
     if (band == QStringLiteral("144") || band == QStringLiteral("432")) {
-        return QStringLiteral("144");
+        return On4kstClient::kChatIdVhfUhf; // 2 -- live bestätigt
     }
-    return QString();
+    if (band == QStringLiteral("50") || band == QStringLiteral("70")) {
+        return 1;
+    }
+    return 0;
 }
 
 void MainWindow::syncOn4kstRoomForCurrentBand()
@@ -2166,12 +3583,14 @@ void MainWindow::syncOn4kstRoomForCurrentBand()
     if (!m_appController.on4kstClient().isLoggedIn()) {
         return;
     }
-    const QString targetRoom = on4kstRoomValueForBand(m_currentBand);
-    if (targetRoom.isEmpty() || targetRoom == m_currentOn4kstRoom) {
+    const int zielRaum = on4kstRoomValueForBand(m_currentBand);
+    // 0 heißt: für dieses Band ist kein Raum bekannt -- dann bleibt
+    // alles, wie es ist, statt blind irgendwohin zu wechseln.
+    if (zielRaum <= 0 || zielRaum == m_appController.on4kstClient().currentChatId()) {
         return;
     }
-    m_appController.on4kstClient().switchRoom(targetRoom);
-    m_currentOn4kstRoom = targetRoom;
+    m_appController.on4kstClient().switchRoom(zielRaum);
+    m_currentOn4kstRoom = QString::number(zielRaum);
 }
 
 void MainWindow::updateStatusBar()
@@ -2196,6 +3615,12 @@ void MainWindow::updateStatusBar()
     QString catText = rigctldStateText(m_appController.rigctldClient().state());
     if (!m_currentBand.isEmpty()) {
         catText += QStringLiteral(" · %1 %2").arg(m_currentBand, m_currentMode);
+    }
+    // Der Transverter sitzt seit 2026-09-23 im ⚙-Menü und damit außer
+    // Sicht. Ist er an, deutet er jede Frequenz um -- das muss hier
+    // stehen, sonst merkt es niemand.
+    if (m_transverter.active()) {
+        catText += QStringLiteral(" · TRV");
     }
     setStatusBadge(m_rigctldStatusLabel, rigctldOk, QStringLiteral("CAT: %1").arg(catText));
 
@@ -2232,6 +3657,9 @@ void MainWindow::updateStatusBar()
     // their own doc comments), so calling them unconditionally here
     // needs no dirty-check.
     m_unifiedLog->setOperatingMode(settings.operatingMode);
+    // VOR setViewMode(): dort wird die Spalte ein- bzw. ausgeblendet,
+    // und setRunningNumberVisible() ruft setViewMode() ohnehin selbst.
+    m_unifiedLog->setRunningNumberVisible(settings.logShowRunningNumber);
     m_unifiedLog->setViewMode(settings.logViewMode);
     m_unifiedLog->setEntryRowPosition(settings.logEntryRowPosition);
 }
@@ -2240,6 +3668,15 @@ void MainWindow::handleLogRequested()
 {
     const QString callsign = m_unifiedLog->callsign();
     const ContestSettings settings = m_appController.settings();
+
+    // Erst die Frage, ob da überhaupt eine Station steht: eine nackte
+    // Zahl ist eine Frequenz und wird gefahren, nicht geloggt (siehe
+    // frequencyFromEntry() oben).
+    if (const qint64 rfHz = frequencyFromEntry(callsign); rfHz > 0) {
+        tuneToFrequency(rfHz);
+        m_unifiedLog->setCallsign(QString());
+        return;
+    }
 
     // Enter Sends Message: Enter keys the text this state calls for
     // and only logs once the exchange is complete -- see
@@ -2291,6 +3728,26 @@ void MainWindow::handleLogRequested()
     if (def && !exchangeComplete(*def, exchangeReceived)) {
         if (!m_incompleteExchangeEnterArmed) {
             m_incompleteExchangeEnterArmed = true;
+            // Bevor gemeckert wird: ist der Locator dieser Station
+            // bekannt, gehört er jetzt ins Feld. Martin, 2026-09-28:
+            // "nach eingabe des rufzeichen schon automatisch der
+            // locator im locator ... um einerseits weniger fehler zu
+            // machen und auch schneller zu sein." Das Vorbelegen läuft
+            // sonst 200 ms nach dem letzten Tastendruck -- wer schneller
+            // tippt als das und sofort Enter drückt, kam bis hierher
+            // mit leerem Feld an. Ein QSO ohne Locator zählt auf UKW
+            // null Punkte.
+            const QString known = knownGridForCallsign(callsign);
+            if (!known.isEmpty()) {
+                m_unifiedLog->applyKnownExchange(known, std::nullopt);
+            }
+            // Nochmal fragen: vielleicht ist der Austausch damit schon
+            // vollständig, dann ist nichts mehr zu melden.
+            if (exchangeComplete(*def, m_unifiedLog->exchangeReceived())) {
+                statusBar()->showMessage(
+                    QStringLiteral("Locator %1 aus früheren Logs/Listen eingesetzt — Enter loggt").arg(known), 6000);
+                return;
+            }
             m_unifiedLog->focusFirstEmptyExchangeField();
             statusBar()->showMessage(
                 QStringLiteral("Exchange unvollständig (Nummer/Locator fehlt) — Enter nochmals loggt trotzdem"), 6000);
@@ -2346,7 +3803,7 @@ void MainWindow::handleLogRequested()
     record.timestampUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     record.gridSquare = gridRcvd;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
-        record.distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
+        record.distanceKm = iaruQrbKm(settings.ownGrid, gridRcvd);   // Wertungsentfernung, IARU R1 GC 2023 1.10.1
         record.bearingDeg = bearingIfApart(*record.distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
     if (const qint64 rfHz = currentRfFrequencyHz(); rfHz > 0) {
@@ -2359,7 +3816,8 @@ void MainWindow::handleLogRequested()
     record.rstRcvd = rstRcvd;
 
     if (def) {
-        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode));
+        record.exchangeSent = composeExchange(*def, buildSentExchangeValues(*def, settings, serialSent, mode,
+                                                                            eigeneCqZone()));
         record.exchangeRcvd = composeExchange(*def, buildReceivedExchangeValues(*def, exchangeReceived));
         if (findFieldByType(*def, QStringLiteral("rst"))) {
             record.rstSent = defaultRstForMode(mode);
@@ -2370,6 +3828,21 @@ void MainWindow::handleLogRequested()
     record.isDupe = dupe;
     record.source = QStringLiteral("manual");
 
+    // ZUERST ins Journal, dann in die Datenbank. Die Reihenfolge ist
+    // der ganze Sinn: wenn die Datenbank gleich versagt (Platte voll,
+    // Datei gesperrt, Schema kaputt), steht das QSO trotzdem schon auf
+    // der Platte -- als ADIF-Zeile, die sich überall importieren lässt.
+    // Martin, 2026-09-29: "die dürfen nicht weg sein."
+    if (QsoJournal* journal = m_appController.qsoJournal()) {
+        if (!journal->schreibe(record, m_appController.settings())) {
+            // Kein Abbruch: das Loggen geht weiter, die Datenbank ist
+            // die erste Spur. Aber sagen muss man es -- ein stilles
+            // halbes Netz ist schlechter als gar keines.
+            statusBar()->showMessage(
+                QStringLiteral("Journal konnte nicht geschrieben werden: %1").arg(journal->letzterFehler()),
+                8000);
+        }
+    }
     if (!m_appController.database().insertQso(record)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                               QStringLiteral("QSO konnte nicht gespeichert werden:\n%1").arg(m_appController.database().lastError()));
@@ -2402,10 +3875,23 @@ void MainWindow::handleLogRequested()
     refreshMapWidget();
     refreshSuggestionPanel();
     updateStatusBar();
-    reloadCheckPartialSources();
+    // Nicht alles neu einlesen, nur dieses eine Rufzeichen eintragen:
+    // der volle Weg holt das ganze Log, die importierten Locatoren und
+    // die früheren Logs aus der Datenbank und baut die Tabelle zweimal
+    // neu auf -- gemessen 54 ms nach jedem Return bei 1 200 QSOs. Für
+    // Korrekturen, Löschungen und den Contestwechsel bleibt er, dort
+    // ändert sich wirklich die Grundlage
+    // (siehe refreshAfterLogChange()).
+    m_checkPartialIndex.addLogCall(record.callsign, record.band);
     refreshBandmap();
     refreshScoreboard();
     refreshSkeds();
+    // Das Rate-Panel hat einen eigenen 15-s-Takt. Ohne diese Zeile
+    // stand nach einem QSO bis zu 15 Sekunden lang der alte Punktestand
+    // darin, waehrend das Kartenpanel daneben schon den neuen zeigte --
+    // zwei Anzeigen desselben Werts, die sich widersprechen (gemessen
+    // am 2026-10-08: 2 QSOs / 569 Punkte auf der Karte, 0 / 0 im Rate).
+    m_rateMeterWidget->refresh();
     m_unifiedLog->resetForNextEntry();
     // The serial just advanced (this QSO consumed serialSent) -- the
     // preview must reflect the *next* one immediately, not the one that
@@ -2458,11 +3944,26 @@ void MainWindow::recheckDupeIndicator()
     m_unifiedLog->setDupeIndicator(true, detail);
 }
 
-void MainWindow::handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz)
+void MainWindow::handleCandidateActivated(const QString& callsign, const QString& grid, qint64 freqHz,
+                                          bool gridGeschaetzt)
 {
     m_unifiedLog->setCallsign(callsign);
     bool gridFieldSet = false;
-    if (!grid.isEmpty()) {
+    // Ein GESCHAETZTER Ort gehoert nicht in den Austausch.
+    //
+    // Betreiber am 2026-10-26, nach dem Contest: „weiters stimmen
+    // einige locator nicht automatisch mit den rufzeichen zusammen."
+    //
+    // Auf Kurzwelle -- und fuer jede Station ohne getauschten Locator
+    // -- traegt die Karte den Mittelpunkt des LANDES, damit der Punkt
+    // ueberhaupt irgendwo sitzt (MainWindow::mapGridForCallsign setzt
+    // dabei `approximate`). Der ist gut genug, um die Antenne zu
+    // drehen, aber als Locator ist er schlicht falsch: ein Klick auf
+    // die Station schrieb ihn bisher ins Austauschfeld, und von dort
+    // ging er ins Log und ins Cabrillo.
+    //
+    // Zum Drehen wird er unten weiterhin benutzt.
+    if (!grid.isEmpty() && !gridGeschaetzt) {
         const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
         const ContestDefinition::ExchangeField* gridField = def ? findFieldByType(*def, QStringLiteral("grid6")) : nullptr;
         if (gridField) {
@@ -2488,6 +3989,17 @@ void MainWindow::handleCandidateActivated(const QString& callsign, const QString
 
 void MainWindow::handleCallsignLookupRequested(const QString& callsign)
 {
+    // Die CQ-Zone aus der Länderliste, sobald sie bekannt ist -- sie
+    // hängt am Präfix, nicht am einzelnen QSO, und steht damit vor
+    // jeder anderen Quelle fest. Wer eine andere Zone hört, tippt sie
+    // drüber (das Feld ist nur vorbelegt, nicht gesperrt).
+    if (m_unifiedLog) {
+        const CountryEntry country = m_appController.countryIndex().lookup(callsign);
+        if (country.isValid()) {
+            m_unifiedLog->applyKnownCqZone(country.cqZone);
+        }
+    }
+
     // Tier 1: the operator's own log for the active contest -- instant,
     // always-on, exactly as before this task.
     const auto known = m_appController.database().knownExchangeForCallsign(callsign, m_appController.settings().activeContestId);
@@ -2557,8 +4069,109 @@ void MainWindow::handleExternalCallsignLookupFinished(const QString& callsign, b
     m_unifiedLog->applyKnownExchange(grid, std::nullopt);
 }
 
+// Land, Richtung, Entfernung, Ortszeit und Sonne am anderen Ende --
+// das, was N1MM in seinem Info-Fenster zeigt, hier in der Zeile unter
+// der Eingabe (core/DxInfo.h). Gerechnet bei jedem Tastendruck: ein
+// Nachschlagen in einer Hashtabelle und etwas Trigonometrie.
+void MainWindow::refreshDxInfoLine()
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    // Der getauschte Locator, soweit schon eingetippt -- er schlägt den
+    // Landesmittelpunkt. Der Schlüssel ist der des grid-Feldes der
+    // aktiven Definition, sonst schlicht "grid".
+    QString grid;
+    const QMap<QString, QString> received = m_unifiedLog->exchangeReceived();
+    if (const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId)) {
+        if (const ContestDefinition::ExchangeField* field = findFieldByType(*def, QStringLiteral("grid6"))) {
+            grid = received.value(field->key);
+        }
+    }
+    if (grid.isEmpty()) {
+        grid = received.value(QStringLiteral("grid"));
+    }
+    const DxInfo info = lookupDxInfo(m_appController.countryIndex(), m_appController.settings().ownGrid,
+                                     m_unifiedLog->callsign(), grid, QDateTime::currentDateTimeUtc());
+    m_unifiedLog->setDxInfoLine(info.statusLine());
+    refreshMultiplierHint(grid);
+}
+
+// DXLogs "Check Multipliers": bringt diese Station auf diesem Band
+// einen neuen Multiplikator, und auf welchen Bändern steht er schon?
+// Die Antwort steht über den Treffern im Check-Panel, weil man dort
+// ohnehin hinsieht, während man tippt.
+void MainWindow::refreshMultiplierHint(const QString& grid)
+{
+    if (!m_checkPartialWidget) {
+        return;
+    }
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    const QString call = m_unifiedLog ? m_unifiedLog->callsign() : QString();
+
+    QStringList lines;
+
+    // Zuerst die Station selbst: auf welchen Bändern steht SIE schon im
+    // Log. Die Dupe-Pille beantwortet nur das laufende Band, und der
+    // Multiplikator unten ist eine andere Frage -- DL1ABC kann neu sein,
+    // während der Präfix DL längst steht. Auf Kurzwelle, wo dieselbe
+    // Station auf acht Bändern zählt, ist das die Frage beim Tippen.
+    if (!call.isEmpty() && def) {
+        const QStringList worked = m_appController.database().bandsWorkedForCallsign(call, settings.activeContestId);
+        if (!worked.isEmpty()) {
+            // In der Reihenfolge des Contests, nicht in der der
+            // Datenbank.
+            QStringList ordered;
+            for (const QString& band : def->bands()) {
+                if (worked.contains(band)) {
+                    ordered << band;
+                }
+            }
+            for (const QString& band : worked) {
+                if (!ordered.contains(band)) {
+                    ordered << band;
+                }
+            }
+            lines << QStringLiteral("%1 steht auf %2").arg(call.toUpper(), ordered.join(QStringLiteral(", ")));
+        }
+    }
+
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
+    const QString key = (call.isEmpty() || !def || !def->hasMultipliers())
+                            ? QString()
+                            : tracker.multiplierKeyFor(grid, call);
+    if (def && !key.isEmpty()) {
+        QStringList worked;
+        for (const QString& band : def->bands()) {
+            if (tracker.workedMultipliers(band).contains(key)) {
+                worked << band;
+            }
+        }
+        const bool workedHere = !m_currentBand.isEmpty() && tracker.workedMultipliers(m_currentBand).contains(key);
+        QStringList parts;
+        parts << key;
+        if (!m_currentBand.isEmpty()) {
+            parts << (workedHere ? QStringLiteral("auf %1 schon gearbeitet").arg(m_currentBand)
+                                 : QStringLiteral("auf %1 neu").arg(m_currentBand));
+        }
+        if (!worked.isEmpty()) {
+            parts << QStringLiteral("steht auf %1").arg(worked.join(QStringLiteral(", ")));
+        } else {
+            parts << QStringLiteral("noch auf keinem Band");
+        }
+        lines << parts.join(QStringLiteral(" · "));
+    }
+
+    // Nichts bekannt -- kein Multiplikator in den Regeln, und die
+    // Station ist neu: dann steht dort auch nichts.
+    m_checkPartialWidget->setMultiplierStatus(lines.join(QLatin1Char('\n')));
+}
+
 void MainWindow::handleReceivedGridChanged(const QString& grid)
 {
+    refreshDxInfoLine();
+    refreshLocatorCrossCheck(grid);
     const ContestSettings settings = m_appController.settings();
     if (!isValidGridSquare(settings.ownGrid) || !isValidGridSquare(grid)) {
         m_unifiedLog->setEntryDistanceBearing(std::nullopt, std::nullopt);
@@ -2567,6 +4180,65 @@ void MainWindow::handleReceivedGridChanged(const QString& grid)
     const double distanceKm = calculateDistanceKm(settings.ownGrid, grid);
     m_unifiedLog->setEntryDistanceBearing(distanceKm,
                                            bearingIfApart(distanceKm, calculateBearingInDegrees(settings.ownGrid, grid)));
+}
+
+// Tucnaks "cross control couple callsign - locator": der getippte
+// Locator gegen den, unter dem diese Station bekannt ist. Auf UKW ist
+// der Locator der Austausch -- ein Tippfehler darin kostet das QSO bei
+// der Auswertung, und er fällt sonst niemandem auf.
+//
+// Gewarnt wird, nicht gesperrt: eine Station kann umgezogen sein oder
+// von einem anderen Standort fahren, dann stimmt der neue Locator. Und
+// nur ab vier Zeichen, sonst meldet sich die Zeile schon beim Tippen
+// des zweiten.
+void MainWindow::refreshLocatorCrossCheck(const QString& typedGrid)
+{
+    if (!m_unifiedLog) {
+        return;
+    }
+    const QString typed = typedGrid.trimmed().toUpper();
+    const QString call = m_unifiedLog->callsign().trimmed().toUpper();
+    if (call.isEmpty() || typed.size() < 4) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    const QString known = knownGridForCallsign(call);
+    if (known.isEmpty()) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    // Auf der Länge vergleichen, die beide haben: wer JN58SD kennt und
+    // JN58 tippt, hat keinen Widerspruch getippt, sondern weniger.
+    const int length = std::min(typed.size(), known.size());
+    if (typed.left(length) == known.left(length)) {
+        m_unifiedLog->setEntryWarning(QString());
+        return;
+    }
+    m_unifiedLog->setEntryWarning(
+        QStringLiteral("%1 ist bekannt als %2 — getippt: %3").arg(call, known, typed));
+}
+
+// Der Locator, unter dem eine Station bekannt ist -- in derselben
+// Reihenfolge, die handleCallsignLookupRequested() für das Vorbelegen
+// benutzt, aber ohne den Netzweg: dieser hier läuft bei jedem
+// Tastendruck.
+QString MainWindow::knownGridForCallsign(const QString& callsign) const
+{
+    const ContestSettings settings = m_appController.settings();
+    if (const auto known = m_appController.database().knownExchangeForCallsign(callsign, settings.activeContestId)) {
+        if (!known->gridSquare.trimmed().isEmpty()) {
+            return known->gridSquare.trimmed().toUpper();
+        }
+    }
+    if (const auto earlier = m_appController.database().lastKnownGridForCallsign(callsign)) {
+        if (!earlier->trimmed().isEmpty()) {
+            return earlier->trimmed().toUpper();
+        }
+    }
+    if (const auto local = m_appController.callsignLocatorLookup().lookupLocal(callsign)) {
+        return local->trimmed().toUpper();
+    }
+    return QString();
 }
 
 void MainWindow::handleHistoryCallsignEditRequested(int qsoId, const QString& newCallsign)
@@ -2649,7 +4321,7 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     std::optional<double> distanceKm;
     std::optional<double> bearingDeg;
     if (isValidGridSquare(settings.ownGrid) && isValidGridSquare(gridRcvd)) {
-        distanceKm = calculateDistanceKm(settings.ownGrid, gridRcvd);
+        distanceKm = iaruQrbKm(settings.ownGrid, gridRcvd);   // Wertungsentfernung, wie beim Loggen
         bearingDeg = bearingIfApart(*distanceKm, calculateBearingInDegrees(settings.ownGrid, gridRcvd));
     }
 
@@ -2674,8 +4346,121 @@ void MainWindow::handleHistoryExchangeRcvdEditRequested(int qsoId, const QString
     // does (a corrected grid can turn a QSO into a completed multiplier,
     // or out of one).
     refreshMultiplierAndFeedScores();
+    // A corrected grid is a different distance, and distance IS the
+    // score here, so the Rate panel's points and ODX have to follow the
+    // correction at once, not at the next 15-second tick.
+    m_rateMeterWidget->refresh();
     refreshMapWidget();
     refreshSuggestionPanel();
+}
+
+// Löschen ohne Rückfrage, dafür mit Rückgängig: eine Nachfrage bei
+// jedem Griff wäre genau die Bremse, die Martin nicht will
+// (2026-09-27, "einfach und schnell"). Das QSO landet im Papierkorb
+// (ContestDatabase::deleteQso), nicht im Müll -- wie N1MM es in eine
+// eigene Datei legt.
+void MainWindow::handleHistoryDeleteRequested(int qsoId)
+{
+    const auto record = m_appController.database().qsoById(qsoId);
+    if (!record) {
+        return;
+    }
+    QString error;
+    if (!m_appController.database().deleteQso(qsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht gelöscht werden:\n%1").arg(error));
+        return;
+    }
+    m_lastDeletedQsoId = qsoId;
+    if (QsoJournal* journal = m_appController.qsoJournal()) {
+        journal->vermerke(QStringLiteral("GELOESCHT  %1  %2  Nr. %3  %4")
+                              .arg(record->callsign, record->band,
+                                   record->serialSent ? QString::number(*record->serialSent)
+                                                      : QStringLiteral("--"),
+                                   record->timestampUtc));
+    }
+    refreshAfterLogChange();
+    statusBar()->showMessage(
+        QStringLiteral("%1 gelöscht (Nr. %2) — Strg+Z macht es rückgängig")
+            .arg(record->callsign,
+                  record->serialSent ? QString::number(*record->serialSent) : Style::unknownDash()),
+        15000);
+}
+
+void MainWindow::undoLastDelete()
+{
+    if (m_lastDeletedQsoId < 0) {
+        statusBar()->showMessage(QStringLiteral("Nichts zurückzunehmen."), 4000);
+        return;
+    }
+    QString error;
+    if (!m_appController.database().undeleteQso(m_lastDeletedQsoId, &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("QSO konnte nicht zurückgeholt werden:\n%1").arg(error));
+        return;
+    }
+    const auto record = m_appController.database().qsoById(m_lastDeletedQsoId);
+    m_lastDeletedQsoId = -1;
+    if (QsoJournal* journal = m_appController.qsoJournal(); journal && record) {
+        journal->vermerke(QStringLiteral("ZURUECKGEHOLT  %1  %2  Nr. %3  %4")
+                              .arg(record->callsign, record->band,
+                                   record->serialSent ? QString::number(*record->serialSent)
+                                                      : QStringLiteral("--"),
+                                   record->timestampUtc));
+    }
+    refreshAfterLogChange();
+    // Die Nummer des gelöschten QSO wird sofort wieder vergeben (siehe
+    // refreshAfterLogChange()). Wer in der Zwischenzeit weitergeloggt
+    // hat und dann Strg+Z drückt, hat dieselbe gesendete Nummer zweimal
+    // im Log -- der Auswerter zählt das als Fehler. Die Log-Prüfung
+    // meldet es, aber erst, wenn man hinsieht; hier steht es sofort da.
+    QString doppelt;
+    if (record && record->serialSent) {
+        QStringList andere;
+        for (const QsoRecord& q : m_appController.database().qsosForContest(record->contestId)) {
+            if (q.id != record->id && q.band == record->band && q.serialSent
+                && *q.serialSent == *record->serialSent) {
+                andere << q.callsign;
+            }
+        }
+        if (!andere.isEmpty()) {
+            doppelt = QStringLiteral("  ACHTUNG: Nr. %1 ging auf %2 auch an %3 — eine der beiden Nummern "
+                                     "muss geändert werden.")
+                          .arg(*record->serialSent)
+                          .arg(record->band, andere.join(QStringLiteral(", ")));
+        }
+    }
+    statusBar()->showMessage((record ? QStringLiteral("%1 ist wieder im Log.").arg(record->callsign)
+                                     : QStringLiteral("QSO ist wieder im Log."))
+                                 + doppelt,
+                              doppelt.isEmpty() ? 6000 : 30000);
+}
+
+// Alles, was den Log-Inhalt liest, nach einer Änderung an ihm -- die
+// Reihenfolge, die handleHistoryInvalidToggleRequested() schon
+// verwendet, plus die Liste selbst (ein gelöschtes QSO verschwindet
+// aus ihr, ein ungültiges nicht).
+void MainWindow::refreshAfterLogChange()
+{
+    refreshLogTable();
+    // Die nächste eigene Nummer ist MAX(serial_sent) + 1 über das
+    // laufende Log (ContestDatabase::nextSerialForContest). Wer das
+    // letzte QSO löscht, bekommt dessen Nummer wieder -- richtig so,
+    // ein versehentliches Enter soll keine Lücke hinterlassen. Ohne
+    // diese Zeile stand in der Eingabezeile aber weiter die alte,
+    // schon vergebene Nummer.
+    refreshSentExchangePreview();
+    rescoreDupes();
+    recheckDupeIndicator();
+    refreshMultiplierAndFeedScores();
+    refreshMapWidget();
+    refreshSuggestionPanel();
+    reloadCheckPartialSources();
+    // Punkte, QSO-Zahl und ODX stehen auch im Rate-Panel; ein geloeschtes
+    // oder zurueckgeholtes QSO aendert sie sofort, nicht erst beim
+    // naechsten Takt.
+    m_rateMeterWidget->refresh();
+    updateStatusBar();
 }
 
 void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
@@ -2703,6 +4488,12 @@ void MainWindow::handleHistoryInvalidToggleRequested(int qsoId)
     rescoreDupes();
     recheckDupeIndicator();
     refreshMultiplierAndFeedScores();
+    // An invalidated QSO is out of the log for every purpose, so the
+    // panel has to drop its count and points right away rather than at
+    // the next 15-second tick. (rescoreDupes() refreshes too, but only
+    // when a dupe flag actually moved -- striking a QSO nothing else
+    // referred to moves none.)
+    m_rateMeterWidget->refresh();
     refreshMapWidget();
     refreshSuggestionPanel();
 }
@@ -2737,6 +4528,24 @@ void MainWindow::showLogViewOptionsPopup()
     };
     addModeAction(ContestSettings::LogViewMode::Compact, QStringLiteral("Kompakt"));
     addModeAction(ContestSettings::LogViewMode::DxLogFullColumns, QStringLiteral("DXLog-Vollspalten"));
+
+    menu->addSeparator();
+
+    // Die laufende Nummer links, abschaltbar -- so löst es DXLog.net,
+    // und die Begründung dort passt auf die UKW-Conteste: "Hides the
+    // QSO numbers on the left, useful for serial number contests so
+    // wrong serials don't get sent". Auf UKW fängt die GESENDETE Nummer
+    // je Band wieder bei 001 an, die laufende nicht.
+    QAction* runningNumberAction = menu->addAction(QStringLiteral("Laufende Nummer (QSO#)"));
+    runningNumberAction->setObjectName(QStringLiteral("logRunningNumberAction"));
+    runningNumberAction->setCheckable(true);
+    runningNumberAction->setChecked(m_appController.settings().logShowRunningNumber);
+    connect(runningNumberAction, &QAction::triggered, this, [this](bool checked) {
+        m_unifiedLog->setRunningNumberVisible(checked);
+        ContestSettings settings = m_appController.settings();
+        settings.logShowRunningNumber = checked;
+        m_appController.setSettings(settings);
+    });
 
     menu->addSeparator();
 
@@ -2848,6 +4657,29 @@ void MainWindow::openContestRulesEditor()
     // which applyActiveContestDefinition() (connected in the
     // constructor) picks up to rebuild UnifiedLogWidget's exchange row.
     m_appController.reloadContestDefinitions();
+
+    ContestSettings settings = m_appController.settings();
+    const QString saved = dialog.savedContestId();
+    if (dialog.deletedSelectedContest()) {
+        // Der Contest kann jetzt weg sein (selbst angelegt und
+        // zurückgesetzt). War er der aktive, muss ein anderer her --
+        // sonst steht das Programm ohne Exchange-Zeile da.
+        if (settings.activeContestId == saved && !m_appController.findContestDefinition(saved)) {
+            const QVector<ContestDefinition>& available = m_appController.availableContestDefinitions();
+            settings.activeContestId = available.isEmpty() ? QString() : available.first().id();
+            m_appController.setSettings(settings);
+            applyActiveContestDefinition();
+        }
+        return;
+    }
+    // Ein gerade angelegter Contest ist der, mit dem weitergearbeitet
+    // werden soll -- ihn erst noch in "Contest wählen..." suchen zu
+    // müssen wäre ein Umweg ohne Zweck.
+    if (!saved.isEmpty() && saved != settings.activeContestId && m_appController.findContestDefinition(saved)) {
+        settings.activeContestId = saved;
+        m_appController.setSettings(settings);
+        applyActiveContestDefinition();
+    }
 }
 
 void MainWindow::openContestPicker()
@@ -2919,6 +4751,22 @@ void MainWindow::exportCabrillo()
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"), QStringLiteral("Kein aktiver Contest ausgewählt."));
         return;
     }
+    // Dieselbe Frage wie beim EDI: der Cabrillo-Roboter rechnet
+    // fehlerhafte QSOs genauso gegen.
+    if (!confirmExportDespiteLogErrors()) {
+        return;
+    }
+
+    // Erst die Angaben, die kein QSO beantworten kann (Leistung,
+    // Bedienerklasse, Hilfsmittel), dann die Datei -- der Robot liest
+    // sie, und falsch angegeben landet das Log in der falschen
+    // Wertungsklasse.
+    CabrilloExportDialog categoriesDialog(CabrilloCategories::load(m_appController.database()), this);
+    if (categoriesDialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    const CabrilloCategories categories = categoriesDialog.categories();
+    categories.save(m_appController.database());
 
     const QString suggested = settings.activeContestId + QStringLiteral(".cbr");
     const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Cabrillo exportieren"), suggested,
@@ -2928,16 +4776,14 @@ void MainWindow::exportCabrillo()
     }
 
     CabrilloExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId, *def, settings);
+    const QString text = exporter.exportContest(settings.activeContestId, *def, settings, categories);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QString writeError;
+    if (!writeFileChecked(path, text.toUtf8(), &writeError)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(file.errorString()));
+                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(writeError));
         return;
     }
-    file.write(text.toUtf8());
-    file.close();
 
     statusBar()->showMessage(QStringLiteral("Cabrillo-Log exportiert: %1").arg(path), 5000);
 }
@@ -2958,18 +4804,55 @@ void MainWindow::exportAdif()
     }
 
     AdifExporter exporter(m_appController.database());
-    const QString text = exporter.exportContest(settings.activeContestId);
+    const QString text = exporter.exportContest(settings.activeContestId, settings);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    QString writeError;
+    if (!writeFileChecked(path, text.toUtf8(), &writeError)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(file.errorString()));
+                              QStringLiteral("Datei konnte nicht geschrieben werden:\n%1").arg(writeError));
         return;
     }
-    file.write(text.toUtf8());
-    file.close();
 
     statusBar()->showMessage(QStringLiteral("ADIF-Log exportiert: %1").arg(path), 5000);
+}
+
+// Vor einem Export: hat das Log Fehlerzeilen, wird gefragt. Ein QSO
+// ohne Locator oder ohne empfangene Nummer zählt null Punkte, und der
+// Roboter rechnet es gegen -- das soll niemand erst erfahren, wenn die
+// Auswertung kommt. Warnungen halten nicht auf; die sind zum Ansehen,
+// nicht zum Anhalten.
+//
+// Gibt true zurück, wenn exportiert werden soll.
+bool MainWindow::confirmExportDespiteLogErrors()
+{
+    const ContestSettings settings = m_appController.settings();
+    const ContestDefinition* def = findContestDefinition(settings.activeContestId);
+    if (!def) {
+        return true;
+    }
+    const QVector<QsoRecord> records = m_appController.database().qsosForContest(settings.activeContestId);
+    const LogCheckContext context = logCheckContextFor(*def, settings, records, QDateTime::currentDateTimeUtc());
+    const LogCheckResult result = checkLog(records, context);
+    if (result.errors == 0) {
+        return true;
+    }
+
+    QMessageBox box(QMessageBox::Warning, QStringLiteral("Contestprogramm"),
+                    QStringLiteral("Das Log hat %1 Fehler.").arg(result.errors), QMessageBox::NoButton, this);
+    box.setInformativeText(
+        QStringLiteral("%1\n\nEin QSO ohne Locator oder ohne empfangene Nummer zählt null Punkte, und die "
+                        "Auswertung rechnet es gegen. Besser vorher ansehen als hinterher erfahren.")
+            .arg(result.countsText()));
+    QPushButton* checkButton = box.addButton(QStringLiteral("Log prüfen…"), QMessageBox::AcceptRole);
+    QPushButton* exportButton = box.addButton(QStringLiteral("Trotzdem exportieren"), QMessageBox::DestructiveRole);
+    box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
+    box.setDefaultButton(checkButton);
+    box.exec();
+    if (box.clickedButton() == checkButton) {
+        openLogCheckWindow();
+        return false;
+    }
+    return box.clickedButton() == exportButton;
 }
 
 void MainWindow::exportEdi()
@@ -2978,6 +4861,9 @@ void MainWindow::exportEdi()
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     if (!def) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"), QStringLiteral("Kein aktiver Contest ausgewählt."));
+        return;
+    }
+    if (!confirmExportDespiteLogErrors()) {
         return;
     }
 
@@ -3004,7 +4890,24 @@ void MainWindow::reloadCheckPartialSources()
         }
     }
     m_checkPartialIndex.setLogCalls(logCalls);
-    m_checkPartialIndex.setHistoryCalls(m_appController.database().allImportedLocators());
+
+    // Die Historie: erst die importierte/zwischengespeicherte
+    // Locator-Liste, darüber die eigenen früheren Logs. Die eigenen
+    // gewinnen bei einem Widerspruch -- Martin, 2026-09-27:
+    // "insbesondere ehemalige logs bei ukw sind primär die benchmark".
+    // Wer jedes Jahr vom selben Berg fährt, trifft jedes Jahr dieselben
+    // Stationen; bis dahin kannte die Vorschlagsliste sie nicht.
+    QHash<QString, QString> history = m_appController.database().allImportedLocators();
+    const QHash<QString, QString> worked = m_appController.database().allWorkedCallsigns();
+    for (auto it = worked.constBegin(); it != worked.constEnd(); ++it) {
+        // Ein leerer Locator aus dem eigenen Log darf einen bekannten
+        // aus der Liste nicht löschen -- das Rufzeichen zählt trotzdem.
+        if (it.value().isEmpty() && history.contains(it.key())) {
+            continue;
+        }
+        history.insert(it.key(), it.value());
+    }
+    m_checkPartialIndex.setHistoryCalls(history);
 
     // The SCP list is loaded once from the remembered path; a missing
     // or unreadable file just leaves that source empty (and the panel's
@@ -3015,6 +4918,16 @@ void MainWindow::reloadCheckPartialSources()
         QFile file(path);
         if (!path.isEmpty() && file.open(QIODevice::ReadOnly)) {
             m_checkPartialIndex.setScpCalls(CheckPartialIndex::parseScp(file.readAll()));
+        }
+    }
+    // Dieselbe Regel für die Länderliste: einmal vom gemerkten Pfad,
+    // eine fehlende Datei lässt sie eben leer.
+    if (!m_countryListLoaded) {
+        m_countryListLoaded = true;
+        const QString countryPath = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+        QFile countryFile(countryPath);
+        if (!countryPath.isEmpty() && countryFile.open(QIODevice::ReadOnly)) {
+            m_appController.countryIndex().loadFromCty(countryFile.readAll());
         }
     }
     const QString scpPath = m_appController.database().settingValue(QStringLiteral("scp_file_path"));
@@ -3031,6 +4944,51 @@ void MainWindow::refreshCheckPartial()
     }
     const QString fragment = m_unifiedLog->callsign();
     m_checkPartialWidget->setMatches(fragment, m_checkPartialIndex.matches(fragment, m_currentBand));
+}
+
+// Eine veröffentlichte Ergebnisliste einlesen: Rufzeichen und der
+// Locator, von dem die Station gefahren ist. Der ÖVSV-Auswerteserver
+// (ukwauswertung.oevsv.at) gibt sie je Contest als CSV aus, und andere
+// Auswertungen tun Ähnliches -- der Leser erkennt die beiden Spalten
+// an ihren Überschriften, gleich an welcher Stelle sie stehen (siehe
+// CallsignLocatorLookup::parseCsv).
+void MainWindow::importResultsCsv()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Ergebnisliste eines Contests einlesen"), QString(),
+        QStringLiteral("Ergebnislisten (*.csv *.txt);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QString error;
+    const CallsignLocatorLookup::ImportSummary summary =
+        m_appController.callsignLocatorLookup().importCsvFile(path, &error);
+    if (summary.imported == 0 && summary.skipped == 0 && !error.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Datei konnte nicht gelesen werden:\n%1").arg(error));
+        return;
+    }
+    if (summary.imported == 0) {
+        QMessageBox::information(
+            this, QStringLiteral("Contestprogramm"),
+            QStringLiteral("Keine Zeile mit Rufzeichen und Locator gefunden (%1 Zeilen überlesen).\n\n"
+                            "Erwartet wird eine Liste mit Überschriften, in der eine Spalte das Rufzeichen "
+                            "(\"Call\", \"Rufzeichen\") und eine den Locator (\"WWL\", \"Locator\", \"Grid\") "
+                            "benennt -- so gibt sie der ÖVSV-Auswerteserver aus.")
+                .arg(summary.skipped));
+        return;
+    }
+    // Die Vorschlagsliste liest die Tabelle beim nächsten Aufbau; ein
+    // frisch importierter Name soll aber sofort vorgeschlagen werden.
+    reloadCheckPartialSources();
+    QMessageBox::information(
+        this, QStringLiteral("Contestprogramm"),
+        QStringLiteral("%1 Stationen mit Locator übernommen, %2 Zeilen überlesen.\n\n"
+                        "Mehrere Listen nacheinander einlesen geht -- am besten von der ältesten zur "
+                        "neuesten, denn bei einer Station, die inzwischen von einem anderen Berg fährt, "
+                        "gilt die zuletzt eingelesene Liste.")
+            .arg(summary.imported)
+            .arg(summary.skipped));
 }
 
 void MainWindow::importOldLogs()
@@ -3105,6 +5063,63 @@ void MainWindow::loadScpFile()
                                      m_checkPartialIndex.historyCount(), m_checkPartialIndex.seenCount());
     refreshCheckPartial();
     statusBar()->showMessage(QStringLiteral("SCP-Liste geladen: %1 Rufzeichen aus %2").arg(calls.size()).arg(QFileInfo(path).fileName()), 5000);
+}
+
+void MainWindow::loadCountryFile()
+{
+    const QString previous = m_appController.database().settingValue(QStringLiteral("cty_file_path"));
+    const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Länderliste laden"), previous,
+                                                      QStringLiteral("Länderlisten (cty.dat *.dat);;Alle Dateien (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                             QStringLiteral("Länderliste konnte nicht gelesen werden:\n%1").arg(file.errorString()));
+        return;
+    }
+    QString error;
+    if (!m_appController.countryIndex().loadFromCty(file.readAll(), &error)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"), error);
+        return;
+    }
+    m_appController.database().setSettingValue(QStringLiteral("cty_file_path"), path);
+    // Die Liste beantwortet drei Fragen auf einmal: wo eine Station
+    // steht (Karte), welches Land sie ist (Multiplikator) und wie viele
+    // davon schon im Log sind (Rate-Kachel).
+    refreshMapWidget();
+    refreshMultiplierAndFeedScores();
+    m_rateMeterWidget->refresh();
+    statusBar()->showMessage(QStringLiteral("Länderliste geladen: %1 Länder, %2 Präfixe aus %3")
+                                 .arg(m_appController.countryIndex().countryCount())
+                                 .arg(m_appController.countryIndex().prefixCount())
+                                 .arg(QFileInfo(path).fileName()),
+                             5000);
+}
+
+// Wo eine Station auf der Karte steht. Der getauschte Locator zuerst --
+// er ist die genaue Angabe. Fehlt er (auf Kurzwelle immer), tritt der
+// Mittelpunkt des Landes an seine Stelle, sofern eine Länderliste
+// geladen ist. Das ist eine grobe Angabe, und die Karte zeichnet sie
+// auch anders (siehe MapWidget::Station::approximate) -- ins Log kommt
+// sie nie.
+QString MainWindow::mapGridForCallsign(const QString& callsign, const QString& knownGrid, bool* approximate) const
+{
+    if (approximate) {
+        *approximate = false;
+    }
+    if (isValidGridSquare(knownGrid)) {
+        return knownGrid;
+    }
+    const CountryEntry country = m_appController.countryIndex().lookup(callsign);
+    if (!country.isValid()) {
+        return QString();
+    }
+    if (approximate) {
+        *approximate = true;
+    }
+    return gridSquareFromLatLon(country.latitudeDeg, country.longitudeDeg);
 }
 
 void MainWindow::handleHistoryTimeEditRequested(int qsoId, const QString& newText)
@@ -3228,16 +5243,74 @@ void MainWindow::archiveActiveContest()
     for (int n = 2; existing.contains(archiveId); ++n) {
         archiveId = QStringLiteral("%1@%2-%3").arg(contestId, lastDate).arg(n);
     }
-    const auto answer = QMessageBox::question(
-        this, QStringLiteral("Contestprogramm"),
-        QStringLiteral("%1 QSOs des Contests \"%2\" werden unter \"%3\" archiviert.\n\n"
-                       "Danach beginnt das Log leer: Seriennummern ab 001, keine Dupes gegen die alten QSOs, "
-                       "ein leerer EDI-Export. Die alten QSOs bleiben in der Datenbank (Locator-Gedächtnis, "
-                       "Sicherungen) -- aber EDI/ADIF des alten Logs vorher exportieren!\n\nJetzt archivieren?")
+    // Martin, 2026-09-23: "werde ich gefragt, ob ich das alte löschen
+    // mag. ich sagte nein, aber die logs bleiben bestehen." Genau das
+    // war der Fehler -- nicht in der Mechanik, im Text. Die Frage hieß
+    // "Jetzt archivieren?" mit Ja/Nein, und "archivieren" las sich wie
+    // "wegwerfen". Er wollte ein leeres Log und die alten QSOs behalten
+    // -- also genau das, was Ja getan hätte.
+    //
+    // Jetzt steht in der ersten Zeile, was der Menüpunkt verspricht,
+    // und auf dem Knopf steht die Handlung statt "Ja". Dass nichts
+    // gelöscht wird, kommt vor allem anderen.
+    QMessageBox box(QMessageBox::Question, QStringLiteral("Contestprogramm"),
+                    QStringLiteral("Neues Log beginnen?"), QMessageBox::NoButton, this);
+    box.setInformativeText(
+        QStringLiteral("Gelöscht wird nichts: die %1 QSOs des Contests „%2“ wandern ins Archiv „%3“ und "
+                       "bleiben in der Datenbank -- für das Locator-Gedächtnis, die Sicherungen und einen "
+                       "späteren Export.\n\n"
+                       "Danach beginnt das Log leer: Seriennummern ab 001, keine Dupes gegen die alten QSOs.\n\n"
+                       "EDI oder ADIF des alten Logs vorher exportieren -- der Export kennt danach nur noch "
+                       "das leere Log.")
             .arg(records.size())
-            .arg(contestId, archiveId),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (answer != QMessageBox::Yes) {
+            .arg(contestId, archiveId));
+    // Und in derselben Frage: auf welchen Bändern wird gefahren?
+    // Martin, 2026-09-28: "beim start des contest soll ich dies ggf.
+    // zusätzlich anführen, sprich ich muss gefragt werden. standard
+    // nicht." Der IARU-R1-Contest kennt sieben Bänder, gefahren wird
+    // meist eines -- und eine Bandspalte, in der überall dasselbe
+    // steht, sagt nichts.
+    //
+    // Bewusst IN diesem Dialog, nicht als zweiter danach: ein zweiter
+    // modaler Dialog im selben Ablauf bleibt in jedem Prüfstand stehen,
+    // der den ersten wegklickt, und hängt damit die CI auf (so schon
+    // einmal passiert, siehe den Linux-Hänger vom 2026-09-09). Und für
+    // den Bediener ist eine Frage besser als zwei.
+    QList<QCheckBox*> bandBoxes;
+    const ContestDefinition* startDef = findContestDefinition(contestId);
+    if (startDef && startDef->bands().size() >= 2) {
+        auto* gruppe = new QGroupBox(QStringLiteral("Bänder in diesem Contest"), &box);
+        gruppe->setObjectName(QStringLiteral("newLogBandGroup"));
+        auto* gruppenLayout = new QVBoxLayout(gruppe);
+        auto* hinweis = new QLabel(
+            QStringLiteral("Nur die angekreuzten bekommen im Log eine eigene Spalte und eine eigene "
+                           "Auswertung. Bleibt es bei einem, spart sich das Log die Spalte."),
+            gruppe);
+        hinweis->setWordWrap(true);
+        gruppenLayout->addWidget(hinweis);
+        const QStringList bisher = m_appController.settings().activeBands;
+        for (const QString& band : startDef->bands()) {
+            auto* kasten = new QCheckBox(QStringLiteral("%1 MHz").arg(band), gruppe);
+            kasten->setObjectName(QStringLiteral("newLogBand_%1").arg(band));
+            // Vorbelegt: was zuletzt galt -- und beim ersten Mal genau
+            // das Band, auf dem gerade gearbeitet wird. Also eines.
+            kasten->setChecked(bisher.isEmpty() ? (band == m_currentBand) : bisher.contains(band));
+            gruppenLayout->addWidget(kasten);
+            bandBoxes.append(kasten);
+        }
+        if (auto* grid = qobject_cast<QGridLayout*>(box.layout())) {
+            grid->addWidget(gruppe, grid->rowCount(), 0, 1, grid->columnCount());
+        }
+    }
+
+    QPushButton* startButton = box.addButton(QStringLiteral("Neues Log beginnen"), QMessageBox::AcceptRole);
+    box.addButton(QStringLiteral("Abbrechen"), QMessageBox::RejectRole);
+    box.setDefaultButton(startButton);
+    box.exec();
+    if (box.clickedButton() != startButton) {
+        // Ohne Rückmeldung sähe ein Abbruch genauso aus wie ein Fehler.
+        statusBar()->showMessage(QStringLiteral("Abgebrochen -- das Log läuft weiter, nichts wurde verschoben."),
+                                  6000);
         return;
     }
     QString error;
@@ -3246,6 +5319,22 @@ void MainWindow::archiveActiveContest()
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                              QStringLiteral("Archivieren fehlgeschlagen:\n%1").arg(error));
         return;
+    }
+    // Die Bandwahl aus dem Dialog übernehmen. Keines angekreuzt heißt
+    // nicht "gar keines": dann gelten wieder alle, sonst ließe sich
+    // nichts mehr sinnvoll loggen.
+    if (!bandBoxes.isEmpty()) {
+        QStringList gewaehlt;
+        for (QCheckBox* kasten : bandBoxes) {
+            if (kasten->isChecked()) {
+                gewaehlt << kasten->objectName().mid(QStringLiteral("newLogBand_").size());
+            }
+        }
+        // Eigener Name: diese Funktion hat weiter oben schon ein
+        // `settings` (der Stand VOR dem Archivieren).
+        ContestSettings mitNeuenBaendern = m_appController.settings();
+        mitNeuenBaendern.activeBands = gewaehlt;
+        m_appController.setSettings(mitNeuenBaendern);
     }
     // Everything that reads the active contest's QSOs, same sequence
     // openContestPicker() uses after a contest switch.
@@ -3300,6 +5389,16 @@ void MainWindow::chooseBackupMirror()
     if (chosen.isEmpty()) {
         return;
     }
+    // Markierung auf dem Datenträger anlegen, bevor irgendetwas
+    // kopiert wird: an ihr erkennt mirror() später, dass der Ordner
+    // noch derselbe ist (siehe LogBackup::prepareMirrorDirectory).
+    QString markeFehler;
+    if (!backup->prepareMirrorDirectory(chosen, &markeFehler)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Der zweite Sicherungsordner lässt sich nicht einrichten:\n%1\n\n%2")
+                                  .arg(chosen, markeFehler));
+        return;
+    }
     backup->setMirrorDirectory(chosen);
     m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), chosen);
     // A first copy right away, so the stick is never empty.
@@ -3321,6 +5420,122 @@ void MainWindow::clearBackupMirror()
     backup->setMirrorDirectory(QString());
     m_appController.database().setSettingValue(QStringLiteral("backup_mirror_dir"), QString());
     statusBar()->showMessage(QStringLiteral("Zweiter Sicherungsordner entfernt — Sicherungen nur noch neben der Datenbank."), 8000);
+}
+
+// Aus dem Journal zurückholen: die ADIF-Datei einlesen und jedes QSO,
+// das noch nicht im Log steht, ergänzen. Bewusst ERGÄNZEND und nicht
+// ersetzend -- wer das hier braucht, hat schon genug verloren; ein
+// Werkzeug, das dabei auch noch etwas löscht, wäre das Letzte.
+//
+// Erkannt wird ein schon vorhandenes QSO an Rufzeichen + Band + Zeit.
+// Zwei echte QSOs mit derselben Station auf demselben Band in
+// derselben Minute gibt es im UKW-Contest nicht.
+void MainWindow::restoreFromJournal()
+{
+    QsoJournal* journal = m_appController.qsoJournal();
+    const QString vorschlag = journal ? journal->pfad() : QString();
+    const QString pfad = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Journal wählen"), vorschlag,
+        QStringLiteral("Journal/ADIF (*.adi *.adif);;Alle Dateien (*)"));
+    if (pfad.isEmpty()) {
+        return;
+    }
+    QFile datei(pfad);
+    if (!datei.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
+                              QStringLiteral("Das Journal lässt sich nicht lesen:\n%1").arg(datei.errorString()));
+        return;
+    }
+    const QVector<ImportedQso> gelesen = LogFileReader::parse(datei.readAll(), pfad);
+    datei.close();
+    if (gelesen.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("Contestprogramm"),
+                                  QStringLiteral("In dieser Datei steht kein QSO."));
+        return;
+    }
+
+    const QString contestId = m_appController.settings().activeContestId;
+    ContestDatabase& db = m_appController.database();
+    const QVector<QsoRecord> vorhandene = db.qsosForContest(contestId);
+    QSet<QString> bekannt;
+    for (const QsoRecord& q : vorhandene) {
+        bekannt.insert(QStringLiteral("%1|%2|%3").arg(q.callsign.toUpper(), q.band,
+                                                       q.timestampUtc.left(16)));
+    }
+
+    int ergaenzt = 0;
+    int uebersprungen = 0;
+    int gescheitert = 0;
+    QString letzterFehler;
+    for (const ImportedQso& q : gelesen) {
+        if (q.callsign.isEmpty() || q.timestampUtc.isEmpty()) {
+            ++uebersprungen;
+            continue;
+        }
+        const QString schluessel =
+            QStringLiteral("%1|%2|%3").arg(q.callsign.toUpper(), q.band, q.timestampUtc.left(16));
+        if (bekannt.contains(schluessel)) {
+            ++uebersprungen;
+            continue;
+        }
+        QsoRecord r;
+        r.callsign = q.callsign.toUpper();
+        r.band = q.band;
+        r.mode = q.mode;
+        r.timestampUtc = q.timestampUtc;
+        // Achtstellige Locatoren ("JN58SD12") stehen in vielen
+        // ADIF-Dateien. Unverändert übernommen zählt das QSO null
+        // Punkte (core/Maidenhead.h rechnet mit vier oder sechs
+        // Stellen) und die Abgabedatei trägt eine Spalte, die das
+        // Format nicht kennt. Die ersten sechs Stellen stimmen, also
+        // zurechtgebogen; was gar kein Locator ist, bleibt stehen, wie
+        // es dasteht -- die Logprüfung meldet es dann als
+        // "bad_locator", und das soll sie auch.
+        if (const std::optional<QString> grid = normalizedGridSquare(q.grid)) {
+            r.gridSquare = *grid;
+        } else {
+            r.gridSquare = q.grid.trimmed().toUpper();
+        }
+        r.rstSent = q.rstSent;
+        r.rstRcvd = q.rstRcvd;
+        if (q.serialSent > 0) {
+            r.serialSent = q.serialSent;
+        }
+        if (q.serialRcvd > 0) {
+            r.serialRcvd = q.serialRcvd;
+        }
+        // Der getauschte Text, soweit die Datei ihn trägt: das eigene
+        // Journal tut es (STX_STRING/SRX_STRING), und ohne ihn blieben
+        // die Austauschspalten im wiederhergestellten Log leer.
+        r.exchangeSent = q.exchangeSent;
+        r.exchangeRcvd = q.exchangeRcvd;
+        r.contestId = contestId;
+        r.source = QStringLiteral("journal");
+        if (db.insertQso(r)) {
+            bekannt.insert(schluessel);
+            ++ergaenzt;
+        } else {
+            // Nicht verschlucken: ein QSO, das die Datenbank abweist,
+            // zählte vorher weder als ergänzt noch als übersprungen --
+            // es fehlte am Ende einfach, und niemand sagte es.
+            ++gescheitert;
+            if (letzterFehler.isEmpty()) {
+                letzterFehler = db.lastError();
+            }
+        }
+    }
+    // Derselbe Weg, den auch Löschen und Korrigieren nehmen: Tabelle,
+    // Punkte, Vorschau und die eigene nächste Nummer ziehen nach.
+    refreshAfterLogChange();
+    QString bericht = QStringLiteral("Aus dem Journal ergänzt: %1 QSO(s).\nSchon vorhanden oder unbrauchbar: %2.")
+                           .arg(ergaenzt)
+                           .arg(uebersprungen);
+    if (gescheitert > 0) {
+        bericht += QStringLiteral("\n\nNicht gespeichert: %1 QSO(s) -- die Datenbank hat sie abgewiesen:\n%2")
+                       .arg(gescheitert)
+                       .arg(letzterFehler);
+    }
+    QMessageBox::information(this, QStringLiteral("Contestprogramm"), bericht);
 }
 
 void MainWindow::restoreBackup()
@@ -3409,9 +5624,15 @@ void MainWindow::refreshBandmap()
     const QStringList dupeScope = def ? def->dupeScope()
                                       : QStringList{QStringLiteral("callsign"), QStringLiteral("band"), QStringLiteral("mode")};
     QVector<BandmapSpot> spots = m_bandmapModel.spotsForBand(m_currentBand, QDateTime::currentDateTimeUtc());
+    MultiplierTracker& tracker = m_appController.multiplierTracker();
     for (BandmapSpot& spot : spots) {
         spot.worked = m_appController.dupeChecker().isDupe(spot.callsign, m_currentBand, m_currentMode,
                                                           settings.activeContestId, dupeScope);
+        // Ein Spot, der einen fehlenden Multiplikator brächte, ist mehr
+        // wert als ein QSO -- die Bandmap sagt es, wie N1MM und DXLog.
+        const ContestDefinition* mdef = findContestDefinition(settings.activeContestId);
+        spot.neededMultiplier = mdef && mdef->hasMultipliers() && !spot.worked && !m_currentBand.isEmpty()
+            && tracker.isNeededMultiplier(m_currentBand, spot.grid, spot.callsign);
     }
     m_bandmapWidget->setBand(m_currentBand);
     m_bandmapWidget->setOwnFrequencyHz(currentRfFrequencyHz());
@@ -3424,6 +5645,17 @@ void MainWindow::refreshScoreboard()
         return;
     }
     const ContestSettings settings = m_appController.settings();
+    // Abgeschaltet: dann braucht der Scoreboard-Sender weder die
+    // Einstellungen noch das Log. Das Lesen des ganzen Logs kostete
+    // bei 1 200 QSOs rund 25 ms -- nach jedem geloggten QSO, für
+    // niemanden (gemessen 2026-10-16,
+    // tests/test_enter_am_contestende.cpp).
+    if (!settings.scoreboardEnabled || settings.scoreboardUrl.trimmed().isEmpty()) {
+        ScoreboardConfig aus;
+        aus.enabled = false;
+        m_scoreboard->setConfig(aus);
+        return;
+    }
     const ContestDefinition* def = findContestDefinition(settings.activeContestId);
     ScoreboardConfig config;
     config.enabled = settings.scoreboardEnabled;
@@ -3586,6 +5818,9 @@ void MainWindow::openMultiplierWindow()
         m_multiplierWindow->setWindowFlag(Qt::Window, true);
     }
     const ContestSettings settings = m_appController.settings();
+    // Vor setContest(): die km-Spalte entscheidet beim Aufbau, ob sie
+    // ueberhaupt etwas zu zeigen hat.
+    m_multiplierWindow->setOwnGrid(settings.ownGrid);
     m_multiplierWindow->setContest(settings.activeContestId, findContestDefinition(settings.activeContestId));
     m_multiplierWindow->show();
     m_multiplierWindow->raise();
@@ -3668,7 +5903,8 @@ qint64 MainWindow::currentRfFrequencyHz() const
 {
     const RigctldClient& rig = m_appController.rigctldClient();
     if (!rig.isConnected() || rig.frequencyHz() <= 0) {
-        return 0;
+        // Kein Funkgerät -- dann gilt, was zuletzt eingetippt wurde.
+        return m_typedFrequencyHz;
     }
     return m_transverter.rfFrequencyHz(rig.frequencyHz());
 }
@@ -3692,6 +5928,10 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     }
     const bool bandChanged = bandLabel != m_currentBand;
     m_currentBand = bandLabel;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(m_currentBand);
+    }
+    syncBandModeControls();
     syncOn4kstRoomForCurrentBand();
     updateStatusBar();
     // The next serial is per band -- a band change shows the other
@@ -3703,17 +5943,200 @@ void MainWindow::applyRigFrequency(qint64 rigHz)
     }
 }
 
-void MainWindow::syncTransverterCheck()
+// Auf eine Frequenz gehen: das Funkgerät mitnehmen, wenn eines hängt,
+// und in jedem Fall das Band im Log umstellen -- ohne CAT ist das der
+// einzige Weg dorthin.
+// Band und Betriebsart von Hand: beides geht auch ohne Funkgerät, und
+// mit einem geht es ans Gerät -- sonst überschriebe dessen nächster
+// Abfragetakt die Wahl innerhalb einer Sekunde wieder.
+void MainWindow::chooseBand(const QString& band)
 {
-    if (!m_transverterCheck) {
+    if (band.isEmpty() || band == m_currentBand) {
         return;
     }
-    const QSignalBlocker blocker(m_transverterCheck);
-    m_transverterCheck->setVisible(m_transverter.configured());
-    m_transverterCheck->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
-    m_transverterCheck->setChecked(m_transverter.active());
-    m_transverterCheck->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
-                                                  "(Datei › Transverter…)"));
+    const qint64 baseHz = bandBaseHz(band);
+    if (m_appController.rigctldClient().isConnected() && baseHz > 0) {
+        // Auf die untere Bandkante; von dort dreht der Bediener weiter.
+        // Durch den Transverter, wie überall sonst.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(baseHz));
+
+        // ── Das Seitenband gehört zum Band, nicht zur Betriebsart ────
+        //
+        // Betreiber am 2026-10-23: „80 und 40 meter sollte immer
+        // automatisch LSB sein."
+        //
+        // rigctldModeForContestMode() kennt die Regel seit jeher
+        // (unter 10 MHz LSB, darüber USB) -- aber gerufen wurde sie
+        // nur in chooseMode(). Wer auf 20 m in SSB stand und das BAND
+        // auf 40 wechselte, bekam die neue Frequenz und das ALTE
+        // Seitenband: USB auf 40 m, und niemand sagte es.
+        //
+        // Nur bei SSB. CW, RTTY und FM haben kein Seitenband in
+        // diesem Sinn, und ein Befehl dorthin waere falsch.
+        //
+        // Gesendet wird bei JEDEM Bandwechsel in SSB, auch wenn das
+        // Seitenband dasselbe bleibt. Erst stand hier ein Vergleich
+        // mit dem bisherigen Band („von 20 auf 15 bleibt es USB, da
+        // ist nichts zu tun") -- und der haengt an m_currentBand,
+        // das der Abfragetakt des Geraets jederzeit umschreiben kann.
+        // Im Prueflauf fiel es dadurch mal so und mal so aus.
+        //
+        // Ein ueberfluessiges „M LSB 0" kostet ein Paket und stellt
+        // das Geraet auf etwas, worauf es schon steht. Eine
+        // Sparsamkeit, die davon abhaengt, ob gerade eine Antwort des
+        // Geraets eingetroffen ist, ist den Preis nicht wert.
+        if (contestModeName(m_currentMode) == QStringLiteral("SSB")) {
+            const QString seitenband = rigctldModeForContestMode(m_currentMode, band);
+            if (!seitenband.isEmpty()) {
+                m_appController.rigctldClient().setMode(seitenband);
+            }
+        }
+    }
+    m_currentBand = band;
+    m_typedFrequencyHz = 0; // die Bandkante ist keine gemessene Frequenz
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentBand(band);
+    }
+    syncOn4kstRoomForCurrentBand();
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    refreshBandmap();
+    syncBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Band %1").arg(band), 3000);
+}
+
+void MainWindow::chooseMode(const QString& mode)
+{
+    if (mode.isEmpty() || mode == m_currentMode) {
+        return;
+    }
+    if (m_appController.rigctldClient().isConnected()) {
+        m_appController.rigctldClient().setMode(rigctldModeForContestMode(mode, m_currentBand));
+    }
+    m_currentMode = mode;
+    if (m_unifiedLog) {
+        m_unifiedLog->setCurrentMode(mode);
+    }
+    refreshSentExchangePreview();
+    recheckDupeIndicator();
+    syncBandModeControls();
+    updateStatusBar();
+    statusBar()->showMessage(QStringLiteral("Betriebsart %1").arg(mode), 3000);
+}
+
+void MainWindow::rebuildBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+
+    m_bandMenu->clear();
+    qDeleteAll(m_bandShortcuts);
+    m_bandShortcuts.clear();
+    const QStringList bands = def ? def->bands() : knownBands();
+    int index = 0;
+    for (const QString& band : bands) {
+        QAction* action = m_bandMenu->addAction(band);
+        action->setObjectName(QStringLiteral("bandAction_%1").arg(band));
+        action->setCheckable(true);
+        action->setChecked(band == m_currentBand);
+        connect(action, &QAction::triggered, this, [this, band]() { chooseBand(band); });
+        // Strg+1…9 in der Reihenfolge des Contests -- kürzer als jedes
+        // Menü und unabhängig davon, welche Bänder er führt.
+        if (index < 9) {
+            action->setShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)));
+            auto* shortcut = new QShortcut(QKeySequence(Qt::CTRL | static_cast<Qt::Key>(Qt::Key_1 + index)), this);
+            connect(shortcut, &QShortcut::activated, this, [this, band]() { chooseBand(band); });
+            m_bandShortcuts.append(shortcut);
+        }
+        ++index;
+    }
+    m_bandButton->setEnabled(!bands.isEmpty());
+
+    m_modeMenu->clear();
+    const QStringList modes = def && !def->modes().isEmpty()
+        ? def->modes()
+        : QStringList{QStringLiteral("SSB"), QStringLiteral("CW"), QStringLiteral("FM")};
+    for (const QString& mode : modes) {
+        QAction* action = m_modeMenu->addAction(mode);
+        action->setObjectName(QStringLiteral("modeAction_%1").arg(mode));
+        action->setCheckable(true);
+        action->setChecked(mode == m_currentMode);
+        connect(action, &QAction::triggered, this, [this, mode]() { chooseMode(mode); });
+    }
+    m_modeButton->setEnabled(modes.size() > 1);
+    syncBandModeControls();
+}
+
+// Nur nachziehen, was sich am Stand geändert hat -- kein Neubau der
+// Menüs. Ein Neubau löscht die Aktionen, und genau eine davon
+// verarbeitet in diesem Moment ihren eigenen Klick: das wäre ein
+// Zugriff auf Gelöschtes. Gebaut wird nur beim Contestwechsel.
+void MainWindow::syncBandModeControls()
+{
+    if (!m_bandButton || !m_modeButton) {
+        return;
+    }
+    m_bandButton->setText(m_currentBand.isEmpty() ? Style::unknownDash() : m_currentBand);
+    m_modeButton->setText(m_currentMode.isEmpty() ? Style::unknownDash() : m_currentMode);
+    for (QAction* action : m_bandMenu->actions()) {
+        action->setChecked(action->text() == m_currentBand);
+    }
+    for (QAction* action : m_modeMenu->actions()) {
+        action->setChecked(action->text() == m_currentMode);
+    }
+}
+
+void MainWindow::tuneToFrequency(qint64 rfHz)
+{
+    const QString bandLabel = bandLabelForFrequencyHz(rfHz);
+    const ContestDefinition* def = findContestDefinition(m_appController.settings().activeContestId);
+    if (def && !def->bands().isEmpty() && !def->bands().contains(bandLabel)) {
+        // Lieber sagen, warum nichts passiert, als stillschweigend
+        // stehenbleiben: applyRigFrequency() lässt so eine Frequenz
+        // bewusst liegen, und das sieht sonst nach einem Fehler aus.
+        statusBar()->showMessage(
+            QStringLiteral("%1 MHz liegt auf %2 m -- dieses Band hat der Contest nicht (%3).")
+                .arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel, def->bands().join(QStringLiteral(", "))),
+            8000);
+        return;
+    }
+    m_typedFrequencyHz = rfHz;
+    if (m_appController.rigctldClient().isConnected()) {
+        // Durch den Transverter, wie beim Bandmap-Klick.
+        m_appController.rigctldClient().setFrequency(m_transverter.rigFrequencyHz(rfHz));
+    }
+    // Auch ohne Funkgerät: das Band gilt ab jetzt. applyRigFrequency()
+    // erwartet die Frequenz, wie sie am Gerät steht.
+    applyRigFrequency(m_transverter.rigFrequencyHz(rfHz));
+    // Und die Betriebsart nach dem Bandplan -- ohne CAT gäbe es sonst
+    // keine: sie bliebe auf SSB stehen, auch auf 14,045 MHz, und der
+    // Rapport käme mit 59 statt 599. Hängt ein Funkgerät dran, sagt es
+    // gleich darauf seine eigene und die gilt.
+    const QString planMode = usualModeForFrequencyHz(rfHz);
+    if (!planMode.isEmpty() && planMode != m_currentMode
+        && (!def || def->modes().isEmpty() || def->modes().contains(planMode))) {
+        m_currentMode = planMode;
+        m_unifiedLog->setCurrentMode(planMode);
+        updateStatusBar();
+    }
+    statusBar()->showMessage(QStringLiteral("%1 MHz · %2").arg(QString::number(rfHz / 1000000.0, 'f', 3), bandLabel),
+                              4000);
+}
+
+void MainWindow::syncTransverterCheck()
+{
+    if (!m_transverterAction) {
+        return;
+    }
+    const QSignalBlocker blocker(m_transverterAction);
+    m_transverterAction->setVisible(m_transverter.configured());
+    m_transverterAction->setText(QStringLiteral("Transverter %1").arg(m_transverter.describe()));
+    m_transverterAction->setChecked(m_transverter.active());
+    m_transverterAction->setToolTip(QStringLiteral("An: die Zwischenfrequenz des Funkgeräts ist das Band auf der Antenne "
+                                                    "(Datei › Transverter…)"));
 }
 
 void MainWindow::openTransverterDialog()
@@ -3772,6 +6195,7 @@ void MainWindow::refreshReadiness()
     }
     ctx.ownElevationM = settings.ownElevationM;
     ctx.antennaHeightM = settings.antennaHeightM;
+    ctx.radiusKm = settings.radiusKm;
 
     // The clock, asked anew once a minute while the window is open; the
     // answer arrives later and refreshes this snapshot again.
@@ -3890,6 +6314,22 @@ void MainWindow::refreshReadiness()
             && m_appController.terrainDataManager().tileLoader().isTileLoaded(SrtmTileLoader::tileNameForLatLon(lat, lon));
     }
     ctx.importedLocators = m_appController.database().importedLocatorCount();
+    ctx.countryEntries = m_appController.countryIndex().countryCount();
+    // Gebraucht wird sie, wo kein Locator getauscht wird oder wo der
+    // Multiplikator das Land ist -- bei einem UKW-Contest hat sie
+    // nichts zu sagen.
+    if (const ContestDefinition* def = findContestDefinition(settings.activeContestId)) {
+        bool hasGridField = false;
+        for (const ContestDefinition::ExchangeField& field : def->exchangeFields()) {
+            if (field.type.compare(QStringLiteral("grid6"), Qt::CaseInsensitive) == 0
+                || field.type.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0
+                || field.key.compare(QStringLiteral("grid"), Qt::CaseInsensitive) == 0) {
+                hasGridField = true;
+                break;
+            }
+        }
+        ctx.countryListNeeded = !hasGridField || def->multiplierField() == QStringLiteral("dxcc");
+    }
 
     m_readinessWindow->setResult(checkReadiness(ctx));
 }

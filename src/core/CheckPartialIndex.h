@@ -51,6 +51,18 @@ public:
     void setScpCalls(const QStringList& calls);
     // A call heard on ON4KST/cluster; a later grid overwrites an empty one.
     void addSeenCall(const QString& callsign, const QString& grid = QString());
+
+    // Ein einzelnes frisch geloggtes QSO, ohne alles neu einzulesen.
+    //
+    // setLogCalls() ersetzt die ganze Liste und baut danach die
+    // gemeinsame Tabelle neu auf; der Aufrufer muss dafür erst das
+    // ganze Log, die importierten Locatoren und die früheren Logs aus
+    // der Datenbank holen. Nach EINEM geloggten QSO ist das die ganze
+    // Arbeit für genau ein neues Rufzeichen -- gemessen 54 ms nach
+    // jedem Return bei 1 200 QSOs
+    // (tests/test_enter_am_contestende.cpp). Diese Methode trägt es
+    // dort ein, wo es hingehört, und lässt den Rest stehen.
+    void addLogCall(const QString& callsign, const QString& band);
     void clearSeen();
 
     int scpCount() const { return m_scp.size(); }

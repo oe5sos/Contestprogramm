@@ -94,6 +94,7 @@ private slots:
     void invalidQsoIsLeftOutEverywhere();
     void stationInfoRoundTripsThroughTheDatabase();
     void suggestedFileNamesAreFilesystemSafe();
+    void noFieldCanBreakTheSemicolonColumns();
 };
 
 void TestEdiExporter::bandLabelsUseReg1testSpellings()
@@ -167,7 +168,11 @@ void TestEdiExporter::exportsGoldenBandFile()
         QStringLiteral("PClub=ADL 505"),
         QStringLiteral("RName=Martin Fischer"),
         QStringLiteral("RCall=OE5SOS"),
-        QStringLiteral("RAdr1=Musterstraße 1"),
+        // Das "ß" steht in den Einstellungen und kommt als "ss"
+        // heraus: REG1TEST, Abschnitt "Characters", lässt nur die
+        // Zeichen 10, 13 und 32-127 zu (siehe core/AsciiText.h und
+        // tests/test_edi_spezifikation.cpp).
+        QStringLiteral("RAdr1=Musterstrasse 1"),
         QStringLiteral("RAdr2="),
         QStringLiteral("RPoCo=4810"),
         QStringLiteral("RCity=Gmunden"),
@@ -190,7 +195,7 @@ void TestEdiExporter::exportsGoldenBandFile()
         QStringLiteral("CDXCs=0;0;1"),
         QStringLiteral("CDXCB=0"),
         QStringLiteral("CToSc=403"),
-        QStringLiteral("CODXC=OE3XYZ;JN88TC;215"),
+        QStringLiteral("CODXC=OE3XYZ;JN88TC;214"),   // Entfernung, nicht Punkte
         QStringLiteral("[Remarks]"),
         QStringLiteral("Created by Contestprogramm"),
         QStringLiteral("[QSORecords;3]"),
@@ -201,9 +206,18 @@ void TestEdiExporter::exportsGoldenBandFile()
     const QString expected = expectedLines.join(QStringLiteral("\r\n")) + QStringLiteral("\r\n");
     QCOMPARE(actual, expected);
 
-    // Latin-1 is what the format's readers expect; the one non-ASCII
-    // character above must survive the encoding the dialog writes.
-    QVERIFY(actual.toLatin1().contains("Musterstra\xdf" "e 1"));
+    // Vorher stand hier, Latin-1 sei "was die Leser des Formats
+    // erwarten", und geprüft wurde, dass das Byte 0xDF heil durchkommt.
+    // Die Spezifikation sagt etwas anderes (Abschnitt "Characters":
+    // erlaubt sind 10, 13, 32-127), also darf in der ganzen Datei kein
+    // Byte jenseits von 127 stehen -- geschrieben wird sie mit
+    // toLatin1(), also ist jedes solche Byte auch wirklich in der
+    // Datei.
+    const QByteArray bytes = actual.toLatin1();
+    for (char c : bytes) {
+        QVERIFY2(static_cast<unsigned char>(c) <= 127, qPrintable(actual));
+    }
+    QVERIFY(bytes.contains("Musterstrasse 1"));
 }
 
 void TestEdiExporter::secondBandGetsItsOwnFileAndSharedDates()
@@ -241,7 +255,7 @@ void TestEdiExporter::secondBandGetsItsOwnFileAndSharedDates()
     QVERIFY(file432.contains(QStringLiteral("261004;0630;OE5XYZ;1;59;002;59;001;;JN67UT;1;;N;;\r\n")));
     QVERIFY(!file432.contains(QStringLiteral("DL1ABC")));
     QVERIFY(file432.contains(QStringLiteral("CQSOP=1\r\n")));
-    QVERIFY(file432.contains(QStringLiteral("CODXC=OE5XYZ;JN67UT;1\r\n")));
+    QVERIFY(file432.contains(QStringLiteral("CODXC=OE5XYZ;JN67UT;0\r\n")));
     QVERIFY(!file144.contains(QStringLiteral("OE5XYZ")));
 }
 
@@ -270,7 +284,7 @@ void TestEdiExporter::invalidQsoIsLeftOutEverywhere()
     const QString file144 = exporter.exportBand(definition.id(), QStringLiteral("144"), definition, feuerkogelSettings(),
                                                 sampleStation());
     QVERIFY(!file144.contains(QStringLiteral("OE9ZZZ")));
-    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;188\r\n")));
+    QVERIFY(file144.contains(QStringLiteral("CODXC=DL1ABC;JN58SD;187\r\n")));
 }
 
 void TestEdiExporter::stationInfoRoundTripsThroughTheDatabase()
@@ -310,6 +324,58 @@ void TestEdiExporter::suggestedFileNamesAreFilesystemSafe()
 
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication
 // (see test_cabrilloexporter.cpp).
+
+// Im REG1TEST ist das Semikolon das Trennzeichen. Die KOPFZEILEN sind
+// dagegen geschützt (headerValue() macht aus ";" ein ","), die
+// QSO-Zeilen waren es nicht: ein Semikolon im Rufzeichen, im RST oder
+// im Locator schob jede Spalte dahinter um eine weiter, und der Robot
+// liest die ganze Zeile falsch -- oder die ganze Einreichung.
+//
+// Tippbar ist es: das Rufzeichenfeld hat keinen Validator, nur
+// Großschreibung. Und was über einen Import (data/LogFileReader.h) in
+// die Datenbank kommt, hat diesen Weg gar nicht erst genommen.
+void TestEdiExporter::noFieldCanBreakTheSemicolonColumns()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("semikolon.sqlite")), QStringLiteral("edi_semi")));
+
+    QString defError;
+    const ContestDefinition definition = ContestDefinition::loadFromJson(QByteArray(kIaruJson), &defError);
+    QVERIFY2(definition.isValid(), qPrintable(defError));
+
+    QsoRecord q = makeQso(QStringLiteral("DL1;ABC"), QStringLiteral("144"), QStringLiteral("SSB"),
+                          QStringLiteral("14:01"), 1, 3, QStringLiteral("JN58SD"), 187.4);
+    q.rstRcvd = QStringLiteral("5;9");
+    q.gridSquare = QStringLiteral("JN58;D");
+    QVERIFY(db.insertQso(q));
+
+    ContestSettings settings;
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    EdiStationInfo station;
+    const QString text = EdiExporter(db).exportBand(QStringLiteral("IARU_R1_VHF_UHF"), QStringLiteral("144"),
+                                                     definition, settings, station);
+
+    // Die QSO-Zeile hat genau 15 Spalten -- egal, was in den Feldern
+    // stand.
+    bool inRecords = false;
+    int zeilen = 0;
+    for (const QString& line : text.split(QStringLiteral("\r\n"))) {
+        if (line.startsWith(QStringLiteral("[QSORecords"))) {
+            inRecords = true;
+            continue;
+        }
+        if (!inRecords || line.trimmed().isEmpty()) {
+            continue;
+        }
+        ++zeilen;
+        QCOMPARE(line.split(QLatin1Char(';')).size(), 15);
+    }
+    QCOMPARE(zeilen, 1);
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);

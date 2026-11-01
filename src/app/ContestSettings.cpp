@@ -190,6 +190,10 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     tciPort = database.settingValue(QStringLiteral("tci_port"), QString::number(tciPort)).toInt();
     rigctldHost = database.settingValue(QStringLiteral("rigctld_host"), rigctldHost);
     rigctldPort = database.settingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort)).toInt();
+    rigctldHamlibModel = database.settingValue(QStringLiteral("rigctld_hamlib_model"),
+                                                QString::number(rigctldHamlibModel)).toInt();
+    rigctldDevice = database.settingValue(QStringLiteral("rigctld_device"), rigctldDevice);
+    rigctldBaud = database.settingValue(QStringLiteral("rigctld_baud"), QString::number(rigctldBaud)).toInt();
     on4kstUsername = database.settingValue(QStringLiteral("on4kst_username"), on4kstUsername);
     on4kstPassword = database.settingValue(QStringLiteral("on4kst_password"), on4kstPassword);
     clusterHost = database.settingValue(QStringLiteral("cluster_host"), clusterHost);
@@ -235,7 +239,14 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
         database.settingValue(QStringLiteral("band_432_rotor_slot"), rotorSlotToString(band432RotorSlot)), band432RotorSlot);
     band1296RotorSlot = rotorSlotFromString(
         database.settingValue(QStringLiteral("band_1296_rotor_slot"), rotorSlotToString(band1296RotorSlot)), band1296RotorSlot);
+    bandOtherRotorSlot = rotorSlotFromString(
+        database.settingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot)), bandOtherRotorSlot);
 
+    fixedAntennaEnabled = database.settingValue(QStringLiteral("fixed_antenna_enabled"),
+                                                QStringLiteral("0")) == QStringLiteral("1");
+    fixedAntennaLabel = database.settingValue(QStringLiteral("fixed_antenna_label"), fixedAntennaLabel);
+    fixedAntennaBearingDeg = database.settingValue(QStringLiteral("fixed_antenna_bearing"),
+                                                   QString::number(fixedAntennaBearingDeg)).toDouble();
     rotorDialStyle = rotorDialStyleFromString(
         database.settingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle)), rotorDialStyle);
 
@@ -248,6 +259,11 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     logEntryRowPosition = logEntryRowPositionFromString(
         database.settingValue(QStringLiteral("log_entry_row_position"), logEntryRowPositionToString(logEntryRowPosition)),
         logEntryRowPosition);
+    logShowRunningNumber = database.settingValue(QStringLiteral("log_show_running_number"),
+                                                 logShowRunningNumber ? QStringLiteral("1") : QStringLiteral("0"))
+                          != QStringLiteral("0");
+    activeBands = stringListFromJson(
+        database.settingValue(QStringLiteral("active_bands"), stringListToJson(activeBands)), activeBands);
 
     cwMacros = stringListFromJson(
         database.settingValue(QStringLiteral("cw_macros"), stringListToJson(cwMacros)), cwMacros);
@@ -280,6 +296,34 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     broadcastHost = database.settingValue(QStringLiteral("broadcast_host"), broadcastHost);
     broadcastPort = database.settingValue(QStringLiteral("broadcast_port"), QString::number(broadcastPort)).toInt();
 
+    // ── Der Mitschnitt faengt NIE von selbst an ──────────────────────
+    //
+    // Betreiber am 2026-10-22: „mitschnitt sollte nicht automatisch
+    // starten, ein und aus auf meinen befehl."
+    //
+    // Darum wird `audio_record_enabled` zwar geschrieben (die Zeile
+    // steht noch in saveTo, damit eine aeltere Fassung dieselbe
+    // Datenbank weiter lesen kann), beim Laden aber NICHT genommen:
+    // jeder Start beginnt mit aus. Angeschaltet wird mit dem Knopf in
+    // der Statuszeile, und nur dort.
+    //
+    // Das ist nicht Bequemlichkeit, sondern dasselbe Argument wie bei
+    // einem Sender: ein Geraet, das von selbst anfaengt mitzuhoeren,
+    // weil es das beim letzten Mal tat, ist eines, von dem man nicht
+    // weiss, was es gerade tut. Alles andere an der Aufnahme bleibt
+    // gespeichert -- Geraet, Ordner, Dateilaenge, Platzgrenze.
+    audioRecordEnabled = false;
+    audioRecordDevice = database.settingValue(QStringLiteral("audio_record_device"),
+                                              audioRecordDevice);
+    audioRecordFolder = database.settingValue(QStringLiteral("audio_record_folder"),
+                                              audioRecordFolder);
+    audioRecordRollMinutes =
+        database.settingValue(QStringLiteral("audio_record_roll_minutes"),
+                              QString::number(audioRecordRollMinutes)).toInt();
+    audioRecordMinFreePercent =
+        database.settingValue(QStringLiteral("audio_record_min_free_percent"),
+                              QString::number(audioRecordMinFreePercent)).toInt();
+
     callbookProvider = callbookProviderFromString(
         database.settingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider)), callbookProvider);
     callbookUsername = database.settingValue(QStringLiteral("callbook_username"), callbookUsername);
@@ -296,6 +340,9 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("tci_port"), QString::number(tciPort));
     database.setSettingValue(QStringLiteral("rigctld_host"), rigctldHost);
     database.setSettingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort));
+    database.setSettingValue(QStringLiteral("rigctld_hamlib_model"), QString::number(rigctldHamlibModel));
+    database.setSettingValue(QStringLiteral("rigctld_device"), rigctldDevice);
+    database.setSettingValue(QStringLiteral("rigctld_baud"), QString::number(rigctldBaud));
     database.setSettingValue(QStringLiteral("on4kst_username"), on4kstUsername);
     database.setSettingValue(QStringLiteral("on4kst_password"), on4kstPassword);
     database.setSettingValue(QStringLiteral("cluster_host"), clusterHost);
@@ -327,14 +374,22 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("band_144_rotor_slot"), rotorSlotToString(band144RotorSlot));
     database.setSettingValue(QStringLiteral("band_432_rotor_slot"), rotorSlotToString(band432RotorSlot));
     database.setSettingValue(QStringLiteral("band_1296_rotor_slot"), rotorSlotToString(band1296RotorSlot));
+    database.setSettingValue(QStringLiteral("band_other_rotor_slot"), rotorSlotToString(bandOtherRotorSlot));
 
     database.setSettingValue(QStringLiteral("rotor_dial_style"), rotorDialStyleToString(rotorDialStyle));
+    database.setSettingValue(QStringLiteral("fixed_antenna_enabled"),
+                             fixedAntennaEnabled ? QStringLiteral("1") : QStringLiteral("0"));
+    database.setSettingValue(QStringLiteral("fixed_antenna_label"), fixedAntennaLabel);
+    database.setSettingValue(QStringLiteral("fixed_antenna_bearing"), QString::number(fixedAntennaBearingDeg));
 
     database.setSettingValue(QStringLiteral("color_theme"), colorThemeStorageKey(colorTheme));
 
     database.setSettingValue(QStringLiteral("log_view_mode"), logViewModeToString(logViewMode));
 
     database.setSettingValue(QStringLiteral("log_entry_row_position"), logEntryRowPositionToString(logEntryRowPosition));
+    database.setSettingValue(QStringLiteral("log_show_running_number"),
+                             logShowRunningNumber ? QStringLiteral("1") : QStringLiteral("0"));
+    database.setSettingValue(QStringLiteral("active_bands"), stringListToJson(activeBands));
 
     database.setSettingValue(QStringLiteral("cw_macros"), stringListToJson(cwMacros));
 
@@ -359,6 +414,13 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("broadcast_enabled"), boolToString(broadcastEnabled));
     database.setSettingValue(QStringLiteral("broadcast_host"), broadcastHost);
     database.setSettingValue(QStringLiteral("broadcast_port"), QString::number(broadcastPort));
+    database.setSettingValue(QStringLiteral("audio_record_enabled"), boolToString(audioRecordEnabled));
+    database.setSettingValue(QStringLiteral("audio_record_device"), audioRecordDevice);
+    database.setSettingValue(QStringLiteral("audio_record_folder"), audioRecordFolder);
+    database.setSettingValue(QStringLiteral("audio_record_roll_minutes"),
+                             QString::number(audioRecordRollMinutes));
+    database.setSettingValue(QStringLiteral("audio_record_min_free_percent"),
+                             QString::number(audioRecordMinFreePercent));
 
     database.setSettingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider));
     database.setSettingValue(QStringLiteral("callbook_username"), callbookUsername);

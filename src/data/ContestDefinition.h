@@ -2,6 +2,7 @@
 
 #include "data/ContestSchedule.h"
 
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -56,6 +57,25 @@ public:
     // existing contest_definitions/*.json files need no change.
     const QString& multiplierField() const { return m_multiplierField; }
 
+    // Hat dieser Contest ueberhaupt Multiplikatoren?
+    //
+    // Martin, 2026-10-08: "multiplikatoren nur bei kurzwelle!" --
+    // und das Programm ist grundsaetzlich fuer UKW. Auf UKW stimmt das
+    // auch mit der Ausschreibung ueberein: IARU Region 1 wertet
+    // Kilometer, Punkt. Ein Grossfeld ist dort kein Faktor, sondern
+    // Information ("welche Felder habe ich schon"), und die steht im
+    // Fenster "Locator-Felder" samt Entfernung.
+    //
+    // Darum: Entfernungswertung heisst keine Multiplikatoren, egal was
+    // multiplier_field sagt. Auf Kurzwelle (qso_count + prefix/dxcc)
+    // bleibt alles, wie es war -- Bandmap-Markierung, Check-Zeile,
+    // Kachel im Rate-Panel.
+    bool hasMultipliers() const
+    {
+        return m_multiplierField != QStringLiteral("none")
+               && m_scoring != QStringLiteral("distance_km");
+    }
+
     // How a valid QSO scores -- see data/ContestScoring.h. "distance_km"
     // (1 point per km, the IARU-R1/ÖVSV/DARC VHF-UHF rule and the
     // default when the JSON key "scoring" is absent) or "qso_count"
@@ -75,11 +95,74 @@ public:
     // contestEndUtc alone.
     const ContestSchedule& schedule() const { return m_schedule; }
 
+    // The contest's name in a Cabrillo header ("CQ-WW-CW",
+    // "IARU-HF") -- what the receiving robot matches on, which is
+    // almost never this file's own id(). Optional JSON key
+    // "cabrillo_name"; empty (the default) makes CabrilloExporter fall
+    // back to id(), exactly as it did before this key existed.
+    const QString& cabrilloName() const { return m_cabrilloName; }
+
+    /// Ein ALLTAGSLOG: kein Contest, sondern das Buch fuer den
+    /// gewoehnlichen Betrieb. JSON-Schluessel "everyday_log".
+    ///
+    /// Es gibt genau einen Grund, warum das im Modell steht und nicht
+    /// aus den Daten erraten wird: eine frische Datenbank sucht sich
+    /// den ersten UKW-Contest mit allen Betriebsarten -- und darauf
+    /// passt ein Alltagslog genauso. Ohne diese Marke startet ein
+    /// neuer Betrieb in einem Buch statt in einem Contest, und zwar
+    /// still (AppController::openDatabase).
+    bool isEverydayLog() const { return m_everydayLog; }
+
     // Modes the rules allow ("CW", "SSB", ...), upper-cased; empty (the
     // default) means any. Optional JSON key "modes" -- the Marconi
     // Memorial is CW only, and a QSO logged in SSB there is one the log
     // check flags (data/LogCheck.h).
     const QStringList& modes() const { return m_modes; }
+
+    // Every rule of a contest that the operator may set, in one place --
+    // what ui/ContestRulesEditor.h edits and what withRules()/
+    // fromRules() write back. Deliberately NOT id() (a contest keeps
+    // its identity; the log rows point at it) and not schedule(), which
+    // no dialog offers yet and which withRules() therefore carries over
+    // untouched.
+    struct Rules {
+        QString name;
+        QStringList bands;
+        QStringList dupeScope;
+        QVector<ExchangeField> exchangeFields;
+        QString multiplierField = QStringLiteral("grid");
+        QString scoring = QStringLiteral("distance_km");
+        QString serialScope = QStringLiteral("band");
+        QString cabrilloName;
+        QStringList modes;
+    };
+
+    Rules rules() const;
+
+    // Checks what the JSON loader would check, before anything is
+    // written: a name, at least one band, at least one exchange field,
+    // no duplicate field keys, "callsign" in the dupe scope, and known
+    // values for scoring/serial_scope/multiplier_field. Returns false
+    // and fills errorOut with a sentence for the operator.
+    static bool validateRules(const Rules& rules, QString* errorOut = nullptr);
+
+    // A copy of this definition with `rules` applied -- id() and
+    // schedule() stay. Returns an invalid definition (and fills
+    // errorOut) when validateRules() says no, so a bad edit can never
+    // be written to disk.
+    ContestDefinition withRules(const Rules& rules, QString* errorOut = nullptr) const;
+
+    // A contest the operator invented, from nothing. `id` must be
+    // non-empty and carry only A-Z, 0-9 and underscore -- it becomes a
+    // file name (overrideFilePath) and the qsos.contest_id of every QSO
+    // logged under it.
+    static ContestDefinition fromRules(const QString& id, const Rules& rules, QString* errorOut = nullptr);
+
+    // Known values, in the order a dialog should offer them, each with
+    // the wording the operator reads.
+    static QVector<QPair<QString, QString>> scoringChoices();
+    static QVector<QPair<QString, QString>> serialScopeChoices();
+    static QVector<QPair<QString, QString>> multiplierChoices();
 
     // Returns a copy of this definition with exchangeFields() replaced
     // by `fields` -- id/name/bands/dupe_scope/multiplier_field stay
@@ -108,6 +191,8 @@ private:
     QString m_multiplierField = QStringLiteral("grid");
     QString m_scoring = QStringLiteral("distance_km");
     QString m_serialScope = QStringLiteral("band");
+    QString m_cabrilloName;
+    bool    m_everydayLog = false;
     ContestSchedule m_schedule;
     QStringList m_modes;
     bool m_valid = false;

@@ -160,6 +160,12 @@ QByteArray RigctldClient::setFrequencyCommand(qint64 hz)
     return QStringLiteral("F %1\n").arg(hz).toLatin1();
 }
 
+QByteArray RigctldClient::setModeCommand(const QString& mode)
+{
+    // "M USB 0" -- Betriebsart und Durchlass, 0 = Vorgabe des Geräts.
+    return QStringLiteral("M %1 0\n").arg(mode.trimmed().toUpper()).toLatin1();
+}
+
 QByteArray RigctldClient::setPttCommand(bool active)
 {
     return QStringLiteral("T %1\n").arg(active ? 1 : 0).toLatin1();
@@ -172,6 +178,18 @@ void RigctldClient::setFrequency(qint64 hz)
         return;
     }
     send(setFrequencyCommand(hz), Pending::Report);
+}
+
+void RigctldClient::setMode(const QString& mode)
+{
+    if (mode.trimmed().isEmpty()) {
+        return;
+    }
+    if (!isConnected()) {
+        emit errorOccurred(QStringLiteral("CAT rig is not connected"));
+        return;
+    }
+    send(setModeCommand(mode), Pending::Report);
 }
 
 void RigctldClient::setPtt(bool active)
@@ -240,6 +258,17 @@ void RigctldClient::pump()
     if (m_awaiting != Pending::None) { return; }
     if (m_queue.isEmpty()) { return; }
     if (m_socket.state() != QAbstractSocket::ConnectedState) { return; }
+
+    // Nothing is outstanding, so whatever is still in the buffer cannot
+    // belong to the command about to go out -- it is the tail of a
+    // reply that was longer than this client reads (a rigctld/rotctld
+    // that appends a line, a stray banner). Dropped here rather than
+    // left to be read as the NEXT command's answer: that shifted every
+    // reply from then on by one (the frequency query read the PTT's
+    // "0", and 0 Hz names no band, so the log's band quietly stopped
+    // following the radio -- see tests/test_rigctldprotocol.cpp::
+    // leftoverReplyLineNeverShiftsTheNextAnswer).
+    m_buffer.clear();
 
     const Command c = m_queue.dequeue();
     m_awaiting = c.expect;

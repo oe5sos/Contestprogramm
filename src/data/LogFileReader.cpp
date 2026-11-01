@@ -1,5 +1,7 @@
 #include "data/LogFileReader.h"
 
+#include "core/BandUtils.h"
+
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QTimeZone>
@@ -88,6 +90,20 @@ QString LogFileReader::bandFromLabel(const QString& label)
         const char* band;
     };
     static const Entry kEntries[] = {
+        // Kurzwelle: die Wellenlängen, unter denen ADIF -- und jedes
+        // Logbuch, das eine solche Datei schreibt -- die Bänder führt.
+        // Ohne sie fiel das Band beim Einlesen still weg; die
+        // Gegenseite zum selben Fehler im Export, siehe
+        // data/AdifExporter.cpp.
+        {"160m", "1.8"},  {"1,8 mhz", "1.8"},  {"1.8 mhz", "1.8"},
+        {"80m", "3.5"},   {"3,5 mhz", "3.5"},  {"3.5 mhz", "3.5"},
+        {"40m", "7"},     {"7 mhz", "7"},
+        {"30m", "10"},    {"10 mhz", "10"},
+        {"20m", "14"},    {"14 mhz", "14"},
+        {"17m", "18"},    {"18 mhz", "18"},
+        {"15m", "21"},    {"21 mhz", "21"},
+        {"12m", "24"},    {"24 mhz", "24"},
+        {"10m", "28"},    {"28 mhz", "28"},
         {"50 mhz", "50"},   {"6m", "50"},      {"70 mhz", "70"},   {"4m", "70"},
         {"144 mhz", "144"}, {"2m", "144"},     {"432 mhz", "432"}, {"435 mhz", "432"}, {"70cm", "432"},
         {"1,3 ghz", "1296"}, {"1.3 ghz", "1296"}, {"23cm", "1296"},
@@ -102,7 +118,12 @@ QString LogFileReader::bandFromLabel(const QString& label)
             return QLatin1String(e.band);
         }
     }
-    // A bare number ("144") passes through.
+    // Ein Band, das schon so heißt, wie dieses Programm es nennt, geht
+    // unverändert durch -- auch "1.8" und "3.5", die keine ganzen
+    // Zahlen sind und an der alten toInt()-Prüfung hängenblieben.
+    if (knownBands().contains(l)) {
+        return l;
+    }
     bool ok = false;
     l.toInt(&ok);
     return ok ? l : QString();
@@ -196,11 +217,29 @@ QVector<ImportedQso> LogFileReader::parseAdif(const QByteArray& data)
         } else if (name == QStringLiteral("BAND")) {
             current.band = bandFromLabel(value);
         } else if (name == QStringLiteral("MODE")) {
-            current.mode = value.toUpper();
+            // Nicht wörtlich: fremde Logs schreiben hier das
+            // Seitenband ("USB"/"LSB"), und das wäre für die
+            // Dupe-Prüfung eine eigene Betriebsart. Siehe
+            // core/BandUtils.h, contestModeName().
+            current.mode = contestModeName(value);
         } else if (name == QStringLiteral("QSO_DATE")) {
             qsoDate = value;
         } else if (name == QStringLiteral("TIME_ON")) {
             timeOn = value;
+        } else if (name == QStringLiteral("RST_SENT")) {
+            current.rstSent = value;
+        } else if (name == QStringLiteral("RST_RCVD")) {
+            current.rstRcvd = value;
+        } else if (name == QStringLiteral("STX")) {
+            current.serialSent = value.toInt();
+        } else if (name == QStringLiteral("SRX")) {
+            current.serialRcvd = value.toInt();
+        } else if (name == QStringLiteral("CONTEST_ID")) {
+            current.contestId = value;
+        } else if (name == QStringLiteral("STX_STRING")) {
+            current.exchangeSent = value;
+        } else if (name == QStringLiteral("SRX_STRING")) {
+            current.exchangeRcvd = value;
         }
     }
     return result;

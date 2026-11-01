@@ -275,7 +275,12 @@ private slots:
     void zoomInHalvesVisibleRange();
     void zoomOutDoublesVisibleRange();
     void visibleRangeIsClamped();
-    void fitToWindowDefaultsTrueAndRoundTrips();
+    void zoomStepsGrowBeyondVhfRanges();
+    void optionsMenuOffersRangePresets();
+    void mapIsRoundByDefaultAndRoundTrips();
+    void fullBleedDefaultsOffAndRoundTripsThroughPreferences();
+    void fullBleedTakesTheWholePanelAndPaintsIntoTheCorners();
+    void fullBleedMenuEntryTogglesTheMode();
     void agingEnabledDefaultsTrueAndRoundTrips();
     void clickingStationMarkerEmitsCandidateActivated();
     void clickingEmptyAreaDoesNotEmitCandidateActivated();
@@ -286,14 +291,15 @@ private slots:
     void horizonProfileAndSecondAntennasPaintCleanlyInBothViews();
     void clickingOpenInBeamWalksThroughTheOpenStations();
     void secondAntennaMenuEntryReportsTheStationSetting();
+    void dieZahlenspalteSchneidetKeineBeschriftungAb();
 };
 
 void TestMapWidgetLive::setStationsPreservesWorkedFlagAndOrder()
 {
     MapWidget widget;
     QVector<MapWidget::Station> stations;
-    stations.append(MapWidget::Station{QStringLiteral("OE5SOS"), QStringLiteral("JN77QT"), true});
-    stations.append(MapWidget::Station{QStringLiteral("OE1XYZ"), QStringLiteral("JN88TC"), false});
+    stations.append(MapWidget::Station{QStringLiteral("OE5SOS"), QStringLiteral("JN77QT"), true, 0, QDateTime()});
+    stations.append(MapWidget::Station{QStringLiteral("OE1XYZ"), QStringLiteral("JN88TC"), false, 0, QDateTime()});
     widget.setStations(stations);
 
     QCOMPARE(widget.stations().size(), 2);
@@ -367,22 +373,129 @@ void TestMapWidgetLive::visibleRangeIsClamped()
     MapWidget widget;
     widget.setVisibleRangeKm(1.0);
     QVERIFY(widget.visibleRangeKm() >= 25.0);
+    // Kurzwelle: die Gegenseite der Erde liegt gut 20 000 km weit weg.
     widget.setVisibleRangeKm(100000.0);
-    QVERIFY(widget.visibleRangeKm() <= 3200.0);
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
 }
 
-void TestMapWidgetLive::fitToWindowDefaultsTrueAndRoundTrips()
+// Unter 3 200 km bleibt der Klick bei 250 km -- darüber wären das
+// siebenundsechzig Klicks bis zum Rand.
+void TestMapWidgetLive::zoomStepsGrowBeyondVhfRanges()
 {
-    // Default true -- fit-to-window (ellipses allowed) is the default
-    // behaviour per Martin's own request, not an opt-in.
     MapWidget widget;
-    QVERIFY(widget.fitToWindowEnabled());
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomIn();
+    QCOMPARE(widget.visibleRangeKm(), 2950.0); // noch der UKW-Schritt
+    widget.setVisibleRangeKm(3200.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 4200.0);
+    widget.setVisibleRangeKm(10000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 12500.0);
+    widget.setVisibleRangeKm(20000.0);
+    widget.zoomOut();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0); // am Anschlag
+}
 
-    widget.setFitToWindowEnabled(false);
+void TestMapWidgetLive::mapIsRoundByDefaultAndRoundTrips()
+{
+    // Bis 2026-09-23 war "Fläche füllen" die Vorgabe (auf Martins
+    // frühere Bitte hin). Am Blätterpaar hat er sich für die runde
+    // Scheibe entschieden, und das ist auch das sachlich richtige:
+    // angepasst werden die Entfernungsringe zu Ellipsen, und damit
+    // stimmt der abgelesene Winkel nicht mehr. Umschaltbar bleibt es.
+    MapWidget widget;
     QVERIFY(!widget.fitToWindowEnabled());
 
     widget.setFitToWindowEnabled(true);
     QVERIFY(widget.fitToWindowEnabled());
+
+    widget.setFitToWindowEnabled(false);
+    QVERIFY(!widget.fitToWindowEnabled());
+}
+
+void TestMapWidgetLive::fullBleedDefaultsOffAndRoundTripsThroughPreferences()
+{
+    // Die Scheibe bleibt der Normalfall -- Vollflaeche ist die
+    // Zusatzoption (Martin, 2026-10-18: "nur als zusaetzliche option"),
+    // und sie muss den Neustart ueberleben.
+    MapWidget widget;
+    QVERIFY(!widget.fullBleedEnabled());
+
+    widget.setFullBleedEnabled(true);
+    QVERIFY(widget.fullBleedEnabled());
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("fullbleed=1")));
+
+    MapWidget restored;
+    restored.applyPreferencesText(widget.preferencesText());
+    QVERIFY(restored.fullBleedEnabled());
+
+    widget.setFullBleedEnabled(false);
+    QVERIFY(widget.preferencesText().contains(QStringLiteral("fullbleed=0")));
+}
+
+void TestMapWidgetLive::fullBleedTakesTheWholePanelAndPaintsIntoTheCorners()
+{
+    // Gegenprobe gegen die alte Fassung: dasselbe Widget, dieselbe
+    // Groesse, einmal als Scheibe und einmal flaechenfuellend. Erwartet
+    // wird (a) ein groesserer Maszstabsrahmen, weil die Luft fuer die
+    // Randbeschriftung entfaellt, (b) ein weiterhin QUADRATISCHer
+    // Rahmen -- die Peilung darf sich nicht verziehen --, und (c) eine
+    // obere linke Ecke, die jetzt Karte traegt statt Panelgrund.
+    const auto cornerPixel = [](MapWidget& widget) {
+        QImage sheet(widget.size(), QImage::Format_ARGB32);
+        sheet.fill(Qt::transparent);
+        widget.render(&sheet);
+        return sheet.pixel(14, widget.height() - 14);
+    };
+
+    MapWidget widget;
+    widget.setOwnGrid(QStringLiteral("JN67VV"));
+    widget.setFitToWindowEnabled(false);
+    widget.resize(900, 520);
+
+    const QRectF disc = widget.canvasRectForTest();
+    const QRgb discCorner = cornerPixel(widget);
+
+    widget.setFullBleedEnabled(true);
+    const QRectF full = widget.canvasRectForTest();
+    const QRgb fullCorner = cornerPixel(widget);
+
+    QVERIFY(qAbs(disc.width() - disc.height()) < 1.0);
+    QVERIFY(qAbs(full.width() - full.height()) < 1.0);
+    QVERIFY(full.width() > disc.width());
+    QVERIFY(qAbs(full.center().x() - disc.center().x()) < 1.0);
+    QVERIFY(discCorner != fullCorner);
+}
+
+void TestMapWidgetLive::fullBleedMenuEntryTogglesTheMode()
+{
+    // Erreichbar muss die Option auch sein -- im ⚙ rechts oben, wie
+    // jede andere (Martin, 2026-09-20), und der Eintrag muss wirklich
+    // schalten und die Aenderung melden, damit MainWindow sie speichert.
+    MapWidget widget;
+    QSignalSpy changed(&widget, &MapWidget::preferencesChanged);
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+
+    QAction* entry = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->text().startsWith(QStringLiteral("Vollfläche"))) {
+            entry = action;
+        }
+    }
+    QVERIFY(entry);
+    QVERIFY(entry->isCheckable());
+    QVERIFY(!entry->isChecked());
+
+    entry->trigger();
+    QVERIFY(widget.fullBleedEnabled());
+    QVERIFY(entry->isChecked());
+    QCOMPARE(changed.count(), 1);
+
+    entry->trigger();
+    QVERIFY(!widget.fullBleedEnabled());
+    QCOMPARE(changed.count(), 2);
 }
 
 void TestMapWidgetLive::agingEnabledDefaultsTrueAndRoundTrips()
@@ -504,6 +617,10 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     MapWidget widget;
     widget.setGridLayerVisible(true);
     widget.setCitiesLayerVisible(true);
+    // Die Graulinie ist standardmäßig aus (auf UKW ohne Bedeutung) und
+    // muss den Weg durch die gespeicherten Einstellungen überstehen.
+    QVERIFY(!widget.greylineLayerVisible());
+    widget.setGreylineLayerVisible(true);
     widget.setHorizonLayerVisible(false);
     widget.setAgingEnabled(false);
     widget.setRotor1BeamwidthDeg(25.0);
@@ -513,12 +630,14 @@ void TestMapWidgetLive::preferencesTextRoundTrips()
     QVERIFY(text.contains(QStringLiteral("rgrid=1")));
     QVERIFY(text.contains(QStringLiteral("rcities=1")));
     QVERIFY(text.contains(QStringLiteral("bw1=25")));
+    QVERIFY2(text.contains(QStringLiteral("greyline=1")), qPrintable(text));
 
     MapWidget other;
     QSignalSpy changed(&other, &MapWidget::preferencesChanged);
     other.applyPreferencesText(text);
     QVERIFY(other.gridLayerVisible());
     QVERIFY(other.citiesLayerVisible());
+    QVERIFY(other.greylineLayerVisible());
     QVERIFY(!other.horizonLayerVisible());
     QVERIFY(!other.agingEnabled());
     QVERIFY(other.ringsLayerVisible()); // untouched keys keep their default
@@ -658,6 +777,117 @@ void TestMapWidgetLive::secondAntennaMenuEntryReportsTheStationSetting()
     QCOMPARE(toggled.count(), 1);
     // Not a map preference: the preferences text does not carry it.
     QVERIFY(!widget.preferencesText().contains(QStringLiteral("second")));
+}
+
+// Sprungweiten im ⚙-Menü: von 300 km auf die Weltkarte wären es mit
+// den Zoomtasten zwanzig Klicks.
+void TestMapWidgetLive::optionsMenuOffersRangePresets()
+{
+    MapWidget widget;
+    widget.setVisibleRangeKm(300.0);
+    QMenu menu;
+    widget.populateOptionsMenu(&menu);
+    QMenu* rangeMenu = nullptr;
+    for (QAction* action : menu.actions()) {
+        if (action->menu() && action->text() == QStringLiteral("Reichweite")) {
+            rangeMenu = action->menu();
+        }
+    }
+    QVERIFY2(rangeMenu, "Kein Reichweiten-Untermenü");
+    QStringList labels;
+    QAction* world = nullptr;
+    for (QAction* action : rangeMenu->actions()) {
+        labels << action->text();
+        if (action->text().startsWith(QStringLiteral("20"))) {
+            world = action;
+        }
+        // Der Eintrag, auf dem die Karte gerade steht, ist angehakt.
+        if (action->text().startsWith(QStringLiteral("300"))) {
+            QVERIFY(action->isChecked());
+        }
+    }
+    QCOMPARE(labels.size(), 6);
+    QVERIFY2(world, qPrintable(labels.join(QStringLiteral(", "))));
+    world->trigger();
+    QCOMPARE(widget.visibleRangeKm(), 20000.0);
+}
+
+// Die Zahlenspalte rechts malt ihre Beschriftungen mit drawText() an
+// einen festen Punkt -- ohne Breite. Zu lang, und sie laufen aus der
+// Spalte heraus und werden am Fensterrand mitten im Wort abgeschnitten
+// ("BEAM · ROTOR 1 · 2M · GETRE"). Das passiert genau dann, wenn die
+// Rotoren noch NICHT haengen: an die Rotorbezeichnung kommt dann noch
+// "· getrennt".
+void TestMapWidgetLive::dieZahlenspalteSchneidetKeineBeschriftungAb()
+{
+    // Mit dem Stil des Programms, nicht mit Qts Vorgabe: die
+    // Kapitaelchenschrift ist breiter, und genau darauf kommt es hier
+    // an (so rendert auch tests/test_window_sheet.cpp).
+    Style::setActiveTheme(ColorTheme::Bernstein);
+    qApp->setStyleSheet(Style::appStyleSheet());
+
+    MapWidget widget;
+    widget.resize(900, 600);
+    widget.setOwnGrid(QStringLiteral("JN67UT"));
+    widget.setScoreSummary(10, 2872, QStringLiteral("SP9JJJ 521 km"));
+    widget.setRotor1Heading(true, 42.0, QStringLiteral("2 m"));
+    widget.setRotorLinkLive(1, false);
+    widget.setRotor2Heading(true, 128.0, QStringLiteral("70 cm"));
+    widget.setRotorLinkLive(2, false);
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QCoreApplication::processEvents();
+
+    const QImage bild = widget.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    QVERIFY(!bild.isNull());
+
+    // Der rechte Rand der Zeichenflaeche (kCanvasMargin = 8): dort darf
+    // keine Schrift mehr stehen. Gemessen wird die gesamte Hoehe der
+    // Spalte; der Hintergrund ist die Farbe der oberen linken Ecke der
+    // Spalte.
+    // Erst unterhalb der Bedienzeile (Zoom, Entfernung) messen -- die
+    // reicht mit Absicht bis an den Rand.
+    const int rand = 8;
+    const int obenFrei = 48;
+    const QRgb hintergrund = bild.pixel(bild.width() - rand - 2, bild.height() / 2);
+    {
+        int maxX = 0;
+        for (int y = obenFrei; y < bild.height(); ++y) {
+            for (int x = bild.width() - 1; x > bild.width() - 300; --x) {
+                if (bild.pixel(x, y) != hintergrund) { maxX = std::max(maxX, x); break; }
+            }
+        }
+        qInfo() << "Spaltenbreite 174, rechtester Schriftbildpunkt:" << maxX << "von" << bild.width();
+    }
+    QStringList getroffen;
+    for (int x = bild.width() - rand; x < bild.width(); ++x) {
+        for (int y = obenFrei; y < bild.height(); ++y) {
+            if (bild.pixel(x, y) != hintergrund) {
+                getroffen << QStringLiteral("(%1,%2)").arg(x).arg(y);
+                if (getroffen.size() > 6) {
+                    break;
+                }
+            }
+        }
+    }
+    QVERIFY2(getroffen.isEmpty(),
+             qPrintable(QStringLiteral("Am rechten Rand steht Schrift -- abgeschnitten bei %1")
+                            .arg(getroffen.join(QStringLiteral(" ")))));
+
+    // Und mit haengenden Rotoren, wo die Bandbezeichnung wieder
+    // mitkommt ("Beam · Rotor 1 · 2 m"): auch die muss in die Spalte
+    // passen.
+    widget.setRotorLinkLive(1, true);
+    widget.setRotorLinkLive(2, true);
+    QCoreApplication::processEvents();
+    const QImage bild2 = widget.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    for (int x = bild2.width() - rand; x < bild2.width(); ++x) {
+        for (int y = obenFrei; y < bild2.height(); ++y) {
+            QVERIFY2(bild2.pixel(x, y) == hintergrund,
+                     qPrintable(QStringLiteral("Mit haengenden Rotoren steht bei (%1,%2) Schrift am Rand")
+                                    .arg(x).arg(y)));
+        }
+    }
 }
 
 int main(int argc, char* argv[])

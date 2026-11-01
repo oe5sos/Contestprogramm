@@ -3,6 +3,11 @@
 
 #include <QtTest>
 
+#include <QMenu>
+#include <QMenuBar>
+
+#include <functional>
+
 #include <QApplication>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -97,6 +102,9 @@ private slots:
     void secondBackupFolderIsWiredThrough();
     void shortcutsWindowListsTheKeys();
     void bandmapStartsOnTheContestsFirstBand();
+    void countryListOnlyAppearsWhereItMatters();
+    void fileMenuIsGroupedAndLosesNothing();
+    void derRadiusStehtImStartcheck();
 };
 
 void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
@@ -125,6 +133,37 @@ void TestReadinessCheck::everythingInOrderIsReadyWithNoFindings()
     QCOMPARE(itemWithCode(checkReadiness(off), QStringLiteral("transverter"))->level, ReadinessItem::Level::Hint);
     off.contestBands = {QStringLiteral("144")};
     QVERIFY(!itemWithCode(checkReadiness(off), QStringLiteral("transverter")));
+}
+
+// Der Radius ist nicht nur die Kartenweite: core/GeoFilter.h blendet
+// jede Chat- und Clusterzeile aus, deren Station weiter weg ist. Im
+// UKW-Contest zählen die Kilometer -- wer die Vorgabe von 300 km
+// stehen lässt, sieht genau die Stationen nicht, die die Punkte
+// bringen. Der Startcheck sagt es jetzt, bevor es zu spät ist.
+void TestReadinessCheck::derRadiusStehtImStartcheck()
+{
+    ReadinessContext knapp = readyContext();
+    knapp.radiusKm = 300.0;
+    const ReadinessResult engResult = checkReadiness(knapp);
+    const ReadinessItem* eng = itemWithCode(engResult, QStringLiteral("radius"));
+    QVERIFY2(eng, "Kein Eintrag zur Reichweite im Startcheck");
+    QCOMPARE(eng->level, ReadinessItem::Level::Hint);
+    QVERIFY2(eng->detail.contains(QStringLiteral("300 km")), qPrintable(eng->detail));
+    QVERIFY2(eng->detail.contains(QStringLiteral("Chat")), qPrintable(eng->detail));
+
+    ReadinessContext weit = readyContext();
+    weit.radiusKm = 800.0;
+    // Das Ergebnis in einer Variablen halten: itemWithCode() zeigt
+    // hinein, und ein Zeiger auf ein Zwischenergebnis wäre nach dem
+    // Semikolon nichts mehr wert.
+    const ReadinessResult weitResult = checkReadiness(weit);
+    const ReadinessItem* gross = itemWithCode(weitResult, QStringLiteral("radius"));
+    QVERIFY(gross);
+    QCOMPARE(gross->level, ReadinessItem::Level::Ok);
+    QVERIFY2(gross->detail.contains(QStringLiteral("800 km")), qPrintable(gross->detail));
+
+    // Und ein Hinweis macht den Startcheck nicht "nicht bereit".
+    QVERIFY(engResult.ready());
 }
 
 void TestReadinessCheck::missingStationDataIsAnError()
@@ -429,6 +468,117 @@ void TestReadinessCheck::bandmapStartsOnTheContestsFirstBand()
     auto* bandmap = window.findChild<BandmapWidget*>();
     QVERIFY(bandmap);
     QCOMPARE(bandmap->band(), QStringLiteral("432"));
+}
+
+// Die Länderliste steht nur dort in der Liste, wo sie etwas zu sagen
+// hat: bei einem Contest ohne getauschten Locator oder mit
+// Länder-Multiplikator. Bei einem UKW-Contest wäre sie nur eine Zeile
+// mehr, die von nichts handelt.
+void TestReadinessCheck::countryListOnlyAppearsWhereItMatters()
+{
+    ReadinessContext ctx = readyContext();
+    ctx.countryListNeeded = false;
+    ctx.countryEntries = 0;
+    ReadinessResult result = checkReadiness(ctx);
+    QVERIFY2(!itemWithCode(result, QStringLiteral("countries")), "Auf UKW hat die Länderliste nichts zu melden");
+
+    ctx.countryListNeeded = true;
+    result = checkReadiness(ctx);
+    const ReadinessItem* missing = itemWithCode(result, QStringLiteral("countries"));
+    QVERIFY(missing);
+    QCOMPARE(missing->level, ReadinessItem::Level::Warning);
+    QVERIFY2(missing->detail.contains(QStringLiteral("Länderliste laden")), qPrintable(missing->detail));
+
+    ctx.countryEntries = 346;
+    result = checkReadiness(ctx);
+    const ReadinessItem* loaded = itemWithCode(result, QStringLiteral("countries"));
+    QVERIFY(loaded);
+    QCOMPARE(loaded->level, ReadinessItem::Level::Ok);
+    QCOMPARE(loaded->detail, QStringLiteral("346 Gebiete"));
+}
+
+// Das Datei-Menü war auf einundzwanzig Einträge gewachsen -- eine
+// Schublade, in der zeilenweise gesucht wurde. Seit 2026-09-22 stehen
+// Export, Listen, Sicherung, Online-Score und Werkzeuge in
+// Untermenüs. Dieser Prüfstand hält zweierlei fest: dass die oberste
+// Ebene kurz bleibt, und -- wichtiger -- dass dabei nichts verloren
+// gegangen ist.
+void TestReadinessCheck::fileMenuIsGroupedAndLosesNothing()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = std::make_unique<AppController>();
+    QVERIFY(controller->openDatabase(dir.filePath(QStringLiteral("menu.sqlite"))));
+    ContestSettings settings = controller->settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.rigctldHost.clear();
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    controller->setSettings(settings);
+    MainWindow window(*controller);
+
+    QMenu* fileMenu = nullptr;
+    for (QAction* action : window.menuBar()->actions()) {
+        if (action->menu() && action->text().contains(QStringLiteral("Datei"))) {
+            fileMenu = action->menu();
+        }
+    }
+    QVERIFY(fileMenu);
+
+    // Oberste Ebene: kurz genug, um sie zu überblicken.
+    int topLevelEntries = 0;
+    for (const QAction* action : fileMenu->actions()) {
+        if (!action->isSeparator()) {
+            ++topLevelEntries;
+        }
+    }
+    QVERIFY2(topLevelEntries <= 14, qPrintable(QString::number(topLevelEntries)));
+
+    // Und jetzt alles, was von hier aus erreichbar ist -- eine Ebene
+    // tiefer zählt mit.
+    QStringList reachable;
+    const std::function<void(const QMenu*)> collect = [&](const QMenu* menu) {
+        for (QAction* action : menu->actions()) {
+            if (action->isSeparator()) {
+                continue;
+            }
+            if (action->menu()) {
+                collect(action->menu());
+            } else {
+                reachable << action->text().remove(QLatin1Char('&'));
+            }
+        }
+    };
+    collect(fileMenu);
+
+    // Jeder Eintrag, den das Menü vor dem Ordnen hatte, ist noch da --
+    // an der Wortmarke erkannt, damit eine umformulierte Beschriftung
+    // den Prüfstand nicht grundlos umwirft.
+    const QStringList mustExist{
+        QStringLiteral("Neues Log"),     QStringLiteral("sichern"),
+        QStringLiteral("Einstellungen"), QStringLiteral("Contest wählen"),
+        QStringLiteral("Contest-Regeln"), QStringLiteral("Startcheck"),
+        QStringLiteral("Log prüfen"),    QStringLiteral("EDI"),
+        QStringLiteral("Cabrillo"),      QStringLiteral("ADIF"),
+        QStringLiteral("SCP"),           QStringLiteral("cty.dat"),
+        QStringLiteral("Locator aus alten Logs"), QStringLiteral("wiederherstellen"),
+        QStringLiteral("Zweiter Sicherungsordner"), QStringLiteral("entfernen"),
+        QStringLiteral("Scoreboard"),    QStringLiteral("Score jetzt senden"),
+        QStringLiteral("Transverter"),   QStringLiteral("ESM"),
+        QStringLiteral("Beenden"),
+    };
+    for (const QString& needle : mustExist) {
+        bool found = false;
+        for (const QString& entry : reachable) {
+            if (entry.contains(needle)) {
+                found = true;
+                break;
+            }
+        }
+        QVERIFY2(found, qPrintable(QStringLiteral("Verloren gegangen: %1 -- da ist nur: %2")
+                                       .arg(needle, reachable.join(QStringLiteral(" | ")))));
+    }
 }
 
 int main(int argc, char* argv[])

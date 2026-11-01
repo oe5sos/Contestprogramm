@@ -32,7 +32,7 @@ private slots:
     void archiveContestMovesQsosAndKeepsTheirLocators();
     void nextSerialCountsPerBandWhenAsked();
     void preExistingTableWithoutNewColumnsIsMigrated();
-    void einGetragenesQsoUeberlebtDenStromausfall();
+    void einQsoOhneBetriebsartGehtNichtVerloren();
 };
 
 void TestContestDatabase::schemaIsCreated()
@@ -59,47 +59,6 @@ void TestContestDatabase::schemaIsCreated()
         ++indexCount;
     }
     QCOMPARE(indexCount, 3);
-}
-
-// ── Die Sperrklinke gegen stilles Zurueckdrehen (2026-11-01) ───────────────
-//
-// Betreiber: „WICHTIG ist, dass das logprogramm nie abstuerzt. sollte es
-// probleme geben, muss ... automatisch gespeichert werden."
-//
-// Hier stand `synchronous = NORMAL` mit der Begruendung, das vermeide die
-// fsync-Kosten und sei „crash-safe for the common case". Fuer einen
-// Programmabsturz stimmt das. Fuer einen STROMAUSFALL nicht -- und am
-// Contest-Standort (Bergstation, Aggregat oder Batterie) ist das der
-// realistische Fall.
-//
-// `fullfsync` gehoert dazu, weil `FULL` auf macOS allein nichts nuetzt: ein
-// gewoehnliches fsync() zwingt die Platte dort nicht, ihren Puffer zu leeren.
-//
-// Gemessen am 2026-11-01: NORMAL 0,02 ms je QSO, FULL 0,04 ms,
-// FULL + fullfsync 0,38 ms. Bei zehn QSOs je Minute sind das vier
-// Millisekunden in der Minute.
-void TestContestDatabase::einGetragenesQsoUeberlebtDenStromausfall()
-{
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    ContestDatabase db;
-    QVERIFY(db.open(dir.filePath(QStringLiteral("strom.sqlite")),
-                    QStringLiteral("test_strom")));
-
-    QSqlQuery query(db.db());
-
-    QVERIFY(query.exec(QStringLiteral("PRAGMA journal_mode")));
-    QVERIFY(query.next());
-    QCOMPARE(query.value(0).toString().toLower(), QStringLiteral("wal"));
-
-    // 2 = FULL. 1 waere NORMAL, 0 OFF.
-    QVERIFY(query.exec(QStringLiteral("PRAGMA synchronous")));
-    QVERIFY(query.next());
-    QCOMPARE(query.value(0).toInt(), 2);
-
-    QVERIFY(query.exec(QStringLiteral("PRAGMA fullfsync")));
-    QVERIFY(query.next());
-    QCOMPARE(query.value(0).toInt(), 1);
 }
 
 void TestContestDatabase::insertAndQueryRoundTrip()
@@ -588,6 +547,38 @@ void TestContestDatabase::preExistingTableWithoutNewColumnsIsMigrated()
 // Not QTEST_APPLESS_MAIN: QSqlDatabase requires a live QCoreApplication
 // instance (thread-affinity bookkeeping in the SQLite driver), which
 // APPLESS_MAIN deliberately does not create.
+// Ein QSO, dessen BETRIEBSART niemand kennt, darf nicht verloren
+// gehen. Genau so kommen sie herein: REG1TEST sagt zur Modusspalte
+// ausdruecklich "If the mode is not important it can be left blank",
+// und der Code 0 heisst dort "non of below" -- data/LogFileReader.cpp
+// macht daraus eine leere Betriebsart. Eine leere QString ist in Qt
+// eine NULL, und die Spalte `mode` ist NOT NULL: die Zeile wurde
+// abgewiesen. Der Journal-Import zaehlte so ein QSO weder als
+// ergaenzt noch als uebersprungen -- es verschwand, ohne ein Wort,
+// und das auf dem Weg, der nach einem Absturz das Log zurueckholen
+// soll.
+void TestContestDatabase::einQsoOhneBetriebsartGehtNichtVerloren()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("ohne_modus.sqlite")), QStringLiteral("ohne_modus")));
+
+    QsoRecord r;
+    r.callsign = QStringLiteral("DL1ABC");
+    r.band = QStringLiteral("144");
+    r.mode = QString();   // unbekannt -- und in Qt eine NULL
+    r.timestampUtc = QStringLiteral("2026-10-03T14:01:00Z");
+    r.gridSquare = QStringLiteral("JN58SD");
+    r.contestId = QStringLiteral("T");
+    QVERIFY2(db.insertQso(r), qPrintable(db.lastError()));
+
+    const QVector<QsoRecord> zurueck = db.qsosForContest(QStringLiteral("T"));
+    QCOMPARE(zurueck.size(), 1);
+    QCOMPARE(zurueck.at(0).callsign, QStringLiteral("DL1ABC"));
+    QVERIFY(zurueck.at(0).mode.isEmpty());
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);

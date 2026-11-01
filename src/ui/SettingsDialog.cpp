@@ -1,5 +1,10 @@
 #include "ui/SettingsDialog.h"
 
+#include "core/QsoAudioCapture.h"
+
+#include "ui/StyleKit.h"
+
+#include "core/RigModels.h"
 #include "core/CallsignLocatorLookup.h"
 #include "core/Maidenhead.h"
 #include "core/RotorModels.h"
@@ -13,13 +18,16 @@
 #include <QDateTimeEdit>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QStandardPaths>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSet>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -55,6 +63,9 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_tciPortSpin(new QSpinBox(this))
     , m_rigctldHostEdit(new QLineEdit(this))
     , m_rigctldPortSpin(new QSpinBox(this))
+    , m_rigModelCombo(new QComboBox(this))
+    , m_rigDeviceEdit(new QLineEdit(this))
+    , m_rigBaudCombo(new QComboBox(this))
     , m_on4kstUserEdit(new QLineEdit(this))
     , m_on4kstPassEdit(new QLineEdit(this))
     , m_clusterHostEdit(new QLineEdit(this))
@@ -74,6 +85,9 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_rotor1BaudCombo(new QComboBox(this))
     , m_rotor2EnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_rotor2LabelEdit(new QLineEdit(this))
+    , m_fixedAntennaCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
+    , m_fixedAntennaLabelEdit(new QLineEdit(this))
+    , m_fixedAntennaBearingSpin(new QDoubleSpinBox(this))
     , m_rotor2HostEdit(new QLineEdit(this))
     , m_rotor2PortSpin(new QSpinBox(this))
     , m_rotor2SecondAntennaCheck(new QCheckBox(QStringLiteral("Zweitantenne aktiv"), this))
@@ -84,11 +98,16 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_band144RotorCombo(new QComboBox(this))
     , m_band432RotorCombo(new QComboBox(this))
     , m_band1296RotorCombo(new QComboBox(this))
+    , m_bandOtherRotorCombo(new QComboBox(this))
     , m_rotorDialStyleCombo(new QComboBox(this))
     , m_colorThemeCombo(new QComboBox(this))
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
     , m_broadcastHostEdit(new QLineEdit(this))
     , m_broadcastPortSpin(new QSpinBox(this))
+    , m_audioRecordDeviceCombo(new QComboBox(this))
+    , m_audioRecordFolderEdit(new QLineEdit(this))
+    , m_audioRecordRollSpin(new QSpinBox(this))
+    , m_audioRecordFreeSpin(new QSpinBox(this))
 {
     setWindowTitle(QStringLiteral("Contestprogramm - Einstellungen"));
 
@@ -154,6 +173,17 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
 
     m_radiusSpin->setRange(0.0, 5000.0);
     m_radiusSpin->setSuffix(QStringLiteral(" km"));
+    // Der Radius tut ZWEIERLEI, und das zweite stand nirgends: er ist
+    // die Weite der Karte beim Start UND die Grenze, hinter der eine
+    // Chat- oder Clusterzeile gar nicht mehr erscheint
+    // (core/GeoFilter.h). Im UKW-Contest zählen die Kilometer -- wer
+    // hier 300 stehen lässt, sieht die Stationen nicht, die die Punkte
+    // bringen.
+    m_radiusSpin->setToolTip(QStringLiteral(
+        "Weite der Karte beim Start -- und die Grenze für Chat und Vorschlagsliste: "
+        "Stationen weiter weg werden dort nicht angezeigt.\n"
+        "Vom Berg aus sind im UKW-Contest 500 bis 800 km üblich.\n"
+        "0 heißt: keine Grenze."));
     m_radiusSpin->setValue(initial.radiusKm);
 
     for (const ContestDefinition& def : m_availableContests) {
@@ -184,11 +214,70 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_contestEndEdit->setEnabled(hasContestEnd);
     connect(m_contestEndSetCheck, &QCheckBox::toggled, m_contestEndEdit, &QWidget::setEnabled);
 
+    // Die beiden TCI-Felder stehen in keinem Layout mehr (siehe die
+    // Begründung weiter unten bei networkForm). Ein Kind ohne Layout
+    // bekommt von Qt eine Vorgabegeometrie und läge sonst sichtbar in
+    // der linken oberen Ecke des Dialogs -- also ausdrücklich
+    // verstecken. Gelesen und zurückgeschrieben werden sie weiterhin,
+    // damit ein vorhandener Eintrag erhalten bleibt.
     m_tciHostEdit->setText(initial.tciHost);
+    m_tciHostEdit->hide();
     m_tciPortSpin->setRange(1, 65535);
     m_tciPortSpin->setValue(initial.tciPort);
+    m_tciPortSpin->hide();
 
     m_rigctldHostEdit->setText(initial.rigctldHost);
+    // Das Funkgerät: oben die kurze, nach Wahrscheinlichkeit geordnete
+    // Liste (core/RigModels.h), darunter alles, was das INSTALLIERTE
+    // Hamlib kennt. Die Nummern wandern zwischen Hamlib-Fassungen, also
+    // gewinnt immer die Liste der Maschine; die kurze trägt nur, wenn
+    // noch kein Hamlib da ist.
+    const QVector<RigModel> installed = rigModelsFromHamlib();
+    const auto hamlibNameFor = [&installed](int id) {
+        for (const RigModel& model : installed) {
+            if (model.hamlibId == id) {
+                return model.name;
+            }
+        }
+        return QString();
+    };
+    QSet<int> alreadyListed;
+    for (const RigModel& model : commonRigModels()) {
+        const QString fromHamlib = hamlibNameFor(model.hamlibId);
+        if (!installed.isEmpty() && fromHamlib.isEmpty()) {
+            continue; // Nummer, die dieses Hamlib nicht kennt
+        }
+        m_rigModelCombo->addItem(model.name, model.hamlibId);
+        m_rigModelCombo->setItemData(m_rigModelCombo->count() - 1, model.note, Qt::ToolTipRole);
+        alreadyListed.insert(model.hamlibId);
+    }
+    if (!installed.isEmpty()) {
+        m_rigModelCombo->insertSeparator(m_rigModelCombo->count());
+        QVector<RigModel> rest;
+        for (const RigModel& model : installed) {
+            if (!alreadyListed.contains(model.hamlibId)) {
+                rest.append(model);
+            }
+        }
+        std::sort(rest.begin(), rest.end(), [](const RigModel& a, const RigModel& b) {
+            return a.name.localeAwareCompare(b.name) < 0;
+        });
+        for (const RigModel& model : rest) {
+            m_rigModelCombo->addItem(model.name, model.hamlibId);
+        }
+    }
+    const int rigModelIdx = m_rigModelCombo->findData(initial.rigctldHamlibModel);
+    m_rigModelCombo->setCurrentIndex(rigModelIdx >= 0 ? rigModelIdx : 0);
+
+    m_rigDeviceEdit->setText(initial.rigctldDevice);
+    m_rigDeviceEdit->setPlaceholderText(QStringLiteral("z.B. /dev/cu.usbserial-1410 — leer: rigctld läuft schon"));
+
+    for (int baud : commonRigBauds()) {
+        m_rigBaudCombo->addItem(QString::number(baud), baud);
+    }
+    const int rigBaudIdx = m_rigBaudCombo->findData(initial.rigctldBaud);
+    m_rigBaudCombo->setCurrentIndex(rigBaudIdx >= 0 ? rigBaudIdx : m_rigBaudCombo->findData(115200));
+
     m_rigctldPortSpin->setRange(1, 65535);
     m_rigctldPortSpin->setValue(initial.rigctldPort);
 
@@ -260,6 +349,15 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_rotor2EnabledCheck->setChecked(initial.rotor2Enabled);
     m_rotor2LabelEdit->setText(initial.rotor2Label);
     m_rotor2LabelEdit->setMaxLength(24);
+    m_fixedAntennaCheck->setChecked(initial.fixedAntennaEnabled);
+    m_fixedAntennaLabelEdit->setText(initial.fixedAntennaLabel);
+    m_fixedAntennaLabelEdit->setMaxLength(24);
+    m_fixedAntennaLabelEdit->setPlaceholderText(QStringLiteral("Antenne Fix"));
+    m_fixedAntennaBearingSpin->setRange(0.0, 359.0);
+    m_fixedAntennaBearingSpin->setDecimals(0);
+    m_fixedAntennaBearingSpin->setSuffix(QStringLiteral(" °"));
+    m_fixedAntennaBearingSpin->setWrapping(true);
+    m_fixedAntennaBearingSpin->setValue(initial.fixedAntennaBearingDeg);
     m_rotor2HostEdit->setText(initial.rotor2Host);
     m_rotor2PortSpin->setRange(1, 65535);
     m_rotor2PortSpin->setValue(initial.rotor2Port);
@@ -328,6 +426,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     selectRotorSlot(m_band144RotorCombo, initial.band144RotorSlot);
     selectRotorSlot(m_band432RotorCombo, initial.band432RotorSlot);
     selectRotorSlot(m_band1296RotorCombo, initial.band1296RotorSlot);
+    selectRotorSlot(m_bandOtherRotorCombo, initial.bandOtherRotorSlot);
 
     // Live sync: a slot being disabled or renamed while the dialog is
     // still open must be reflected in the band combos immediately, not
@@ -361,6 +460,58 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_colorThemeCombo->setCurrentIndex(colorThemeIdx >= 0 ? colorThemeIdx : 0);
 
     // Off by default -- see ContestSettings::broadcastEnabled.
+    // Der Haken ist weg (siehe unten); der Zustand geht unveraendert
+    // durch, damit ein Druck auf OK waehrend einer laufenden
+    // Aufnahme sie nicht beendet.
+    m_audioRecordEnabledDurchgereicht = initial.audioRecordEnabled;
+
+    // Die Geraeteliste kommt vom System, nicht aus einer Vorgabe. Der
+    // erste Eintrag ist der Standardeingang und steht fuer „leer" --
+    // damit ein Umstecken am Rechner nicht eine Einstellung ins Leere
+    // zeigen laesst.
+    m_audioRecordDeviceCombo->addItem(QStringLiteral("(Standardeingang)"), QString());
+    for (const QString& name : QsoAudioCapture::inputDeviceNames()) {
+        m_audioRecordDeviceCombo->addItem(name, name);
+    }
+    const int geraetIdx = m_audioRecordDeviceCombo->findData(initial.audioRecordDevice);
+    m_audioRecordDeviceCombo->setCurrentIndex(geraetIdx >= 0 ? geraetIdx : 0);
+    m_audioRecordDeviceCombo->setToolTip(QStringLiteral(
+        "Fuer Empfang UND eigene Stimme ein Aggregat-Geraet waehlen "
+        "(macOS: Audio-MIDI-Setup) \u2014 links Empfang, rechts Mikrofon. "
+        "Zwei getrennte Geraete haetten zwei Takte und liefen ueber "
+        "Stunden auseinander."));
+
+    m_audioRecordFolderEdit->setObjectName(QStringLiteral("audioRecordFolderEdit"));
+    m_audioRecordFolderEdit->setText(initial.audioRecordFolder);
+    m_audioRecordFolderEdit->setPlaceholderText(
+        QStringLiteral("leer = kein Mitschnitt"));
+    m_audioRecordFolderEdit->setToolTip(QStringLiteral(
+        "Ein VOLLSTAENDIGER Pfad, zum Beispiel /Users/ich/Desktop/Mitschnitte.\n"
+        "Der Ordner wird angelegt, wenn es ihn noch nicht gibt \u2014 aber nur "
+        "sein letztes Stueck.\n\nEin Name allein (\u201edesktop\u201c) ist KEIN Pfad: "
+        "er zaehlt vom Arbeitsordner des Programms aus, und der ist bei "
+        "einer Mac-App die Wurzel des Laufwerks. Dort darf niemand "
+        "schreiben, und der Mitschnitt faengt nicht an.\n\nMit dem Knopf "
+        "daneben kommt man um die Frage herum \u2014 er legt auch neue Ordner "
+        "an."));
+
+    m_audioRecordRollSpin->setRange(0, 24 * 60);
+    m_audioRecordRollSpin->setValue(initial.audioRecordRollMinutes);
+    m_audioRecordRollSpin->setSuffix(QStringLiteral(" min"));
+    m_audioRecordRollSpin->setSpecialValueText(QStringLiteral("nie"));
+    m_audioRecordRollSpin->setToolTip(QStringLiteral(
+        "Nach dieser Zeit beginnt eine neue Datei. Eine WAV-Datei fasst "
+        "knapp 4 GB \u2014 bei 48 kHz Stereo gut sechs Stunden; danach ist "
+        "sie kaputt, nicht voll. Und ein Absturz kostet nur die laufende "
+        "Datei."));
+
+    m_audioRecordFreeSpin->setRange(0, 90);
+    m_audioRecordFreeSpin->setValue(initial.audioRecordMinFreePercent);
+    m_audioRecordFreeSpin->setSuffix(QStringLiteral(" %"));
+    m_audioRecordFreeSpin->setToolTip(QStringLiteral(
+        "Darunter hoert der Mitschnitt auf und sagt, warum. 0 schaltet "
+        "die Wache ab \u2014 dann laeuft die Platte voll."));
+
     m_broadcastEnabledCheck->setChecked(initial.broadcastEnabled);
     m_broadcastHostEdit->setText(initial.broadcastHost);
     m_broadcastPortSpin->setRange(1, 65535);
@@ -388,7 +539,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     stationForm->addRow(QString(), m_gpsStatusLabel);
     stationForm->addRow(QStringLiteral("Standorthöhe:"), m_elevationSpin);
     stationForm->addRow(QStringLiteral("Antennenhöhe:"), m_antennaHeightSpin);
-    stationForm->addRow(QStringLiteral("Radius:"), m_radiusSpin);
+    stationForm->addRow(QStringLiteral("Radius (Karte + Chatfilter):"), m_radiusSpin);
     stationForm->addRow(QStringLiteral("Aktiver Contest:"), m_contestCombo);
     stationForm->addRow(QStringLiteral("Contest-Ende (UTC):"), contestEndRow);
 
@@ -399,8 +550,28 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // station's CAT radio (TS-590/K3 via Hamlib rigctld, default port
     // 4532 -- see ContestSettings.h).
     auto* catForm = new QFormLayout();
+    catForm->addRow(QStringLiteral("Funkgerät:"), m_rigModelCombo);
+    catForm->addRow(QStringLiteral("Anschluss:"), m_rigDeviceEdit);
+    catForm->addRow(QStringLiteral("Baudrate:"), m_rigBaudCombo);
     catForm->addRow(QStringLiteral("rigctld-Host:"), m_rigctldHostEdit);
     catForm->addRow(QStringLiteral("rigctld-Port:"), m_rigctldPortSpin);
+    // What the three fields above are FOR -- the program starts rigctld
+    // itself now (core/RigctldProcess.h), exactly as it has started
+    // rotctld for the rotor since 2026-09-11. Worth saying plainly,
+    // because the escape hatch (leave the port empty, run rigctld your
+    // own way) is not something a dialog shows by itself.
+    auto* catHint = new QLabel(
+        QStringLiteral("Mit einem Anschluss startet das Programm rigctld selbst, wie beim Rotor.\n"
+                       "Feld leer lassen, wenn rigctld schon von Hand läuft — dann gelten nur Host und Port.\n"
+                       "Anschluss finden: ls /dev/cu.*   ·   Baudrate muss zum Menü des Geräts passen,\n"
+                       "PTT dort auf CAT (beim TS-590S z. B. Menü Nr. 62, beim TS-590SG Nr. 68)."),
+        this);
+    catHint->setWordWrap(true);
+    // Mono, weil ein Gerätepfad Zeichen für Zeichen gelesen wird.
+    catHint->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    catHint->setFont(Style::monoFont(catHint->font(), Style::kFontSmall));
+    catHint->setObjectName(QStringLiteral("rigctldHint"));
+    catForm->addRow(catHint);
 
     auto* catGroup = new QGroupBox(QStringLiteral("CAT (rigctld)"), this);
     catGroup->setLayout(catForm);
@@ -410,19 +581,26 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // CAT rig. ON4KST credentials are used by On4kstClient, but live
     // connection to the real server is deliberately left to the
     // operator (see AppController::applyNetworkSettings).
+    // TCI-Host/-Port standen hier bis zum 2026-10-16 -- zwei Felder,
+    // die nichts taten: einen TciClient gibt es in diesem Programm
+    // nicht (AppController.h nennt ihn als nicht gebautes Stück des
+    // Plans), CAT geht über rigctld. Wer vor dem Contest die Adresse
+    // seines Geräts dort einträgt, wartet hinterher auf eine
+    // Verbindung, die niemand aufbaut. Die Einstellungen selbst
+    // (ContestSettings::tciHost/tciPort) bleiben, damit ein
+    // vorhandener Eintrag nicht verlorengeht; angeboten werden sie
+    // wieder, wenn es etwas gibt, das sie benutzt.
     auto* networkForm = new QFormLayout();
-    networkForm->addRow(QStringLiteral("TCI-Host:"), m_tciHostEdit);
-    networkForm->addRow(QStringLiteral("TCI-Port:"), m_tciPortSpin);
     networkForm->addRow(QStringLiteral("ON4KST-Benutzer:"), m_on4kstUserEdit);
     networkForm->addRow(QStringLiteral("ON4KST-Passwort:"), m_on4kstPassEdit);
     // DxClusterClient -- a second, independent spot source alongside
     // ON4KST (see ContestSettings::clusterHost/clusterPort). No fixed
     // public host the way ON4KST has one, so both fields are always
-    // active/editable here, unlike TCI-Host/-Port above.
+    // active/editable here.
     networkForm->addRow(QStringLiteral("DX-Cluster-Host:"), m_clusterHostEdit);
     networkForm->addRow(QStringLiteral("DX-Cluster-Port:"), m_clusterPortSpin);
 
-    auto* networkGroup = new QGroupBox(QStringLiteral("Netzwerk (ON4KST/Cluster/TCI, teils noch nicht aktiv)"), this);
+    auto* networkGroup = new QGroupBox(QStringLiteral("Netzwerk (ON4KST, DX-Cluster)"), this);
     networkGroup->setLayout(networkForm);
 
     // Callsign->grid autofill: local import first (offline, see
@@ -483,6 +661,23 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* rotor2Group = new QGroupBox(QStringLiteral("Rotor 2"), this);
     rotor2Group->setLayout(rotor2Form);
 
+    // Eine Antenne ohne Rotor: steht fest in eine Richtung und zeigt
+    // dasselbe Instrument wie die beiden drehbaren (Martin,
+    // 2026-10-08). Darum auch nur zwei Angaben -- was sie ist und
+    // wohin sie schaut.
+    auto* fixedForm = new QFormLayout();
+    fixedForm->addRow(QStringLiteral("Aktiv:"), m_fixedAntennaCheck);
+    fixedForm->addRow(QStringLiteral("Bezeichnung:"), m_fixedAntennaLabelEdit);
+    fixedForm->addRow(QStringLiteral("Feste Richtung:"), m_fixedAntennaBearingSpin);
+    auto* fixedGroup = new QGroupBox(QStringLiteral("Antenne Fix (ohne Rotor)"), this);
+    fixedGroup->setLayout(fixedForm);
+    const auto fixedEnabledChanged = [this](bool an) {
+        m_fixedAntennaLabelEdit->setEnabled(an);
+        m_fixedAntennaBearingSpin->setEnabled(an);
+    };
+    connect(m_fixedAntennaCheck, &QCheckBox::toggled, this, fixedEnabledChanged);
+    fixedEnabledChanged(m_fixedAntennaCheck->isChecked());
+
     // Explicit per-band rotor assignment -- combo items are the current
     // labels of whichever slot(s) are enabled, plus "Kein Rotor" (see
     // refreshBandRotorCombos()). "144 MHz"/"432 MHz"/"1296 MHz" name the
@@ -493,6 +688,10 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     bandRoutingForm->addRow(QStringLiteral("144 MHz (2m):"), m_band144RotorCombo);
     bandRoutingForm->addRow(QStringLiteral("432 MHz (70cm):"), m_band432RotorCombo);
     bandRoutingForm->addRow(QStringLiteral("1296 MHz (23cm):"), m_band1296RotorCombo);
+    // Alles übrige in einer Zeile: auf Kurzwelle hängt an einem Rotor
+    // in aller Regel eine Antenne für mehrere Bänder, eine Zeile je
+    // Band wäre acht Mal dieselbe Antwort.
+    bandRoutingForm->addRow(QStringLiteral("Übrige Bänder (Kurzwelle …):"), m_bandOtherRotorCombo);
 
     auto* bandRoutingGroup = new QGroupBox(QStringLiteral("Band-Zuordnung"), this);
     bandRoutingGroup->setLayout(bandRoutingForm);
@@ -541,6 +740,64 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* broadcastGroup = new QGroupBox(QStringLiteral("UDP-Broadcast (N1MM-Format)"), this);
     broadcastGroup->setLayout(broadcastForm);
 
+    // ── Mitschnitt ───────────────────────────────────────────────────
+    //
+    // Unabhaengig von jeder Konsole: hier haengt ein gewoehnliches
+    // Eingangsgeraet des Rechners, kein SDR-Programm. Damit schneidet
+    // das Logprogramm am Flex genauso mit wie an einem Geraet, das
+    // Longpath gar nicht kennt (Betreiber, 2026-10-22).
+    auto* audioForm = new QFormLayout();
+    // ── Hier stand ein Haken „Aktiv" ────────────────────────────────
+    //
+    // Er ist weg. Betreiber am 2026-10-22: „mitschnitt sollte nicht
+    // automatisch starten, ein und aus auf meinen befehl." Ein Haken,
+    // der nach jedem Start aus ist, luegt ueber seinen eigenen
+    // Zweck -- und zwei Schalter fuer eine Sache werden frueher oder
+    // spaeter uneins.
+    //
+    // Diese Seite stellt nur noch EIN: Geraet, Ordner, Dateilaenge,
+    // Platzgrenze. Ein und aus macht der Knopf in der Statuszeile.
+    auto* audioHinweis = new QLabel(
+        QStringLiteral("Ein und aus unten rechts in der Statuszeile."), this);
+    audioHinweis->setStyleSheet(
+        QStringLiteral("color: %1;").arg(Style::kTextSecondary()));
+    audioForm->addRow(QStringLiteral("Mitschnitt:"), audioHinweis);
+    audioForm->addRow(QStringLiteral("Tongeraet:"), m_audioRecordDeviceCombo);
+    // ── Ein Knopf statt eines getippten Pfades ───────────────────────
+    //
+    // Betreiber am 2026-10-22, vor genau diesem Feld: „wie kann ich
+    // hier einen ordner anlegen bzw suchen." Im Feld stand
+    // „desktop" -- ein Name, kein Pfad. QDir::mkpath haette daraus
+    // „/desktop" gemacht, und daran scheitert jede Aufnahme still.
+    //
+    // Der Waehler von Qt kann beides, was er fragt: suchen UND einen
+    // neuen Ordner anlegen. EdiExportDialog macht es seit jeher so.
+    auto* audioFolderButton = new QPushButton(QStringLiteral("Ordner..."), this);
+    audioFolderButton->setObjectName(QStringLiteral("audioRecordFolderButton"));
+    connect(audioFolderButton, &QPushButton::clicked, this, [this]() {
+        QString start = m_audioRecordFolderEdit->text().trimmed();
+        if (start.isEmpty() || !QDir::isAbsolutePath(start)) {
+            start = QStandardPaths::writableLocation(
+                QStandardPaths::DesktopLocation);
+        }
+        const QString gewaehlt = QFileDialog::getExistingDirectory(
+            this, QStringLiteral("Ordner fuer den QSO-Mitschnitt"), start);
+        if (!gewaehlt.isEmpty()) {
+            m_audioRecordFolderEdit->setText(gewaehlt);
+        }
+    });
+    auto* audioFolderRow = new QHBoxLayout();
+    audioFolderRow->setContentsMargins(0, 0, 0, 0);
+    audioFolderRow->addWidget(m_audioRecordFolderEdit, 1);
+    audioFolderRow->addWidget(audioFolderButton);
+    audioForm->addRow(QStringLiteral("Ordner:"), audioFolderRow);
+    audioForm->addRow(QStringLiteral("Neue Datei nach:"), m_audioRecordRollSpin);
+    audioForm->addRow(QStringLiteral("Mindestens frei:"), m_audioRecordFreeSpin);
+
+    auto* audioGroup = new QGroupBox(
+        QStringLiteral("QSO-Mitschnitt (stundenlang, geraeteunabhaengig)"), this);
+    audioGroup->setLayout(audioForm);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -559,11 +816,13 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     scrollLayout->addWidget(callbookGroup);
     scrollLayout->addWidget(rotor1Group);
     scrollLayout->addWidget(rotor2Group);
+    scrollLayout->addWidget(fixedGroup);
     scrollLayout->addWidget(bandRoutingGroup);
     scrollLayout->addWidget(rotorDisplayGroup);
     scrollLayout->addWidget(appearanceGroup);
     scrollLayout->addWidget(cwGroup);
     scrollLayout->addWidget(broadcastGroup);
+    scrollLayout->addWidget(audioGroup);
     scrollLayout->addStretch();
 
     auto* scrollArea = new QScrollArea(this);
@@ -607,8 +866,8 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // time). Centers on the FINAL width/height just set above, not
     // whatever position Qt would have otherwise placed an unsized
     // dialog at.
-    if (QWidget* parent = parentWidget()) {
-        move(parent->geometry().center() - QPoint(width() / 2, height() / 2));
+    if (QWidget* owner = parentWidget()) {
+        move(owner->geometry().center() - QPoint(width() / 2, height() / 2));
     } else if (screen) {
         move(screen->availableGeometry().center() - QPoint(width() / 2, height() / 2));
     }
@@ -627,6 +886,9 @@ ContestSettings SettingsDialog::settings() const
     result.tciHost = m_tciHostEdit->text().trimmed();
     result.tciPort = m_tciPortSpin->value();
     result.rigctldHost = m_rigctldHostEdit->text().trimmed();
+    result.rigctldHamlibModel = m_rigModelCombo->currentData().toInt();
+    result.rigctldDevice = m_rigDeviceEdit->text().trimmed();
+    result.rigctldBaud = m_rigBaudCombo->currentData().toInt();
     result.rigctldPort = m_rigctldPortSpin->value();
     result.on4kstUsername = m_on4kstUserEdit->text().trimmed();
     result.on4kstPassword = m_on4kstPassEdit->text();
@@ -647,6 +909,11 @@ ContestSettings SettingsDialog::settings() const
     result.rotor1Device = m_rotor1DeviceEdit->text().trimmed();
     result.rotor1Baud = m_rotor1BaudCombo->currentData().toInt();
 
+    result.fixedAntennaEnabled = m_fixedAntennaCheck->isChecked();
+    result.fixedAntennaLabel = m_fixedAntennaLabelEdit->text().trimmed().isEmpty()
+                                   ? QStringLiteral("Antenne Fix")
+                                   : m_fixedAntennaLabelEdit->text().trimmed();
+    result.fixedAntennaBearingDeg = m_fixedAntennaBearingSpin->value();
     result.rotor2Enabled = m_rotor2EnabledCheck->isChecked();
     result.rotor2Label = m_rotor2LabelEdit->text().trimmed();
     result.rotor2Host = m_rotor2HostEdit->text().trimmed();
@@ -660,6 +927,7 @@ ContestSettings SettingsDialog::settings() const
     result.band144RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band144RotorCombo->currentData().toInt());
     result.band432RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band432RotorCombo->currentData().toInt());
     result.band1296RotorSlot = static_cast<ContestSettings::RotorSlot>(m_band1296RotorCombo->currentData().toInt());
+    result.bandOtherRotorSlot = static_cast<ContestSettings::RotorSlot>(m_bandOtherRotorCombo->currentData().toInt());
 
     result.rotorDialStyle = static_cast<RotorDialStyle>(m_rotorDialStyleCombo->currentData().toInt());
     result.colorTheme = static_cast<ColorTheme>(m_colorThemeCombo->currentData().toInt());
@@ -671,6 +939,11 @@ ContestSettings SettingsDialog::settings() const
     result.cwMacros = macros;
 
     result.broadcastEnabled = m_broadcastEnabledCheck->isChecked();
+    result.audioRecordEnabled = m_audioRecordEnabledDurchgereicht;
+    result.audioRecordDevice = m_audioRecordDeviceCombo->currentData().toString();
+    result.audioRecordFolder = m_audioRecordFolderEdit->text().trimmed();
+    result.audioRecordRollMinutes = m_audioRecordRollSpin->value();
+    result.audioRecordMinFreePercent = m_audioRecordFreeSpin->value();
     result.broadcastHost = m_broadcastHostEdit->text().trimmed();
     result.broadcastPort = m_broadcastPortSpin->value();
 
@@ -800,6 +1073,7 @@ void SettingsDialog::refreshBandRotorCombos()
     rebuild(m_band144RotorCombo);
     rebuild(m_band432RotorCombo);
     rebuild(m_band1296RotorCombo);
+    rebuild(m_bandOtherRotorCombo);
 }
 
 } // namespace Contestprogramm

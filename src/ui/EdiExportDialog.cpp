@@ -2,6 +2,7 @@
 
 #include "core/Maidenhead.h"
 #include "data/ContestDatabase.h"
+#include "data/FileWrite.h"
 #include "data/LogCheck.h"
 #include "data/QsoRecord.h"
 #include "ui/StyleKit.h"
@@ -287,10 +288,11 @@ bool EdiExportDialog::exportNow()
 {
     m_writtenFiles.clear();
 
-    if (m_settings.ownCallsign.trimmed().isEmpty() || !isValidGridSquare(m_settings.ownGrid)) {
+    if (m_settings.ownCallsign.trimmed().isEmpty() || !isFullLocator(m_settings.ownGrid)) {
         QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
-                             QStringLiteral("Eigenes Rufzeichen und Locator müssen in den Einstellungen "
-                                            "gesetzt sein -- ohne PCall/PWWLo ist ein EDI-Log wertlos."));
+                             QStringLiteral("Eigenes Rufzeichen und der sechsstellige Locator müssen in den "
+                                            "Einstellungen gesetzt sein -- ohne PCall/PWWLo ist ein EDI-Log "
+                                            "wertlos, und mit nur vier Stellen (JN67) auch."));
         return false;
     }
 
@@ -360,17 +362,18 @@ bool EdiExportDialog::exportNow()
     for (const QString& band : bands) {
         const QString text = exporter.exportBand(m_settings.activeContestId, band, m_definition, m_settings, station);
         const QString path = QDir(directory).filePath(EdiExporter::suggestedFileName(m_settings.ownCallsign, band));
-        QFile file(path);
-        // No QIODevice::Text: the exporter already terminates every line
-        // with CRLF, and Text mode would double the CR on Windows.
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        // writeFileChecked writes the bytes exactly as given (no Text
+        // mode): the exporter already terminates every line with CRLF,
+        // which Text mode would double on Windows. And a short write --
+        // a full disk, a stick pulled out between the two band files --
+        // now fails here instead of being reported as a finished export.
+        QString writeError;
+        if (!writeFileChecked(path, text.toLatin1(), &writeError)) {
             QMessageBox::warning(this, QStringLiteral("Contestprogramm"),
                                  QStringLiteral("Datei konnte nicht geschrieben werden:\n%1\n%2")
-                                     .arg(path, file.errorString()));
+                                     .arg(path, writeError));
             return false;
         }
-        file.write(text.toLatin1());
-        file.close();
         written << path;
     }
 
