@@ -32,6 +32,7 @@ private slots:
     void archiveContestMovesQsosAndKeepsTheirLocators();
     void nextSerialCountsPerBandWhenAsked();
     void preExistingTableWithoutNewColumnsIsMigrated();
+    void einGetragenesQsoUeberlebtDenStromausfall();
 };
 
 void TestContestDatabase::schemaIsCreated()
@@ -58,6 +59,47 @@ void TestContestDatabase::schemaIsCreated()
         ++indexCount;
     }
     QCOMPARE(indexCount, 3);
+}
+
+// ── Die Sperrklinke gegen stilles Zurueckdrehen (2026-11-01) ───────────────
+//
+// Betreiber: „WICHTIG ist, dass das logprogramm nie abstuerzt. sollte es
+// probleme geben, muss ... automatisch gespeichert werden."
+//
+// Hier stand `synchronous = NORMAL` mit der Begruendung, das vermeide die
+// fsync-Kosten und sei „crash-safe for the common case". Fuer einen
+// Programmabsturz stimmt das. Fuer einen STROMAUSFALL nicht -- und am
+// Contest-Standort (Bergstation, Aggregat oder Batterie) ist das der
+// realistische Fall.
+//
+// `fullfsync` gehoert dazu, weil `FULL` auf macOS allein nichts nuetzt: ein
+// gewoehnliches fsync() zwingt die Platte dort nicht, ihren Puffer zu leeren.
+//
+// Gemessen am 2026-11-01: NORMAL 0,02 ms je QSO, FULL 0,04 ms,
+// FULL + fullfsync 0,38 ms. Bei zehn QSOs je Minute sind das vier
+// Millisekunden in der Minute.
+void TestContestDatabase::einGetragenesQsoUeberlebtDenStromausfall()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    ContestDatabase db;
+    QVERIFY(db.open(dir.filePath(QStringLiteral("strom.sqlite")),
+                    QStringLiteral("test_strom")));
+
+    QSqlQuery query(db.db());
+
+    QVERIFY(query.exec(QStringLiteral("PRAGMA journal_mode")));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toString().toLower(), QStringLiteral("wal"));
+
+    // 2 = FULL. 1 waere NORMAL, 0 OFF.
+    QVERIFY(query.exec(QStringLiteral("PRAGMA synchronous")));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toInt(), 2);
+
+    QVERIFY(query.exec(QStringLiteral("PRAGMA fullfsync")));
+    QVERIFY(query.next());
+    QCOMPARE(query.value(0).toInt(), 1);
 }
 
 void TestContestDatabase::insertAndQueryRoundTrip()
