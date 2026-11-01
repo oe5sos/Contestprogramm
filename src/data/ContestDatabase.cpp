@@ -181,10 +181,32 @@ bool ContestDatabase::ensureSchema()
     // fsync je Commit -- bei einem QSO alle paar Sekunden ist das
     // nicht spürbar (gemessen im Prüfstand test_log_haltbarkeit), und
     // ein verlorenes QSO ist im Contest teurer als jede Millisekunde.
+    //
+    // ── fullfsync kommt dazu (2026-11-01) ───────────────────────────
+    //
+    // `FULL` allein nuetzt auf macOS nicht, was es verspricht: ein
+    // gewoehnliches fsync() zwingt die Platte dort NICHT, ihren eigenen
+    // Puffer zu leeren. SQLite benutzt F_FULLFSYNC erst, wenn man es
+    // ausdruecklich verlangt -- und genau das tut dieses PRAGMA. Ohne
+    // es bleibt der Stromausfall, gegen den FULL oben gewaehlt wurde,
+    // teilweise offen.
+    //
+    // Die Kosten dazu, am 2026-11-01 gemessen (200 QSOs, je eine
+    // Transaktion, wie im Betrieb):
+    //
+    //     NORMAL              0,02 ms je QSO
+    //     FULL                0,04 ms je QSO
+    //     FULL + fullfsync    0,38 ms je QSO
+    //
+    // Bei zehn QSOs in der Minute sind das vier Millisekunden je Minute
+    // -- dieselbe Abwaegung wie oben, nur eine Stufe weiter.
     if (!execOrRecord(query, QStringLiteral("PRAGMA journal_mode = WAL"), m_lastError)) {
         return false;
     }
     if (!execOrRecord(query, QStringLiteral("PRAGMA synchronous = FULL"), m_lastError)) {
+        return false;
+    }
+    if (!execOrRecord(query, QStringLiteral("PRAGMA fullfsync = 1"), m_lastError)) {
         return false;
     }
 

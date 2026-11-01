@@ -117,6 +117,21 @@ void TestLogHaltbarkeit::everyLoggedQsoSurvivesAHardKill()
     QVERIFY(db.pragmaValueForTest(QStringLiteral("synchronous"), stufe));
     qInfo().noquote() << "PRAGMA synchronous =" << stufe.toInt() << "(2 = FULL)";
     QCOMPARE(stufe.toInt(), 2);
+
+    // Dazu fullfsync (2026-11-01). Auf macOS zwingt ein gewöhnliches
+    // fsync() die Platte NICHT, ihren eigenen Puffer zu leeren -- erst
+    // F_FULLFSYNC tut das, und SQLite nimmt es nur auf Verlangen. Ohne
+    // diesen Schalter bleibt der Stromausfall, gegen den FULL oben
+    // gewählt wurde, teilweise offen. Gemessener Preis: 0,38 statt
+    // 0,04 ms je QSO.
+    //
+    // Dieser Prüflauf selbst erschlägt nur den Prozess, und das fängt
+    // schon WAL ab -- er kann den Nutzen also nicht zeigen, nur die
+    // Einstellung festhalten. Genau dafür steht er hier.
+    QVariant vollstaendig;
+    QVERIFY(db.pragmaValueForTest(QStringLiteral("fullfsync"), vollstaendig));
+    qInfo().noquote() << "PRAGMA fullfsync =" << vollstaendig.toInt() << "(1 = an)";
+    QCOMPARE(vollstaendig.toInt(), 1);
 }
 
 // Der Fall, der im Contest wirklich vorkommt: der Rechner geht MITTEN
