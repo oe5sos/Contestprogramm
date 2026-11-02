@@ -11,6 +11,7 @@
 #include "core/On4kstClient.h"
 #include "core/RecentPropagationTracker.h"
 #include "core/RigctldClient.h"
+#include "core/SpectrumClient.h"
 #include "core/RotctldClient.h"
 #include "core/RigctldProcess.h"
 #include "core/RotctldProcess.h"
@@ -86,6 +87,11 @@ public:
     const ContestDatabase& database() const { return m_database; }
     DupeChecker& dupeChecker() { return m_dupeChecker; }
     RigctldClient& rigctldClient() { return m_rigctldClient; }
+
+    // Der Spektrum-Zulauf fuer den Wasserfall (ui/WaterfallWidget.h).
+    // Liegt hier und nicht im Fenster, weil er eine Netzverbindung ist
+    // wie rigctld -- applyNetworkSettings() schaltet ihn mit.
+    SpectrumClient& spectrumClient() { return m_spectrumClient; }
     On4kstClient& on4kstClient() { return m_on4kstClient; }
     DxClusterClient& dxClusterClient() { return m_dxClusterClient; }
     // Two independent rotor slots -- see ContestSettings::rotor1Host/
@@ -275,6 +281,7 @@ private:
     CountryPrefixIndex m_countryIndex;
     MultiplierTracker m_multiplierTracker; // holds ContestDatabase& -- declared after m_database
     RigctldClient m_rigctldClient;
+    SpectrumClient m_spectrumClient;
     On4kstClient m_on4kstClient;
     DxClusterClient m_dxClusterClient;
     RotctldClient m_rotor1;

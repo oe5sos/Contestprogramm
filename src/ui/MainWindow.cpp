@@ -41,6 +41,8 @@
 #include "models/LogTableModel.h"
 #include "ui/BackupRestoreDialog.h"
 #include "ui/BandmapWidget.h"
+#include "ui/WaterfallWidget.h"
+#include "core/SpectrumClient.h"
 #include "ui/ChatPanelWidget.h"
 #include "ui/CabrilloExportDialog.h"
 #include "ui/CheckPartialWidget.h"
@@ -982,6 +984,50 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     m_panelLayoutManager->registerPanel(QStringLiteral("bandmap"), QStringLiteral("Bandmap"), m_bandmapWidget,
                                          /*contentHasOwnChrome=*/false, QRect(806, 732, 170, 250),
                                          QRect(806, 518, 566, 174));
+
+    // ── Wasserfall ───────────────────────────────────────────────────
+    //
+    // Das Bild kommt fertig von Longpath (core/SpectrumClient.h), es
+    // wird hier nicht gerechnet. Der Betreiber am 2026-11-01: „WICHTIG
+    // ist, dass das logprogramm nie abstürzt" -- darum hängt an diesem
+    // Panel nichts, was das Log umwerfen könnte: kein Faden, keine FFT,
+    // keine Bedienung, die etwas sendet.
+    //
+    // Es steht ab Werk AUS (ContestSettings::spectrumEnabled) und wird
+    // in Datei > Einstellungen eingeschaltet. Ein schwarzes Feld, das
+    // nie etwas zeigt, weil Longpath nicht läuft, wäre schlimmer als
+    // kein Feld.
+    //
+    // Die Vorgabelage liegt auf der KARTE, in beiden Entwürfen. Das ist
+    // Absicht und nicht Platzmangel: beide sind das große Bild, auf das
+    // man schaut, und man schaut immer nur auf eines. Weil das Panel
+    // versteckt startet, verschiebt sich für niemanden etwas, der es
+    // nicht einschaltet.
+    m_waterfallWidget = new WaterfallWidget(this);
+    SpectrumClient& spektrum = m_appController.spectrumClient();
+    connect(&spektrum, &SpectrumClient::spektrumDa, m_waterfallWidget,
+            [this](const QVector<quint8>& werte, int /*fps*/) {
+        m_waterfallWidget->zeigeSpektrum(werte);
+    });
+    connect(&spektrum, &SpectrumClient::verbindungGeaendert, m_waterfallWidget,
+            [this](bool verbunden) { m_waterfallWidget->setVerbunden(verbunden); });
+    // Nur das Panel weiß, wie breit es ist; Longpath verdichtet auf
+    // genau diese Punktzahl (Spitzenwert, nicht Mittel). 10 Bilder je
+    // Sekunde: genug, um ein Rufzeichen im Rauschen aufblitzen zu
+    // sehen, und rund 27 kB/s statt der 404 kB/s eines I/Q-Stroms.
+    connect(m_waterfallWidget, &WaterfallWidget::breiteGeaendert, &spektrum,
+            [&spektrum](int bildpunkte) { spektrum.setGeometrie(bildpunkte, 10); });
+    // Den Stand GLEICH nachziehen, nicht auf das nächste Signal warten.
+    // AppController::openDatabase ruft applyNetworkSettings() schon,
+    // bevor dieses Fenster existiert -- bei eingeschaltetem Spektrum
+    // kann die Verbindung also längst stehen, und die Meldung darüber
+    // ist dann vorbei. Das Panel schriebe „kein Spektrum" in ein
+    // laufendes Bild. Gefunden von tests/test_wasserfall_leitung.cpp
+    // am 2026-11-01.
+    m_waterfallWidget->setVerbunden(spektrum.istVerbunden());
+    m_panelLayoutManager->registerPanel(QStringLiteral("wasserfall"), QStringLiteral("Wasserfall"),
+                                         m_waterfallWidget, /*contentHasOwnChrome=*/false,
+                                         QRect(706, 0, 734, 560), QRect(706, 0, 666, 250));
     // Skeds (design sheet B, 2026-09-18) -- hidden in saved profiles
     // like Check and Bandmap.
     m_skedPanel = new SkedPanel(this);
@@ -1069,7 +1115,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     for (const QString& id : {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
                                QStringLiteral("suggestion"), QStringLiteral("ratemeter"),
                                QStringLiteral("checkpartial"), QStringLiteral("bandmap"),
-                               QStringLiteral("skeds"), QStringLiteral("chat")}) {
+                               QStringLiteral("skeds"), QStringLiteral("chat"),
+                               QStringLiteral("wasserfall")}) {
         if (PanelContainerWidget* panel = m_panelLayoutManager->panel(id)) {
             connect(panel, &PanelContainerWidget::dragFinished, this, [this, id](const QPoint& globalPos) {
                 // Beide Richtungen am selben Griff: liegt das Panel
@@ -1088,6 +1135,9 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     }
 
     m_panelLayoutManager->finalizeInitialLayout();
+
+    // Kein Spektrum eingeschaltet, kein Wasserfall-Panel. Siehe dort.
+    applyWaterfallVisibility();
 
     // Erst jetzt, wo jedes Panel seine gespeicherte Lage hat: die
     // gemerkte Lage merkt sich beim Hineinlegen genau diese Geometrie
@@ -1126,7 +1176,8 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         // baut.
         {QStringLiteral("unifiedlog"), QStringLiteral("rotorrow"), QStringLiteral("map"),
          QStringLiteral("suggestion"), QStringLiteral("ratemeter"), QStringLiteral("checkpartial"),
-         QStringLiteral("bandmap"), QStringLiteral("skeds"), QStringLiteral("chat")},
+         QStringLiteral("bandmap"), QStringLiteral("skeds"), QStringLiteral("chat"),
+         QStringLiteral("wasserfall")},
         this);
     // A fresh database only: the panels get the design that fits the
     // canvas once it has its real size, and profile "1" is snapshotted
@@ -1844,6 +1895,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
         {QStringLiteral("skeds"), QStringLiteral("Skeds")},
         {QStringLiteral("chat"), QStringLiteral("Chat")},
+        {QStringLiteral("wasserfall"), QStringLiteral("Wasserfall")},
     };
     // Panels als eigene Fenster ablösen -- Martin, 2026-09-28: "schön
     // wäre es, ein windows zu haben, wo ich alle windows auch aber auch
@@ -4642,7 +4694,26 @@ void MainWindow::openSettingsDialog()
     refreshSuggestionPanel();
     m_mapWidget->setVisibleRangeKm(m_appController.settings().radiusKm);
     m_rateMeterWidget->setSource(&m_appController.database(), m_appController.settings().activeContestId);
+    applyWaterfallVisibility();
     updateStatusBar();
+}
+
+// Eine Regel, nicht zwei: ist das Spektrum in den Einstellungen aus, ist
+// das Panel weg. Alles andere wäre ein schwarzes Feld mit der Aufschrift
+// „kein Spektrum", das im Contest Platz und Blick kostet, ohne je etwas
+// zu zeigen. Wo das Panel LIEGT, bleibt Sache der Layoutprofile.
+void MainWindow::applyWaterfallVisibility()
+{
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(QStringLiteral("wasserfall"));
+    if (panel == nullptr) {
+        return;
+    }
+    const bool an = m_appController.settings().spectrumEnabled;
+    if (!an) {
+        panel->setVisible(false);
+    } else if (panel->isHidden()) {
+        panel->setVisible(true);
+    }
 }
 
 void MainWindow::openContestRulesEditor()

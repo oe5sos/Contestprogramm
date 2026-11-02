@@ -170,6 +170,13 @@ contestprogramm_add_test(test_edi_spezifikation)
 contestprogramm_add_test(test_fenster_bei_leerem_log)
 contestprogramm_add_test(test_chat_dauerlast)
 contestprogramm_add_test(test_enter_am_contestende)
+# Der Wasserfall. Der Schwerpunkt liegt auf dem Grenzprüfen der
+# eingehenden Rahmen -- siehe die Gegenprobe in der Datei.
+contestprogramm_add_test(test_wasserfall)
+# Dasselbe über eine echte Leitung: ein WebSocket-Doppel auf einem
+# flüchtigen Port der Rückschleife. Prüft unter anderem, dass das Log
+# NUR spectrum_start/spectrum_stop sendet und nie ein Gerät bedient.
+contestprogramm_add_test(test_wasserfall_leitung mocks/MockSpectrumServer.cpp)
 
 # macOS: hält fest, dass das fertige Programm auf älteren Systemen
 # startet. Kein C++-Prüfstand, weil die Frage nicht am Verhalten hängt,

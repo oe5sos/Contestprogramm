@@ -99,7 +99,11 @@ jobs:
           # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
           # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
           # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
-          modules: qtmultimedia
+          #
+          # Seit 2026-11-01 ebenso qtwebsockets: der Wasserfall holt sein
+          # Bild ueber einen WebSocket von Longpath (core/SpectrumClient.h).
+          # Auch ein Zusatzmodul, also auch hier zu nennen.
+          modules: qtmultimedia qtwebsockets
       - name: Konfigurieren und bauen
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -156,7 +160,11 @@ jobs:
           # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
           # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
           # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
-          modules: qtmultimedia
+          #
+          # Seit 2026-11-01 ebenso qtwebsockets: der Wasserfall holt sein
+          # Bild ueber einen WebSocket von Longpath (core/SpectrumClient.h).
+          # Auch ein Zusatzmodul, also auch hier zu nennen.
+          modules: qtmultimedia qtwebsockets
       - name: zlib (vcpkg, statisch, dynamische CRT)
         shell: pwsh
         run: |
@@ -237,7 +245,11 @@ jobs:
           # (core/QsoAudioCapture.h). qtmultimedia ist NICHT im
           # Standardumfang dieser Aktion -- ohne diese Zeile scheitert
           # find_package(Qt6 ... Multimedia) auf allen drei Plattformen.
-          modules: qtmultimedia
+          #
+          # Seit 2026-11-01 ebenso qtwebsockets: der Wasserfall holt sein
+          # Bild ueber einen WebSocket von Longpath (core/SpectrumClient.h).
+          # Auch ein Zusatzmodul, also auch hier zu nennen.
+          modules: qtmultimedia qtwebsockets
       - name: Konfigurieren und bauen
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \

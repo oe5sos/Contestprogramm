@@ -188,6 +188,10 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
     antennaHeightM = database.settingValue(QStringLiteral("antenna_height_m"), QString::number(antennaHeightM)).toDouble();
     tciHost = database.settingValue(QStringLiteral("tci_host"), tciHost);
     tciPort = database.settingValue(QStringLiteral("tci_port"), QString::number(tciPort)).toInt();
+    spectrumEnabled = boolFromString(
+        database.settingValue(QStringLiteral("spectrum_enabled"),
+                              boolToString(spectrumEnabled)),
+        spectrumEnabled);
     rigctldHost = database.settingValue(QStringLiteral("rigctld_host"), rigctldHost);
     rigctldPort = database.settingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort)).toInt();
     rigctldHamlibModel = database.settingValue(QStringLiteral("rigctld_hamlib_model"),
@@ -338,6 +342,7 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("antenna_height_m"), QString::number(antennaHeightM));
     database.setSettingValue(QStringLiteral("tci_host"), tciHost);
     database.setSettingValue(QStringLiteral("tci_port"), QString::number(tciPort));
+    database.setSettingValue(QStringLiteral("spectrum_enabled"), boolToString(spectrumEnabled));
     database.setSettingValue(QStringLiteral("rigctld_host"), rigctldHost);
     database.setSettingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort));
     database.setSettingValue(QStringLiteral("rigctld_hamlib_model"), QString::number(rigctldHamlibModel));

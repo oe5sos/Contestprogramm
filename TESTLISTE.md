@@ -23,6 +23,16 @@ bewusst aufgeschoben.
 
 ## Claude (gebaut, aber noch nicht am echten Gerät geprüft)
 
+- [ ] **Wasserfall gegen das echte Longpath.** Gebaut und belegt ist der
+      Rahmenleser (`tests/test_wasserfall.cpp`, samt Gegenprobe mit einem
+      Rahmen, der 8192 Punkte verspricht und 10 mitbringt) und die Leitung
+      gegen ein WebSocket-Doppel (`tests/test_wasserfall_leitung.cpp`),
+      dazu ein Bild aus dem laufenden Fenster. **Noch offen:** ein Lauf
+      gegen das wirkliche Longpath mit einem Gerät daran -- stimmt die
+      Breite des Bildes mit dem, was Longpath zeigt, und hält die Leitung
+      über Stunden? *Datei › Einstellungen › Wasserfall*, Longpath-Host
+      und -Port.
+
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.
 - [ ] **Magenta im Chat** — Prüfstand und Bild vorhanden; live erst
