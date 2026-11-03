@@ -192,6 +192,10 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
         database.settingValue(QStringLiteral("spectrum_enabled"),
                               boolToString(spectrumEnabled)),
         spectrumEnabled);
+    spectrumFarbig = boolFromString(
+        database.settingValue(QStringLiteral("spectrum_farbig"),
+                              boolToString(spectrumFarbig)),
+        spectrumFarbig);
     rigctldHost = database.settingValue(QStringLiteral("rigctld_host"), rigctldHost);
     rigctldPort = database.settingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort)).toInt();
     rigctldHamlibModel = database.settingValue(QStringLiteral("rigctld_hamlib_model"),
@@ -343,6 +347,7 @@ void ContestSettings::saveTo(ContestDatabase& database) const
     database.setSettingValue(QStringLiteral("tci_host"), tciHost);
     database.setSettingValue(QStringLiteral("tci_port"), QString::number(tciPort));
     database.setSettingValue(QStringLiteral("spectrum_enabled"), boolToString(spectrumEnabled));
+    database.setSettingValue(QStringLiteral("spectrum_farbig"), boolToString(spectrumFarbig));
     database.setSettingValue(QStringLiteral("rigctld_host"), rigctldHost);
     database.setSettingValue(QStringLiteral("rigctld_port"), QString::number(rigctldPort));
     database.setSettingValue(QStringLiteral("rigctld_hamlib_model"), QString::number(rigctldHamlibModel));

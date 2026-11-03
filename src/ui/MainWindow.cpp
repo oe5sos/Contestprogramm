@@ -1025,6 +1025,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // laufendes Bild. Gefunden von tests/test_wasserfall_leitung.cpp
     // am 2026-11-01.
     m_waterfallWidget->setVerbunden(spektrum.istVerbunden());
+    m_waterfallWidget->setFarbig(m_appController.settings().spectrumFarbig);
     m_panelLayoutManager->registerPanel(QStringLiteral("wasserfall"), QStringLiteral("Wasserfall"),
                                          m_waterfallWidget, /*contentHasOwnChrome=*/false,
                                          QRect(706, 0, 734, 560), QRect(706, 0, 666, 250));
@@ -4713,6 +4714,11 @@ void MainWindow::applyWaterfallVisibility()
         panel->setVisible(false);
     } else if (panel->isHidden()) {
         panel->setVisible(true);
+    }
+    // Die Farbwahl gehoert zur selben Einstellungsseite und wird am
+    // selben Ort nachgezogen (2026-11-03).
+    if (m_waterfallWidget != nullptr) {
+        m_waterfallWidget->setFarbig(m_appController.settings().spectrumFarbig);
     }
 }
 

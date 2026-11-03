@@ -23,15 +23,19 @@ bewusst aufgeschoben.
 
 ## Claude (gebaut, aber noch nicht am echten Gerät geprüft)
 
-- [ ] **Wasserfall gegen das echte Longpath.** Gebaut und belegt ist der
-      Rahmenleser (`tests/test_wasserfall.cpp`, samt Gegenprobe mit einem
-      Rahmen, der 8192 Punkte verspricht und 10 mitbringt) und die Leitung
-      gegen ein WebSocket-Doppel (`tests/test_wasserfall_leitung.cpp`),
-      dazu ein Bild aus dem laufenden Fenster. **Noch offen:** ein Lauf
-      gegen das wirkliche Longpath mit einem Gerät daran -- stimmt die
-      Breite des Bildes mit dem, was Longpath zeigt, und hält die Leitung
-      über Stunden? *Datei › Einstellungen › Wasserfall*, Longpath-Host
-      und -Port.
+- [ ] **Wasserfall gegen das echte Longpath — am 2026-11-03 gefahren, es
+      läuft.** Gebaut und belegt waren Rahmenleser (`tests/test_wasserfall.cpp`)
+      und Leitung gegen ein WebSocket-Doppel (`tests/test_wasserfall_leitung.cpp`).
+      Am 2026-11-02 gegen das echte Longpath: Abonnement bestätigt, **null
+      Binärrahmen** (nackter Prüf-Client, nicht das Logprogramm). Ursache
+      Longpath-seitig: der Spektrum-Abgriff hing an der FFTEngine von Strom 0,
+      die bei der Flex nichts rechnet; behoben in oe5sos/Longpath#378
+      (`RadioModel::spektrumBereit`). Am 2026-11-03 17:33 mit dem Bau aus #378
+      an der Flex: 65 Binärrahmen in 8 s, das Logprogramm abonniert 718 Punkte,
+      erstes Bild 7 ms später, **das Panel zeigt das Band**. Seit #378 steht
+      im Longpath-Protokoll „erstes Spektrumbild gesendet" — fehlt sie bei
+      stehendem Abonnement, ist Longpath die Seite. Offen: stimmt die Breite
+      im Panel (keine Skala dort), hält die Leitung über Stunden?
 
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.

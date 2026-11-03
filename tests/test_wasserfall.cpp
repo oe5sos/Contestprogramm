@@ -31,6 +31,8 @@
 
 #include <QtTest>
 
+#include <cstdlib>
+
 #include <QApplication>
 #include <QByteArray>
 #include <QColor>
@@ -88,6 +90,7 @@ private slots:
 
     // ── Das Panel ───────────────────────────────────────────────────
     void dieFarbeFolgtDemPegel();
+    void inFarbeFolgtEsLongpath();
     void einSpektrumAndererBreiteWirftNichtsUm();
     void dieBreiteMeldetSichFuerDieVerdichtung();
     void ohneVerbindungStehtEsEhrlichDa();
@@ -246,6 +249,54 @@ void TestWasserfall::dieFarbeFolgtDemPegel()
     const QColor heiss = panel.farbeFuerTest(decke);
     QVERIFY(heiss.red() + heiss.green() + heiss.blue()
             > kalt.red() + kalt.green() + kalt.blue());
+}
+
+// ── In Farbe folgt es Longpath ──────────────────────────────────────
+//
+// Betreiber am 2026-11-03: "die farben soll als option auch wie bei
+// longpath in farbe angezeigt werden." Die Option schaltet auf Longpaths
+// Vorgabe-Palette um; die Stuetzstellen sind dieselben wie dort, also
+// muss ein Pegel hier dieselbe Farbe bekommen wie im Longpath-Fenster.
+// Ohne die Option bleibt alles beim Bernstein (dieFarbeFolgtDemPegel).
+void TestWasserfall::inFarbeFolgtEsLongpath()
+{
+    WaterfallWidget panel;
+    const quint8 boden = quint8(WaterfallWidget::kBodenDbm + SpectrumClient::kDbmVersatz);
+    const quint8 decke = quint8(WaterfallWidget::kDeckeDbm + SpectrumClient::kDbmVersatz);
+
+    // Vorgabe: aus, Bernstein wie bisher.
+    QVERIFY(!panel.istFarbig());
+    QCOMPARE(panel.farbeFuerTest(decke), QColor(Style::kAmberText()));
+
+    panel.setFarbig(true);
+    QVERIFY(panel.istFarbig());
+
+    // Longpaths Stuetzstellen (SpectrumWidget.cpp, kDefaultStops):
+    // Boden Schwarz, 30 % Blau, 60 % Gruen, Decke Rot.
+    QCOMPARE(panel.farbeFuerTest(boden),             QColor(0, 0, 0));
+    QCOMPARE(panel.farbeFuerTest(quint8(boden - 20)), QColor(0, 0, 0));
+    QCOMPARE(panel.farbeFuerTest(quint8(boden + 30)), QColor(0, 64, 255));
+    QCOMPARE(panel.farbeFuerTest(quint8(boden + 60)), QColor(0, 220, 0));
+    QCOMPARE(panel.farbeFuerTest(decke),             QColor(255, 0, 0));
+    QCOMPARE(panel.farbeFuerTest(255),               QColor(255, 0, 0));
+
+    // Dazwischen kein Sprung: benachbarte Pegel liegen je Kanal hoechstens
+    // eine Stuetzstellen-Steigung auseinander (steilste: 255 ueber 15 dB).
+    QColor vorher = panel.farbeFuerTest(boden);
+    for (int wert = boden + 1; wert <= decke; ++wert) {
+        const QColor jetzt = panel.farbeFuerTest(quint8(wert));
+        QVERIFY2(std::abs(jetzt.red()   - vorher.red())   <= 18
+              && std::abs(jetzt.green() - vorher.green()) <= 18
+              && std::abs(jetzt.blue()  - vorher.blue())  <= 18,
+                 qPrintable(QStringLiteral("Sprung bei Pegel %1 dBm")
+                                .arg(wert - SpectrumClient::kDbmVersatz)));
+        vorher = jetzt;
+    }
+
+    // Und zurueck: wieder Bernstein, nichts bleibt haengen.
+    panel.setFarbig(false);
+    QCOMPARE(panel.farbeFuerTest(decke), QColor(Style::kAmberText()));
+    QCOMPARE(panel.farbeFuerTest(boden), QColor(Style::kPanelBg()));
 }
 
 // ── Ein Spektrum anderer Breite wirft nichts um ─────────────────────

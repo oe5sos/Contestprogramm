@@ -40,6 +40,11 @@ struct ContestSettings {
     // Longpath gäbe es nur ein leeres Feld, und ein Logbuch soll nicht
     // beim Start an einer Leitung ziehen, die niemand bestellt hat.
     bool spectrumEnabled = false;
+    // Farbe des Wasserfalls: AUS = ein Bernsteinton der Hausfarbe (seit
+    // #67), AN = die Vorgabe-Palette von Longpath (Schwarz, Blau, Cyan,
+    // Gruen, Gelb, Rot). Betreiber am 2026-11-03: "die farben soll als
+    // option auch wie bei longpath in farbe angezeigt werden."
+    bool spectrumFarbig = false;
     // Hamlib rigctld -- the contest station's actual CAT radio path
     // (Kenwood TS-590 / Elecraft K3), per the plan's "Funkgerät:
     // klassischer TRX statt zwingend Longpath/SDR" section. rigctld's

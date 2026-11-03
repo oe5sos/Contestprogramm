@@ -8,6 +8,7 @@
 #include <QShowEvent>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace Contestprogramm {
@@ -47,9 +48,66 @@ void WaterfallWidget::legeBildNeuAn()
 //
 // Alle drei Werte kommen aus StyleKit, folgen also dem gewählten Thema
 // statt hier festgeschrieben zu sein.
+// ── Die Farbe, wenn der Betreiber sie will ───────────────────────────────
+//
+// Die Vorgabe-Palette von Longpath, Stufe fuer Stufe: Schwarz, Dunkelblau,
+// Blau, Cyan, Gruen, Gelb, Rot. Uebernommen aus Longpath
+// src/gui/SpectrumWidget.cpp (kDefaultStops, "From AetherSDR
+// SpectrumWidget.cpp:43-51", ten9876/AetherSDR, GPLv3 -- dieselbe Lizenz
+// wie dieses Programm). Gleiche Stuetzstellen, gleiche lineare
+// Zwischenfarbe mit Rundung, damit ein Signal hier dieselbe Farbe hat wie
+// druebe im Longpath-Fenster.
+namespace {
+struct FarbStuetze { double pos; int r, g, b; };
+constexpr FarbStuetze kLongpathStuetzen[] = {
+    {0.00,   0,   0,   0},    // Schwarz
+    {0.15,   0,   0, 128},    // Dunkelblau
+    {0.30,   0,  64, 255},    // Blau
+    {0.45,   0, 200, 255},    // Cyan
+    {0.60,   0, 220,   0},    // Gruen
+    {0.80, 255, 255,   0},    // Gelb
+    {1.00, 255,   0,   0},    // Rot
+};
+
+QColor longpathFarbe(double t)
+{
+    t = std::clamp(t, 0.0, 1.0);
+    constexpr int n = int(sizeof(kLongpathStuetzen) / sizeof(kLongpathStuetzen[0]));
+    for (int i = 0; i < n - 1; ++i) {
+        const FarbStuetze& lo = kLongpathStuetzen[i];
+        const FarbStuetze& hi = kLongpathStuetzen[i + 1];
+        if (t <= hi.pos) {
+            const double spanne = hi.pos - lo.pos;
+            const double u = (spanne > 0.0) ? (t - lo.pos) / spanne : 0.0;
+            return QColor(int(std::lround(lo.r + u * (hi.r - lo.r))),
+                          int(std::lround(lo.g + u * (hi.g - lo.g))),
+                          int(std::lround(lo.b + u * (hi.b - lo.b))));
+        }
+    }
+    const FarbStuetze& letzte = kLongpathStuetzen[n - 1];
+    return QColor(letzte.r, letzte.g, letzte.b);
+}
+}  // namespace
+
+void WaterfallWidget::setFarbig(bool farbig)
+{
+    if (m_farbig == farbig) { return; }
+    m_farbig = farbig;
+    // Das stehende Bild ist in der alten Farbe gemalt; neu anlegen, statt
+    // zwei Paletten uebereinander laufen zu lassen.
+    legeBildNeuAn();
+    update();
+}
+
 QColor WaterfallWidget::farbe(quint8 wert) const
 {
     const int db = dbmAus(wert);
+    if (m_farbig) {
+        // Wie Longpath: unter dem Boden Schwarz, nicht der Panelgrund --
+        // die Palette beginnt bei Schwarz, und ein Grund in Panelfarbe
+        // saesse als Stufe im Verlauf.
+        return longpathFarbe(double(db - kBodenDbm) / double(kDeckeDbm - kBodenDbm));
+    }
     if (db <= kBodenDbm) { return QColor(Style::kPanelBg()); }
 
     const double t = std::clamp(double(db - kBodenDbm) / double(kDeckeDbm - kBodenDbm),

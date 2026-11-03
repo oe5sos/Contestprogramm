@@ -46,6 +46,12 @@ public:
     void zeigeSpektrum(const QVector<quint8>& werte);
 
     void setVerbunden(bool verbunden);
+
+    // Farbig wie Longpath (Vorgabe-Palette dort) statt des Bernsteintons.
+    // Eine Option, kein Umbau: beides bleibt, der Betreiber waehlt in
+    // Datei > Einstellungen > Wasserfall (2026-11-03).
+    void setFarbig(bool farbig);
+    bool istFarbig() const { return m_farbig; }
     bool istVerbunden() const { return m_verbunden; }
 
     // Prüfnaht: die Farbe, die ein Wert bekommt. Einzeln prüfbar, damit
@@ -73,6 +79,7 @@ private:
     QVector<quint8> m_letztesSpektrum;
     int             m_gefuellteZeilen = 0;
     bool            m_verbunden = false;
+    bool            m_farbig = false;
 };
 
 } // namespace Contestprogramm

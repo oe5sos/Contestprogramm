@@ -161,6 +161,7 @@ private:
     QLineEdit* m_tciHostEdit;
     QSpinBox* m_tciPortSpin;
     QCheckBox* m_spectrumEnabledCheck;
+    QCheckBox* m_spectrumFarbigCheck;
     QLineEdit* m_rigctldHostEdit;
     QSpinBox* m_rigctldPortSpin;
     // Hamlib-Modell, Anschluss und Baudrate für ein rigctld, das DIESES
