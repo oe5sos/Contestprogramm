@@ -34,8 +34,12 @@ bewusst aufgeschoben.
       an der Flex: 65 Binärrahmen in 8 s, das Logprogramm abonniert 718 Punkte,
       erstes Bild 7 ms später, **das Panel zeigt das Band**. Seit #378 steht
       im Longpath-Protokoll „erstes Spektrumbild gesendet" — fehlt sie bei
-      stehendem Abonnement, ist Longpath die Seite. Offen: stimmt die Breite
-      im Panel (keine Skala dort), hält die Leitung über Stunden?
+      stehendem Abonnement, ist Longpath die Seite. Seit #69 hat das Panel
+      eine Frequenzskala und die Marke der eigenen Sendefrequenz (aus
+      `spectrum_centre`/`spectrum_span`/`tx_frequency`); am Prüfstand
+      belegt, am echten Longpath (braucht #378) noch nicht gesehen. Offen:
+      stimmt die Skala mit Longpaths Fenster überein, hält die Leitung über
+      Stunden?
 
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.
