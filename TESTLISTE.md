@@ -23,15 +23,14 @@ bewusst aufgeschoben.
 
 ## Claude (gebaut, aber noch nicht am echten Gerät geprüft)
 
-- [ ] **Wasserfall gegen das echte Longpath.** Gebaut und belegt ist der
-      Rahmenleser (`tests/test_wasserfall.cpp`, samt Gegenprobe mit einem
-      Rahmen, der 8192 Punkte verspricht und 10 mitbringt) und die Leitung
-      gegen ein WebSocket-Doppel (`tests/test_wasserfall_leitung.cpp`),
-      dazu ein Bild aus dem laufenden Fenster. **Noch offen:** ein Lauf
-      gegen das wirkliche Longpath mit einem Gerät daran -- stimmt die
-      Breite des Bildes mit dem, was Longpath zeigt, und hält die Leitung
-      über Stunden? *Datei › Einstellungen › Wasserfall*, Longpath-Host
-      und -Port.
+- [ ] **Wasserfall gegen das echte Longpath — gefahren am 2026-11-02,
+      und er bleibt leer.** Das Logprogramm verbindet sich, Longpath
+      protokolliert „Spektrum abonniert rx 0, 718 Punkte" — und sendet
+      dann **null Binärrahmen**, mit einem nackten Prüf-Client
+      gegengemessen (nicht am Logprogramm: dessen Seite ist gegen ein
+      Doppel mit 400 Rahmen belegt). Longpath-Seite, eigene Sitzung läuft.
+      Erst wenn dort Rahmen kommen, ist hier wieder etwas zu prüfen:
+      stimmt die Breite, hält die Leitung über Stunden?
 
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.
