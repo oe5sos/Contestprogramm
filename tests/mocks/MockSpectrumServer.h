@@ -53,6 +53,9 @@ public:
     // Etwas, das gar nicht zu uns gehört: anderer Stromtyp.
     void sendeFremdenStrom();
 
+    // Eine Textzeile, wie Longpath sie schickt (vfo:, tx_frequency:, ...).
+    void sendeText(const QString& text);
+
     void trenne();
 
 private:

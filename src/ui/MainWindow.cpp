@@ -1024,6 +1024,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // ist dann vorbei. Das Panel schriebe „kein Spektrum" in ein
     // laufendes Bild. Gefunden von tests/test_wasserfall_leitung.cpp
     // am 2026-11-01.
+    // Skala und eigene Frequenz (2026-11-03): aus den Textzeilen, die
+    // Longpath ohnehin schickt. Stand gleich nachziehen, wie oben.
+    connect(&spektrum, &SpectrumClient::lageGeaendert, m_waterfallWidget,
+            [this](double mitte, double spanne, double vfo, double tx, bool sendet) {
+        m_waterfallWidget->setLage(mitte, spanne, vfo, tx, sendet);
+    });
+    {
+        const SpectrumClient::Lage& l = spektrum.lage();
+        m_waterfallWidget->setLage(l.mitteHz, l.spanneHz, l.vfoHz, l.txHz, l.sendet);
+    }
     m_waterfallWidget->setVerbunden(spektrum.istVerbunden());
     m_waterfallWidget->setFarbig(m_appController.settings().spectrumFarbig);
     m_panelLayoutManager->registerPanel(QStringLiteral("wasserfall"), QStringLiteral("Wasserfall"),

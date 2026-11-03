@@ -43,6 +43,7 @@ class TestWasserfallLeitung : public QObject
 private slots:
     void esMeldetSichUndBestelltNurEinBild();
     void einBildKommtBisInsPanel();
+    void dieLageKommtBisInsPanel();
     void einVerdorbenerRahmenWirdGezaehltUndFaelltWeg();
     void einAbbruchFuehrtZumNeuenAnklopfen();
     void ausgeschaltetWirdNichtsGehalten();
@@ -156,6 +157,51 @@ void TestWasserfallLeitung::einBildKommtBisInsPanel()
 // diesmal über eine echte Leitung: 8192 versprochene Punkte, 10
 // mitgelieferte. Er darf nicht ankommen, nicht abstürzen und nicht
 // unbemerkt bleiben.
+// ── Die Lage kommt bis ins Panel ─────────────────────────────────────
+//
+// Longpath schickt die Textzeilen ueber dieselbe Leitung wie die Bilder.
+// Ueber das Doppel: Startfolge, dann spectrum_span/centre -- und das Panel
+// kann daraufhin eine Frequenz in eine Spalte rechnen. Nach einem Abriss
+// ist die Lage weg (sie wird nach dem Wiederanlauf neu gesagt).
+void TestWasserfallLeitung::dieLageKommtBisInsPanel()
+{
+    MockSpectrumServer server;
+    QVERIFY(server.startListening());
+
+    SpectrumClient client;
+    client.setEndpunkt(QStringLiteral("127.0.0.1"), server.port());
+    client.setGeometrie(256, 10);
+    client.starten();
+    QTRY_VERIFY_WITH_TIMEOUT(client.istVerbunden(), 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(server.hasClient(), 5000);
+
+    WaterfallWidget panel;
+    panel.resize(1000, 300);
+    QObject::connect(&client, &SpectrumClient::lageGeaendert, &panel,
+                     [&panel](double mitte, double spanne, double vfo, double tx, bool sendet) {
+        panel.setLage(mitte, spanne, vfo, tx, sendet);
+    });
+    QSignalSpy lagen(&client, &SpectrumClient::lageGeaendert);
+
+    server.sendeText(QStringLiteral("vfo:0,0,14160379;"));
+    server.sendeText(QStringLiteral("tx_frequency:14160379;"));
+    server.sendeText(QStringLiteral("trx:0,false;"));
+    server.sendeText(QStringLiteral("spectrum_span:0,200000;"));
+    server.sendeText(QStringLiteral("spectrum_centre:0,14166500;"));
+    QTRY_VERIFY_WITH_TIMEOUT(client.lage().mitteHz == 14166500.0, 5000);
+    QVERIFY(lagen.count() >= 3);
+    QCOMPARE(client.lage().spanneHz, 200000.0);
+    QCOMPARE(client.lage().txHz, 14160379.0);
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14166500.0), 500);
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14160379.0), 469);   // (14160379-14066500)/200000*1000
+
+    server.trenne();
+    QTRY_VERIFY_WITH_TIMEOUT(!client.istVerbunden(), 5000);
+    QCOMPARE(client.lage().mitteHz, 0.0);
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14166500.0), -1);
+    client.beenden();
+}
+
 void TestWasserfallLeitung::einVerdorbenerRahmenWirdGezaehltUndFaelltWeg()
 {
     MockSpectrumServer server;

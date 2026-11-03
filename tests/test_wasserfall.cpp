@@ -91,6 +91,8 @@ private slots:
     // ── Das Panel ───────────────────────────────────────────────────
     void dieFarbeFolgtDemPegel();
     void inFarbeFolgtEsLongpath();
+    void dieLageKommtAusDenTextzeilen();
+    void dieSkalaBildetFrequenzenAb();
     void einSpektrumAndererBreiteWirftNichtsUm();
     void dieBreiteMeldetSichFuerDieVerdichtung();
     void ohneVerbindungStehtEsEhrlichDa();
@@ -297,6 +299,87 @@ void TestWasserfall::inFarbeFolgtEsLongpath()
     panel.setFarbig(false);
     QCOMPARE(panel.farbeFuerTest(decke), QColor(Style::kAmberText()));
     QCOMPARE(panel.farbeFuerTest(boden), QColor(Style::kPanelBg()));
+}
+
+// ── Die Lage kommt aus den Textzeilen ────────────────────────────────
+//
+// Gemessen am 2026-11-03 gegen das laufende Longpath an der Flex: nach
+// dem Handschlag kommen `dds:0,14160379;`, `vfo:0,0,14160379;`,
+// `vfo:0,1,...;`, `tx_frequency:14160379;`, `trx:0,false;`, und mit dem
+// ersten Bild `spectrum_span:0,200000;` und `spectrum_centre:0,...;`.
+// `dds:` ist dabei das VFO, nicht die Bildmitte -- darum wird es hier
+// NICHT gedeutet. Empfaenger 1 und VFO B fallen durch.
+void TestWasserfall::dieLageKommtAusDenTextzeilen()
+{
+    SpectrumClient::Lage lage;
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("protocol:ExpertSDR3,2.0;"), lage));
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("dds:0,14160379;"), lage));
+    QCOMPARE(lage.mitteHz, 0.0);
+
+    // Mehrere Befehle in einer Nachricht, wie die Startfolge sie bringt.
+    QVERIFY(SpectrumClient::deuteTextFuerTest(
+        QStringLiteral("vfo:0,0,14160379;vfo:0,1,14170000;vfo:1,0,7100000;"), lage));
+    QCOMPARE(lage.vfoHz, 14160379.0);
+
+    QVERIFY(SpectrumClient::deuteTextFuerTest(QStringLiteral("tx_frequency:14160379;"), lage));
+    QCOMPARE(lage.txHz, 14160379.0);
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("tx_frequency:14160379;"), lage));
+
+    QVERIFY(SpectrumClient::deuteTextFuerTest(QStringLiteral("spectrum_span:0,200000;"), lage));
+    QVERIFY(SpectrumClient::deuteTextFuerTest(QStringLiteral("spectrum_centre:0,14166500;"), lage));
+    QCOMPARE(lage.spanneHz, 200000.0);
+    QCOMPARE(lage.mitteHz, 14166500.0);
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("spectrum_centre:1,7085340;"), lage));
+    QCOMPARE(lage.mitteHz, 14166500.0);
+
+    QVERIFY(!lage.sendet);
+    QVERIFY(SpectrumClient::deuteTextFuerTest(QStringLiteral("trx:0,true;"), lage));
+    QVERIFY(lage.sendet);
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("trx:1,false;"), lage));
+    QVERIFY(lage.sendet);
+    QVERIFY(SpectrumClient::deuteTextFuerTest(QStringLiteral("trx:0,false;"), lage));
+    QVERIFY(!lage.sendet);
+
+    // Muell faellt durch, ohne etwas zu veraendern.
+    const SpectrumClient::Lage vorher = lage;
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral("spectrum_centre:0,abc;"), lage));
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QStringLiteral(":::;;;,,,"), lage));
+    QVERIFY(!SpectrumClient::deuteTextFuerTest(QString(), lage));
+    QVERIFY(lage == vorher);
+}
+
+// ── Die Skala bildet Frequenzen ab ───────────────────────────────────
+//
+// Das Bild deckt mitte +- spanne/2 ab, links die tiefste Frequenz (so
+// verdichtet Longpath). Ohne Lage gibt es keine Spalte -- lieber keine
+// Skala als eine falsche.
+void TestWasserfall::dieSkalaBildetFrequenzenAb()
+{
+    WaterfallWidget panel;
+    panel.resize(1000, 300);
+
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14166500.0), -1);   // Lage unbekannt
+    QCOMPARE(panel.skalenSchrittFuerTest(), 0.0);
+
+    panel.setLage(14166500.0, 200000.0, 14160379.0, 14160379.0, false);
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14066500.0), 0);      // linke Kante
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14166500.0), 500);    // Mitte
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14266500.0), 999);    // rechte Kante
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14060000.0), -1);     // ausserhalb
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14300000.0), -1);
+    // 200 kHz auf 1000 Bildpunkten -> 25-kHz-Schritte (acht Marken),
+    // 48 kHz -> 10 kHz; auf 256 Bildpunkten passen nur vier: 50 kHz.
+    QCOMPARE(panel.skalenSchrittFuerTest(), 25000.0);
+    panel.setLage(14166500.0, 48000.0, 14160379.0, 14160379.0, false);
+    QCOMPARE(panel.skalenSchrittFuerTest(), 10000.0);
+    panel.resize(256, 300);
+    panel.setLage(14166500.0, 200000.0, 14160379.0, 14160379.0, false);
+    QCOMPARE(panel.skalenSchrittFuerTest(), 50000.0);
+    panel.resize(1000, 300);
+
+    // Eine Breite von 0 heisst unbekannt, nicht "unendlich schmal".
+    panel.setLage(14166500.0, 0.0, 14160379.0, 14160379.0, false);
+    QCOMPARE(panel.xFuerFrequenzFuerTest(14166500.0), -1);
 }
 
 // ── Ein Spektrum anderer Breite wirft nichts um ─────────────────────

@@ -4,6 +4,7 @@
 
 #include <QPaintEvent>
 #include <QPainter>
+#include <QFontMetrics>
 #include <QResizeEvent>
 #include <QShowEvent>
 
@@ -32,7 +33,8 @@ WaterfallWidget::WaterfallWidget(QWidget* parent)
 void WaterfallWidget::legeBildNeuAn()
 {
     const int b = std::max(1, width());
-    const int h = std::max(1, int(height() * (1.0 - kSpurAnteil)));
+    // Spur oben, Skala dazwischen, der Rest Wasserfall.
+    const int h = std::max(1, height() - int(height() * kSpurAnteil) - kSkalaHoehe);
     if (m_wasserfall.width() == b && m_wasserfall.height() == h) { return; }
     m_wasserfall = QImage(b, h, QImage::Format_RGB32);
     m_wasserfall.fill(QColor(Style::kPanelBg()));
@@ -160,6 +162,119 @@ void WaterfallWidget::zeigeSpektrum(const QVector<quint8>& werte)
     update();
 }
 
+// ── Die Lage ─────────────────────────────────────────────────────────────
+
+void WaterfallWidget::setLage(double mitteHz, double spanneHz, double vfoHz,
+                              double txHz, bool sendet)
+{
+    if (m_mitteHz == mitteHz && m_spanneHz == spanneHz && m_vfoHz == vfoHz
+        && m_txHz == txHz && m_sendet == sendet) {
+        return;
+    }
+    m_mitteHz  = mitteHz;
+    m_spanneHz = spanneHz;
+    m_vfoHz    = vfoHz;
+    m_txHz     = txHz;
+    m_sendet   = sendet;
+    update();
+}
+
+// Die Spalte einer Frequenz. Das Bild deckt mitte +- spanne/2 ab, die
+// linke Kante ist die tiefste Frequenz -- so verdichtet Longpath es
+// (TciServer::onSpektrumBereit: mittig beschnitten, Bins von tief nach
+// hoch). -1, wenn die Lage unbekannt ist oder die Frequenz nicht im Bild.
+int WaterfallWidget::xFuerFrequenz(double hz) const
+{
+    if (m_mitteHz <= 0.0 || m_spanneHz <= 0.0 || hz <= 0.0) { return -1; }
+    const double tief = m_mitteHz - m_spanneHz * 0.5;
+    const double anteil = (hz - tief) / m_spanneHz;
+    if (anteil < 0.0 || anteil > 1.0) { return -1; }
+    const int b = std::max(1, width());
+    return std::min(b - 1, int(anteil * b));
+}
+
+// Ein "runder" Schritt, der hoechstens acht Beschriftungen ins Bild
+// bringt -- und bei einem schmalen Panel weniger, weil jede Zahl rund
+// 60 Bildpunkte braucht und sonst in die naechste laeuft. Bei 200 kHz und
+// 1000 Bildpunkten sind das 25 kHz, bei 48 kHz 10 kHz, bei 256 Bildpunkten
+// und 200 kHz 50 kHz.
+double WaterfallWidget::skalenSchrittHz() const
+{
+    if (m_spanneHz <= 0.0) { return 0.0; }
+    const double maxMarken = std::min(8.0, std::max(2.0, width() / 60.0));
+    static constexpr double kSchritte[] = {
+        1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000,
+        100000, 200000, 250000, 500000, 1000000, 2000000, 5000000 };
+    for (const double schritt : kSchritte) {
+        if (m_spanneHz / schritt <= maxMarken) { return schritt; }
+    }
+    return 10000000.0;
+}
+
+void WaterfallWidget::maleSkalaUndMarke(QPainter& p, int spurHoehe)
+{
+    const int oben = spurHoehe;                 // Oberkante der Skala
+    const int unten = oben + kSkalaHoehe;       // Oberkante des Wasserfalls
+    p.fillRect(QRect(0, oben, width(), kSkalaHoehe), QColor(Style::kPanelBg()));
+    if (m_mitteHz <= 0.0 || m_spanneHz <= 0.0) { return; }
+
+    // ── Die Skala ────────────────────────────────────────────────────
+    const double schritt = skalenSchrittHz();
+    const double tief = m_mitteHz - m_spanneHz * 0.5;
+    const double hoch = m_mitteHz + m_spanneHz * 0.5;
+    p.setFont(Style::monoFont(font(), 10));
+    const QFontMetrics fm(p.font());
+    p.setPen(QColor(Style::kTextTertiary()));
+    // Erste Marke auf dem ersten Vielfachen des Schritts im Bild.
+    for (double f = std::ceil(tief / schritt) * schritt; f <= hoch; f += schritt) {
+        const int x = xFuerFrequenz(f);
+        if (x < 0) { continue; }
+        p.drawLine(x, oben, x, oben + 3);
+        // MHz mit so vielen Stellen, wie der Schritt braucht: 25 kHz -> 3.
+        const int stellen = (schritt >= 100000.0) ? 1 : (schritt >= 10000.0 ? 2 : 3);
+        const QString text = QString::number(f / 1.0e6, 'f', stellen);
+        const int breite = fm.horizontalAdvance(text);
+        int tx = x - breite / 2;
+        tx = std::clamp(tx, 0, std::max(0, width() - breite));
+        p.drawText(QPoint(tx, unten - 3), text);
+    }
+
+    // ── Die eigene Frequenz: wo gesendet wird ────────────────────────
+    //
+    // tx_frequency ist die Frequenz, auf der Longpath sendet -- bei Split
+    // nicht das VFO. Beide, wenn sie auseinanderliegen: die Sendefrequenz
+    // voll, das VFO gestrichelt. Beim Senden wird die Marke breiter und
+    // bekommt "TX" -- in der Hausfarbe, nicht in Rot (kein Alarm, nur
+    // ein Zustand).
+    const int xTx = xFuerFrequenz(m_txHz);
+    const int xVfo = xFuerFrequenz(m_vfoHz);
+    if (xVfo >= 0 && std::abs(m_vfoHz - m_txHz) > 1.0) {
+        QPen stift{QColor(Style::kAmberDim())};
+        stift.setStyle(Qt::DashLine);
+        p.setPen(stift);
+        p.drawLine(xVfo, 0, xVfo, height());
+    }
+    if (xTx >= 0) {
+        QPen stift{QColor(Style::kAmberText())};
+        stift.setWidth(m_sendet ? 3 : 1);
+        p.setPen(stift);
+        p.drawLine(xTx, 0, xTx, height());
+
+        const QString text = QString::number(m_txHz / 1.0e6, 'f', 3)
+            + (m_sendet ? QStringLiteral("  TX") : QString());
+        p.setFont(Style::monoFont(font(), 11, QFont::DemiBold));
+        const QFontMetrics fm2(p.font());
+        const int breite = fm2.horizontalAdvance(text) + 6;
+        // Rechts neben der Linie, am oberen Rand; am rechten Bildrand nach
+        // links ausweichen, damit die Zahl nicht abgeschnitten wird.
+        int tx = (xTx + 4 + breite <= width()) ? xTx + 4 : xTx - 4 - breite;
+        tx = std::max(0, tx);
+        const QRect kasten(tx, 2, breite, fm2.height() + 2);
+        p.fillRect(kasten, QColor(Style::kPanelBg()));
+        p.drawText(kasten, Qt::AlignCenter, text);
+    }
+}
+
 void WaterfallWidget::setVerbunden(bool verbunden)
 {
     if (m_verbunden == verbunden) { return; }
@@ -224,10 +339,13 @@ void WaterfallWidget::paintEvent(QPaintEvent* /*ereignis*/)
         p.setRenderHint(QPainter::Antialiasing, false);
     }
 
-    // ── Der Wasserfall darunter ──────────────────────────────────────
+    // ── Der Wasserfall darunter, unter der Skala ────────────────────
     if (!m_wasserfall.isNull()) {
-        p.drawImage(QPoint(0, spurHoehe), m_wasserfall);
+        p.drawImage(QPoint(0, spurHoehe + kSkalaHoehe), m_wasserfall);
     }
+
+    // ── Skala und die eigene Frequenz ────────────────────────────────
+    maleSkalaUndMarke(p, spurHoehe);
 
     // ── Der ehrliche Hinweis, wenn nichts kommt ──────────────────────
     //
