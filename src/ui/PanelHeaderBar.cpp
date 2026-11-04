@@ -27,6 +27,7 @@ PanelHeaderBar::PanelHeaderBar(const QString& title, QWidget* parent)
     , m_lockButton(new QPushButton(this))
     , m_optionsButton(new QPushButton(QString::fromUtf8("⚙"), this))
     , m_dockButton(new QPushButton(QString::fromUtf8("↙"), this))
+    , m_closeButton(new QPushButton(QString::fromUtf8("✕"), this))
 {
     setFixedHeight(kHeaderHeight);
 
@@ -81,6 +82,21 @@ PanelHeaderBar::PanelHeaderBar(const QString& title, QWidget* parent)
     m_dockButton->setVisible(false);
     layout->addWidget(m_dockButton);
     connect(m_dockButton, &QPushButton::clicked, this, &PanelHeaderBar::dockRequested);
+
+    // ✕ rechts vom ↙ -- dieselbe Reihenfolge wie an Longpaths Fenstern.
+    m_closeButton->setObjectName(QStringLiteral("panelHeaderCloseButton"));
+    m_closeButton->setFixedSize(kOptionsButtonW, kOptionsButtonH);
+    m_closeButton->setCursor(Qt::PointingHandCursor);
+    m_closeButton->setToolTip(QStringLiteral("Schließen (zurück ins Logbuch, ausgeblendet)"));
+    m_closeButton->setStyleSheet(Style::iconButtonStyle());
+    m_closeButton->setVisible(false);
+    layout->addWidget(m_closeButton);
+    connect(m_closeButton, &QPushButton::clicked, this, &PanelHeaderBar::closeRequested);
+}
+
+void PanelHeaderBar::setCloseAffordanceEnabled(bool enabled)
+{
+    m_closeButton->setVisible(enabled);
 }
 
 void PanelHeaderBar::setDockAffordanceEnabled(bool enabled)

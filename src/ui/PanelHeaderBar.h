@@ -84,6 +84,11 @@ public:
     // war bisher der Rueckweg (PanelContainerWidget::closeEvent). Das
     // Zeichen ist dasselbe wie an Longpaths eigenen Fenstern.
     void setDockAffordanceEnabled(bool enabled);
+    // ✕ ganz rechts, opt-in wie ↙ (2026-11-04, Betreiber: "alle fenster
+    // muessen sich mit X schliessen lassen!"). Schliessen heisst fuer ein
+    // Panel: zurueck ins Logbuch UND ausgeblendet -- wie ein Haken im
+    // Menue Fenster > Panels, der weggenommen wird.
+    void setCloseAffordanceEnabled(bool enabled);
 
 signals:
     // Emitted only when the operator actually clicks the lock button --
@@ -100,6 +105,8 @@ signals:
 
     // Klick auf ↙ -- der Besitzer dockt das Panel zurueck.
     void dockRequested();
+    // Klick auf ✕.
+    void closeRequested();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -112,6 +119,7 @@ private:
     QPushButton* m_lockButton;
     QPushButton* m_optionsButton;
     QPushButton* m_dockButton;
+    QPushButton* m_closeButton;
     bool m_locked = false;
 };
 

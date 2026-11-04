@@ -17,6 +17,7 @@
 
 #include <QtTest>
 #include <QPushButton>
+#include <QSignalSpy>
 
 #include <QApplication>
 #include <QTemporaryDir>
@@ -39,6 +40,7 @@ private slots:
     void fensterUndControllerEntstehenImFremdenProzess();
     void panelsLassenSichVonAussenAbloesen();
     void rahmenlosSchwebendIstEckigMitRueckweg();
+    void geschwisterDesOberstenFenstersUndDasKreuz();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -223,6 +225,81 @@ void TestEinbettung::rahmenlosSchwebendIstEckigMitRueckweg()
     kartenKnopf->click();
     QVERIFY(!karte->isWindow());
     PanelContainerWidget::setzeRahmenlosSchwebend(false);
+}
+
+// Betreiber 2026-11-04: "nicht alle offenen fenster lassen sich durch
+// anklicken in den vordergrund schieben" -- und: "alle fenster muessen
+// sich mit X schliessen lassen!" Haengt dieses Hauptfenster selbst an
+// einem Elternfenster (Longpath), wird ein schwebendes Panel ein
+// Geschwister am OBERSTEN Fenster, nicht ein Kind des Logbuchs. Und das
+// ✕ dockt es zurueck und blendet es aus; setzePanelSchwebend holt es
+// wieder sichtbar hervor.
+void TestEinbettung::geschwisterDesOberstenFenstersUndDasKreuz()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+
+    QWidget oberstes;
+    oberstes.resize(800, 600);
+    oberstes.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&oberstes, 10000));
+    auto* fenster = new MainWindow(controller, &oberstes);
+    fenster->setWindowFlags((fenster->windowFlags() & ~Qt::WindowType_Mask) | Qt::Tool);
+    PanelContainerWidget::setzeRahmenlosSchwebend(true);
+
+    fenster->setzePanelSchwebend(QStringLiteral("chat"), true);
+    QWidget* chat = fenster->panelFenster(QStringLiteral("chat"));
+    QVERIFY(chat && chat->isWindow());
+    QCOMPARE(chat->parentWidget(), static_cast<QWidget*>(&oberstes));
+
+    QPushButton* kreuz = nullptr;
+    for (QPushButton* b : chat->findChildren<QPushButton*>()) {
+        if (b->objectName() == QStringLiteral("panelHeaderCloseButton")) { kreuz = b; }
+    }
+    QVERIFY2(kreuz && kreuz->isVisible(), "das ✕ muss in der Kopfzeile stehen");
+    QSignalSpy versteckt(fenster->panelFenster(QStringLiteral("chat")) ? qobject_cast<PanelContainerWidget*>(chat) : nullptr,
+                         &PanelContainerWidget::versteckt);
+    kreuz->click();
+    QVERIFY(!fenster->istPanelSchwebend(QStringLiteral("chat")));
+    QVERIFY2(!chat->isVisible(), "nach ✕ ist das Panel ausgeblendet");
+    QVERIFY(!fenster->istPanelSichtbar(QStringLiteral("chat")));
+    QCOMPARE(versteckt.count(), 1);
+
+    // Der Haken holt es wieder: sichtbar und schwebend.
+    fenster->setzePanelSchwebend(QStringLiteral("chat"), true);
+    QVERIFY(chat->isWindow());
+    QVERIFY(fenster->istPanelSichtbar(QStringLiteral("chat")));
+
+    // Chromloses Panel (Karte): ✕ als Knopf neben dem Schloss.
+    fenster->setzePanelSchwebend(QStringLiteral("map"), true);
+    QWidget* karte = fenster->panelFenster(QStringLiteral("map"));
+    // Kopfzeile oder (chromlos) Overlay -- je nachdem, wie die Karte
+    // gerade gebaut ist; beide tragen das ✕.
+    QPushButton* kartenKreuz = nullptr;
+    for (QPushButton* b : karte->findChildren<QPushButton*>()) {
+        if (b->objectName() == QStringLiteral("panelOverlayCloseButton")
+            || b->objectName() == QStringLiteral("panelHeaderCloseButton")) { kartenKreuz = b; }
+    }
+    QVERIFY2(kartenKreuz && kartenKreuz->isVisible(), "auch die Karte braucht ✕");
+    kartenKreuz->click();
+    QVERIFY(!karte->isWindow());
+    QVERIFY(!karte->isVisible());
+
+    PanelContainerWidget::setzeRahmenlosSchwebend(false);
+    fenster->setzePanelSchwebend(QStringLiteral("chat"), false);
+    delete fenster;
 }
 
 QTEST_MAIN(TestEinbettung)
