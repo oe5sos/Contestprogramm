@@ -102,6 +102,9 @@ public:
     /// Panel dazu. Fuer tests/test_jedes_panel_ausblendbar.cpp.
     QStringList panelIdsForTest() const;
     class PanelContainerWidget* panelForTest(const QString& id) const;
+    class SideAreaWidget* sideAreaForTest() const { return m_sideArea; }
+    void applyWaterfallVisibilityForTest() { applyWaterfallVisibility(); }
+    void putPanelIntoSideAreaForTest(const QString& id);
     /// Der Vorgabeplatz aus dem Entwurf, nicht die gerade sichtbare Lage.
     QRect defaultGeometryForTest(const QString& id) const;
     QRect compactGeometryForTest(const QString& id) const;
@@ -567,6 +570,10 @@ private:
     BandmapModel m_bandmapModel;
     BandmapWidget* m_bandmapWidget = nullptr;
     WaterfallWidget* m_waterfallWidget = nullptr;
+    // Lag der Wasserfall im Seitenbereich, als das Spektrum ausging?
+    // Dann kommt er dorthin zurück, wenn es wieder angeht. Nur für die
+    // Dauer der Sitzung -- siehe applyWaterfallVisibility.
+    bool m_wasserfallWarImSeitenbereich = false;
     // Der Chatverlauf (ON4KST + Cluster) als eigenes Panel -- siehe
     // ChatPanelWidget's Klassenkommentar.
     ChatPanelWidget* m_chatPanel = nullptr;
