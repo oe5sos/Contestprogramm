@@ -102,6 +102,27 @@ public:
     /// Panel dazu. Fuer tests/test_jedes_panel_ausblendbar.cpp.
     QStringList panelIdsForTest() const;
     class PanelContainerWidget* panelForTest(const QString& id) const;
+
+    // ── Panels von aussen (2026-11-04, fuer Longpath) ───────────────
+    //
+    // Betreiber: "jedes panel vom contestprogramm sollte in longpath
+    // eigens hinzuzufuegen sein, das waere die beste version." Longpath
+    // bettet dieses Fenster ein (siehe README "Als Fenster in Longpath")
+    // und will jedes Panel EINZELN als eigenes Fenster holen -- auch
+    // ohne dieses Hauptfenster zu zeigen. Dieselbe Liste und derselbe
+    // Weg wie das Menue "Fenster > Als eigenes Fenster" hier; nur nach
+    // aussen gereicht, damit Longpath keine Panel-Kennung raten muss.
+    struct PanelEintrag { QString id; QString titel; };
+    static QList<PanelEintrag> panelEintraege();
+    bool istPanelSchwebend(const QString& id) const;
+    // Loest das Panel als eigenes Fenster (Qt::Tool-Kind dieses
+    // Fensters) oder holt es zurueck in die Flaeche. Ein Panel im
+    // Seitenbereich wird vorher herausgeholt. Ist dieses Hauptfenster
+    // noch nie gezeigt worden, hat das Panel keine Groesse aus der
+    // Flaeche -- dann bekommt es die des Entwurfs.
+    void setzePanelSchwebend(const QString& id, bool schwebend);
+    // Das Panel als Fenster (oder nullptr, wenn es die Kennung nicht gibt).
+    QWidget* panelFenster(const QString& id) const;
     class SideAreaWidget* sideAreaForTest() const { return m_sideArea; }
     void applyWaterfallVisibilityForTest() { applyWaterfallVisibility(); }
     void putPanelIntoSideAreaForTest(const QString& id);

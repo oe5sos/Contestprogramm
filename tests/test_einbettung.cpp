@@ -35,6 +35,7 @@ private slots:
     void dasDatenverzeichnisHaengtNichtAmProzessnamen();
     void dieUmgebungGehtVor();
     void fensterUndControllerEntstehenImFremdenProzess();
+    void panelsLassenSichVonAussenAbloesen();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -90,6 +91,66 @@ void TestEinbettung::fensterUndControllerEntstehenImFremdenProzess()
     QVERIFY(fenster.isVisible());
     QVERIFY2(!fenster.windowTitle().isEmpty(), "Das Fenster traegt einen Titel");
     fenster.close();
+}
+
+// Betreiber 2026-11-04: "jedes panel vom contestprogramm sollte in
+// longpath eigens hinzuzufuegen sein". Longpath holt ein Panel als
+// eigenes Fenster, OHNE dieses Hauptfenster je zu zeigen -- also darf
+// das Panel nicht mit 0x0 daherkommen, und es muss ein Fensterkind
+// dieses Hauptfensters sein (Qt::Tool), damit es beim Wirt auf der Ebene
+// der Panels liegt. Alte Fassung: die Methoden gibt es nicht.
+void TestEinbettung::panelsLassenSichVonAussenAbloesen()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+
+    MainWindow fenster(controller);
+    // NICHT fenster.show(): genau der Fall "Panel ohne Hauptfenster".
+
+    const QList<MainWindow::PanelEintrag> eintraege = MainWindow::panelEintraege();
+    QVERIFY(eintraege.size() >= 8);
+    for (const MainWindow::PanelEintrag& e : eintraege) {
+        QVERIFY2(fenster.panelFenster(e.id) != nullptr,
+                 qPrintable(QStringLiteral("Panel '%1' aus der Liste ist nicht angemeldet").arg(e.id)));
+        QVERIFY(!e.titel.isEmpty());
+    }
+
+    QVERIFY(!fenster.istPanelSchwebend(QStringLiteral("chat")));
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QWidget* chat = fenster.panelFenster(QStringLiteral("chat"));
+    QVERIFY(chat);
+    QVERIFY(fenster.istPanelSchwebend(QStringLiteral("chat")));
+    QVERIFY2(chat->isWindow(), "als eigenes Fenster geloest");
+    QCOMPARE(chat->windowFlags() & Qt::WindowType_Mask, Qt::Tool);
+    QCOMPARE(chat->parentWidget(), &fenster);
+    QVERIFY(QTest::qWaitForWindowExposed(chat, 10000));
+    QVERIFY2(chat->width() >= 160 && chat->height() >= 120,
+             qPrintable(QStringLiteral("Panel ohne Hauptfenster kam %1x%2 daher")
+                            .arg(chat->width()).arg(chat->height())));
+    QVERIFY2(!fenster.isVisible(), "das Hauptfenster bleibt dabei zu");
+
+    // Auch aus dem Seitenbereich heraus.
+    fenster.putPanelIntoSideAreaForTest(QStringLiteral("skeds"));
+    fenster.setzePanelSchwebend(QStringLiteral("skeds"), true);
+    QVERIFY(fenster.istPanelSchwebend(QStringLiteral("skeds")));
+    QVERIFY(fenster.panelFenster(QStringLiteral("skeds"))->isWindow());
+
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), false);
+    QVERIFY(!fenster.istPanelSchwebend(QStringLiteral("chat")));
+    QVERIFY(!chat->isWindow());
+    fenster.setzePanelSchwebend(QStringLiteral("skeds"), false);
 }
 
 QTEST_MAIN(TestEinbettung)

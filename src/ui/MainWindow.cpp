@@ -1920,19 +1920,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // why that panel stays on its independent checkbox).
     windowMenu->addSeparator();
     auto* panelsMenu = windowMenu->addMenu(QStringLiteral("&Panels"));
-    struct PanelMenuEntry { QString id; QString label; };
-    static const QVector<PanelMenuEntry> kPanelMenuEntries = {
-        {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
-        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
-        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
-        {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
-        {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
-        {QStringLiteral("checkpartial"), QStringLiteral("Check")},
-        {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
-        {QStringLiteral("skeds"), QStringLiteral("Skeds")},
-        {QStringLiteral("chat"), QStringLiteral("Chat")},
-        {QStringLiteral("wasserfall"), QStringLiteral("Wasserfall")},
-    };
+    // Die Tabelle liegt seit 2026-11-04 in panelEintraege(): Longpath
+    // holt sich dort dieselbe Liste (siehe MainWindow.h).
+    using PanelMenuEntry = MainWindow::PanelEintrag;
+    static const QList<PanelMenuEntry> kPanelMenuEntries = MainWindow::panelEintraege();
     // Panels als eigene Fenster ablösen -- Martin, 2026-09-28: "schön
     // wäre es, ein windows zu haben, wo ich alle windows auch aber auch
     // rausziehen kann um platz zu sparen. das haben wir bei longpath
@@ -1941,7 +1932,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* ablösenMenu = windowMenu->addMenu(QStringLiteral("Als eigenes &Fenster"));
     ablösenMenu->setObjectName(QStringLiteral("floatPanelsMenu"));
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
-        QAction* action = ablösenMenu->addAction(entry.label);
+        QAction* action = ablösenMenu->addAction(entry.titel);
         action->setObjectName(QStringLiteral("float_%1").arg(entry.id));
         action->setCheckable(true);
         connect(action, &QAction::toggled, this, [this, id = entry.id](bool floating) {
@@ -1978,10 +1969,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     auto* seitenbereichMenu = windowMenu->addMenu(QStringLiteral("In den &Seitenbereich"));
     seitenbereichMenu->setObjectName(QStringLiteral("sideAreaMenu"));
     for (const PanelMenuEntry& entry : kPanelMenuEntries) {
-        QAction* action = seitenbereichMenu->addAction(entry.label);
+        QAction* action = seitenbereichMenu->addAction(entry.titel);
         action->setObjectName(QStringLiteral("side_%1").arg(entry.id));
         action->setCheckable(true);
-        connect(action, &QAction::toggled, this, [this, id = entry.id, label = entry.label](bool hinein) {
+        connect(action, &QAction::toggled, this, [this, id = entry.id, label = entry.titel](bool hinein) {
             if (hinein) {
                 putPanelIntoSideArea(id, label);
             } else {
@@ -2014,7 +2005,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
 
     auto panelActions = std::make_shared<QVector<QPair<QString, QAction*>>>();
     for (const PanelMenuEntry& entry : versteckbar) {
-        QAction* action = panelsMenu->addAction(entry.label);
+        QAction* action = panelsMenu->addAction(entry.titel);
         action->setObjectName(QStringLiteral("panelAction_%1").arg(entry.id));
         action->setCheckable(true);
         connect(action, &QAction::toggled, this, [this, id = entry.id](bool visible) {
@@ -3030,6 +3021,61 @@ void MainWindow::commandRotorForCandidate(const QString& callsign, const QString
 QStringList MainWindow::panelIdsForTest() const
 {
     return m_panelLayoutManager ? m_panelLayoutManager->panelIds() : QStringList();
+}
+
+// ── Panels von aussen (2026-11-04, fuer Longpath) ───────────────────
+
+QList<MainWindow::PanelEintrag> MainWindow::panelEintraege()
+{
+    // Dieselbe Reihenfolge wie im Menue "Fenster > Panels" -- der
+    // Betreiber soll in Longpath dieselbe Liste sehen wie hier.
+    static const QList<PanelEintrag> eintraege = {
+        {QStringLiteral("unifiedlog"), QStringLiteral("Log")},
+        {QStringLiteral("rotorrow"), QStringLiteral("Rotoren")},
+        {QStringLiteral("map"), QStringLiteral("Karte / Verbindungen")},
+        {QStringLiteral("suggestion"), QStringLiteral("Nächstes Ziel")},
+        {QStringLiteral("ratemeter"), QStringLiteral("Rate")},
+        {QStringLiteral("checkpartial"), QStringLiteral("Check")},
+        {QStringLiteral("bandmap"), QStringLiteral("Bandmap")},
+        {QStringLiteral("skeds"), QStringLiteral("Skeds")},
+        {QStringLiteral("chat"), QStringLiteral("Chat")},
+        {QStringLiteral("wasserfall"), QStringLiteral("Wasserfall")},
+    };
+    return eintraege;
+}
+
+bool MainWindow::istPanelSchwebend(const QString& id) const
+{
+    return m_panelLayoutManager && m_panelLayoutManager->isPanelFloating(id);
+}
+
+void MainWindow::setzePanelSchwebend(const QString& id, bool schwebend)
+{
+    if (!m_panelLayoutManager) { return; }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel) { return; }
+    if (schwebend) {
+        // Aus dem Seitenbereich holen: dort ist es eine Seite, kein
+        // Fenster, und setPanelFloating() faende es nicht in der Flaeche.
+        takePanelOutOfSideArea(id);
+        m_panelLayoutManager->setPanelFloating(id, true);
+        // Ein nie gezeigtes Hauptfenster hat keine ausgelegte Flaeche:
+        // das Panel kaeme mit der Groesse 0x0 daher. Dann die Groesse
+        // des Entwurfs, mindestens etwas Greifbares.
+        if (panel->width() < 160 || panel->height() < 120) {
+            QSize groesse = m_panelLayoutManager->defaultGeometryFor(id).size();
+            if (groesse.isEmpty()) { groesse = panel->sizeHint(); }
+            panel->resize(groesse.expandedTo(QSize(320, 240)));
+        }
+        if (!panel->isVisible()) { panel->show(); }
+    } else {
+        m_panelLayoutManager->setPanelFloating(id, false);
+    }
+}
+
+QWidget* MainWindow::panelFenster(const QString& id) const
+{
+    return m_panelLayoutManager ? m_panelLayoutManager->panel(id) : nullptr;
 }
 
 QRect MainWindow::defaultGeometryForTest(const QString& id) const
