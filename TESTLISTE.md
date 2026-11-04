@@ -23,14 +23,25 @@ bewusst aufgeschoben.
 
 ## Claude (gebaut, aber noch nicht am echten Gerät geprüft)
 
-- [ ] **Wasserfall gegen das echte Longpath — gefahren am 2026-11-02,
-      und er bleibt leer.** Das Logprogramm verbindet sich, Longpath
-      protokolliert „Spektrum abonniert rx 0, 718 Punkte" — und sendet
-      dann **null Binärrahmen**, mit einem nackten Prüf-Client
-      gegengemessen (nicht am Logprogramm: dessen Seite ist gegen ein
-      Doppel mit 400 Rahmen belegt). Longpath-Seite, eigene Sitzung läuft.
-      Erst wenn dort Rahmen kommen, ist hier wieder etwas zu prüfen:
-      stimmt die Breite, hält die Leitung über Stunden?
+- [ ] **Wasserfall gegen das echte Longpath — Ursache gefunden, am
+      Gerät noch nicht nachgefahren.** Gefahren am 2026-11-02: Longpath
+      protokolliert „Spektrum abonniert rx 0, 718 Punkte" und sendet
+      **null Binärrahmen** (nackter Prüf-Client; das Logprogramm ist gegen
+      ein Doppel mit 400 Rahmen belegt). Longpath-Seite, 2026-11-03: der
+      Spektrum-Abgriff hing an der FFTEngine von Strom 0, und die rechnet
+      bei der Flex nichts (Bild kommt fertig von der Maschine). Behoben in
+      oe5sos/Longpath#378 (`RadioModel::spektrumBereit`, geräteunabhängig;
+      Gegenprobe: alte Fassung 0 Rahmen, neue 7/7 grün). Dort steht jetzt
+      auch die Zeile „erstes Spektrumbild gesendet" im Longpath-Protokoll —
+      fehlt sie bei stehendem Abonnement, ist Longpath die Seite, nicht das
+      Logprogramm. Am 2026-11-03 mit dem Bau aus #378 an der Flex
+      gefahren: **65 Binärrahmen in 8 s** (vorher 0), „erstes
+      Spektrumbild gesendet" 43 ms nach dem Abonnement, Spanne 200 kHz.
+      Um 17:33 das Logprogramm aus /Applications dazu: abonniert 718
+      Punkte, erstes Bild 7 ms später, **das Panel zeigt das Band**
+      (Spektrumlinie mit Trägern, laufende Wasserfallzeilen). Offen
+      bleibt: stimmt die Breite im Panel (keine Skala dort), hält die
+      Leitung über Stunden?
 
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.

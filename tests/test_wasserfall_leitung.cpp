@@ -198,6 +198,12 @@ void TestWasserfallLeitung::einAbbruchFuehrtZumNeuenAnklopfen()
     client.setEndpunkt(QStringLiteral("127.0.0.1"), server.port());
     client.starten();
     QTRY_VERIFY_WITH_TIMEOUT(client.istVerbunden(), 5000);
+    // Erst die erste Bestellung abwarten, nicht nur die Verbindung. Auf
+    // dem Client steht die Leitung schon, bevor sein spectrum_start beim
+    // Server angekommen ist; wer dann trennt, hat eine leere Liste, und
+    // `.last()` darauf ist kein Fehlschlag, sondern ein Absturz (CI
+    // Windows, 2026-11-03: Zugriffsfehler in QString::startsWith).
+    QTRY_COMPARE_WITH_TIMEOUT(server.empfangeneBefehle().size(), 1, 5000);
 
     QSignalSpy verbindung(&client, &SpectrumClient::verbindungGeaendert);
     server.trenne();
@@ -210,9 +216,11 @@ void TestWasserfallLeitung::einAbbruchFuehrtZumNeuenAnklopfen()
     QTRY_VERIFY_WITH_TIMEOUT(client.istVerbunden(), 8000);
     QTRY_VERIFY_WITH_TIMEOUT(server.hasClient(), 5000);
     // Und bestellt sein Bild neu -- sonst wäre die Leitung wieder da
-    // und blieb doch leer.
-    QTRY_VERIFY_WITH_TIMEOUT(
-        server.empfangeneBefehle().last().startsWith(QStringLiteral("spectrum_start:")), 5000);
+    // und blieb doch leer. Gezählt, nicht nur `.last()` angesehen: der
+    // Server behält die Bestellung der ersten Verbindung, und die allein
+    // hätte diese Prüfung bestanden, ohne dass je neu bestellt wurde.
+    QTRY_COMPARE_WITH_TIMEOUT(server.empfangeneBefehle().size(), 2, 5000);
+    QVERIFY(server.empfangeneBefehle().last().startsWith(QStringLiteral("spectrum_start:")));
 
     client.beenden();
 }
