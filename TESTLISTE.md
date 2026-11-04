@@ -23,6 +23,17 @@ bewusst aufgeschoben.
 
 ## Claude (gebaut, aber noch nicht am echten Gerät geprüft)
 
+- [ ] **Panels einzeln in Longpath (2026-11-04, #72 + oe5sos/Longpath#386).**
+      Longpath › Tools › Contest logbook panels: ein Panel anhaken, es
+      muss als eigenes Fenster neben dem Longpath-Hauptfenster erscheinen,
+      OHNE dass das Logbuch-Hauptfenster aufgeht; ✕ am Panel dockt es
+      zurück (unsichtbar, weil das Logbuch zu ist); danach Tools ›
+      Contest Logbook öffnen: dasselbe Logbuch, das Panel wieder drin.
+      Zu sehen ist vor allem, was der offscreen-Prüfstand nicht kann: ob
+      macOS ein Werkzeugfenster zeigt, dessen Elternfenster verborgen
+      ist, und ob das Panel beim Minimieren von Longpath mit ins Dock geht.
+      Prüfstände: `test_einbettung::panelsLassenSichVonAussenAbloesen`,
+      Longpath `tst_contestfenster::einPanelOhneLogbuchFenster`.
 - [ ] **Wasserfall gegen das echte Longpath — Ursache gefunden, am
       Gerät noch nicht nachgefahren.** Gefahren am 2026-11-02: Longpath
       protokolliert „Spektrum abonniert rx 0, 718 Punkte" und sendet
