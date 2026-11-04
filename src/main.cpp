@@ -1,6 +1,7 @@
 #include "app/AppActivation.h"
 #include "app/AppLanguage.h"
 #include "app/AppController.h"
+#include "app/Datenverzeichnis.h"
 #include "app/SingleInstanceGuard.h"
 #include "ui/MainWindow.h"
 #include "ui/StyleKit.h"
@@ -33,17 +34,15 @@ int main(int argc, char* argv[])
     // override than HOME. CONTESTPROGRAMM_DATA_DIR is opt-in (unset in
     // any normal launch) and takes priority over QStandardPaths when
     // present.
-    const QString dataDirOverride = QProcessEnvironment::systemEnvironment().value(
-        QStringLiteral("CONTESTPROGRAMM_DATA_DIR"));
-    const QString dataDir = !dataDirOverride.isEmpty()
-        ? dataDirOverride
-        : QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    // Seit 2026-11-04 in app/Datenverzeichnis.cpp: derselbe Ort, ob das
+    // Programm allein laeuft oder als Fenster in Longpath.
+    const QString dataDir = Contestprogramm::standardDatenverzeichnis();
     if (!QDir().mkpath(dataDir)) {
         QMessageBox::critical(nullptr, QStringLiteral("Contestprogramm"),
                                QStringLiteral("Konnte Datenverzeichnis nicht anlegen:\n%1").arg(dataDir));
         return 1;
     }
-    const QString dbPath = dataDir + QStringLiteral("/contestprogramm.sqlite");
+    const QString dbPath = Contestprogramm::datenbankPfad(dataDir);
 
     // One instance per data directory: a second start hands over to
     // the running one (see app/SingleInstanceGuard.h).
