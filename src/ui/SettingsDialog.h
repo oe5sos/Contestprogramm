@@ -243,6 +243,7 @@ private:
     // checkbox starts unchecked unless the operator already turned it
     // on in a previous session.
     QCheckBox* m_broadcastEnabledCheck;
+    QCheckBox* m_updateCheckOnStartupCheck;   // ContestSettings::updateCheckOnStartup
     QLineEdit* m_broadcastHostEdit;
     QSpinBox* m_broadcastPortSpin;
 

@@ -361,7 +361,14 @@ void TestEingabezeileInFlucht::theRunningVersionIsOnTheStatusBar()
     auto* label = window.findChild<QLabel*>(QStringLiteral("versionStatus"));
     QVERIFY2(label, "In der Statusleiste steht keine Fassung");
     qInfo().noquote() << "Statusleiste zeigt:" << label->text() << "| Tooltip:" << label->toolTip();
-    QCOMPARE(label->text(), QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION)));
+    // Seit 2026-11-04 steht hinter der Fassung noch der Stand der
+    // automatischen Pruefung ("· aktuell", "· Eigenbau", "· Pruefung
+    // aus" -- siehe MainWindow::starteFassungspruefung()). Die Aussage
+    // dieses Pruefstands bleibt dieselbe: VORNE steht die gebaute
+    // Fassung, und zwar aus BuildInfo.h.
+    QVERIFY2(label->text().startsWith(QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION))),
+             qPrintable(QStringLiteral("Statusleiste zeigt \"%1\", erwartet war ein Anfang mit v%2")
+                            .arg(label->text(), QString::fromLatin1(CONTESTPROGRAMM_VERSION))));
     // Commit und Baudatum im Tooltip -- beim Melden eines Fehlers ist
     // genau das die Angabe, die zählt.
     QVERIFY2(label->toolTip().contains(QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)),

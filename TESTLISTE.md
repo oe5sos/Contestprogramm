@@ -46,6 +46,16 @@ bewusst aufgeschoben.
       gesehen. Offen bleibt: stimmt die Skala mit Longpaths Fenster
       überein, hält die Leitung über Stunden?
 
+- [ ] **Fassungspruefung beim Start, aus einem echten Paket.** Im
+      Pruefstand belegt sind die beiden Lagen, die ein Entwicklungsbau
+      ueberhaupt erreichen kann: Haken aus („Pruefung aus“) und Haken
+      an ohne App-Paket („Eigenbau“), dazu die Anzeige der neuen
+      Fassung (`tests/test_auto_pruefung.cpp`). **Noch offen:** ein
+      Start aus dem installierten `Contestprogramm.app`, wenn auf
+      GitHub eine neuere Fassung liegt -- dann muss in der Statuszeile
+      „v0.1.7 · 0.1.8 verfuegbar“ stehen und ein Klick darauf den
+      Updater oeffnen. Das geht erst mit dem naechsten Release.
+
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.
 - [ ] **Magenta im Chat** — Prüfstand und Bild vorhanden; live erst

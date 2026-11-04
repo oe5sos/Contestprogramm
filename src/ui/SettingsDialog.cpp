@@ -104,6 +104,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_rotorDialStyleCombo(new QComboBox(this))
     , m_colorThemeCombo(new QComboBox(this))
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
+    , m_updateCheckOnStartupCheck(new QCheckBox(QStringLiteral("Beim Start auf eine neue Fassung prüfen"), this))
     , m_broadcastHostEdit(new QLineEdit(this))
     , m_broadcastPortSpin(new QSpinBox(this))
     , m_audioRecordDeviceCombo(new QComboBox(this))
@@ -523,6 +524,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
         "die Wache ab \u2014 dann laeuft die Platte voll."));
 
     m_broadcastEnabledCheck->setChecked(initial.broadcastEnabled);
+    m_updateCheckOnStartupCheck->setChecked(initial.updateCheckOnStartup);
     m_broadcastHostEdit->setText(initial.broadcastHost);
     m_broadcastPortSpin->setRange(1, 65535);
     m_broadcastPortSpin->setValue(initial.broadcastPort);
@@ -731,6 +733,20 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     auto* appearanceGroup = new QGroupBox(QStringLiteral("Darstellung"), this);
     appearanceGroup->setLayout(appearanceForm);
 
+    // ── Fassung ──────────────────────────────────────────────────────
+    //
+    // Der Haken schaltet die Abfrage beim Start ab (siehe
+    // MainWindow::starteFassungspruefung()). An heisst: eine Abfrage
+    // an GitHub, fuenf Sekunden nach dem Start, Ergebnis neben der
+    // Fassung in der Statuszeile. Aus heisst: dort steht „Pruefung
+    // aus" -- nicht nichts, damit eine fehlende Meldung nicht fuer
+    // „alles aktuell" genommen wird.
+    auto* fassungForm = new QFormLayout();
+    fassungForm->addRow(QStringLiteral("Prüfung:"), m_updateCheckOnStartupCheck);
+
+    auto* fassungGroup = new QGroupBox(QStringLiteral("Fassung"), this);
+    fassungGroup->setLayout(fassungForm);
+
     // CW F-key macros (Kern-Welle 2) -- editable templates with
     // {call}/{exchange} placeholders, see ui/CwMacroPanel.h.
     auto* cwForm = new QFormLayout();
@@ -837,6 +853,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     scrollLayout->addWidget(bandRoutingGroup);
     scrollLayout->addWidget(rotorDisplayGroup);
     scrollLayout->addWidget(appearanceGroup);
+    scrollLayout->addWidget(fassungGroup);
     scrollLayout->addWidget(cwGroup);
     scrollLayout->addWidget(broadcastGroup);
     scrollLayout->addWidget(audioGroup);
@@ -958,6 +975,7 @@ ContestSettings SettingsDialog::settings() const
     result.cwMacros = macros;
 
     result.broadcastEnabled = m_broadcastEnabledCheck->isChecked();
+    result.updateCheckOnStartup = m_updateCheckOnStartupCheck->isChecked();
     result.audioRecordEnabled = m_audioRecordEnabledDurchgereicht;
     result.audioRecordDevice = m_audioRecordDeviceCombo->currentData().toString();
     result.audioRecordFolder = m_audioRecordFolderEdit->text().trimmed();

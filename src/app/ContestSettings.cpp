@@ -332,6 +332,10 @@ void ContestSettings::loadFrom(const ContestDatabase& database)
         database.settingValue(QStringLiteral("audio_record_min_free_percent"),
                               QString::number(audioRecordMinFreePercent)).toInt();
 
+    updateCheckOnStartup = boolFromString(
+        database.settingValue(QStringLiteral("update_check_on_startup"),
+                              boolToString(updateCheckOnStartup)), updateCheckOnStartup);
+
     callbookProvider = callbookProviderFromString(
         database.settingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider)), callbookProvider);
     callbookUsername = database.settingValue(QStringLiteral("callbook_username"), callbookUsername);
@@ -431,6 +435,8 @@ void ContestSettings::saveTo(ContestDatabase& database) const
                              QString::number(audioRecordRollMinutes));
     database.setSettingValue(QStringLiteral("audio_record_min_free_percent"),
                              QString::number(audioRecordMinFreePercent));
+    database.setSettingValue(QStringLiteral("update_check_on_startup"),
+                             boolToString(updateCheckOnStartup));
 
     database.setSettingValue(QStringLiteral("callbook_provider"), callbookProviderToString(callbookProvider));
     database.setSettingValue(QStringLiteral("callbook_username"), callbookUsername);
