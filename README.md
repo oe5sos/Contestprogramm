@@ -31,6 +31,22 @@ Instanz -- außer die Instanz ist ein älterer Bau als das gestartete Programm:
 dann startet sie sich selbst neu, mit dem neuen Bau. Bauen und starten reicht
 also, ⌘Q ist nicht nötig.
 
+## Als Fenster in Longpath
+
+Seit 2026-11-04 kann Longpath dieses Programm als Fenster im eigenen
+Prozess führen (Tools › Contest Logbook). Longpath holt den Quellbaum als
+Submodul `third_party/contestprogramm` und linkt nur die Bibliothek
+`ContestprogrammCore`; `main.cpp`, die Ressourcenkopie und die Prüfstände
+gehören weiter allein dem eigenständigen Bau (`CMakeLists.txt` prüft, ob
+es das Wurzelprojekt ist).
+
+Das Log ist dasselbe: `src/app/Datenverzeichnis.cpp` setzt den Pfad aus
+`GenericDataLocation` zusammen, nicht aus dem Prozessnamen. Läuft das
+Programm schon eigenständig, weist die Einzelplatz-Wache das Fenster in
+Longpath ab (und umgekehrt). CAT und Wasserfall gehen auch eingebettet
+über localhost (rigctld 4532, TCI 50001) — nichts hängt davon ab, dass
+Longpath derselbe Prozess ist.
+
 ## Daten
 
 Alles liegt in einer SQLite-Datei im Anwendungsdatenordner

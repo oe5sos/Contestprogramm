@@ -15,9 +15,30 @@ cmake_minimum_required(VERSION 3.20)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Mindest-macOS-Version")
 
 project(Contestprogramm VERSION 0.1.7 LANGUAGES CXX)
+
+# ── Eigenstaendig oder eingebettet? ──────────────────────────────────────
+#
+# Seit 2026-11-04 kann Longpath dieses Programm als Fenster im eigenen
+# Prozess fuehren (add_subdirectory auf dieses Verzeichnis, Bibliothek
+# ContestprogrammCore). Dann gehoert hier nur die Bibliothek gebaut --
+# keine eigene ausfuehrbare Datei, keine Ressourcenkopie, keine
+# Pruefstaende. Eigenstaendig bleibt alles wie gehabt.
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(CONTESTPROGRAMM_EIGENSTAENDIG ON)
+else()
+    set(CONTESTPROGRAMM_EIGENSTAENDIG OFF)
+    # Der Wirt hat womoeglich eigene include_directories() gesetzt, die
+    # sonst VOR unseren stuenden -- und beide Baeume haben ein src/core mit
+    # gleichnamigen Koepfen (Maidenhead.h, RigctldClient.h, ...).
+    set_property(DIRECTORY PROPERTY INCLUDE_DIRECTORIES "")
+endif()
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
-if(APPLE)
+if(APPLE AND CONTESTPROGRAMM_EIGENSTAENDIG)
+    # Eingebettet NICHT: enable_language() in einem Unterverzeichnis laesst
+    # den Wirt mit "CMAKE_OBJCXX_COMPILE_OBJECT not set" stehen (gemessen
+    # 2026-11-04 in Longpath). Dort uebersetzt clang die .mm-Datei ueber die
+    # Endung als Teil des CXX-Ziels, so wie Longpath seine eigenen .mm.
     enable_language(OBJCXX)
 endif()
 
@@ -156,6 +177,8 @@ set(CONTESTPROGRAMM_CORE_SOURCES
     src/app/ContestSettings.h
     src/app/ContestSettings.cpp
     src/app/AppController.h
+    src/app/Datenverzeichnis.h
+    src/app/Datenverzeichnis.cpp
     src/app/AppController.cpp
     src/app/AppActivation.h
     src/app/AppActivation.cpp
@@ -281,10 +304,10 @@ if(APPLE)
     target_sources(ContestprogrammCore PRIVATE src/app/AppActivation.mm)
     target_link_libraries(ContestprogrammCore PUBLIC "-framework AppKit")
 endif()
-target_include_directories(ContestprogrammCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(ContestprogrammCore BEFORE PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # Version, commit and build date for Hilfe › Über -- generated on
 # every build, see cmake/BuildInfo.cmake.
-set(CONTESTPROGRAMM_BUILDINFO_DIR "${CMAKE_BINARY_DIR}/generated")
+set(CONTESTPROGRAMM_BUILDINFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 add_custom_target(contestprogramm_buildinfo
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CONTESTPROGRAMM_BUILDINFO_DIR}"
     COMMAND ${CMAKE_COMMAND}
@@ -295,7 +318,7 @@ add_custom_target(contestprogramm_buildinfo
     BYPRODUCTS "${CONTESTPROGRAMM_BUILDINFO_DIR}/BuildInfo.h"
     COMMENT "BuildInfo.h (Version, Commit, Datum)")
 add_dependencies(ContestprogrammCore contestprogramm_buildinfo)
-target_include_directories(ContestprogrammCore PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
+target_include_directories(ContestprogrammCore BEFORE PUBLIC "${CONTESTPROGRAMM_BUILDINFO_DIR}")
 target_link_libraries(ContestprogrammCore PUBLIC Qt6::Core Qt6::Widgets Qt6::Sql Qt6::Network Qt6::WebSockets Qt6::Multimedia ZLIB::ZLIB)
 
 # Dev-build fallback so the app finds resources/contest_definitions/*.json
@@ -310,6 +333,7 @@ target_compile_definitions(ContestprogrammCore PUBLIC
 # lookup already walks applicationDirPath(), which CMake's
 # $<TARGET_FILE_DIR:...> resolves to Contents/MacOS inside the bundle,
 # so no path changes were needed there.
+if(CONTESTPROGRAMM_EIGENSTAENDIG)
 set(CONTESTPROGRAMM_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/mac/AppIcon.icns")
 
 add_executable(Contestprogramm src/main.cpp)
@@ -385,3 +409,4 @@ add_dependencies(Contestprogramm copy_resources)
 
 enable_testing()
 add_subdirectory(tests)
+endif()  # CONTESTPROGRAMM_EIGENSTAENDIG
