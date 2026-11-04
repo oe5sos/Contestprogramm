@@ -103,7 +103,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_rotorDialStyleCombo(new QComboBox(this))
     , m_colorThemeCombo(new QComboBox(this))
     , m_broadcastEnabledCheck(new QCheckBox(QStringLiteral("Aktiv"), this))
-    , m_updateCheckOnStartupCheck(new QCheckBox(QStringLiteral("Beim Start auf eine neue Fassung pruefen"), this))
+    , m_updateCheckOnStartupCheck(new QCheckBox(QStringLiteral("Beim Start auf eine neue Fassung prüfen"), this))
     , m_broadcastHostEdit(new QLineEdit(this))
     , m_broadcastPortSpin(new QSpinBox(this))
     , m_audioRecordDeviceCombo(new QComboBox(this))
@@ -738,7 +738,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // aus" -- nicht nichts, damit eine fehlende Meldung nicht fuer
     // „alles aktuell" genommen wird.
     auto* fassungForm = new QFormLayout();
-    fassungForm->addRow(QStringLiteral("Pruefung:"), m_updateCheckOnStartupCheck);
+    fassungForm->addRow(QStringLiteral("Prüfung:"), m_updateCheckOnStartupCheck);
 
     auto* fassungGroup = new QGroupBox(QStringLiteral("Fassung"), this);
     fassungGroup->setLayout(fassungForm);

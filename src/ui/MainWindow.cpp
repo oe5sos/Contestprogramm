@@ -3760,8 +3760,8 @@ void MainWindow::updateStatusBar()
 void MainWindow::starteFassungspruefung()
 {
     if (!m_appController.settings().updateCheckOnStartup) {
-        zeigeFassungsstand(QStringLiteral("Pruefung aus"), false,
-                           QStringLiteral("Beim Start wird nicht auf eine neue Fassung geprueft "
+        zeigeFassungsstand(QStringLiteral("Prüfung aus"), false,
+                           QStringLiteral("Beim Start wird nicht auf eine neue Fassung geprüft "
                                           "(Einstellungen › Fassung)."));
         return;
     }
@@ -3776,9 +3776,18 @@ void MainWindow::starteFassungspruefung()
         zeigeFassungsstand(QStringLiteral("Eigenbau"), false,
                            ziel.reason.isEmpty()
                                ? QStringLiteral("Diese Fassung kann sich nicht selbst erneuern.")
-                               : QStringLiteral("Keine Pruefung: %1.").arg(ziel.reason));
+                               : QStringLiteral("Keine Prüfung: %1.").arg(ziel.reason));
         return;
     }
+
+    // Schon JETZT etwas hinschreiben, nicht erst in fuenf Sekunden:
+    // sonst steht dort bis zur Antwort die nackte Fassungsnummer, und
+    // die ist von „nachgesehen, alles aktuell" nicht zu unterscheiden.
+    // (Die Windows-CI hat genau das am 2026-11-04 gezeigt: dort ist
+    // das Ziel brauchbar, die Abfrage laeuft also wirklich an -- und
+    // bis sie antwortet, stand da nichts.)
+    zeigeFassungsstand(QStringLiteral("prüfe …"), false,
+                       QStringLiteral("Es wird nachgesehen, ob auf GitHub eine neuere Fassung liegt."));
 
     // Fuenf Sekunden, nicht null: der Start soll nicht auf das Netz
     // warten (die Eingabezeile gehoert dem Bediener ab der ersten
@@ -3792,8 +3801,8 @@ void MainWindow::starteFassungspruefung()
         connect(pruefer, &SelfUpdater::updateAvailable, this,
                 [this, pruefer](const ReleaseInfo& release) {
             pruefer->deleteLater();
-            zeigeFassungsstand(QStringLiteral("%1 verfuegbar").arg(release.version.toString()), true,
-                               QStringLiteral("Auf GitHub liegt %1. Klicken oeffnet den Updater.")
+            zeigeFassungsstand(QStringLiteral("%1 verfügbar").arg(release.version.toString()), true,
+                               QStringLiteral("Auf GitHub liegt %1. Klicken öffnet den Updater.")
                                    .arg(release.tag.isEmpty() ? release.version.toString() : release.tag));
         });
         connect(pruefer, &SelfUpdater::upToDate, this,
@@ -3811,8 +3820,8 @@ void MainWindow::starteFassungspruefung()
         connect(pruefer, &SelfUpdater::failed, this,
                 [this, pruefer](const QString& warum) {
             pruefer->deleteLater();
-            zeigeFassungsstand(QStringLiteral("nicht geprueft"), false,
-                               QStringLiteral("Die Pruefung kam nicht durch: %1").arg(warum));
+            zeigeFassungsstand(QStringLiteral("nicht geprüft"), false,
+                               QStringLiteral("Die Prüfung kam nicht durch: %1").arg(warum));
         });
         pruefer->check();
     });

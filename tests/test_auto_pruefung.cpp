@@ -98,7 +98,7 @@ void TestAutoPruefung::hakenAusZeigtPruefungAus()
     MainWindow fenster(controller);
     QLabel* anzeige = fassungsanzeige(fenster);
     QVERIFY2(anzeige, "keine Fassungsanzeige in der Statuszeile");
-    QVERIFY2(anzeige->text().contains(QStringLiteral("Pruefung aus")),
+    QVERIFY2(anzeige->text().contains(QStringLiteral("Prüfung aus")),
              qPrintable(QStringLiteral("Statuszeile sagt nichts ueber die Pruefung: \"%1\"")
                             .arg(anzeige->text())));
 }
@@ -120,18 +120,24 @@ void TestAutoPruefung::hakenAnZeigtDenStandUndNichtNichts()
     const QString text = anzeige->text();
     QVERIFY2(text.contains(QStringLiteral("·")),
              qPrintable(QStringLiteral("kein Zustand neben der Fassung: \"%1\"").arg(text)));
-    QVERIFY2(text.contains(QStringLiteral("Eigenbau")),
-             qPrintable(QStringLiteral("Zustand ist nicht der erwartete: \"%1\"").arg(text)));
+    // Welcher Zustand das ist, haengt davon ab, wo dieser Pruefstand
+    // laeuft -- und genau das hat die Windows-CI am 2026-11-04
+    // gezeigt: auf macOS und Linux ist ein Pruefprogramm kein
+    // App-Paket (-> „Eigenbau"), auf Windows dagegen liegt es in
+    // einem beschreibbaren Ordner, ist also ein brauchbares Ziel, und
+    // die Abfrage laeuft wirklich an (-> „prüfe …", bis die Antwort
+    // kommt). Beides ist richtig. Falsch waere nur das Dritte: dass
+    // dort gar nichts steht.
+    const bool zielBrauchbar = UpdateTarget::detect().usable();
+    const QString erwartet = zielBrauchbar ? QStringLiteral("prüfe …")
+                                           : QStringLiteral("Eigenbau");
+    QVERIFY2(text.contains(erwartet),
+             qPrintable(QStringLiteral("Zustand ist nicht der erwartete (%1): \"%2\"")
+                            .arg(erwartet, text)));
     // Der Grund gehoert in den Tooltip, nicht auf die Leiste.
-    QVERIFY2(anzeige->toolTip().contains(QStringLiteral("Keine Pruefung")),
+    QVERIFY2(anzeige->toolTip().contains(zielBrauchbar ? QStringLiteral("nachgesehen")
+                                                        : QStringLiteral("Keine Prüfung")),
              qPrintable(QStringLiteral("Tooltip ohne Grund: \"%1\"").arg(anzeige->toolTip())));
-    // Und die Pruefung darf dabei nicht ins Netz gegangen sein: ohne
-    // Ziel gibt es auch nichts abzufragen. Geprueft wird das daran,
-    // dass UpdateTarget::detect() hier wirklich unbrauchbar ist --
-    // sonst stimmt die Lage dieses Pruefstands nicht mehr und die
-    // Aussage oben waere zufaellig.
-    QVERIFY2(!UpdateTarget::detect().usable(),
-             "dieser Pruefstand laeuft aus einem App-Paket -- Annahme hinfaellig");
 }
 
 // Die neue Fassung ist ein Verweis, den man anklicken kann -- und sie
@@ -149,11 +155,11 @@ void TestAutoPruefung::neueFassungIstAnklickbarUndNichtBlau()
     QVERIFY(anzeige);
 
     QVERIFY(QMetaObject::invokeMethod(&fenster, "zeigeFassungsstand",
-                                      Q_ARG(QString, QStringLiteral("9.9.9 verfuegbar")),
+                                      Q_ARG(QString, QStringLiteral("9.9.9 verfügbar")),
                                       Q_ARG(bool, true),
                                       Q_ARG(QString, QStringLiteral("Auf GitHub liegt v9.9.9."))));
     const QString text = anzeige->text();
-    QVERIFY2(text.contains(QStringLiteral("9.9.9 verfuegbar")), qPrintable(text));
+    QVERIFY2(text.contains(QStringLiteral("9.9.9 verfügbar")), qPrintable(text));
     QVERIFY2(text.contains(QStringLiteral("<a href=")),
              qPrintable(QStringLiteral("die neue Fassung ist nicht anklickbar: \"%1\"").arg(text)));
     QVERIFY2(text.contains(Style::kAmberText()),
