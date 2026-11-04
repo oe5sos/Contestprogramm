@@ -48,6 +48,17 @@ constexpr int kReadoutLabelHeight = 14;  // "Aktuell"/"Ziel"/"Entfernung" caps l
 // Gegenrichtung nie die bessere, und die Zeile bliebe nur im Weg.
 constexpr double kLongPathFromKm = 5000.0;
 constexpr int kReadoutValueHeight = 46;  // kFontDisplay (38px) big numbers + leading
+// Die Kaestchen des Ablesefelds schrumpfen mit der Breite (Betreiber
+// 2026-11-04, Rotoren als eigenes Fenster in Longpath: "die kaestchen
+// fuer die gradanzahl bei rotoren koennen kleiner sein, so waere dann
+// alles auch gemeinsam kleiner"). Drei Stufen der Wertschrift, je mit
+// eigener Hoehe von Wert- und Beschriftungszeile; readoutStufeFontPx()
+// nimmt die groesste, bei der "000°" dreimal nebeneinander passt. Die
+// Konstanten oben sind die GROSSE Stufe; die kleinen stehen hier.
+constexpr int kReadoutValueHeightMittel = 34;  // 28 px
+constexpr int kReadoutValueHeightKlein  = 22;  // kFontSub (16 px)
+constexpr int kReadoutLabelHeightMittel = 12;
+constexpr int kReadoutLabelHeightKlein  = 11;
 constexpr int kReadoutRowGap = 4;
 constexpr int kReadoutLineHeight = 18;   // one generic text line -- caption row and connection-status row both use this
 constexpr int kReadoutBottomPad = 4;
@@ -422,8 +433,45 @@ bool RotorWidget::readoutFitsWidth() const
     // because textAreaHeight() (which readoutBlockRect() needs) asks
     // this first.
     const int cellWidth = (width() - 12) / 3 - 3;
-    const QFontMetrics small(Style::monoFont(font(), kDigitalValueFontPx));
+    const QFontMetrics small(Style::monoFont(font(), Style::kFontSub));
     return small.horizontalAdvance(QStringLiteral("000°")) + 10 <= cellWidth;
+}
+
+int RotorWidget::readoutStufeFontPx() const
+{
+    // Aus width() gerechnet, NICHT aus readoutBlockRect(): das fragt
+    // textAreaHeight(), das fragt die Hoehen hier -- ein Kreis.
+    const int cellWidth = (width() - 12) / 3 - 3;
+    for (int px : {Style::kFontDisplay, kDigitalValueFontPx, Style::kFontSub}) {
+        const QFontMetrics fm(Style::monoFont(font(), px));
+        if (fm.horizontalAdvance(QStringLiteral("000°")) + 10 <= cellWidth) {
+            return px;
+        }
+    }
+    return Style::kFontSub;
+}
+
+int RotorWidget::readoutValueHeight() const
+{
+    const int px = readoutStufeFontPx();
+    return px >= Style::kFontDisplay ? kReadoutValueHeight
+         : px >= kDigitalValueFontPx ? kReadoutValueHeightMittel
+                                     : kReadoutValueHeightKlein;
+}
+
+int RotorWidget::readoutLabelHeight() const
+{
+    const int px = readoutStufeFontPx();
+    return px >= Style::kFontDisplay ? kReadoutLabelHeight
+         : px >= kDigitalValueFontPx ? kReadoutLabelHeightMittel
+                                     : kReadoutLabelHeightKlein;
+}
+
+int RotorWidget::readoutTextAreaFull() const
+{
+    // Dasselbe wie kTextAreaHeight, mit den Hoehen der aktuellen Stufe.
+    return kReadoutTopPad + readoutLabelHeight() + readoutValueHeight() + kReadoutRowGap
+         + kReadoutLineHeight + kReadoutRowGap + kReadoutLineHeight + kReadoutBottomPad;
 }
 
 QSize RotorWidget::sizeHint() const
@@ -444,7 +492,7 @@ int RotorWidget::textAreaHeight() const
     }
     const int available = height() - kHeaderHeight - kMinDialAreaHeight;
     const bool digital = m_dialStyle == RotorDialStyle::Digital;
-    const int full = digital ? kDigitalTextAreaHeight : kTextAreaHeight;
+    const int full = digital ? kDigitalTextAreaHeight : readoutTextAreaFull();
     const int withoutStatus = full - (digital ? kDigitalRowGap + kDigitalStatusHeight : kReadoutRowGap + kReadoutLineHeight);
     const int withoutCaption = withoutStatus - (digital ? kDigitalRowGap + kDigitalCaptionHeight : kReadoutRowGap + kReadoutLineHeight);
     for (int candidate : {full, withoutStatus, withoutCaption}) {
@@ -1191,7 +1239,7 @@ QRect RotorWidget::readoutBlockRect() const
     const int textHeight = textAreaHeight();
     const QRect textArea(0, height() - textHeight, width(), textHeight);
     return QRect(textArea.left() + 6, textArea.top() + kReadoutTopPad, textArea.width() - 12,
-                 kReadoutLabelHeight + kReadoutValueHeight);
+                 readoutLabelHeight() + readoutValueHeight());
 }
 
 QRect RotorWidget::readoutValuesRow() const
@@ -1199,15 +1247,12 @@ QRect RotorWidget::readoutValuesRow() const
     // Below the cell's label, ending a little above the glass's bottom
     // edge.
     const QRect block = readoutBlockRect();
-    return QRect(block.left(), block.top() + 3 + kReadoutLabelHeight, block.width(), kReadoutValueHeight - 6);
+    return QRect(block.left(), block.top() + 3 + readoutLabelHeight(), block.width(), readoutValueHeight() - 6);
 }
 
 int RotorWidget::readoutValueFontPx() const
 {
-    const int cellWidth = columnRect(readoutBlockRect(), 0).width() - 3;
-    const QFontMetrics big(Style::monoFont(font(), Style::kFontDisplay));
-    return big.horizontalAdvance(QStringLiteral("000°")) + 10 <= cellWidth ? Style::kFontDisplay
-                                                                             : kDigitalValueFontPx;
+    return readoutStufeFontPx();
 }
 
 void RotorWidget::drawReadoutInset(QPainter& painter, const QRect& box) const
@@ -1300,13 +1345,15 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
     // Row 1: caps labels, one per column -- same "small caps label
     // above a value" convention UnifiedLogWidget::buildFieldCell() and
     // MapWidget::drawLegend() both already use.
-    const QRect labelsRow(block.left(), block.top() + 3, block.width(), kReadoutLabelHeight);
-    painter.setFont(capLabelFont);
+    const QRect labelsRow(block.left(), block.top() + 3, block.width(), readoutLabelHeight());
+    painter.setFont(readoutLabelHeight() < kReadoutLabelHeight
+                        ? Style::capsFont(painter.font(), Style::kFontCaption - 1)
+                        : capLabelFont);
     painter.setPen(scaleColor);
     painter.drawText(columnRect(labelsRow, 0), Qt::AlignCenter, QStringLiteral("Aktuell"));
     painter.drawText(columnRect(labelsRow, 1), Qt::AlignCenter, QStringLiteral("Ziel"));
     painter.drawText(columnRect(labelsRow, 2), Qt::AlignCenter, QStringLiteral("Entfernung"));
-    y += kReadoutLabelHeight;
+    y += readoutLabelHeight();
 
     // Row 2: the big numbers themselves.
     const QRect valuesRow = readoutValuesRow();
@@ -1348,7 +1395,10 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
             // kReadoutValueHeight the one line used to have alone.
             const QRect aRow1(col0.left(), col0.top(), col0.width(), col0.height() / 2);
             const QRect aRow2(col0.left(), col0.top() + col0.height() / 2, col0.width(), col0.height() - col0.height() / 2);
-            painter.setFont(Style::monoFont(painter.font(), Style::kFontBody, QFont::Bold));
+            painter.setFont(Style::monoFont(painter.font(),
+                                            readoutValueHeight() < kReadoutValueHeightMittel
+                                                ? Style::kFontCaption : Style::kFontBody,
+                                            QFont::Bold));
             painter.setPen(showAktuell ? aktuellColor : inactiveColor);
             painter.drawText(aRow1, Qt::AlignCenter,
                               QStringLiteral("1  %1").arg(showAktuell ? formatDeg(m_azimuthDeg) : Style::unknownDash()));
@@ -1379,7 +1429,10 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
         const QString secondZiel = m_hasTarget
             ? formatDeg(BeamHeading::wrap360(m_targetBearingDeg + m_secondAntennaOffsetDeg))
             : Style::unknownDash();
-        painter.setFont(Style::monoFont(painter.font(), Style::kFontBody, QFont::Bold));
+        painter.setFont(Style::monoFont(painter.font(),
+                                        readoutValueHeight() < kReadoutValueHeightMittel
+                                            ? Style::kFontCaption : Style::kFontBody,
+                                        QFont::Bold));
         painter.setPen(m_hasTarget ? QColor(Style::kBlueBg()) : inactiveColor);
         painter.drawText(row2, Qt::AlignCenter, QStringLiteral("2  %1").arg(secondZiel));
     }
@@ -1404,12 +1457,12 @@ void RotorWidget::drawReadout(QPainter& painter, const QRect& area) const
         drawCenteredSegments(painter, columnRect(valuesRow, 2), segs);
     }
 
-    y += kReadoutValueHeight + kReadoutRowGap;
+    y += readoutValueHeight() + kReadoutRowGap;
 
     // A reduced block (see textAreaHeight()) ends here, or after the
     // caption.
-    const bool hasCaptionRow = area.height() >= kTextAreaHeight - (kReadoutRowGap + kReadoutLineHeight);
-    const bool hasStatusRow = area.height() >= kTextAreaHeight;
+    const bool hasCaptionRow = area.height() >= readoutTextAreaFull() - (kReadoutRowGap + kReadoutLineHeight);
+    const bool hasStatusRow = area.height() >= readoutTextAreaFull();
     if (!hasCaptionRow) {
         return;
     }

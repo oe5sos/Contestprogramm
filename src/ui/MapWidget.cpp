@@ -1963,12 +1963,20 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             // anderes Instrument, er ist dasselbe, blasser.
             const QColor nadel = live ? QColor(Style::kAmberText()) : QColor(Style::kAmberDim());
 
+            // Mittig in der Spalte, Ueberschrift und Scheibe (Betreiber
+            // 2026-11-04: "bei karte und verbindungen sollten die rotoren
+            // eher mittig sein, sonst sieht es eigenartig aus"). Vorher
+            // sass die Scheibe am linken Rand der Spalte, die Legende
+            // darunter auch -- und rechts blieb Luft.
+            const double spaltenMitte = column.left() + column.width() / 2.0;
             painter.setFont(Style::capsFont(font(), Style::kFontCaption));
             painter.setPen(QColor(Style::kTextTertiary()));
-            painter.drawText(QPointF(x, y + 9.0), QStringLiteral("ROTOR %1").arg(i + 1));
+            painter.drawText(QRectF(column.left(), y, column.width(), 16.0),
+                             Qt::AlignHCenter | Qt::AlignVCenter,
+                             QStringLiteral("ROTOR %1").arg(i + 1));
             y += 16.0;
 
-            const QPointF mitte(x + radius + 4.0, y + radius);
+            const QPointF mitte(spaltenMitte, y + radius);
             m_rotorDialRect[i] = QRectF(mitte.x() - radius, mitte.y() - radius, durchmesser, durchmesser);
 
             // ── Entwurf A ────────────────────────────────────────
@@ -2090,7 +2098,8 @@ void MapWidget::drawNumbersColumn(QPainter& painter, const QRectF& column) const
             if (m_rotorDialsBackward) {
                 painter.setFont(Style::monoFont(font(), Style::kFontCaption));
                 painter.setPen(QColor(Style::kTextTertiary()));
-                painter.drawText(QPointF(x, y + 11.0),
+                painter.drawText(QRectF(column.left(), y, column.width(), 16.0),
+                                 Qt::AlignHCenter | Qt::AlignVCenter,
                                  QStringLiteral("zurück %1°").arg(wrap360(az + 180.0), 0, 'f', 0));
                 y += 16.0;
             }
