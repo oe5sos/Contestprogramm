@@ -445,7 +445,7 @@ private:
     // "/CHAT ..." ahead of the LOGIN handshake).
     void syncOn4kstRoomForCurrentBand();
 
-    // Creates `*widget` (inserted into m_rotorLayout at `insertIndex`,
+    // Creates `*widget` (inserted into m_rotorRow at `insertIndex`,
     // wired to `client`'s azimuthChanged/stateChanged) if `enabled` and
     // it does not exist yet; updates its label in place if it already
     // exists; tears it down (removed from the layout, hidden, then
@@ -644,8 +644,9 @@ private:
     // shown by the Startcheck until the rotor connects.
     QString m_rotctldError1;
     QString m_rotctldError2;
-    QWidget* m_rotorRow = nullptr;
-    QHBoxLayout* m_rotorLayout = nullptr;
+    // Seit 2026-11-04 eine RotorRowWidget (nebeneinander oder
+    // untereinander, je nach Platz) statt QWidget + QHBoxLayout.
+    class RotorRowWidget* m_rotorRow = nullptr;
     RotorWidget* m_rotor1Widget = nullptr;
     RotorWidget* m_rotor2Widget = nullptr;
     // Die feste Antenne (ContestSettings::fixedAntennaEnabled): dasselbe

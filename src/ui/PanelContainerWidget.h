@@ -111,6 +111,16 @@ public:
     // das sich wegklicken lässt und dann nirgends mehr steht, wäre eine
     // Falle).
     void setFloating(bool floating);
+    // Schwebende Panels OHNE Systemrahmen (2026-11-04): Qt::Tool |
+    // FramelessWindowHint, eckig, mit ↙ in der Kopfzeile statt dem ✕
+    // des Systems, Zug an der Kopfzeile und Anfasser rechts unten wie
+    // in der Flaeche -- so sehen Longpaths eigene Fenster aus, und so
+    // sollen die Panels des Contestprogramms dort aussehen. Betreiber:
+    // "alle panels haben hier noch runde kanten, dies bitte auf eckig
+    // umstellen." Gilt fuer alle Panels des Prozesses; Longpath setzt
+    // es beim Laden, eigenstaendig bleibt der Systemrahmen.
+    static void setzeRahmenlosSchwebend(bool an);
+    static bool rahmenlosSchwebend();
     bool isFloating() const { return m_floating; }
     // Die Fläche, in die zurückgedockt wird -- der Elternteil, den das
     // Panel beim Herauslösen hatte.
@@ -172,6 +182,7 @@ protected:
 private:
     void buildChromelessOverlay();
     void updateChromelessLockBadge();
+    void zeigeRueckwegAffordanz(bool an);
     void layoutOverlayWidgets();
 
     void beginDrag(const QPoint& globalPos);
@@ -196,6 +207,7 @@ private:
 
     // Header mode only.
     PanelHeaderBar* m_headerBar = nullptr;
+    QPushButton* m_overlayDockButton = nullptr;   // ↙ im rahmenlosen Fenster, chromlos
 
     // Chromeless mode only -- a small overlay lock badge raised above
     // `content`, since there is no PanelHeaderBar to host one.

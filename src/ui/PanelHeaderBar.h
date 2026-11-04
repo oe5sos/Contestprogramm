@@ -78,6 +78,13 @@ public:
     // the top bar's countdown.
     void setClockVisible(bool visible);
 
+    // "Zurueck ins Logbuch" (↙), opt-in wie die anderen: nur fuer ein
+    // Panel, das als RAHMENLOSES eigenes Fenster steht (in Longpath,
+    // 2026-11-04). Ohne Systemrahmen gibt es kein ✕ mehr, und das ✕
+    // war bisher der Rueckweg (PanelContainerWidget::closeEvent). Das
+    // Zeichen ist dasselbe wie an Longpaths eigenen Fenstern.
+    void setDockAffordanceEnabled(bool enabled);
+
 signals:
     // Emitted only when the operator actually clicks the lock button --
     // PanelContainerWidget connects this to its own setLocked() (single
@@ -91,6 +98,9 @@ signals:
     // state to keep in sync, unlike the lock's on/off badge).
     void optionsRequested();
 
+    // Klick auf ↙ -- der Besitzer dockt das Panel zurueck.
+    void dockRequested();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
@@ -101,6 +111,7 @@ private:
     UtcClockWidget* m_clockWidget;
     QPushButton* m_lockButton;
     QPushButton* m_optionsButton;
+    QPushButton* m_dockButton;
     bool m_locked = false;
 };
 

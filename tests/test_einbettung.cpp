@@ -16,6 +16,7 @@
 // eigenstaendigen Weg; main.cpp geht durch dieselben zwei Funktionen.
 
 #include <QtTest>
+#include <QPushButton>
 
 #include <QApplication>
 #include <QTemporaryDir>
@@ -24,6 +25,7 @@
 #include "app/ContestSettings.h"
 #include "app/Datenverzeichnis.h"
 #include "ui/MainWindow.h"
+#include "ui/PanelContainerWidget.h"
 
 using namespace Contestprogramm;
 
@@ -36,6 +38,7 @@ private slots:
     void dieUmgebungGehtVor();
     void fensterUndControllerEntstehenImFremdenProzess();
     void panelsLassenSichVonAussenAbloesen();
+    void rahmenlosSchwebendIstEckigMitRueckweg();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -151,6 +154,75 @@ void TestEinbettung::panelsLassenSichVonAussenAbloesen()
     QVERIFY(!fenster.istPanelSchwebend(QStringLiteral("chat")));
     QVERIFY(!chat->isWindow());
     fenster.setzePanelSchwebend(QStringLiteral("skeds"), false);
+}
+
+// Betreiber 2026-11-04: "alle panels haben hier noch runde kanten, dies
+// bitte auf eckig umstellen." In Longpath schweben die Panels ohne
+// Systemrahmen (FramelessWindowHint), eckig, und tragen den Rueckweg
+// (↙) selbst, weil es das ✕ des Systems nicht mehr gibt. Eigenstaendig
+// (Fahne aus) bleibt alles wie gehabt: Systemrahmen, kein ↙.
+void TestEinbettung::rahmenlosSchwebendIstEckigMitRueckweg()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+    MainWindow fenster(controller);
+
+    auto rueckweg = [](QWidget* panel) -> QPushButton* {
+        for (QPushButton* b : panel->findChildren<QPushButton*>()) {
+            if (b->objectName() == QStringLiteral("panelHeaderDockButton")
+                || b->objectName() == QStringLiteral("panelOverlayDockButton")) {
+                return b;
+            }
+        }
+        return nullptr;
+    };
+
+    // Eigenstaendig: Systemrahmen, kein Rueckweg in der Kopfzeile.
+    QVERIFY(!PanelContainerWidget::rahmenlosSchwebend());
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QWidget* chat = fenster.panelFenster(QStringLiteral("chat"));
+    QVERIFY(chat && chat->isWindow());
+    QVERIFY(!(chat->windowFlags() & Qt::FramelessWindowHint));
+    QPushButton* knopf = rueckweg(chat);
+    QVERIFY(!knopf || !knopf->isVisible());
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), false);
+
+    // In Longpath: rahmenlos, eckig, ↙ sichtbar, und ↙ dockt zurueck.
+    PanelContainerWidget::setzeRahmenlosSchwebend(true);
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QVERIFY(chat->isWindow());
+    QVERIFY2(chat->windowFlags() & Qt::FramelessWindowHint, "ohne Systemrahmen");
+    QVERIFY(chat->testAttribute(Qt::WA_MacAlwaysShowToolWindow));
+    QVERIFY2(chat->styleSheet().contains(QStringLiteral("border-radius: 0px")),
+             qPrintable(QStringLiteral("eckig erwartet, Stil: %1").arg(chat->styleSheet())));
+    knopf = rueckweg(chat);
+    QVERIFY2(knopf && knopf->isVisible(), "der Rueckweg (↙) muss da sein");
+    knopf->click();
+    QVERIFY2(!chat->isWindow(), "↙ dockt das Panel zurueck");
+    QVERIFY(!(chat->windowFlags() & Qt::FramelessWindowHint));
+    QVERIFY(!chat->styleSheet().contains(QStringLiteral("border-radius: 0px")));
+
+    // Auch das chromlose Panel (Karte) bekommt den Rueckweg.
+    fenster.setzePanelSchwebend(QStringLiteral("map"), true);
+    QWidget* karte = fenster.panelFenster(QStringLiteral("map"));
+    QVERIFY(karte && karte->isWindow());
+    QPushButton* kartenKnopf = rueckweg(karte);
+    QVERIFY2(kartenKnopf && kartenKnopf->isVisible(), "auch die Karte braucht ↙");
+    kartenKnopf->click();
+    QVERIFY(!karte->isWindow());
+    PanelContainerWidget::setzeRahmenlosSchwebend(false);
 }
 
 QTEST_MAIN(TestEinbettung)

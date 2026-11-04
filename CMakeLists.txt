@@ -268,6 +268,7 @@ set(CONTESTPROGRAMM_UI_SOURCES
     src/ui/MultiplierWindow.cpp
     src/ui/RotorWidget.h
     src/ui/RotorWidget.cpp
+    src/ui/RotorRowWidget.cpp
     src/ui/CwMacroPanel.h
     src/ui/CwMacroPanel.cpp
     src/ui/EdiExportDialog.h

@@ -66,6 +66,7 @@
 #include "ui/SideAreaWidget.h"
 #include "ui/ProfileRail.h"
 #include "ui/RateMeterWidget.h"
+#include "ui/RotorRowWidget.h"
 #include "ui/RotorWidget.h"
 #include "ui/ScoreboardDialog.h"
 #include "ui/SkedPanel.h"
@@ -717,13 +718,12 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // below) reads as one instrument *group*, not a doubled header; the
     // dockable-panel system tolerates the rotor slots appearing/
     // disappearing at runtime the same way the old fixed layout did,
-    // since applyRotorSlot() below still only ever touches m_rotorLayout,
+    // since applyRotorSlot() below still only ever touches m_rotorRow,
     // never this panel's own container.
-    m_rotorRow = new QWidget(this);
-    m_rotorLayout = new QHBoxLayout(m_rotorRow);
-    m_rotorLayout->setContentsMargins(0, 0, 0, 0);
-    m_rotorLayout->setSpacing(10);
-    m_rotorLayout->addStretch();
+    // RotorRowWidget statt QHBoxLayout (2026-11-04): die Zeile kann so
+    // schmal werden wie EIN Rotor, dann stehen sie untereinander. Siehe
+    // RotorRowWidget.h fuer den Betreiberwunsch dahinter.
+    m_rotorRow = new RotorRowWidget(this);
     // y=632: below the merged Log panel's own bottom edge (64+560=624)
     // plus an 8px gap.
     // Height 370 (was 272, originally 236): RotorWidget::minimumSizeHint()
@@ -754,7 +754,7 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // kReadoutMinWidth -- the three big AKTUELL/ZIEL/ENTFERNUNG numbers
     // measure ~90px each at kFontDisplay and were overlapping at the old
     // 220px). With both rotor slots enabled (the default), two widgets
-    // at 300px plus m_rotorLayout's 10px spacing need >=610px, which the
+    // at 300px plus the rotor row's 10px spacing need >=610px, which the
     // old 300px-wide row/708 x-offset could never have fit even before
     // this pass (a pre-existing mismatch this pass's own live-app
     // verification screenshot exposed). Moved to x=0 (rather than
@@ -2631,7 +2631,7 @@ void MainWindow::applyFixedAntennaSettings()
     const ContestSettings settings = m_appController.settings();
     if (!settings.fixedAntennaEnabled) {
         if (m_fixedAntennaWidget) {
-            m_rotorLayout->removeWidget(m_fixedAntennaWidget);
+            m_rotorRow->entfernen(m_fixedAntennaWidget);
             delete m_fixedAntennaWidget;
             m_fixedAntennaWidget = nullptr;
         }
@@ -2651,7 +2651,7 @@ void MainWindow::applyFixedAntennaSettings()
         if (m_rotor2Widget) {
             ++index;
         }
-        m_rotorLayout->insertWidget(index, m_fixedAntennaWidget);
+        m_rotorRow->einfuegen(index, m_fixedAntennaWidget);
         // Der Anzeigestil gilt fuer alle Instrumente gemeinsam, also
         // auch hier -- dieselbe Runde wie bei den drehbaren.
         connect(m_fixedAntennaWidget, &RotorWidget::dialStyleRequested, m_fixedAntennaWidget,
@@ -2776,7 +2776,7 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
     if (enabled) {
         if (!widget) {
             widget = new RotorWidget(label, m_rotorRow);
-            m_rotorLayout->insertWidget(insertIndex, widget);
+            m_rotorRow->einfuegen(insertIndex, widget);
             // `widget` as the connect() context means both connections
             // auto-disconnect the moment the widget is destroyed below
             // (the disabled-slot path) -- no dangling-pointer risk in
@@ -2932,7 +2932,7 @@ void MainWindow::applyRotorSlot(bool enabled, const QString& label, RotctldClien
             pushRotorHeadingToMap(client, true, widget->azimuthDeg(), label);
         }
     } else if (widget) {
-        m_rotorLayout->removeWidget(widget);
+        m_rotorRow->entfernen(widget);
         widget->hide();
         widget->deleteLater();
         widget = nullptr;

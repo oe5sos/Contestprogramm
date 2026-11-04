@@ -931,12 +931,18 @@ void RotorWidget::drawTicks(QPainter& painter, const QPointF& center, double rad
     // cardinals, which already carry a letter. Longpath only draws these
     // once the dial is big enough that they would not collide (r > 84);
     // below that it skips them entirely rather than crowding the face.
-    if (radius > 84.0) {
+    // Betreiber 2026-11-04: "das fenster rotoren muss sehr gross gezogen
+    // werden, um grad eigens zu sehen. bitte um loesungen, um fenster
+    // klein ziehen zu koennen." Darum unter r = 84 nicht mehr weg,
+    // sondern kleiner: bis r = 54 in 8 px, erst darunter faellt die
+    // Beschriftung -- da stuende sie auf den Strichen.
+    if (radius > 54.0) {
+        const int fontPx = radius > 84.0 ? Style::kFontCaption : Style::kFontCaption - 1;
         for (int deg = 30; deg < 360; deg += 30) {
             if (deg % 90 == 0) {
                 continue;
             }
-            drawDegreeLabel(painter, center, radius * 0.755, deg);
+            drawDegreeLabel(painter, center, radius * 0.755, deg, fontPx);
         }
     }
 }
@@ -955,11 +961,12 @@ void RotorWidget::drawCompassLabel(QPainter& painter, const QPointF& center, dou
     painter.drawText(box, Qt::AlignCenter, text);
 }
 
-void RotorWidget::drawDegreeLabel(QPainter& painter, const QPointF& center, double radius, double angleDeg) const
+void RotorWidget::drawDegreeLabel(QPainter& painter, const QPointF& center, double radius, double angleDeg,
+                                  int fontPx) const
 {
     const QString text = QString::number(static_cast<int>(angleDeg));
     const QPointF p = pointOnCircle(center, radius, angleDeg);
-    const QFont f = Style::monoFont(painter.font(), Style::kFontCaption);
+    const QFont f = Style::monoFont(painter.font(), fontPx > 0 ? fontPx : Style::kFontCaption);
     painter.setFont(f);
     const QFontMetrics fm(f);
     const QRectF box(p.x() - fm.horizontalAdvance(text), p.y() - fm.height() * 0.5, fm.horizontalAdvance(text) * 2.0, fm.height());

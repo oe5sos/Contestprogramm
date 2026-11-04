@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QScreen>
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
@@ -57,6 +58,7 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
         m_headerBar->setLockAffordanceEnabled(true);
         m_headerBar->installEventFilter(this);
         connect(m_headerBar, &PanelHeaderBar::lockToggled, this, &PanelContainerWidget::setLocked);
+        connect(m_headerBar, &PanelHeaderBar::dockRequested, this, [this]() { setFloating(false); });
         layout->addWidget(m_headerBar);
         layout->addWidget(content, 1);
     }
@@ -72,6 +74,37 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
 
     setMinimumSize(kMinWidth, kMinHeight);
     layoutOverlayWidgets();
+}
+
+namespace {
+bool s_rahmenlosSchwebend = false;
+}
+
+void PanelContainerWidget::setzeRahmenlosSchwebend(bool an) { s_rahmenlosSchwebend = an; }
+bool PanelContainerWidget::rahmenlosSchwebend() { return s_rahmenlosSchwebend; }
+
+void PanelContainerWidget::zeigeRueckwegAffordanz(bool an)
+{
+    if (m_headerBar) {
+        m_headerBar->setDockAffordanceEnabled(an);
+    }
+    if (m_contentHasOwnChrome) {
+        if (an && !m_overlayDockButton) {
+            m_overlayDockButton = new QPushButton(QString::fromUtf8("↙"), this);
+            m_overlayDockButton->setObjectName(QStringLiteral("panelOverlayDockButton"));
+            m_overlayDockButton->setFixedSize(24, 18);
+            m_overlayDockButton->setCursor(Qt::PointingHandCursor);
+            m_overlayDockButton->setToolTip(QStringLiteral("Zurück ins Logbuch"));
+            m_overlayDockButton->setStyleSheet(Style::iconButtonStyle());
+            connect(m_overlayDockButton, &QPushButton::clicked, this, [this]() {
+                setFloating(false);
+            });
+        }
+        if (m_overlayDockButton) {
+            m_overlayDockButton->setVisible(an);
+            layoutOverlayWidgets();
+        }
+    }
 }
 
 void PanelContainerWidget::buildChromelessOverlay()
@@ -166,7 +199,20 @@ void PanelContainerWidget::setFloating(bool floating)
         // haengt es daran -- es folgt beim Minimieren, beim Wechsel
         // des Schirms und beim Schliessen.
         QWidget* hauptfenster = m_dockTarget ? m_dockTarget->window() : window();
-        setParent(hauptfenster, Qt::Tool);
+        if (s_rahmenlosSchwebend) {
+            // Ohne Systemrahmen, eckig, mit eigenem Rueckweg (↙) -- siehe
+            // setzeRahmenlosSchwebend(). WA_MacAlwaysShowToolWindow: ein
+            // Werkzeugfenster verschwaende sonst, sobald das Programm
+            // nicht mehr vorn ist; ein Log-Panel soll stehen bleiben.
+            setParent(hauptfenster, Qt::Tool | Qt::FramelessWindowHint);
+            setAttribute(Qt::WA_MacAlwaysShowToolWindow, true);
+            if (!m_contentHasOwnChrome) {
+                Style::applyPanelFrameStyle(this, m_id, 0);
+            }
+            zeigeRueckwegAffordanz(true);
+        } else {
+            setParent(hauptfenster, Qt::Tool);
+        }
         setWindowTitle(m_title.isEmpty() ? m_id : m_title);
         // Dort aufmachen, wo es gerade stand -- nicht irgendwo.
         move(aufDemSchirm);
@@ -176,7 +222,13 @@ void PanelContainerWidget::setFloating(bool floating)
         activateWindow();
     } else {
         setWindowFlag(Qt::Tool, false);
+        setWindowFlag(Qt::FramelessWindowHint, false);
         setWindowFlag(Qt::Window, false);
+        setAttribute(Qt::WA_MacAlwaysShowToolWindow, false);
+        zeigeRueckwegAffordanz(false);
+        if (!m_contentHasOwnChrome) {
+            Style::applyPanelFrameStyle(this, m_id);
+        }
         setParent(m_dockTarget);
         if (m_dockedGeometry.isValid()) {
             setGeometry(m_dockedGeometry);
@@ -217,6 +269,12 @@ void PanelContainerWidget::layoutOverlayWidgets()
         m_overlayLockButton->move(width() - m_overlayLockButton->width() - 6, 6);
         m_overlayLockButton->raise();
     }
+    if (m_overlayDockButton && m_overlayLockButton) {
+        // Rechts vom Schloss, wie in der Kopfzeile.
+        m_overlayDockButton->move(width() - m_overlayLockButton->width() - 6
+                                      - m_overlayDockButton->width() - 4, 6);
+        m_overlayDockButton->raise();
+    }
 }
 
 void PanelContainerWidget::beginDrag(const QPoint& globalPos)
@@ -241,6 +299,20 @@ void PanelContainerWidget::updateDrag(const QPoint& globalPos)
         return;
     }
     QPoint newPos = globalPos - m_dragStartOffset;
+    if (m_floating) {
+        // Als eigenes Fenster: am Schirm halten, nicht am Elternfenster
+        // -- das waere das Hauptfenster, und ein Panel soll auch neben
+        // ihm stehen duerfen. Die Kopfzeile muss greifbar bleiben.
+        if (QScreen* scr = screen()) {
+            const QRect platz = scr->availableGeometry();
+            newPos.setX(std::clamp(newPos.x(), platz.left() - width() + 60, platz.right() - 60));
+            newPos.setY(std::clamp(newPos.y(), platz.top(), platz.bottom() - 40));
+        }
+        if (pos() != newPos) {
+            move(newPos);
+        }
+        return;
+    }
     // Clamped to the parent canvas -- same overlay-docked behavior as
     // ContainerWidget::updateDrag()'s non-floating branch.
     if (parentWidget()) {
@@ -291,7 +363,7 @@ void PanelContainerWidget::updateResize(const QPoint& globalPos)
     const int dy = globalPos.y() - m_resizeStartGlobal.y();
     int newW = std::max(kMinWidth, m_resizeStartSize.width() + dx);
     int newH = std::max(kMinHeight, m_resizeStartSize.height() + dy);
-    if (parentWidget()) {
+    if (!m_floating && parentWidget()) {
         newW = std::min(newW, std::max(kMinWidth, parentWidget()->width() - x()));
         newH = std::min(newH, std::max(kMinHeight, parentWidget()->height() - y()));
     }
