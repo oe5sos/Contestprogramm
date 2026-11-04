@@ -123,6 +123,10 @@ public:
     void setzePanelSchwebend(const QString& id, bool schwebend);
     // Das Panel als Fenster (oder nullptr, wenn es die Kennung nicht gibt).
     QWidget* panelFenster(const QString& id) const;
+    // Ein- oder ausblenden wie ueber Fenster > Panels (und das Profil
+    // sichern). Fuer das ✕ in Longpath und den Haken dort.
+    void setzePanelSichtbar(const QString& id, bool sichtbar);
+    bool istPanelSichtbar(const QString& id) const;
     class SideAreaWidget* sideAreaForTest() const { return m_sideArea; }
     void applyWaterfallVisibilityForTest() { applyWaterfallVisibility(); }
     void putPanelIntoSideAreaForTest(const QString& id);

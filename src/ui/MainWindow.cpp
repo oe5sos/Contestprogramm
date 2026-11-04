@@ -3044,6 +3044,24 @@ QList<MainWindow::PanelEintrag> MainWindow::panelEintraege()
     return eintraege;
 }
 
+void MainWindow::setzePanelSichtbar(const QString& id, bool sichtbar)
+{
+    if (!m_panelLayoutManager) { return; }
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    if (!panel) { return; }
+    if (panel->isVisible() == sichtbar && !(sichtbar && panel->isFloating())) { return; }
+    panel->setVisible(sichtbar);
+    if (sichtbar) { m_panelLayoutManager->revealPanel(id); }
+    if (m_layoutProfileManager) { m_layoutProfileManager->saveActiveProfileState(); }
+}
+
+bool MainWindow::istPanelSichtbar(const QString& id) const
+{
+    if (!m_panelLayoutManager) { return false; }
+    const PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
+    return panel && panel->isVisible();
+}
+
 bool MainWindow::istPanelSchwebend(const QString& id) const
 {
     return m_panelLayoutManager && m_panelLayoutManager->isPanelFloating(id);
@@ -3058,6 +3076,14 @@ void MainWindow::setzePanelSchwebend(const QString& id, bool schwebend)
         // Aus dem Seitenbereich holen: dort ist es eine Seite, kein
         // Fenster, und setPanelFloating() faende es nicht in der Flaeche.
         takePanelOutOfSideArea(id);
+        // Ein ausgeblendetes Panel (✕) kommt ueber den Haken wieder:
+        // erst sichtbar, dann schwebend.
+        if (!panel->isVisible()) { panel->setVisible(true); }
+        // Das ✕ am schwebenden Panel sichert das Profil -- einmal
+        // verdrahtet, so oft es will.
+        connect(panel, &PanelContainerWidget::versteckt, this, [this](const QString&) {
+            if (m_layoutProfileManager) { m_layoutProfileManager->saveActiveProfileState(); }
+        }, Qt::UniqueConnection);
         m_panelLayoutManager->setPanelFloating(id, true);
         // Ein nie gezeigtes Hauptfenster hat keine ausgelegte Flaeche:
         // das Panel kaeme mit der Groesse 0x0 daher. Dann die Groesse

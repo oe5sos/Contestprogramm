@@ -171,6 +171,10 @@ signals:
     // z-order on this signal. The container already raise()s itself
     // immediately regardless of whether anything is listening.
     void raiseRequested(const QString& id);
+    // ✕ am schwebenden Panel (rahmenlos, in Longpath): das Panel ist
+    // zurueckgedockt UND ausgeblendet. Wer das Profil fuehrt, sichert
+    // daraufhin (MainWindow).
+    void versteckt(const QString& id);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
@@ -208,6 +212,8 @@ private:
     // Header mode only.
     PanelHeaderBar* m_headerBar = nullptr;
     QPushButton* m_overlayDockButton = nullptr;   // ↙ im rahmenlosen Fenster, chromlos
+    QPushButton* m_overlayCloseButton = nullptr;  // ✕ ebenso
+    void schliessenUndAusblenden();
 
     // Chromeless mode only -- a small overlay lock badge raised above
     // `content`, since there is no PanelHeaderBar to host one.

@@ -59,6 +59,7 @@ PanelContainerWidget::PanelContainerWidget(const QString& id, const QString& tit
         m_headerBar->installEventFilter(this);
         connect(m_headerBar, &PanelHeaderBar::lockToggled, this, &PanelContainerWidget::setLocked);
         connect(m_headerBar, &PanelHeaderBar::dockRequested, this, [this]() { setFloating(false); });
+        connect(m_headerBar, &PanelHeaderBar::closeRequested, this, [this]() { schliessenUndAusblenden(); });
         layout->addWidget(m_headerBar);
         layout->addWidget(content, 1);
     }
@@ -83,10 +84,22 @@ bool s_rahmenlosSchwebend = false;
 void PanelContainerWidget::setzeRahmenlosSchwebend(bool an) { s_rahmenlosSchwebend = an; }
 bool PanelContainerWidget::rahmenlosSchwebend() { return s_rahmenlosSchwebend; }
 
+void PanelContainerWidget::schliessenUndAusblenden()
+{
+    // Betreiber 2026-11-04: "alle fenster muessen sich mit X schliessen
+    // lassen!" Schliessen = zurueck in die Flaeche und dort ausgeblendet,
+    // wie ein weggenommener Haken in Fenster > Panels. Wieder da ist es
+    // ueber den Haken (im Logbuch oder in Longpath).
+    setFloating(false);
+    setVisible(false);
+    emit versteckt(m_id);
+}
+
 void PanelContainerWidget::zeigeRueckwegAffordanz(bool an)
 {
     if (m_headerBar) {
         m_headerBar->setDockAffordanceEnabled(an);
+        m_headerBar->setCloseAffordanceEnabled(an);
     }
     if (m_contentHasOwnChrome) {
         if (an && !m_overlayDockButton) {
@@ -100,10 +113,24 @@ void PanelContainerWidget::zeigeRueckwegAffordanz(bool an)
                 setFloating(false);
             });
         }
+        if (an && !m_overlayCloseButton) {
+            m_overlayCloseButton = new QPushButton(QString::fromUtf8("✕"), this);
+            m_overlayCloseButton->setObjectName(QStringLiteral("panelOverlayCloseButton"));
+            m_overlayCloseButton->setFixedSize(24, 18);
+            m_overlayCloseButton->setCursor(Qt::PointingHandCursor);
+            m_overlayCloseButton->setToolTip(QStringLiteral("Schließen (zurück ins Logbuch, ausgeblendet)"));
+            m_overlayCloseButton->setStyleSheet(Style::iconButtonStyle());
+            connect(m_overlayCloseButton, &QPushButton::clicked, this, [this]() {
+                schliessenUndAusblenden();
+            });
+        }
         if (m_overlayDockButton) {
             m_overlayDockButton->setVisible(an);
-            layoutOverlayWidgets();
         }
+        if (m_overlayCloseButton) {
+            m_overlayCloseButton->setVisible(an);
+        }
+        layoutOverlayWidgets();
     }
 }
 
@@ -199,6 +226,18 @@ void PanelContainerWidget::setFloating(bool floating)
         // haengt es daran -- es folgt beim Minimieren, beim Wechsel
         // des Schirms und beim Schliessen.
         QWidget* hauptfenster = m_dockTarget ? m_dockTarget->window() : window();
+        // Das OBERSTE Fenster, nicht das naechste (2026-11-04): in Longpath
+        // ist dieses Hauptfenster selbst ein Werkzeugfenster am
+        // Longpath-Hauptfenster. Haengt ein Panel am Logbuch und Longpaths
+        // eigene Panels am Hauptfenster, sind es zwei Geschwisterkreise,
+        // und ein Klick hebt nur innerhalb des eigenen Kreises -- Betreiber:
+        // "nicht alle offenen fenster lassen sich durch anklicken in den
+        // vordergrund schieben." Als Geschwister EINES Fensters gilt die
+        // Klickreihenfolge fuer alle. Eigenstaendig aendert sich nichts
+        // (das Hauptfenster hat dann kein Elternfenster).
+        while (hauptfenster && hauptfenster->parentWidget()) {
+            hauptfenster = hauptfenster->parentWidget()->window();
+        }
         if (s_rahmenlosSchwebend) {
             // Ohne Systemrahmen, eckig, mit eigenem Rueckweg (↙) -- siehe
             // setzeRahmenlosSchwebend(). WA_MacAlwaysShowToolWindow: ein
@@ -270,9 +309,15 @@ void PanelContainerWidget::layoutOverlayWidgets()
         m_overlayLockButton->raise();
     }
     if (m_overlayDockButton && m_overlayLockButton) {
-        // Rechts vom Schloss, wie in der Kopfzeile.
-        m_overlayDockButton->move(width() - m_overlayLockButton->width() - 6
-                                      - m_overlayDockButton->width() - 4, 6);
+        // Links vom Schloss: ↙ dann ✕ ganz rechts -- wie in der Kopfzeile.
+        int x = width() - m_overlayLockButton->width() - 6;
+        if (m_overlayCloseButton && m_overlayCloseButton->isVisible()) {
+            x -= m_overlayCloseButton->width() + 4;
+            m_overlayCloseButton->move(x, 6);
+            m_overlayCloseButton->raise();
+        }
+        x -= m_overlayDockButton->width() + 4;
+        m_overlayDockButton->move(x, 6);
         m_overlayDockButton->raise();
     }
 }
