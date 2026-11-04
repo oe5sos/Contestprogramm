@@ -39,6 +39,8 @@ SpectrumClient::SpectrumClient(QObject* parent)
     connect(m_socket, &QWebSocket::disconnected, this, &SpectrumClient::aufGetrennt);
     connect(m_socket, &QWebSocket::binaryMessageReceived,
             this, &SpectrumClient::aufBinaerNachricht);
+    connect(m_socket, &QWebSocket::textMessageReceived,
+            this, &SpectrumClient::aufTextNachricht);
 
     // Ein Fehler ist hier kein Ereignis, das jemanden interessiert: der
     // Wiederanlauf hängt an `disconnected`, und QWebSocket schickt das
@@ -148,6 +150,13 @@ void SpectrumClient::aufVerbunden()
 
 void SpectrumClient::aufGetrennt()
 {
+    // Was Longpath zuletzt sagte, gilt nicht mehr: nach dem Wiederanlauf
+    // sagt es alles neu (Startfolge, dann spectrum_span/centre mit dem
+    // ersten Bild). Bis dahin lieber keine Skala als eine veraltete.
+    if (m_lage != Lage{}) {
+        m_lage = Lage{};
+        meldeLage();
+    }
     emit verbindungGeaendert(false);
     planeWiederAnlauf();
 }
@@ -205,6 +214,64 @@ void SpectrumClient::aufBinaerNachricht(const QByteArray& rahmen)
         return;
     }
     emit spektrumDa(werte, fps);
+}
+
+
+// ── Die Textzeilen von Longpath ─────────────────────────────────────────
+//
+// Jede Nachricht ist `name:arg,arg,...;`, und mehrere koennen in einer
+// Nachricht stehen. Nur das Wenige, was das Panel braucht, wird gedeutet;
+// alles andere faellt durch, ohne dass hier etwas davon wissen muss.
+// Empfaenger 0 — das Panel zeigt den einen Empfaenger, den es bestellt hat.
+bool SpectrumClient::deuteText(const QString& text, Lage& lage)
+{
+    bool geaendert = false;
+    const QStringList befehle = text.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    for (const QString& roh : befehle) {
+        const QString befehl = roh.trimmed();
+        const int doppelpunkt = befehl.indexOf(QLatin1Char(':'));
+        if (doppelpunkt <= 0) { continue; }
+        const QString name = befehl.left(doppelpunkt);
+        const QStringList args = befehl.mid(doppelpunkt + 1).split(QLatin1Char(','));
+        auto zahl = [&args](int i, bool* ok) -> double {
+            if (i >= args.size()) { *ok = false; return 0.0; }
+            return args.at(i).trimmed().toDouble(ok);
+        };
+        bool ok = false;
+        if (name == QLatin1String("spectrum_centre") && args.size() >= 2
+            && args.at(0).trimmed() == QLatin1String("0")) {
+            const double hz = zahl(1, &ok);
+            if (ok && hz > 0.0 && hz != lage.mitteHz) { lage.mitteHz = hz; geaendert = true; }
+        } else if (name == QLatin1String("spectrum_span") && args.size() >= 2
+                   && args.at(0).trimmed() == QLatin1String("0")) {
+            const double hz = zahl(1, &ok);
+            if (ok && hz >= 0.0 && hz != lage.spanneHz) { lage.spanneHz = hz; geaendert = true; }
+        } else if (name == QLatin1String("vfo") && args.size() >= 3
+                   && args.at(0).trimmed() == QLatin1String("0")
+                   && args.at(1).trimmed() == QLatin1String("0")) {
+            const double hz = zahl(2, &ok);
+            if (ok && hz > 0.0 && hz != lage.vfoHz) { lage.vfoHz = hz; geaendert = true; }
+        } else if (name == QLatin1String("tx_frequency") && args.size() >= 1) {
+            const double hz = zahl(0, &ok);
+            if (ok && hz > 0.0 && hz != lage.txHz) { lage.txHz = hz; geaendert = true; }
+        } else if (name == QLatin1String("trx") && args.size() >= 2
+                   && args.at(0).trimmed() == QLatin1String("0")) {
+            const bool an = (args.at(1).trimmed() == QLatin1String("true"));
+            if (an != lage.sendet) { lage.sendet = an; geaendert = true; }
+        }
+    }
+    return geaendert;
+}
+
+void SpectrumClient::aufTextNachricht(const QString& text)
+{
+    if (deuteText(text, m_lage)) { meldeLage(); }
+}
+
+void SpectrumClient::meldeLage()
+{
+    emit lageGeaendert(m_lage.mitteHz, m_lage.spanneHz, m_lage.vfoHz,
+                       m_lage.txHz, m_lage.sendet);
 }
 
 } // namespace Contestprogramm

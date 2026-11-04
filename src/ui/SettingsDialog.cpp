@@ -62,6 +62,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     , m_tciHostEdit(new QLineEdit(this))
     , m_tciPortSpin(new QSpinBox(this))
     , m_spectrumEnabledCheck(new QCheckBox(QStringLiteral("Wasserfall von Longpath holen"), this))
+    , m_spectrumFarbigCheck(new QCheckBox(QStringLiteral("In Farbe wie Longpath (statt Bernstein)"), this))
     , m_rigctldHostEdit(new QLineEdit(this))
     , m_rigctldPortSpin(new QSpinBox(this))
     , m_rigModelCombo(new QComboBox(this))
@@ -225,10 +226,12 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     m_tciPortSpin->setRange(1, 65535);
     m_tciPortSpin->setValue(initial.tciPort);
     m_spectrumEnabledCheck->setChecked(initial.spectrumEnabled);
+    m_spectrumFarbigCheck->setChecked(initial.spectrumFarbig);
     // Adresse nur eingeben, wenn sie auch gebraucht wird.
     auto tciFelderNachziehen = [this](bool an) {
         m_tciHostEdit->setEnabled(an);
         m_tciPortSpin->setEnabled(an);
+        m_spectrumFarbigCheck->setEnabled(an);
     };
     connect(m_spectrumEnabledCheck, &QCheckBox::toggled, this, tciFelderNachziehen);
     tciFelderNachziehen(m_spectrumEnabledCheck->isChecked());
@@ -597,6 +600,7 @@ SettingsDialog::SettingsDialog(const ContestSettings& initial,
     // und bedient nichts.
     auto* spektrumForm = new QFormLayout();
     spektrumForm->addRow(QString(), m_spectrumEnabledCheck);
+    spektrumForm->addRow(QString(), m_spectrumFarbigCheck);
     spektrumForm->addRow(QStringLiteral("Longpath-Host:"), m_tciHostEdit);
     spektrumForm->addRow(QStringLiteral("Longpath-Port:"), m_tciPortSpin);
     auto* spektrumGroup = new QGroupBox(QStringLiteral("Wasserfall (Longpath, TCI)"), this);
@@ -899,6 +903,7 @@ ContestSettings SettingsDialog::settings() const
     result.tciHost = m_tciHostEdit->text().trimmed();
     result.tciPort = m_tciPortSpin->value();
     result.spectrumEnabled = m_spectrumEnabledCheck->isChecked();
+    result.spectrumFarbig = m_spectrumFarbigCheck->isChecked();
     result.rigctldHost = m_rigctldHostEdit->text().trimmed();
     result.rigctldHamlibModel = m_rigModelCombo->currentData().toInt();
     result.rigctldDevice = m_rigDeviceEdit->text().trimmed();

@@ -39,9 +39,12 @@ bewusst aufgeschoben.
       Spektrumbild gesendet" 43 ms nach dem Abonnement, Spanne 200 kHz.
       Um 17:33 das Logprogramm aus /Applications dazu: abonniert 718
       Punkte, erstes Bild 7 ms später, **das Panel zeigt das Band**
-      (Spektrumlinie mit Trägern, laufende Wasserfallzeilen). Offen
-      bleibt: stimmt die Breite im Panel (keine Skala dort), hält die
-      Leitung über Stunden?
+      (Spektrumlinie mit Trägern, laufende Wasserfallzeilen). Seit #69
+      hat das Panel eine Frequenzskala und die Marke der eigenen
+      Sendefrequenz (aus `spectrum_centre`/`spectrum_span`/`tx_frequency`);
+      am Prüfstand belegt, am echten Longpath (braucht #378) noch nicht
+      gesehen. Offen bleibt: stimmt die Skala mit Longpaths Fenster
+      überein, hält die Leitung über Stunden?
 
 - [ ] **Kartenkegel folgt dem Rotorzeiger** — im Prüfstand belegt
       (31°/39°), am echten Rotor noch nicht nachgefahren.

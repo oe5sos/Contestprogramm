@@ -102,6 +102,30 @@ public:
     static QVector<quint8> leseRahmenFuerTest(const QByteArray& rahmen,
                                               int* bilderJeSekunde = nullptr);
 
+    // ── Die Lage: wo das Bild liegt und wo die eigene Frequenz steht ─────
+    //
+    // Betreiber am 2026-11-03: "frequenz sollte angezeigt werden, genauso
+    // wo ich dann sende bzw. wo meine frequenz steht." Longpath sagt es in
+    // Textzeilen: `spectrum_centre:0,<hz>;` (Bildmitte, seit #378) und
+    // `spectrum_span:0,<hz>;` (wirkliche Breite) fuer die Skala,
+    // `tx_frequency:<hz>;` fuer die Sendefrequenz, `vfo:0,0,<hz>;` fuer
+    // das VFO und `trx:0,true;` fuers Senden. `dds:` wird NICHT genommen:
+    // bei Longpath ist das nur das VFO, an der Flex nie die Bildmitte.
+    struct Lage {
+        double mitteHz  = 0.0;   // 0 = unbekannt, dann keine Skala
+        double spanneHz = 0.0;
+        double vfoHz    = 0.0;
+        double txHz     = 0.0;
+        bool   sendet   = false;
+        bool operator==(const Lage&) const = default;
+    };
+    const Lage& lage() const { return m_lage; }
+
+    // Pruefnaht: eine Textnachricht deuten (mehrere Befehle, durch `;`
+    // getrennt). true, wenn sich an `lage` etwas geaendert hat.
+    static bool deuteTextFuerTest(const QString& text, Lage& lage)
+    { return deuteText(text, lage); }
+
 signals:
     // Ein vollständiges Bild, ein Wert je Bildpunkt, roh als byte.
     // Die Umrechnung in dBm macht der Empfänger (byte - kDbmVersatz),
@@ -110,13 +134,21 @@ signals:
 
     void verbindungGeaendert(bool verbunden);
 
+    // Die Lage hat sich geaendert (siehe Lage). Einzelwerte statt der
+    // Struktur, damit kein Metatyp registriert werden muss.
+    void lageGeaendert(double mitteHz, double spanneHz, double vfoHz,
+                       double txHz, bool sendet);
+
 private slots:
     void aufVerbunden();
     void aufGetrennt();
     void aufBinaerNachricht(const QByteArray& rahmen);
+    void aufTextNachricht(const QString& text);
     void wiederAnlauf();
 
 private:
+    static bool deuteText(const QString& text, Lage& lage);
+    void meldeLage();
     void sendeStart();
     void planeWiederAnlauf();
 
@@ -127,6 +159,7 @@ private:
     quint16  m_port = 50001;
     int      m_punkte = 256;
     int      m_fps = 10;
+    Lage     m_lage;
 
     bool m_gewollt = false;   // hat der Bediener es eingeschaltet?
     int  m_stufe = 0;         // Index in die Wartestufen

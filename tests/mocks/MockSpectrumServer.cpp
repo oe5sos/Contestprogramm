@@ -82,6 +82,13 @@ void MockSpectrumServer::aufNeuerClient()
     });
 }
 
+void MockSpectrumServer::sendeText(const QString& text)
+{
+    if (m_client == nullptr) { return; }
+    m_client->sendTextMessage(text);
+    m_client->flush();
+}
+
 void MockSpectrumServer::sendeSpektrum(int punkte, quint8 fuellwert)
 {
     if (m_client == nullptr) { return; }
