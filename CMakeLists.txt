@@ -34,7 +34,11 @@ else()
 endif()
 # macOS: one Objective-C++ file (app/AppActivation.mm) asks AppKit to
 # bring the running instance to the front; see if(APPLE) below.
-if(APPLE)
+if(APPLE AND CONTESTPROGRAMM_EIGENSTAENDIG)
+    # Eingebettet NICHT: enable_language() in einem Unterverzeichnis laesst
+    # den Wirt mit "CMAKE_OBJCXX_COMPILE_OBJECT not set" stehen (gemessen
+    # 2026-11-04 in Longpath). Dort uebersetzt clang die .mm-Datei ueber die
+    # Endung als Teil des CXX-Ziels, so wie Longpath seine eigenen .mm.
     enable_language(OBJCXX)
 endif()
 
