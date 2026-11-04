@@ -757,16 +757,26 @@ void TestRotorWidgetReadout::minimumSizeHintFitsTheThreeColumnReadoutBlock()
     // 2026-09-21 ("hier sollten die rotoren auch kleiner werden und nicht
     // abgeschnitten sein"): the widget's own minimum is the DIAL's, not
     // the readout's -- two rotors must fit a 540px panel. At that
-    // minimum the readout gives way entirely (textAreaHeight() 0) rather
-    // than overlapping or clipping; at a middling width it is there in
-    // the smaller value font; at sizeHint() in full.
+    // minimum the readout used to give way entirely (textAreaHeight() 0).
+    // Seit 2026-11-04 ("die kaestchen fuer die gradanzahl bei rotoren
+    // koennen kleiner sein, so waere dann alles auch gemeinsam kleiner")
+    // schrumpfen die Kaestchen in drei Stufen mit der Breite: am
+    // Mindestmass ist das Ablesefeld DA, aber in der kleinen Stufe,
+    // niedriger als in voller Groesse; bei mittlerer Breite mittel; bei
+    // sizeHint() in voller Hoehe. Alte Fassung: 0 am Mindestmass.
     QVERIFY(widget.minimumSizeHint().width() < widestColumnContent * 3);
     widget.resize(widget.minimumSizeHint().width(), 400);
-    QCOMPARE(widget.textAreaHeightForTest(), 0);
+    const int klein = widget.textAreaHeightForTest();
+    QVERIFY2(klein > 0, "am Mindestmass gibt es ein kleines Ablesefeld");
     widget.resize(260, 400);
-    QVERIFY(widget.textAreaHeightForTest() > 0);
-    widget.resize(widget.sizeHint());
-    QVERIFY(widget.textAreaHeightForTest() > 0);
+    const int mittel = widget.textAreaHeightForTest();
+    QVERIFY(mittel > klein);
+    // Die grosse Stufe (38 px) braucht drei Spalten zu je ~102 px: erst
+    // ab ~330 px Breite, nicht schon bei sizeHint() (300).
+    widget.resize(420, 400);
+    const int gross = widget.textAreaHeightForTest();
+    QVERIFY2(gross > mittel, qPrintable(QStringLiteral("klein %1, mittel %2, gross %3")
+                                            .arg(klein).arg(mittel).arg(gross)));
     widget.setConnected(true);
     widget.setAzimuthDeg(214.0);
     widget.resize(widget.minimumSizeHint().width(), 400);
@@ -814,19 +824,25 @@ void TestRotorWidgetReadout::readoutGivesWayBeforeTheDialInALowPanel()
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
 
     // The dial shrinks first (down to its 150 px floor), then the
-    // readout: full at 362 and still at 292, one row less at 285,
-    // two at 265, none at the minimum.
+    // readout: one row less, two less, none at the minimum. Die Hoehen
+    // seit 2026-11-04 aus dem Block der aktuellen Stufe gerechnet (bei
+    // 320 px Breite die mittlere), nicht mehr feste Zahlen: Sockel =
+    // Kopf + Mindestflaeche des Zifferblatts = minimumSizeHint().
     widget.resize(320, widget.sizeHint().height());
     const int full = widget.textAreaHeightForTest();
     QVERIFY(full > 0);
-    widget.resize(320, 292);
+    const int sockel = widget.minimumSizeHint().height();
+    widget.resize(320, sockel + full + 14);
     QCOMPARE(widget.textAreaHeightForTest(), full);
-    widget.resize(320, 285);
+    widget.resize(320, sockel + full - 1);
     const int withoutStatus = widget.textAreaHeightForTest();
-    QVERIFY(withoutStatus > 0 && withoutStatus < full);
-    widget.resize(320, 265);
+    QVERIFY2(withoutStatus > 0 && withoutStatus < full,
+             qPrintable(QStringLiteral("full %1, ohne Status %2").arg(full).arg(withoutStatus)));
+    widget.resize(320, sockel + withoutStatus - 1);
     const int withoutCaption = widget.textAreaHeightForTest();
-    QVERIFY(withoutCaption > 0 && withoutCaption < withoutStatus);
+    QVERIFY2(withoutCaption > 0 && withoutCaption < withoutStatus,
+             qPrintable(QStringLiteral("ohne Status %1, ohne Beschriftung %2")
+                            .arg(withoutStatus).arg(withoutCaption)));
     widget.resize(320, widget.minimumSizeHint().height());
     QCOMPARE(widget.textAreaHeightForTest(), 0);
     auto* input = widget.findChild<QLineEdit*>(QStringLiteral("rotorWidgetTargetInput"));

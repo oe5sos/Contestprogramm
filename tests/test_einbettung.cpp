@@ -16,6 +16,7 @@
 // eigenstaendigen Weg; main.cpp geht durch dieselben zwei Funktionen.
 
 #include <QtTest>
+#include <QPushButton>
 
 #include <QApplication>
 #include <QTemporaryDir>
@@ -24,6 +25,7 @@
 #include "app/ContestSettings.h"
 #include "app/Datenverzeichnis.h"
 #include "ui/MainWindow.h"
+#include "ui/PanelContainerWidget.h"
 
 using namespace Contestprogramm;
 
@@ -35,6 +37,8 @@ private slots:
     void dasDatenverzeichnisHaengtNichtAmProzessnamen();
     void dieUmgebungGehtVor();
     void fensterUndControllerEntstehenImFremdenProzess();
+    void panelsLassenSichVonAussenAbloesen();
+    void rahmenlosSchwebendIstEckigMitRueckweg();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -90,6 +94,135 @@ void TestEinbettung::fensterUndControllerEntstehenImFremdenProzess()
     QVERIFY(fenster.isVisible());
     QVERIFY2(!fenster.windowTitle().isEmpty(), "Das Fenster traegt einen Titel");
     fenster.close();
+}
+
+// Betreiber 2026-11-04: "jedes panel vom contestprogramm sollte in
+// longpath eigens hinzuzufuegen sein". Longpath holt ein Panel als
+// eigenes Fenster, OHNE dieses Hauptfenster je zu zeigen -- also darf
+// das Panel nicht mit 0x0 daherkommen, und es muss ein Fensterkind
+// dieses Hauptfensters sein (Qt::Tool), damit es beim Wirt auf der Ebene
+// der Panels liegt. Alte Fassung: die Methoden gibt es nicht.
+void TestEinbettung::panelsLassenSichVonAussenAbloesen()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+
+    MainWindow fenster(controller);
+    // NICHT fenster.show(): genau der Fall "Panel ohne Hauptfenster".
+
+    const QList<MainWindow::PanelEintrag> eintraege = MainWindow::panelEintraege();
+    QVERIFY(eintraege.size() >= 8);
+    for (const MainWindow::PanelEintrag& e : eintraege) {
+        QVERIFY2(fenster.panelFenster(e.id) != nullptr,
+                 qPrintable(QStringLiteral("Panel '%1' aus der Liste ist nicht angemeldet").arg(e.id)));
+        QVERIFY(!e.titel.isEmpty());
+    }
+
+    QVERIFY(!fenster.istPanelSchwebend(QStringLiteral("chat")));
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QWidget* chat = fenster.panelFenster(QStringLiteral("chat"));
+    QVERIFY(chat);
+    QVERIFY(fenster.istPanelSchwebend(QStringLiteral("chat")));
+    QVERIFY2(chat->isWindow(), "als eigenes Fenster geloest");
+    QCOMPARE(chat->windowFlags() & Qt::WindowType_Mask, Qt::Tool);
+    QCOMPARE(chat->parentWidget(), &fenster);
+    QVERIFY(QTest::qWaitForWindowExposed(chat, 10000));
+    QVERIFY2(chat->width() >= 160 && chat->height() >= 120,
+             qPrintable(QStringLiteral("Panel ohne Hauptfenster kam %1x%2 daher")
+                            .arg(chat->width()).arg(chat->height())));
+    QVERIFY2(!fenster.isVisible(), "das Hauptfenster bleibt dabei zu");
+
+    // Auch aus dem Seitenbereich heraus.
+    fenster.putPanelIntoSideAreaForTest(QStringLiteral("skeds"));
+    fenster.setzePanelSchwebend(QStringLiteral("skeds"), true);
+    QVERIFY(fenster.istPanelSchwebend(QStringLiteral("skeds")));
+    QVERIFY(fenster.panelFenster(QStringLiteral("skeds"))->isWindow());
+
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), false);
+    QVERIFY(!fenster.istPanelSchwebend(QStringLiteral("chat")));
+    QVERIFY(!chat->isWindow());
+    fenster.setzePanelSchwebend(QStringLiteral("skeds"), false);
+}
+
+// Betreiber 2026-11-04: "alle panels haben hier noch runde kanten, dies
+// bitte auf eckig umstellen." In Longpath schweben die Panels ohne
+// Systemrahmen (FramelessWindowHint), eckig, und tragen den Rueckweg
+// (↙) selbst, weil es das ✕ des Systems nicht mehr gibt. Eigenstaendig
+// (Fahne aus) bleibt alles wie gehabt: Systemrahmen, kein ↙.
+void TestEinbettung::rahmenlosSchwebendIstEckigMitRueckweg()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+    MainWindow fenster(controller);
+
+    auto rueckweg = [](QWidget* panel) -> QPushButton* {
+        for (QPushButton* b : panel->findChildren<QPushButton*>()) {
+            if (b->objectName() == QStringLiteral("panelHeaderDockButton")
+                || b->objectName() == QStringLiteral("panelOverlayDockButton")) {
+                return b;
+            }
+        }
+        return nullptr;
+    };
+
+    // Eigenstaendig: Systemrahmen, kein Rueckweg in der Kopfzeile.
+    QVERIFY(!PanelContainerWidget::rahmenlosSchwebend());
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QWidget* chat = fenster.panelFenster(QStringLiteral("chat"));
+    QVERIFY(chat && chat->isWindow());
+    QVERIFY(!(chat->windowFlags() & Qt::FramelessWindowHint));
+    QPushButton* knopf = rueckweg(chat);
+    QVERIFY(!knopf || !knopf->isVisible());
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), false);
+
+    // In Longpath: rahmenlos, eckig, ↙ sichtbar, und ↙ dockt zurueck.
+    PanelContainerWidget::setzeRahmenlosSchwebend(true);
+    fenster.setzePanelSchwebend(QStringLiteral("chat"), true);
+    QVERIFY(chat->isWindow());
+    QVERIFY2(chat->windowFlags() & Qt::FramelessWindowHint, "ohne Systemrahmen");
+    QVERIFY(chat->testAttribute(Qt::WA_MacAlwaysShowToolWindow));
+    QVERIFY2(chat->styleSheet().contains(QStringLiteral("border-radius: 0px")),
+             qPrintable(QStringLiteral("eckig erwartet, Stil: %1").arg(chat->styleSheet())));
+    knopf = rueckweg(chat);
+    QVERIFY2(knopf && knopf->isVisible(), "der Rueckweg (↙) muss da sein");
+    knopf->click();
+    QVERIFY2(!chat->isWindow(), "↙ dockt das Panel zurueck");
+    QVERIFY(!(chat->windowFlags() & Qt::FramelessWindowHint));
+    QVERIFY(!chat->styleSheet().contains(QStringLiteral("border-radius: 0px")));
+
+    // Auch das chromlose Panel (Karte) bekommt den Rueckweg.
+    fenster.setzePanelSchwebend(QStringLiteral("map"), true);
+    QWidget* karte = fenster.panelFenster(QStringLiteral("map"));
+    QVERIFY(karte && karte->isWindow());
+    QPushButton* kartenKnopf = rueckweg(karte);
+    QVERIFY2(kartenKnopf && kartenKnopf->isVisible(), "auch die Karte braucht ↙");
+    kartenKnopf->click();
+    QVERIFY(!karte->isWindow());
+    PanelContainerWidget::setzeRahmenlosSchwebend(false);
 }
 
 QTEST_MAIN(TestEinbettung)

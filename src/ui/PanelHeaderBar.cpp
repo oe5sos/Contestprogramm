@@ -26,6 +26,7 @@ PanelHeaderBar::PanelHeaderBar(const QString& title, QWidget* parent)
     , m_clockWidget(new UtcClockWidget(this))
     , m_lockButton(new QPushButton(this))
     , m_optionsButton(new QPushButton(QString::fromUtf8("⚙"), this))
+    , m_dockButton(new QPushButton(QString::fromUtf8("↙"), this))
 {
     setFixedHeight(kHeaderHeight);
 
@@ -69,6 +70,22 @@ PanelHeaderBar::PanelHeaderBar(const QString& title, QWidget* parent)
         setLocked(!m_locked);
         emit lockToggled(m_locked);
     });
+
+    // Ganz rechts, wie an Longpaths Fenstern der Rueckweg: siehe
+    // setDockAffordanceEnabled().
+    m_dockButton->setObjectName(QStringLiteral("panelHeaderDockButton"));
+    m_dockButton->setFixedSize(kOptionsButtonW, kOptionsButtonH);
+    m_dockButton->setCursor(Qt::PointingHandCursor);
+    m_dockButton->setToolTip(QStringLiteral("Zurück ins Logbuch"));
+    m_dockButton->setStyleSheet(Style::iconButtonStyle());
+    m_dockButton->setVisible(false);
+    layout->addWidget(m_dockButton);
+    connect(m_dockButton, &QPushButton::clicked, this, &PanelHeaderBar::dockRequested);
+}
+
+void PanelHeaderBar::setDockAffordanceEnabled(bool enabled)
+{
+    m_dockButton->setVisible(enabled);
 }
 
 void PanelHeaderBar::setTitle(const QString& title)

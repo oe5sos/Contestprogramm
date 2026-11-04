@@ -310,7 +310,9 @@ private:
     void drawGlow(QPainter& painter, const QPointF& center, double radius) const;
     void drawTicks(QPainter& painter, const QPointF& center, double radius) const;
     void drawCompassLabel(QPainter& painter, const QPointF& center, double radius, double angleDeg, const QString& text) const;
-    void drawDegreeLabel(QPainter& painter, const QPointF& center, double radius, double angleDeg) const;
+    // fontPx < 0 = Style::kFontCaption (die Kopfdatei kennt StyleKit nicht).
+    void drawDegreeLabel(QPainter& painter, const QPointF& center, double radius, double angleDeg,
+                         int fontPx = -1) const;
     // `alpha` dims the needle (0..255) -- used to mark a stale/unknown
     // reading (rotor not connected) without hiding it outright, per
     // HAUSSTIL rule 7 ("Unbekannt ist ein Strich, keine Null" --
@@ -334,6 +336,13 @@ private:
     // so the editable ZIEL field sits exactly on its painted cell.
     QRect readoutBlockRect() const;
     int textAreaHeight() const;
+    // Die Stufe des Ablesefelds (2026-11-04): Wertschrift in px, und die
+    // Hoehen der Wert- und Beschriftungszeile dieser Stufe. Siehe die
+    // Konstanten kReadoutValueHeight* in RotorWidget.cpp.
+    int readoutStufeFontPx() const;
+    int readoutValueHeight() const;
+    int readoutLabelHeight() const;
+    int readoutTextAreaFull() const;
     // False when three readout columns no longer fit the width even in
     // the smaller value font -- the readout then gives way (see .cpp).
     bool readoutFitsWidth() const;

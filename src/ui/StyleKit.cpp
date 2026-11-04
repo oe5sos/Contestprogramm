@@ -430,6 +430,11 @@ void applyPanelFrameStyle(QWidget* widget)
 
 void applyPanelFrameStyle(QWidget* widget, const QString& objectName)
 {
+    applyPanelFrameStyle(widget, objectName, kPanelRadius);
+}
+
+void applyPanelFrameStyle(QWidget* widget, const QString& objectName, int radiusPx)
+{
     if (!widget) {
         return;
     }
@@ -449,7 +454,7 @@ void applyPanelFrameStyle(QWidget* widget, const QString& objectName)
     widget->setStyleSheet(QStringLiteral(
         "QWidget#%1 { background: %2; border: 1px solid %3; border-radius: %4px; }")
         .arg(objectName, kPanelBg(), kBorderSubtle())
-        .arg(kPanelRadius));
+        .arg(radiusPx));
 }
 
 QString badgeStyle(bool ok)

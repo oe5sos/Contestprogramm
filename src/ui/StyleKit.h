@@ -225,6 +225,12 @@ void applyPanelFrameStyle(QWidget* widget);
 // order-of-operations trap entirely; the no-arg overload just delegates
 // here with the historical shared name.
 void applyPanelFrameStyle(QWidget* widget, const QString& objectName);
+// Dieselbe Regel mit waehlbarem Eckenradius. 0 = eckig: fuer ein Panel,
+// das als rahmenloses Fenster in Longpath steht (Betreiber 2026-11-04:
+// "alle panels haben hier noch runde kanten, dies bitte auf eckig
+// umstellen") -- Longpaths eigene Fenster sind eckig, und ein runder
+// Rahmen auf einem eckigen Fenster liesse vier helle Ecken stehen.
+void applyPanelFrameStyle(QWidget* widget, const QString& objectName, int radiusPx);
 
 // Small connect/disconnected badge pill: kBadgeOkBg/kGreenText when
 // `ok`, kBadgeOffBg/kTextInactive otherwise -- the named pairs from
