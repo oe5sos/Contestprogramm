@@ -1136,9 +1136,6 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
 
     m_panelLayoutManager->finalizeInitialLayout();
 
-    // Kein Spektrum eingeschaltet, kein Wasserfall-Panel. Siehe dort.
-    applyWaterfallVisibility();
-
     // Erst jetzt, wo jedes Panel seine gespeicherte Lage hat: die
     // gemerkte Lage merkt sich beim Hineinlegen genau diese Geometrie
     // als Zuhause für den Rückweg.
@@ -1187,6 +1184,24 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                           && m_layoutProfileManager->isFirstLaunch());
     connect(m_panelLayoutManager, &PanelLayoutManager::initialDesignApplied, this,
             [this] { m_layoutProfileManager->saveActiveProfileState(); });
+
+    // ── Kein Spektrum, kein Wasserfall-Panel -- als LETZTES ─────────
+    //
+    // Hinter allem, was Panels zeigt: restoreSideAreaState() holt
+    // gespeicherte Seiten zurück, und der LayoutProfileManager wendet
+    // im Konstruktor das aktive Profil an -- samt Sichtbarkeit jedes
+    // Panels, also auch der des Wasserfalls. Stand der Aufruf früher,
+    // wurde das Panel versteckt und danach wieder gezeigt (live gesehen
+    // am 2026-11-02: Reiter „Wasserfall" über leerer Fläche bei
+    // ausgeschaltetem Spektrum; der Prüfstand test_wasserfall_folgt_
+    // dem_schalter fand dann noch die zweite Stelle, den Profilverwalter).
+    applyWaterfallVisibility();
+    // Und bei jedem Profilwechsel noch einmal: switchTo() wendet das
+    // Profil an (samt Sichtbarkeit) und meldet danach profilesChanged.
+    // Ein Profil, in dem der Wasserfall sichtbar war, darf ihn bei
+    // ausgeschaltetem Spektrum nicht zurückholen.
+    connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this,
+            [this] { applyWaterfallVisibility(); });
     m_profileRail = new ProfileRail(this);
     m_profileRail->setProfiles(m_layoutProfileManager->profileNames(), m_layoutProfileManager->activeProfile());
     connect(m_layoutProfileManager, &LayoutProfileManager::profilesChanged, this, [this]() {
@@ -3572,6 +3587,15 @@ void MainWindow::dragPanelOutOfSideArea(const QString& id, const QPoint& globalP
 }
 
 // Und zurück auf die Fläche, an die Stelle, von der es kam.
+// Prüfnaht: ein Panel so in den Seitenbereich legen, wie es der Menüpunkt
+// tut -- mit seinem eigenen Titel.
+void MainWindow::putPanelIntoSideAreaForTest(const QString& id)
+{
+    if (PanelContainerWidget* p = m_panelLayoutManager->panel(id)) {
+        putPanelIntoSideArea(id, p->title());
+    }
+}
+
 void MainWindow::takePanelOutOfSideArea(const QString& id)
 {
     if (!m_sideArea || !m_sideArea->hasPage(id)) {
@@ -4704,16 +4728,42 @@ void MainWindow::openSettingsDialog()
 // zu zeigen. Wo das Panel LIEGT, bleibt Sache der Layoutprofile.
 void MainWindow::applyWaterfallVisibility()
 {
-    PanelContainerWidget* panel = m_panelLayoutManager->panel(QStringLiteral("wasserfall"));
+    const QString id = QStringLiteral("wasserfall");
+    PanelContainerWidget* panel = m_panelLayoutManager->panel(id);
     if (panel == nullptr) {
         return;
     }
     const bool an = m_appController.settings().spectrumEnabled;
+    const bool imSeitenbereich = m_sideArea && m_sideArea->hasPage(id);
+
     if (!an) {
+        // ── Auch im Seitenbereich heißt aus: weg (2026-11-02) ────
+        //
+        // Ein Panel, das dort als Seite liegt, lässt sich nicht einfach
+        // verstecken: der Reiter bleibt, und dahinter steht eine leere
+        // Fläche. Genau das stand live da. Also erst heraus aus dem
+        // Bereich (dann verschwindet der Reiter), dann verstecken. Dass
+        // es dort lag, wird gemerkt -- geht das Spektrum wieder an,
+        // kommt es dorthin zurück, statt irgendwo auf der Fläche zu
+        // landen. Nur für die Sitzung: über einen Neustart hinweg trägt
+        // der Seitenbereich seine Seiten selbst, und ein Panel, das aus
+        // war, steht dann zu Recht nicht in seiner Liste.
+        if (imSeitenbereich) {
+            m_wasserfallWarImSeitenbereich = true;
+            takePanelOutOfSideArea(id);
+        }
         panel->setVisible(false);
-    } else if (panel->isHidden()) {
+        return;
+    }
+
+    if (panel->isHidden()) {
         panel->setVisible(true);
     }
+    if (m_wasserfallWarImSeitenbereich && m_sideArea && !imSeitenbereich) {
+        putPanelIntoSideArea(id, panel->title().isEmpty() ? QStringLiteral("Wasserfall")
+                                                          : panel->title());
+    }
+    m_wasserfallWarImSeitenbereich = false;
 }
 
 void MainWindow::openContestRulesEditor()

@@ -177,6 +177,8 @@ contestprogramm_add_test(test_wasserfall)
 # flüchtigen Port der Rückschleife. Prüft unter anderem, dass das Log
 # NUR spectrum_start/spectrum_stop sendet und nie ein Gerät bedient.
 contestprogramm_add_test(test_wasserfall_leitung mocks/MockSpectrumServer.cpp)
+# Kein Spektrum, kein Panel -- auch im Seitenbereich, auch beim Start.
+contestprogramm_add_test(test_wasserfall_folgt_dem_schalter)
 
 # macOS: hält fest, dass das fertige Programm auf älteren Systemen
 # startet. Kein C++-Prüfstand, weil die Frage nicht am Verhalten hängt,
