@@ -1246,6 +1246,16 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
                                    .arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION),
                                          QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE),
                                          QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH)));
+    // Steht hier eine neue Fassung (siehe zeigeFassungsstand()), ist
+    // der Zustandstext ein Verweis -- ein Klick oeffnet denselben
+    // Updater wie Hilfe › Auf neueste Version aktualisieren. Das ist
+    // der einzige Weg, auf dem der Dialog beim Start aufgeht: von
+    // selbst tut er es nie.
+    connect(m_versionLabel, &QLabel::linkActivated, this, [this](const QString&) {
+        auto* dialog = new UpdateDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
 
     m_modeToggleButton = new QPushButton(this);
 
@@ -2108,6 +2118,10 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
     // -- only fall back to the fixed default on a genuinely fresh
     // install (empty settings row) or a corrupt/incompatible saved
     // blob (restoreGeometry() itself returns false in that case).
+    // Siehe starteFassungspruefung() weiter unten: fuenf Sekunden nach
+    // dem Start eine Abfrage an GitHub, Ergebnis in die Statuszeile.
+    starteFassungspruefung();
+
     const QString savedGeometry = m_appController.database().settingValue(QStringLiteral("MainWindowGeometry"));
     bool geometryRestored = false;
     if (!savedGeometry.isEmpty()) {
@@ -3714,6 +3728,120 @@ void MainWindow::updateStatusBar()
     m_unifiedLog->setRunningNumberVisible(settings.logShowRunningNumber);
     m_unifiedLog->setViewMode(settings.logViewMode);
     m_unifiedLog->setEntryRowPosition(settings.logEntryRowPosition);
+}
+
+// ── Fassungspruefung beim Start ──────────────────────────────────────
+//
+// Betreiber, 2026-11-03: „grundsaetzlich sollten alle versionen einen
+// automatischen updater haben!"
+//
+// Der Updater selbst (app/SelfUpdater.h) ist seit 2026-09-21 fertig --
+// Release holen, Paket pruefen, tauschen, neu starten. Er lag aber
+// allein hinter Hilfe › Auf neueste Version aktualisieren, und was
+// hinter einem Menueeintrag liegt, fragt nie von selbst. Dasselbe
+// Muster hat bei Longpath Wochen gekostet: auf dem Mac mini stand
+// 0.6.5, waehrend draussen laengst mehr lag.
+//
+// Drei Zustaende, und jeder steht sichtbar neben der Fassung in der
+// Statuszeile -- auch „aktuell", denn sonst heisst „nichts gesehen"
+// zweierlei: alles aktuell ODER gar nicht nachgesehen.
+//
+//   Pruefung aus   der Haken in den Einstellungen ist weg.
+//   Eigenbau       dieses Programm laeuft nicht aus einem Paket, das
+//                  sich selbst ersetzen kann (Entwicklungsbau). Der
+//                  Grund steht im Tooltip.
+//   aktuell / 0.x.y verfuegbar   nachgesehen, und das ist das Ergebnis.
+//
+// Was hier NICHT passiert: ein Dialog geht von selbst auf. Im Contest
+// gehoert der Vordergrund dem Log -- ein Fenster, das beim Start ueber
+// die Eingabezeile springt, kostet QSOs und im schlimmsten Fall die
+// erste getippte Zeile. Wer die neue Fassung will, klickt auf die
+// Anzeige; dann kommt der gewohnte UpdateDialog.
+void MainWindow::starteFassungspruefung()
+{
+    if (!m_appController.settings().updateCheckOnStartup) {
+        zeigeFassungsstand(QStringLiteral("Pruefung aus"), false,
+                           QStringLiteral("Beim Start wird nicht auf eine neue Fassung geprueft "
+                                          "(Einstellungen › Fassung)."));
+        return;
+    }
+
+    const UpdateTarget ziel = UpdateTarget::detect();
+    if (!ziel.usable()) {
+        // Kein Paket, das sich selbst ersetzen kann -- und ohne
+        // Paketendung gibt es im Release auch nichts zu vergleichen.
+        // Das ist keine Stoerung, sondern der Normalfall waehrend der
+        // Entwicklung; es muss nur dastehen, damit niemand die
+        // ausbleibende Meldung fuer „alles aktuell" nimmt.
+        zeigeFassungsstand(QStringLiteral("Eigenbau"), false,
+                           ziel.reason.isEmpty()
+                               ? QStringLiteral("Diese Fassung kann sich nicht selbst erneuern.")
+                               : QStringLiteral("Keine Pruefung: %1.").arg(ziel.reason));
+        return;
+    }
+
+    // Fuenf Sekunden, nicht null: der Start soll nicht auf das Netz
+    // warten (die Eingabezeile gehoert dem Bediener ab der ersten
+    // Sekunde), aber man soll auch nicht weggehen muessen, bis die
+    // Antwort kommt.
+    QTimer::singleShot(5000, this, [this, ziel] {
+        auto* pruefer = new SelfUpdater(this);
+        pruefer->setRepository(QStringLiteral("oe5sos/Contestprogramm"));
+        pruefer->setCurrentVersion(QVersionNumber::fromString(QStringLiteral(CONTESTPROGRAMM_VERSION)));
+        pruefer->setTarget(ziel);
+        connect(pruefer, &SelfUpdater::updateAvailable, this,
+                [this, pruefer](const ReleaseInfo& release) {
+            pruefer->deleteLater();
+            zeigeFassungsstand(QStringLiteral("%1 verfuegbar").arg(release.version.toString()), true,
+                               QStringLiteral("Auf GitHub liegt %1. Klicken oeffnet den Updater.")
+                                   .arg(release.tag.isEmpty() ? release.version.toString() : release.tag));
+        });
+        connect(pruefer, &SelfUpdater::upToDate, this,
+                [this, pruefer](const QVersionNumber& current) {
+            pruefer->deleteLater();
+            zeigeFassungsstand(QStringLiteral("aktuell"), false,
+                               QStringLiteral("Fassung %1 ist die neueste auf GitHub.")
+                                   .arg(current.toString()));
+        });
+        // Schweigen ist keine Auskunft: wenn die Abfrage nicht
+        // durchkommt (kein Netz im Contestshack, haengender
+        // TLS-Handshake), muss das dastehen, und zwar mit dem Grund im
+        // Tooltip. Genau diese Stille hat bei Longpath am 2026-10-14
+        // eine Stunde gekostet.
+        connect(pruefer, &SelfUpdater::failed, this,
+                [this, pruefer](const QString& warum) {
+            pruefer->deleteLater();
+            zeigeFassungsstand(QStringLiteral("nicht geprueft"), false,
+                               QStringLiteral("Die Pruefung kam nicht durch: %1").arg(warum));
+        });
+        pruefer->check();
+    });
+}
+
+void MainWindow::zeigeFassungsstand(const QString& text, bool neuer, const QString& warum)
+{
+    if (!m_versionLabel) {
+        return;
+    }
+    const QString fassung = QStringLiteral("v%1").arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION));
+    if (neuer) {
+        // Anklickbar als Verweis im Label selbst (linkActivated unten),
+        // nicht als Knopf: in der Statuszeile steht alles andere auch
+        // als Text, und ein Knopf dazwischen waere das einzige Element
+        // mit Rahmen. Die Farbe steht ausdruecklich im Anker -- Qt
+        // faerbt Verweise sonst blau, und Blau ist in diesem Haus
+        // keine Zustandsfarbe.
+        m_versionLabel->setText(QStringLiteral("%1 · <a href=\"pruefung\" "
+                                              "style=\"color:%2; text-decoration:none;\">%3</a>")
+                                    .arg(fassung, Style::kAmberText(), text));
+    } else {
+        m_versionLabel->setText(QStringLiteral("%1 · %2").arg(fassung, text));
+    }
+    m_versionLabel->setToolTip(QStringLiteral("Fassung %1 · Stand %2 · %3\n%4")
+                                   .arg(QString::fromLatin1(CONTESTPROGRAMM_VERSION),
+                                         QString::fromLatin1(CONTESTPROGRAMM_BUILD_DATE),
+                                         QString::fromLatin1(CONTESTPROGRAMM_GIT_HASH),
+                                         warum));
 }
 
 void MainWindow::handleLogRequested()

@@ -221,6 +221,22 @@ private slots:
     void postScoreNow();
     void toggleOperatingMode();
     void updateStatusBar();
+
+    // ── Fassungspruefung beim Start ──────────────────────────────────
+    //
+    // „grundsaetzlich sollten alle versionen einen automatischen
+    // updater haben!" (Betreiber, 2026-11-03). Fuenf Sekunden nach
+    // dem Start eine Abfrage an GitHub; das Ergebnis steht neben der
+    // Fassung in der Statuszeile und nirgends sonst -- ein Dialog,
+    // der im Contest von selbst aufgeht, waere schlimmer als eine
+    // alte Fassung. Ein Klick auf die Anzeige oeffnet den Updater.
+    //
+    // Der Schalter dazu: ContestSettings::updateCheckOnStartup.
+    void starteFassungspruefung();
+    // Setzt die Anzeige: `text` steht hinter der Fassung, `neuer`
+    // faerbt sie bernstein und macht sie anklickbar, `warum` ist der
+    // Tooltip (Begruendung, wenn nicht geprueft wurde).
+    void zeigeFassungsstand(const QString& text, bool neuer, const QString& warum);
     // Kern-Welle 2: rotor + CW wiring. Creates/destroys each slot's
     // RotorWidget to match ContestSettings::rotor1Enabled/rotor2Enabled
     // (see the class comment) and otherwise keeps an existing widget's

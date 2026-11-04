@@ -376,6 +376,25 @@ struct ContestSettings {
     int audioRecordRollMinutes = 60;    // neue Datei nach dieser Zeit
     int audioRecordMinFreePercent = 5;  // darunter hoert er auf
 
+    // ── Automatische Fassungspruefung ────────────────────────────────
+    //
+    // Betreiber, 2026-11-03: „grundsaetzlich sollten alle versionen
+    // einen automatischen updater haben!" Bis dahin lag der Updater
+    // allein hinter Hilfe › Auf neueste Version aktualisieren -- wer
+    // dort nicht hineinsieht, bleibt auf einer alten Fassung sitzen.
+    // Genau so ist es passiert: am 2026-10-14 stand auf dem Mac mini
+    // des Betreibers eine Fassung, die Wochen alt war, und niemand
+    // hat es bemerkt, weil nichts danach gefragt hat.
+    //
+    // An heisst: fuenf Sekunden nach dem Start eine Abfrage an
+    // GitHub, und der Stand steht neben der Fassung in der
+    // Statuszeile -- auch wenn alles aktuell ist, denn „nichts
+    // gesehen" darf nicht zweierlei heissen (alles aktuell ODER gar
+    // nicht nachgesehen). Kein Dialog springt dabei auf: im Contest
+    // gehoert der Vordergrund dem Log, nicht einem Hinweis. Wer die
+    // neue Fassung will, klickt auf die Anzeige.
+    bool updateCheckOnStartup = true;
+
     // Reads every key from `database`'s settings table, falling back to
     // this struct's current field values for any key that is not
     // present yet (e.g. first run).
