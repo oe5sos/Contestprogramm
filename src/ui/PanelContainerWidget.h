@@ -122,6 +122,18 @@ public:
     static void setzeRahmenlosSchwebend(bool an);
     static bool rahmenlosSchwebend();
     bool isFloating() const { return m_floating; }
+    // ── In einem fremden Gehaeuse (2026-11-05) ────────────────────────
+    //
+    // Longpath legt ein Panel in sein Combined-Feld (Betreiber: "im
+    // combined sollten auch alle contest optionen moeglich sein"). Das
+    // Gehaeuse nimmt das Widget selbst auf (Elternwechsel) und bringt
+    // seine eigene Kopfzeile mit: Schloss, ↙, ✕ und der Anfasser rechts
+    // unten des Panels verschwinden solange, und setFloating(false) tut
+    // nichts -- zurueck in die Flaeche geht es nur ueber das Gehaeuse,
+    // das das Panel erst freigibt. Vorbedingung: das Panel ist abgeloest
+    // (isFloating()); so bleibt es fuer den PanelLayoutManager "weg".
+    void setzeFremdesGehaeuse(bool an);
+    bool fremdesGehaeuse() const { return m_fremdesGehaeuse; }
     // Die Fläche, in die zurückgedockt wird -- der Elternteil, den das
     // Panel beim Herauslösen hatte.
     void setDockTarget(QWidget* canvas) { m_dockTarget = canvas; }
@@ -204,6 +216,7 @@ private:
     QString m_title;
     bool m_locked = false;
     bool m_floating = false;
+    bool m_fremdesGehaeuse = false;
     QWidget* m_dockTarget = nullptr;
     QRect m_dockedGeometry; // Lage in der Fläche, für den Rückweg
     bool m_contentHasOwnChrome;

@@ -198,9 +198,32 @@ bool PanelContainerWidget::trySetGeometry(const QRect& rect)
     return true;
 }
 
+void PanelContainerWidget::setzeFremdesGehaeuse(bool an)
+{
+    if (m_fremdesGehaeuse == an) { return; }
+    m_fremdesGehaeuse = an;
+    if (an) {
+        // Keine eigenen Knoepfe: das Gehaeuse hat seine.
+        zeigeRueckwegAffordanz(false);
+        if (m_overlayLockButton) { m_overlayLockButton->hide(); }
+        if (m_resizeGrip)        { m_resizeGrip->hide(); }
+    } else {
+        if (m_overlayLockButton) { m_overlayLockButton->show(); }
+        if (m_resizeGrip)        { m_resizeGrip->show(); }
+        zeigeRueckwegAffordanz(m_floating && s_rahmenlosSchwebend);
+        layoutOverlayWidgets();
+    }
+}
+
 void PanelContainerWidget::setFloating(bool floating)
 {
     if (m_floating == floating) {
+        return;
+    }
+    // Im fremden Gehaeuse entscheidet das Gehaeuse (siehe
+    // setzeFremdesGehaeuse): ein Andocken von hier aus (Fenster-Menue,
+    // Profil) risse das Widget aus dem Feld, das es noch fuehrt.
+    if (m_fremdesGehaeuse && !floating) {
         return;
     }
     if (floating) {

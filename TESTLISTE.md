@@ -45,6 +45,10 @@ bewusst aufgeschoben.
       Contestprogramms im Fenster. Prüfstand
       `test_einbettung::eingebettetBleibtDieMenueleisteImFenster` (nur
       unter Cocoa aussagekräftig; offscreen gibt es keine Programmleiste).
+      Dazu (2026-11-05): ein Panel im Combined-Feld von Longpath hat
+      keine eigenen Knöpfe (Schloss, ↙, ✕) und keinen Anfasser, und
+      Fenster › Panels im Logbuch dockt es NICHT an — zurück geht es nur
+      über das Feld. Prüfstand `test_einbettung::imFremdenGehaeuseIstDasPanelNackt`.
 - [ ] **Wasserfall gegen das echte Longpath — Ursache gefunden, am
       Gerät noch nicht nachgefahren.** Gefahren am 2026-11-02: Longpath
       protokolliert „Spektrum abonniert rx 0, 718 Punkte" und sendet
