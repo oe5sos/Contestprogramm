@@ -17,6 +17,8 @@
 
 #include <QtTest>
 #include <QPushButton>
+#include <QMainWindow>
+#include <QMenuBar>
 #include <QSignalSpy>
 
 #include <QApplication>
@@ -41,6 +43,7 @@ private slots:
     void panelsLassenSichVonAussenAbloesen();
     void rahmenlosSchwebendIstEckigMitRueckweg();
     void geschwisterDesOberstenFenstersUndDasKreuz();
+    void eingebettetBleibtDieMenueleisteImFenster();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -304,3 +307,26 @@ void TestEinbettung::geschwisterDesOberstenFenstersUndDasKreuz()
 
 QTEST_MAIN(TestEinbettung)
 #include "test_einbettung.moc"
+
+// 2026-11-05, am Geraet gesehen: mit dem Log-Fenster vorn zeigte der Mac
+// "Datei / Fenster / Hilfe" -- die Leiste des Contestprogramms statt der
+// von Longpath. Eingebettet bleibt die Menueleiste im Fenster.
+void TestEinbettung::eingebettetBleibtDieMenueleisteImFenster()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+
+    QMainWindow oberstes;
+    auto* eingebettet = new MainWindow(controller, &oberstes);
+    QVERIFY(!eingebettet->menuBar()->isNativeMenuBar());
+
+    MainWindow eigenstaendig(controller);
+    // eigenstaendig: die Qt-Vorgabe der Plattform (auf dem Mac die Leiste
+    // des Programms, offscreen keine) -- nichts erzwungen
+    QMenuBar vorgabe;
+    QCOMPARE(eigenstaendig.menuBar()->isNativeMenuBar(), vorgabe.isNativeMenuBar());
+}

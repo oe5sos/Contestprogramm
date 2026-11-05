@@ -1774,6 +1774,15 @@ MainWindow::MainWindow(AppController& appController, QWidget* parent)
         refreshCheckPartial();
     });
 
+    // Eingebettet (Elternfenster = Longpath, 2026-11-05): die Menueleiste
+    // bleibt IM Fenster. Sonst meldet Qt sie auf macOS als Leiste des
+    // Programms an, und sobald ein Panel oder dieses Fenster vorn ist,
+    // zeigt der Mac "Datei / Fenster / Hilfe" statt Longpaths Leiste --
+    // am Geraet gesehen, waehrend das Log-Fenster vorn war. Eigenstaendig
+    // (kein Elternfenster) aendert sich nichts.
+    if (parent) {
+        menuBar()->setNativeMenuBar(false);
+    }
     auto* fileMenu = menuBar()->addMenu(QStringLiteral("&Datei"));
     // Operator, 2026-09-21: "sehe im log jetzt nicht, datei neu oder
     // datei speichern" -- the two things a file menu is expected to
