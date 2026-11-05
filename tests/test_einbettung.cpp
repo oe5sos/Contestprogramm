@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QRegularExpression>
 #include <QVBoxLayout>
 #include <QSignalSpy>
 
@@ -241,6 +242,10 @@ void TestEinbettung::rahmenlosSchwebendIstEckigMitRueckweg()
 // wieder sichtbar hervor.
 void TestEinbettung::geschwisterDesOberstenFenstersUndDasKreuz()
 {
+    // 2026-11-05: die Verbindung fuer das ✕ war mit Qt::UniqueConnection
+    // und Lambda -- Qt lehnt das ab, das ✕ sicherte nie. Jede solche
+    // Warnung ist hier ein Fehler.
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("unique connections")));
     QTemporaryDir ordner;
     QVERIFY(ordner.isValid());
     AppController controller;
