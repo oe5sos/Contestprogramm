@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QVBoxLayout>
 #include <QSignalSpy>
 
 #include <QApplication>
@@ -44,6 +45,7 @@ private slots:
     void rahmenlosSchwebendIstEckigMitRueckweg();
     void geschwisterDesOberstenFenstersUndDasKreuz();
     void eingebettetBleibtDieMenueleisteImFenster();
+    void imFremdenGehaeuseIstDasPanelNackt();
 };
 
 void TestEinbettung::dasDatenverzeichnisHaengtNichtAmProzessnamen()
@@ -329,4 +331,79 @@ void TestEinbettung::eingebettetBleibtDieMenueleisteImFenster()
     // des Programms, offscreen keine) -- nichts erzwungen
     QMenuBar vorgabe;
     QCOMPARE(eigenstaendig.menuBar()->isNativeMenuBar(), vorgabe.isNativeMenuBar());
+}
+
+// 2026-11-05, Betreiber: "im combined sollten auch alle contest optionen
+// moeglich sein". Ein abgeloestes Panel geht in ein fremdes Gehaeuse:
+// ohne eigene Knoepfe und Anfasser, und setFloating(false) greift dort
+// nicht -- zurueck geht es nur ueber das Gehaeuse.
+void TestEinbettung::imFremdenGehaeuseIstDasPanelNackt()
+{
+    QTemporaryDir ordner;
+    QVERIFY(ordner.isValid());
+    AppController controller;
+    QString fehler;
+    QVERIFY2(controller.openDatabase(datenbankPfad(ordner.path()), &fehler),
+             qPrintable(fehler));
+    ContestSettings s = controller.settings();
+    s.ownCallsign   = QStringLiteral("OE5SOS");
+    s.ownGrid       = QStringLiteral("JN67UT");
+    s.rigctldHost.clear();
+    s.rotor1Enabled = false;
+    s.rotor2Enabled = false;
+    s.esmEnabled    = false;
+    controller.setSettings(s);
+    PanelContainerWidget::setzeRahmenlosSchwebend(true);
+    QMainWindow oberstes;
+    oberstes.resize(800, 600);
+    oberstes.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&oberstes, 10000));
+    auto* fenster = new MainWindow(controller, &oberstes);
+
+    fenster->setzePanelSchwebend(QStringLiteral("map"), true);
+    auto* karte = qobject_cast<PanelContainerWidget*>(fenster->panelFenster(QStringLiteral("map")));
+    QVERIFY(karte && karte->isWindow() && karte->isFloating());
+    QVERIFY(QTest::qWaitForWindowExposed(karte, 10000));
+    QTest::qWait(100);
+    // Die Karte hat eine Kopfzeile (Header), andere Panels sind chromlos
+    // mit Overlay-Knoepfen -- beide Namen suchen.
+    auto knopf = [karte](const char* kopf, const char* overlay) -> QPushButton* {
+        for (QPushButton* b : karte->findChildren<QPushButton*>()) {
+            if (b->objectName() == QLatin1String(kopf)
+                || b->objectName() == QLatin1String(overlay)) { return b; }
+        }
+        return nullptr;
+    };
+    QPushButton* rueck = knopf("panelHeaderDockButton", "panelOverlayDockButton");
+    QPushButton* kreuz = knopf("panelHeaderCloseButton", "panelOverlayCloseButton");
+    QVERIFY(rueck && rueck->isVisible());
+    QVERIFY(kreuz && kreuz->isVisible());
+
+    // Ins fremde Gehaeuse: ein gewoehnliches Widget mit Layout.
+    QWidget gehaeuse(&oberstes, Qt::Window);
+    auto* lay = new QVBoxLayout(&gehaeuse);
+    karte->setzeFremdesGehaeuse(true);
+    lay->addWidget(karte);
+    gehaeuse.show();
+    QVERIFY(!karte->isWindow());
+    QVERIFY2(karte->isFloating(), "fuer das Logbuch bleibt es abgeloest");
+    QVERIFY(karte->fremdesGehaeuse());
+    QVERIFY2(!rueck->isVisible(), "kein ↙ im fremden Gehaeuse");
+    QVERIFY2(!kreuz->isVisible(), "kein ✕ im fremden Gehaeuse");
+    // Andocken von innen greift nicht.
+    fenster->setzePanelSchwebend(QStringLiteral("map"), false);
+    QVERIFY2(karte->isFloating() && karte->parentWidget() == &gehaeuse,
+             "im fremden Gehaeuse dockt das Logbuch nicht selbst an");
+
+    // Zurueck: das Gehaeuse gibt frei, dann dockt es wieder.
+    lay->removeWidget(karte);
+    karte->setParent(nullptr);
+    karte->setzeFremdesGehaeuse(false);
+    fenster->setzePanelSchwebend(QStringLiteral("map"), false);
+    QVERIFY(!karte->isFloating() && !karte->fremdesGehaeuse());
+    fenster->setzePanelSchwebend(QStringLiteral("map"), true);
+    QVERIFY(karte->isWindow());
+    QVERIFY(QTest::qWaitForWindowExposed(karte, 10000));
+    QVERIFY2(rueck->isVisible(), "↙ ist wieder da");
+    PanelContainerWidget::setzeRahmenlosSchwebend(false);
 }
