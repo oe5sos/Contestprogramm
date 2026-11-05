@@ -3053,6 +3053,12 @@ QList<MainWindow::PanelEintrag> MainWindow::panelEintraege()
     return eintraege;
 }
 
+void MainWindow::sichereProfilNachVersteckt(const QString& id)
+{
+    Q_UNUSED(id);
+    if (m_layoutProfileManager) { m_layoutProfileManager->saveActiveProfileState(); }
+}
+
 void MainWindow::setzePanelSichtbar(const QString& id, bool sichtbar)
 {
     if (!m_panelLayoutManager) { return; }
@@ -3090,9 +3096,12 @@ void MainWindow::setzePanelSchwebend(const QString& id, bool schwebend)
         if (!panel->isVisible()) { panel->setVisible(true); }
         // Das ✕ am schwebenden Panel sichert das Profil -- einmal
         // verdrahtet, so oft es will.
-        connect(panel, &PanelContainerWidget::versteckt, this, [this](const QString&) {
-            if (m_layoutProfileManager) { m_layoutProfileManager->saveActiveProfileState(); }
-        }, Qt::UniqueConnection);
+        // Qt::UniqueConnection geht nur mit einem Member-Zeiger -- mit
+        // einem Lambda lehnt Qt die Verbindung ab (Warnung "unique
+        // connections require a pointer to member function"), und das
+        // ✕ sicherte seit #74 nie. Gesehen am 2026-11-05 im Longpath-Log.
+        connect(panel, &PanelContainerWidget::versteckt,
+                this, &MainWindow::sichereProfilNachVersteckt, Qt::UniqueConnection);
         m_panelLayoutManager->setPanelFloating(id, true);
         // Ein nie gezeigtes Hauptfenster hat keine ausgelegte Flaeche:
         // das Panel kaeme mit der Groesse 0x0 daher. Dann die Groesse

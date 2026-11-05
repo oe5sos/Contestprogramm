@@ -149,6 +149,8 @@ signals:
     void restartRequested();
 
 private slots:
+    // Das ✕ am schwebenden Panel sichert das Profil (siehe setzePanelSchwebend).
+    void sichereProfilNachVersteckt(const QString& id);
     void handleLogRequested();
     void recheckDupeIndicator();
     void openSettingsDialog();
