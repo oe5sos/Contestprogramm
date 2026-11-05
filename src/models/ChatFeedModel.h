@@ -88,6 +88,25 @@ public:
     // Clusters haben in einem UKW-Contest nichts im Chat verloren.
     bool bandBelongsToContest(qint64 freqHz) const;
 
+    // Das Bandtor des Chats. Betreiber am 2026-11-04: "chat ist fuer
+    // mich nur ukw wichtig ... immer UKW".
+    //
+    // Kurzwelle kommt nie durch -- auch dann nicht, wenn gerade ein
+    // KURZWELLEN-Contest eingestellt ist. Genau das war seine Lage:
+    // active_contest_id = CQ_WW_SSB, active_bands = ["14"], und
+    // bandBelongsToContest() liess folgerichtig 20 m durch und blendete
+    // UKW aus. Der Chat zeigte also korrekt, was eingestellt war, und
+    // trotzdem das Falsche.
+    //
+    // Die Verengung auf die Contest-Baender bleibt -- aber nur
+    // INNERHALB von UKW. Hat der aktive Contest kein UKW-Band (oder ist
+    // keiner aktiv), gilt ganz UKW statt "alles".
+    //
+    // Sitzt im Sichtbarkeitsfilter, nicht am Eingang: gefiltert heisst
+    // verborgen, nicht weggeworfen -- die Ansicht "alle Zeilen zeigen"
+    // hat weiter jede Zeile (test_chat_panel verlangt das ausdruecklich).
+    bool bandPassesChatFilter(qint64 freqHz) const;
+
     // Optional (nullptr = no multiplier boost, e.g. before
     // AppController has recomputed one yet). Non-owning; the caller
     // keeps it alive. Lets the importance scorer tell a still-needed

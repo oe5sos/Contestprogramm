@@ -76,6 +76,17 @@ QString usualModeForFrequencyHz(qint64 hz)
     return QString();
 }
 
+bool isUkwOrUnknownHz(qint64 hz)
+{
+    if (hz <= 0) {
+        return true;                    // keine Frequenz -- freie Chatzeile
+    }
+    if (bandLabelForFrequencyHz(hz).isEmpty()) {
+        return true;                    // kein bekanntes Band -- nicht wegwerfen
+    }
+    return hz >= kUkwUntergrenzeHz;
+}
+
 QString bandLabelForFrequencyHz(qint64 hz)
 {
     for (const BandRange& band : kBands) {

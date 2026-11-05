@@ -302,6 +302,32 @@ ChatFeedModel::FeedLine ChatFeedModel::lineAt(int index) const
 // Ein Spot OHNE Frequenz (jede Chatzeile) bleibt drin: über den sagt
 // die Frequenz nichts aus. Und ohne bekannte Contestbänder wird nichts
 // aussortiert -- lieber zu viel zeigen als etwas Richtiges verschlucken.
+bool ChatFeedModel::bandPassesChatFilter(qint64 freqHz) const
+{
+    if (!isUkwOrUnknownHz(freqHz)) {
+        return false;                       // Kurzwelle: nie im Chat
+    }
+    if (freqHz <= 0) {
+        return true;                        // freie Chatzeile
+    }
+    // Hat der aktive Contest ueberhaupt ein UKW-Band? Wenn nicht, darf
+    // er die UKW-Sicht nicht verengen -- sonst blendete ein
+    // Kurzwellen-Contest genau das aus, was der Betreiber sehen will.
+    bool contestHatUkwBand = false;
+    for (const QString& band : m_contestBands) {
+        qint64 lowHz = 0;
+        qint64 highHz = 0;
+        if (bandRangeHz(band, lowHz, highHz) && lowHz >= kUkwUntergrenzeHz) {
+            contestHatUkwBand = true;
+            break;
+        }
+    }
+    if (!contestHatUkwBand) {
+        return true;                        // ganz UKW
+    }
+    return bandBelongsToContest(freqHz);    // innerhalb UKW auf die Baender verengen
+}
+
 bool ChatFeedModel::bandBelongsToContest(qint64 freqHz) const
 {
     if (freqHz <= 0 || m_contestBands.isEmpty()) {
@@ -359,7 +385,7 @@ QVector<int> ChatFeedModel::sichtbareZeilen() const
     QVector<double> survivorScores;
     for (int i = 0; i < m_allEntries.size(); ++i) {
         const Entry& entry = m_allEntries.at(i);
-        if (entry.geo.inRange && !entry.worked && bandBelongsToContest(entry.candidate.freqHz)) {
+        if (entry.geo.inRange && !entry.worked && bandPassesChatFilter(entry.candidate.freqHz)) {
             survivorIndices.append(i);
             survivorScores.append(entry.score);
         }

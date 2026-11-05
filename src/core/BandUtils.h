@@ -20,6 +20,17 @@ namespace Contestprogramm {
 // antenna, and both ends need a range and a base frequency.
 QString bandLabelForFrequencyHz(qint64 hz);
 
+// Die UKW-Grenze: 50 MHz und darueber (6 m, 4 m, 2 m, 70 cm, 23 cm und
+// hoeher); alles darunter ist Kurzwelle.
+//
+// Eine Frequenz von 0 oder eine, die in kein bekanntes Band faellt,
+// gilt NICHT als Kurzwelle -- eine freie Chatzeile hat keine Frequenz
+// und darf nicht wegen Unkenntnis verschwinden. Dieselbe Haltung wie in
+// ChatFeedModel::bandBelongsToContest: unbekanntes Band nicht heimlich
+// wegwerfen.
+constexpr qint64 kUkwUntergrenzeHz = 50000000LL;
+bool isUkwOrUnknownHz(qint64 hz);
+
 // The bands bandLabelForFrequencyHz() knows, lowest first.
 QStringList knownBands();
 
