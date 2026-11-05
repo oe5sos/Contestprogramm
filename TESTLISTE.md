@@ -39,6 +39,12 @@ bewusst aufgeschoben.
       rechts unten müssen gehen; das Panel „Rotoren" muss sich bis auf
       EINEN Rotor Breite ziehen lassen (dann untereinander), und die
       Gradzahlen bleiben am kleineren Zifferblatt lesbar.
+      Dazu (2026-11-05): mit einem Panel oder dem Logbuch vorn muss die
+      Menüleiste des Mac die von LONGPATH bleiben (File / Radio / View …),
+      nicht „Datei / Fenster / Hilfe" — eingebettet bleibt die Leiste des
+      Contestprogramms im Fenster. Prüfstand
+      `test_einbettung::eingebettetBleibtDieMenueleisteImFenster` (nur
+      unter Cocoa aussagekräftig; offscreen gibt es keine Programmleiste).
 - [ ] **Wasserfall gegen das echte Longpath — Ursache gefunden, am
       Gerät noch nicht nachgefahren.** Gefahren am 2026-11-02: Longpath
       protokolliert „Spektrum abonniert rx 0, 718 Punkte" und sendet
