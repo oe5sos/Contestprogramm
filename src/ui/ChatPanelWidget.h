@@ -70,6 +70,16 @@ signals:
     // Eine Nachricht soll in den ON4KST-Raum.
     void messageSubmitted(const QString& text);
 
+protected:
+    // Beim Einblenden ans Ende, wenn der Bediener dort stand (2026-11-06):
+    // in Longpaths Combined-Feld ist der Chat eine SEITE und waehrend
+    // andere Seiten vorn sind verborgen. scrollToBottom() auf einer
+    // verborgenen Tabelle greift nicht (ihr Bildlauf kennt die neuen
+    // Zeilen erst nach dem Auslegen), und so stand der Chat beim
+    // Umschalten auf alten Zeilen -- Betreiber: "wenn der chat offen
+    // ist, soll chat auch immer laufen".
+    void showEvent(QShowEvent* event) override;
+
 private:
     void sendCurrentInput();
     void updateStatusLine();

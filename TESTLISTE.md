@@ -49,6 +49,10 @@ bewusst aufgeschoben.
       keine eigenen Knöpfe (Schloss, ↙, ✕) und keinen Anfasser, und
       Fenster › Panels im Logbuch dockt es NICHT an — zurück geht es nur
       über das Feld. Prüfstand `test_einbettung::imFremdenGehaeuseIstDasPanelNackt`.
+      Dazu (2026-11-06): kommen Chat-Zeilen herein, während im Combined-
+      Feld eine andere Seite vorn ist, steht der Chat beim Umschalten
+      UNTEN (neueste Zeile), sofern man dort stand. Prüfstand
+      `test_chat_panel::verborgenHereingekommeneZeilenStehenNachDemEinblendenUnten`.
 - [ ] **Wasserfall gegen das echte Longpath — Ursache gefunden, am
       Gerät noch nicht nachgefahren.** Gefahren am 2026-11-02: Longpath
       protokolliert „Spektrum abonniert rx 0, 718 Punkte" und sendet

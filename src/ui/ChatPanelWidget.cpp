@@ -11,7 +11,9 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QShowEvent>
 #include <QTableView>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace Contestprogramm {
@@ -336,6 +338,10 @@ ChatPanelWidget::ChatPanelWidget(QWidget* parent)
     // dem Umbau der Liste sogar ganz oben, weil eine zurückgesetzte
     // Ansicht dort anfängt.
     connect(m_model, &QAbstractItemModel::modelAboutToBeReset, this, [this]() {
+        // Verborgen (eine andere Seite im Combined-Feld vorn): der
+        // Bildlauf ist dann eingefroren und sagt nichts darueber, wo der
+        // Bediener zuletzt stand -- der gemerkte Stand bleibt.
+        if (!m_table->isVisible()) { return; }
         const QScrollBar* leiste = m_table->verticalScrollBar();
         // Zwei Zeilen Spielraum: "unten" heißt nicht "auf den
         // Bildpunkt genau unten".
@@ -438,6 +444,17 @@ void ChatPanelWidget::sendCurrentInput()
     }
     emit messageSubmitted(text);
     m_input->clear();
+}
+
+void ChatPanelWidget::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    if (m_warUnten) {
+        // Erst nach dem Auslegen: jetzt kennt die Leiste die Zeilen.
+        QTimer::singleShot(0, this, [this]() {
+            if (m_warUnten && m_table) { m_table->scrollToBottom(); }
+        });
+    }
 }
 
 } // namespace Contestprogramm

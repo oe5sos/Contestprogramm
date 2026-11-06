@@ -22,6 +22,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QScrollBar>
+#include <QStackedWidget>
 #include <QTableView>
 #include <QTemporaryDir>
 
@@ -70,6 +71,7 @@ private slots:
     void theOptionsMenuOffersEverythingThatCanBeChanged();
     void everyPanelWithOptionsAlsoShowsTheGear();
     void linesThatMentionMeStandOutInMagenta();
+    void verborgenHereingekommeneZeilenStehenNachDemEinblendenUnten();
     void shortwaveClusterSpotsStayOutOfAVhfContestChat();
     void werHochgescrolltHatWirdNichtWeggerissen();
 
@@ -692,4 +694,50 @@ int main(int argc, char* argv[])
     TestChatPanel tc;
     return QTest::qExec(&tc, argc, argv);
 }
-#include "test_chat_panel.moc"
+#include "test_chat_panel.moc"// 2026-11-06, Betreiber: "wenn der chat offen ist, soll chat auch immer
+// laufen". Im Combined-Feld von Longpath ist der Chat eine Seite; kommen
+// Zeilen herein, waehrend eine andere Seite vorn ist, muss er beim
+// Umschalten UNTEN stehen -- scrollToBottom() auf einer verborgenen
+// Tabelle griff nicht.
+void TestChatPanel::verborgenHereingekommeneZeilenStehenNachDemEinblendenUnten()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    auto controller = makeController(dir, QStringLiteral("chat-verborgen.sqlite"));
+    QVERIFY(controller);
+
+    QStackedWidget gehaeuse;
+    auto* panel = new ChatPanelWidget;
+    panel->setFeedModels(&controller->on4kstFeedModel(), &controller->clusterFeedModel());
+    auto* andere = new QWidget;
+    gehaeuse.addWidget(panel);
+    gehaeuse.addWidget(andere);
+    gehaeuse.resize(900, 200);
+    gehaeuse.setCurrentWidget(panel);
+    gehaeuse.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&gehaeuse));
+
+    // Eine andere Seite nach vorn, dann kommen viele Zeilen herein.
+    gehaeuse.setCurrentWidget(andere);
+    QCoreApplication::processEvents();
+    QVERIFY(!panel->isVisible());
+    for (int i = 0; i < 60; ++i) {
+        controller->on4kstFeedModel().addCandidate(
+            macheZeile(QStringLiteral("OK%1XYZ").arg(i), QString(),
+                       QStringLiteral("Zeile %1").arg(i), QStringLiteral("on4kst"), 60 - i));
+    }
+    QCoreApplication::processEvents();
+
+    // Zurueck zum Chat: unten, bei der neuesten Zeile.
+    gehaeuse.setCurrentWidget(panel);
+    auto* table = panel->findChild<QTableView*>(QLatin1String(ChatPanelWidget::kTableObjectName));
+    QVERIFY(table);
+    QTRY_VERIFY2_WITH_TIMEOUT(table->verticalScrollBar()->value() >= table->verticalScrollBar()->maximum() - 2,
+                              qPrintable(QStringLiteral("steht bei %1 von %2")
+                                             .arg(table->verticalScrollBar()->value())
+                                             .arg(table->verticalScrollBar()->maximum())),
+                              3000);
+    QVERIFY2(table->verticalScrollBar()->maximum() > 0, "die Liste muss ueberhaupt scrollen");
+}
+
+
