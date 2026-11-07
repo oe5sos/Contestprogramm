@@ -86,6 +86,7 @@ private slots:
     void dasSchliessenSchreibtDieLetzteSicherung();
     void dasSchliessenBeendetRigctld();
     void zweimalSchliessenSchadetNicht();
+    void derAbbauStartetKeinRigctldNeu();
 };
 
 // ── Die QSOs der letzten Minute ─────────────────────────────────────
@@ -171,6 +172,30 @@ void TestCmdQOhneDestruktor::zweimalSchliessenSchadetNicht()
 
     c->vorDemBeenden();
     QCOMPARE(LogBackup::listBackups(ordner).size(), nachDemErsten);
+}
+
+// Beim Abbau meldete sich die CAT-Verbindung ab, und die Aufsicht startete
+// rigctld auf einem schon zerstoerten Mitglied: SIGSEGV in
+// RigctldProcess::start, gemessen 2026-11-07 in Longpath.
+void TestCmdQOhneDestruktor::derAbbauStartetKeinRigctldNeu()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QTcpServer geraet;
+    QVERIFY(geraet.listen(QHostAddress::LocalHost, 0));
+
+    auto c = baueSteuerung(dir);
+    QVERIFY(c);
+    ContestSettings s = c->settings();
+    s.rigctldHost        = QStringLiteral("127.0.0.1");
+    s.rigctldPort        = geraet.serverPort();
+    s.rigctldHamlibModel = 2031;
+    s.rigctldDevice      = QStringLiteral("/dev/cu.fake");
+    s.rigctldBaud        = 115200;
+    c->setSettings(s);
+
+    QTRY_VERIFY_WITH_TIMEOUT(c->rigctldClient().isConnected(), 5000);
+    c.reset();   // darf nicht abstuerzen
 }
 
 QTEST_MAIN(TestCmdQOhneDestruktor)

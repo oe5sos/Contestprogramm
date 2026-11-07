@@ -285,6 +285,13 @@ AppController::~AppController()
 
 void AppController::vorDemBeenden()
 {
+    // Zuerst die Leitungen kappen. Wer gleich rotctld und rigctld beendet,
+    // verliert die Verbindung zu ihnen, und die Aufsicht wuerde sie
+    // sofort neu starten -- im Destruktor auf schon abgebauten Mitgliedern
+    // (SIGSEGV in RigctldProcess::start, gemessen 2026-11-07).
+    disconnect(&m_rigctldClient, nullptr, this, nullptr);
+    disconnect(&m_rotor1, nullptr, this, nullptr);
+    disconnect(&m_rotor2, nullptr, this, nullptr);
     if (m_logBackup && m_database.isOpen()) {
         m_logBackup->backupNow(false);
     }
