@@ -88,6 +88,11 @@ public:
     // fills `errorOut` (if given) on failure.
     bool openDatabase(const QString& path, QString* errorOut = nullptr);
 
+    /// In Longpath eingebettet ist Longpath der CAT-Server und haelt den
+    /// Anschluss. Ein eigener rigctld wuerde ihm beides wegnehmen, sobald
+    /// der erste Anruf noch vor dessen Server kommt. Vor openDatabase().
+    void setRigctldSelbstStarten(bool darf) { m_rigctldSelbstStarten = darf; }
+
     ContestDatabase& database() { return m_database; }
     // Periodic copies of the database (data/LogBackup.h); created in
     // openDatabase() beside the database file, null before that.
@@ -309,6 +314,7 @@ private:
     RigctldLaunch m_rigctldLaunch;  // what m_rigctld runs with; empty when not ours/not running
     QDateTime m_rigctldFailedAt;    // last failure, for the restart cool-down
     bool m_rigctldStopping = false; // true while our own stopRigctld() is ending it
+    bool m_rigctldSelbstStarten = true;
     TransverterSetup m_transverter;
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address

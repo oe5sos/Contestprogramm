@@ -218,7 +218,7 @@ void AppController::superviseRigctld(bool mayStart)
         // failed dial brings a fresh one.
         stopRigctld();
     }
-    if (!mayStart) {
+    if (!mayStart || !m_rigctldSelbstStarten) {
         return;
     }
     // A rigctld that just died (a serial port that is not there, a

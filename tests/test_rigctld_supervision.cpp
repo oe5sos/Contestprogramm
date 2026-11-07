@@ -69,10 +69,43 @@ private slots:
     void launchOnlyForALoopbackHostWithADevice();
     void argumentsAreTheDocumentedRigctldForm();
     void startsAfterTheClientFailsAndFollowsTheSettings();
+    void inLongpathStartetEsKeinenEigenen();
     void theModelListComesFromTheInstalledHamlib();
     void theWholeChainWorksWithARealHamlib();
     void thePickerOffersEveryRadioHamlibKnows();
 };
+
+// Eingebettet in Longpath: der abgewiesene Anruf darf nichts starten, sonst
+// nimmt ein eigener rigctld Longpath den Anschluss weg.
+void TestRigctldSupervision::inLongpathStartetEsKeinenEigenen()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Der Stellvertreter-rigctld ist ein Shell-Skript; unter Windows startet QProcess es nicht.");
+#endif
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString argsFile = dir.filePath(QStringLiteral("rigctld.args"));
+    QVERIFY(installFakeRigctld(QDir(dir.path()), argsFile));
+
+    AppController controller;
+    controller.setRigctldSelbstStarten(false);
+    QVERIFY(controller.openDatabase(dir.filePath(QStringLiteral("eingebettet.sqlite"))));
+    ContestSettings settings = controller.settings();
+    settings.ownCallsign = QStringLiteral("OE5SOS");
+    settings.ownGrid = QStringLiteral("JN67UT");
+    settings.rotor1Enabled = false;
+    settings.rotor2Enabled = false;
+    settings.rigctldHost = QStringLiteral("127.0.0.1");
+    settings.rigctldPort = freePort();
+    settings.rigctldHamlibModel = 2037;
+    settings.rigctldDevice = QStringLiteral("/dev/cu.fake-A");
+    settings.rigctldBaud = 115200;
+    controller.setSettings(settings);
+
+    QTest::qWait(2500);
+    QVERIFY(!controller.rigctldRunning());
+    QVERIFY(readArgs(argsFile).isEmpty());
+}
 
 void TestRigctldSupervision::launchOnlyForALoopbackHostWithADevice()
 {
