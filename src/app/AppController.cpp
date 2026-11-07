@@ -280,6 +280,11 @@ void AppController::superviseRotctld(int slot, bool mayStart)
 
 AppController::~AppController()
 {
+    vorDemBeenden();
+}
+
+void AppController::vorDemBeenden()
+{
     if (m_logBackup && m_database.isOpen()) {
         m_logBackup->backupNow(false);
     }

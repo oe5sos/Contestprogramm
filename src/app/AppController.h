@@ -71,6 +71,18 @@ public:
     // timer never sees the QSOs of the final minutes otherwise.
     ~AppController() override;
 
+    // Was beim Beenden geschehen muss: die letzte Sicherung und das Ende
+    // der eigenen rotctld/rigctld. Aufruf aus MainWindow::closeEvent()
+    // UND aus dem Destruktor, mehrfach ohne Schaden.
+    //
+    // Der Destruktor allein reicht nicht. Gemessen am 2026-11-07 (Qt 6.11,
+    // macOS): Cmd+Q und QCoreApplication::quit() enden über
+    // [NSApp terminate:] in exit(), noch innerhalb von closeEvent(). Die
+    // Objekte auf dem Stapel von main() werden dabei nie zerstört. Nur
+    // der rote Punkt erreicht den Destruktor. closeEvent() läuft auf
+    // allen drei Wegen.
+    void vorDemBeenden();
+
     // Opens `path`, loads settings + available ContestDefinitions, and
     // applies them to the network clients/GeoFilter. Returns false and
     // fills `errorOut` (if given) on failure.

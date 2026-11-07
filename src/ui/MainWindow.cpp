@@ -2262,6 +2262,9 @@ void MainWindow::aktualisiereMitschnittAnzeige()
 
 void MainWindow::closeEvent(QCloseEvent* event) {
     saveWindowGeometry();
+    // Hier und nicht erst im Destruktor: bei Cmd+Q läuft keiner mehr,
+    // siehe AppController::vorDemBeenden().
+    m_appController.vorDemBeenden();
     QMainWindow::closeEvent(event);
 }
 
