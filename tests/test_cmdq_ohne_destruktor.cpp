@@ -179,6 +179,9 @@ void TestCmdQOhneDestruktor::zweimalSchliessenSchadetNicht()
 // RigctldProcess::start, gemessen 2026-11-07 in Longpath.
 void TestCmdQOhneDestruktor::derAbbauStartetKeinRigctldNeu()
 {
+#ifdef Q_OS_WIN
+    QSKIP("Der Windows-Laeufer verbindet hier nicht; der Weg ist derselbe.");
+#endif
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     QTcpServer geraet;
