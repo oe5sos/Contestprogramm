@@ -6255,6 +6255,20 @@ void MainWindow::openReadinessWindow()
     m_readinessWindow->activateWindow();
 }
 
+QWidget* MainWindow::zeigeStartcheck(bool alsWerkzeugfenster)
+{
+    openReadinessWindow();
+    if (alsWerkzeugfenster && m_readinessWindow
+        && m_readinessWindow->windowType() != Qt::Tool) {
+        m_readinessWindow->setWindowFlags(
+            (m_readinessWindow->windowFlags() & ~Qt::WindowType_Mask) | Qt::Tool);
+        m_readinessWindow->setAttribute(Qt::WA_MacAlwaysShowToolWindow);
+        m_readinessWindow->show();
+        m_readinessWindow->raise();
+    }
+    return m_readinessWindow;
+}
+
 void MainWindow::openShortcutsWindow()
 {
     if (!m_shortcutsWindow) {

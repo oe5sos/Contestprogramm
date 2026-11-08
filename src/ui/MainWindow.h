@@ -82,6 +82,11 @@ public:
     explicit MainWindow(AppController& appController, QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // Der Startcheck fuer einen Wirt ohne dieses Menue (Longpath bettet das
+    // Logbuch ein und zeigt nur seine Panels). Als Werkzeugfenster steht er
+    // auf derselben Ebene wie die schwebenden Panels und nicht darunter.
+    QWidget* zeigeStartcheck(bool alsWerkzeugfenster);
+
     // The restore itself, without the dialogs (public for the tests):
     // safety backup, close, replace the file, restartRequested().
     // False = nothing replaced (the safety backup failed) or the copy
