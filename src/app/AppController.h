@@ -71,10 +71,27 @@ public:
     // timer never sees the QSOs of the final minutes otherwise.
     ~AppController() override;
 
+    // Was beim Beenden geschehen muss: die letzte Sicherung und das Ende
+    // der eigenen rotctld/rigctld. Aufruf aus MainWindow::closeEvent()
+    // UND aus dem Destruktor, mehrfach ohne Schaden.
+    //
+    // Der Destruktor allein reicht nicht. Gemessen am 2026-11-07 (Qt 6.11,
+    // macOS): Cmd+Q und QCoreApplication::quit() enden über
+    // [NSApp terminate:] in exit(), noch innerhalb von closeEvent(). Die
+    // Objekte auf dem Stapel von main() werden dabei nie zerstört. Nur
+    // der rote Punkt erreicht den Destruktor. closeEvent() läuft auf
+    // allen drei Wegen.
+    void vorDemBeenden();
+
     // Opens `path`, loads settings + available ContestDefinitions, and
     // applies them to the network clients/GeoFilter. Returns false and
     // fills `errorOut` (if given) on failure.
     bool openDatabase(const QString& path, QString* errorOut = nullptr);
+
+    /// In Longpath eingebettet ist Longpath der CAT-Server und haelt den
+    /// Anschluss. Ein eigener rigctld wuerde ihm beides wegnehmen, sobald
+    /// der erste Anruf noch vor dessen Server kommt. Vor openDatabase().
+    void setRigctldSelbstStarten(bool darf) { m_rigctldSelbstStarten = darf; }
 
     ContestDatabase& database() { return m_database; }
     // Periodic copies of the database (data/LogBackup.h); created in
@@ -297,6 +314,7 @@ private:
     RigctldLaunch m_rigctldLaunch;  // what m_rigctld runs with; empty when not ours/not running
     QDateTime m_rigctldFailedAt;    // last failure, for the restart cool-down
     bool m_rigctldStopping = false; // true while our own stopRigctld() is ending it
+    bool m_rigctldSelbstStarten = true;
     TransverterSetup m_transverter;
     CallsignLocatorLookup m_callsignLocatorLookup; // holds ContestDatabase& -- declared after m_database
     TerrainDataManager m_terrainDataManager; // declared before m_geoFilter -- setTerrainDataManager() takes its address

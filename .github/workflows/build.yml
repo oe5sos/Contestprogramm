@@ -232,7 +232,10 @@ jobs:
             paket: macos-apple-silicon
           - arch: x86_64
             paket: macos-intel
-    runs-on: macos-14
+    # macos-14 statt 15 lief bis zum 05.11.2026; ab dem 06.11. brach GitHub
+    # jeden Lauf darauf nach null Sekunden ab, ohne einen Schritt. Longpath
+    # fordert macos-15 an und lief am selben Tag durch.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:

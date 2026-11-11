@@ -59,8 +59,10 @@ public:
     {
         connect(&m_server, &QTcpServer::newConnection, this, [this] {
             QTcpSocket* socket = m_server.nextPendingConnection();
-            connect(socket, &QTcpSocket::readyRead, socket, [socket] {
+            ++m_anrufe;
+            connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
                 const QByteArray request = socket->readAll();
+                m_empfangen += request;
                 if (request.startsWith("p")) {
                     socket->write("123.0\n0.0\n");
                 } else if (request.startsWith("f")) {
@@ -77,8 +79,14 @@ public:
         return m_server.listen(QHostAddress::LocalHost, port);
     }
 
+    // Wie oft angerufen wurde und was ankam -- fuer die Zielwechsel-Faelle.
+    int anrufe() const { return m_anrufe; }
+    QByteArray empfangen() const { return m_empfangen; }
+
 private:
     QTcpServer m_server;
+    int m_anrufe = 0;
+    QByteArray m_empfangen;
 };
 
 } // namespace
@@ -92,7 +100,104 @@ private slots:
     void rigClientFindsARigctldThatAppearsLater();
     void on4kstClientDialsAgainAfterARefusedConnect();
     void clusterClientDialsAgainAfterARefusedConnect();
+    void rigClientDialsTheNewTargetNotTheOld();
+    void rigClientLeavesAConnectedOldTarget();
+    void rotorClientDialsTheNewTargetNotTheOld();
 };
+
+// ── Zielwechsel (2026-11-11) ────────────────────────────────────────
+//
+// AppController::openDatabase() waehlt mit den Vorgaben 127.0.0.1:4532,
+// bevor setSettings() das eigentliche Ziel setzt -- ohne dass dazwischen
+// ein Ereignis verarbeitet wird. setTarget() merkte sich das neue Ziel
+// nur; der Anruf beim alten ging zu Ende, und dort bekam ein fremder
+// Dienst die Abfragen und Befehle (auf Martins Rechner: Longpaths
+// CAT-Server, gemessen mit test_seitenband_folgt_dem_band). Genau diese
+// Reihenfolge hier: waehlen, Ziel wechseln, waehlen -- dann erst die
+// Ereignisschleife. Das alte Ziel darf kein einziges Byte bekommen.
+void TestClientReconnect::rigClientDialsTheNewTargetNotTheOld()
+{
+    FakeDaemon alt;
+    FakeDaemon neu;
+    const quint16 altPort = freePort();
+    QVERIFY(alt.listen(altPort));
+    const quint16 neuPort = freePort();
+    QVERIFY(neu.listen(neuPort));
+
+    RigctldClient client;
+    client.setTarget(QStringLiteral("127.0.0.1"), altPort);
+    client.connectToRig();
+    client.setTarget(QStringLiteral("127.0.0.1"), neuPort);
+    client.connectToRig();   // wie AppController::applyNetworkSettings
+
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(neu.empfangen().contains("f\n"), 10000);
+    QTest::qWait(300);
+    QCOMPARE(client.port(), neuPort);
+    QVERIFY2(alt.empfangen().isEmpty(),
+             qPrintable(QStringLiteral("das alte Ziel bekam: %1")
+                            .arg(QString::fromLatin1(alt.empfangen()))));
+}
+
+// Verbunden, und dann ein anderer Port in den Einstellungen: der Klient
+// geht hinueber, sofort -- nicht erst, wenn das alte Geraet abreisst.
+void TestClientReconnect::rigClientLeavesAConnectedOldTarget()
+{
+    FakeDaemon alt;
+    FakeDaemon neu;
+    const quint16 altPort = freePort();
+    QVERIFY(alt.listen(altPort));
+    const quint16 neuPort = freePort();
+    QVERIFY(neu.listen(neuPort));
+
+    RigctldClient client;
+    client.setTarget(QStringLiteral("127.0.0.1"), altPort);
+    client.connectToRig();
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(alt.empfangen().contains("f\n"), 10000);
+
+    client.setTarget(QStringLiteral("127.0.0.1"), neuPort);
+    client.connectToRig();
+    // Unter der Wiederwahl-Frist (3 s): kein Abriss, auf den es wartet.
+    QTRY_VERIFY_WITH_TIMEOUT(neu.anrufe() == 1, 2500);
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 10000);
+
+    // Dasselbe Ziel noch einmal: kein Auflegen, kein neuer Anruf.
+    client.setTarget(QStringLiteral("127.0.0.1"), neuPort);
+    QTest::qWait(300);
+    QVERIFY(client.isConnected());
+    QCOMPARE(neu.anrufe(), 1);
+
+    // Kein Ziel mehr: aufgelegt, und es wird auch nicht neu gewaehlt.
+    client.setTarget(QString(), 0);
+    QCOMPARE(client.state(), RigctldClient::State::Disconnected);
+    QTest::qWait(3500);
+    QCOMPARE(client.state(), RigctldClient::State::Disconnected);
+    QCOMPARE(neu.anrufe(), 1);
+}
+
+void TestClientReconnect::rotorClientDialsTheNewTargetNotTheOld()
+{
+    FakeDaemon alt;
+    FakeDaemon neu;
+    const quint16 altPort = freePort();
+    QVERIFY(alt.listen(altPort));
+    const quint16 neuPort = freePort();
+    QVERIFY(neu.listen(neuPort));
+
+    RotctldClient client;
+    client.setTarget(QStringLiteral("127.0.0.1"), altPort);
+    client.connectToRotor();
+    client.setTarget(QStringLiteral("127.0.0.1"), neuPort);
+    client.connectToRotor();
+
+    QTRY_VERIFY_WITH_TIMEOUT(client.isConnected(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(neu.empfangen().contains("p\n"), 10000);
+    QTest::qWait(300);
+    QVERIFY2(alt.empfangen().isEmpty(),
+             qPrintable(QStringLiteral("das alte Ziel bekam: %1")
+                            .arg(QString::fromLatin1(alt.empfangen()))));
+}
 
 void TestClientReconnect::rotorClientFindsARotctldThatAppearsLater()
 {
