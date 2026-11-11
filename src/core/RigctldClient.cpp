@@ -10,6 +10,9 @@
 //                 Longpath/NereusSDR's RotctldClient.cpp. AI-assisted
 //                 via Anthropic Claude Code, operator Ralph Martin
 //                 Fischer.
+//   2026-11-11 — setTarget(): ein neues Ziel gilt sofort (auflegen,
+//                 neu waehlen). Ralph Martin Fischer, KI-gestuetzt
+//                 ueber Anthropic Claude.
 // =================================================================
 
 #include "RigctldClient.h"
@@ -109,8 +112,32 @@ RigctldClient::RigctldClient(QObject* parent) : QObject(parent)
 
 void RigctldClient::setTarget(const QString& host, quint16 port)
 {
-    m_host = host.trimmed();
+    const QString neu = host.trimmed();
+    if (neu == m_host && port == m_port) { return; }
+    m_host = neu;
     m_port = port;
+
+    // Ein neues Ziel gilt sofort (2026-11-11). Bis dahin merkte sich
+    // setTarget() nur Host und Port: ein Anruf, der schon unterwegs war,
+    // ging beim ALTEN Ziel zu Ende, und ein verbundener Klient blieb dort
+    // bis zum naechsten Abriss. AppController::openDatabase() waehlt mit
+    // den Vorgaben (127.0.0.1:4532), bevor die eigenen Einstellungen
+    // greifen -- auf Martins Rechner lauscht dort Longpaths CAT-Server,
+    // und ein Pruefstand schickte ihm seine Befehle. Also: auflegen und
+    // beim neuen Ziel neu waehlen. Ohne Ziel bleibt es aufgelegt.
+    if (m_socket.state() == QAbstractSocket::UnconnectedState) { return; }
+    m_poll->stop();
+    m_deadline->stop();
+    m_queue.clear();
+    m_buffer.clear();
+    m_awaiting = Pending::None;
+    m_socket.abort();
+    if (m_host.isEmpty()) {
+        m_retry->stop();
+        setState(State::Disconnected);
+        return;
+    }
+    connectToRig();
 }
 
 void RigctldClient::setPollIntervalMs(int ms)
